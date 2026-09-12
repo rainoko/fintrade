@@ -1,0 +1,32 @@
+{
+  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file in this folder. State values: planned | implementing | testing | done. skill (nullable) names the .claude/skills/ workflow that governs the task, if any.",
+  "states": ["planned", "implementing", "testing", "done"],
+  "tasks": [
+    { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "planned" },
+    { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "planned" },
+    { "id": "data-cache", "area": "backend/data", "skill": null, "state": "planned" },
+    { "id": "db-models", "area": "backend/db", "skill": null, "state": "implementing" },
+    { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "planned" },
+    { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-stochastic", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-autoenvelope", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "screen3-trigger", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "signal-engine-orchestration", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "portfolio-domain-models", "area": "backend/portfolio", "skill": null, "state": "implementing" },
+    { "id": "portfolio-risk-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "portfolio-exit-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-stocks-analysis", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-portfolio-risk", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" }
+  ]
+}

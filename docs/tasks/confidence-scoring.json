@@ -1,0 +1,17 @@
+{
+  "id": "confidence-scoring",
+  "title": "Confidence scoring (weighted composite)",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["screen1-tide", "screen2-wave", "impulse-system", "indicator-elder-ray"],
+  "references": ["docs/Analyse.md#6-confidence-score-0100"],
+  "description": "compute_confidence() and confidence_band() in app/signals/confidence.py: weighted composite (tide 30%, impulse 20%, oscillator extremity 25%, Elder-Ray confirmation 15%, volume confirmation 10%) producing a 0-100 integer, plus Low/Medium/High banding.",
+  "checklist": [
+    { "step": "Implement compute_confidence() summing weight x score across the 5 documented components (weights already defined in WEIGHTS constant)", "done": false },
+    { "step": "Implement confidence_band(): Low <40, Medium 40-70, High >70 per docs/Analyse.md §6", "done": false },
+    { "step": "Write unit tests for boundary values (0, 100, and the 40/70 band edges) — off-by-one errors here are easy to introduce", "done": false },
+    { "step": "Confirm the per-component breakdown is preserved for the API response (confidence_breakdown), not collapsed to just the final number", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

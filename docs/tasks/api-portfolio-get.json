@@ -1,0 +1,16 @@
+{
+  "id": "api-portfolio-get",
+  "title": "API: GET /api/portfolio",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["portfolio-domain-models", "db-models"],
+  "references": ["docs/architecture/API.md#get-apiportfolio"],
+  "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (PortfolioResponse) are already wired.",
+  "checklist": [
+    { "step": "Route signature + PortfolioResponse schema already defined", "done": true },
+    { "step": "Implement handler: read AccountORM + PositionORM rows, enrich with current_price/unrealized_pnl_pct via the data cache", "done": false },
+    { "step": "Write integration test covering empty portfolio and populated portfolio", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

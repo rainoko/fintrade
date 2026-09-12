@@ -1,0 +1,15 @@
+{
+  "id": "portfolio-domain-models",
+  "title": "Portfolio domain models (Pydantic)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "implementing",
+  "depends_on": [],
+  "references": ["docs/architecture/API.md"],
+  "description": "Position, Equity, Account Pydantic models in app/portfolio/models.py, matching the shapes documented in docs/architecture/API.md.",
+  "checklist": [
+    { "step": "Define Position (id, ticker, quantity, avg_cost_basis, entry_date, current_price, unrealized_pnl_pct)", "done": true },
+    { "step": "Define Equity (cash, positions_value, total) and Account (equity, positions)", "done": true },
+    { "step": "Add unit tests validating serialization matches the docs/architecture/API.md JSON examples exactly", "done": false }
+  ]
+}

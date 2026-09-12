@@ -1,0 +1,17 @@
+{
+  "id": "screen2-wave",
+  "title": "Screen 2: Wave (oscillator timing)",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["indicator-force-index", "indicator-stochastic"],
+  "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
+  "description": "evaluate_wave() in app/signals/triple_screen.py: evaluates Force Index and Stochastic against the tide direction to detect a pullback (bullish tide) or rally (bearish tide).",
+  "checklist": [
+    { "step": "Given tide=BULLISH, detect oversold Stochastic + negative Force Index spike as a pullback", "done": false },
+    { "step": "Given tide=BEARISH, detect overbought Stochastic + positive Force Index spike as a rally", "done": false },
+    { "step": "Return the state dict shape expected by the API (screens.wave.stochastic_k, force_index_2ema, state) per docs/architecture/API.md", "done": false },
+    { "step": "Write unit tests covering both tide directions and the neutral/no-signal case", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "signal-engine-orchestration",
+  "title": "Signal engine orchestration",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["screen1-tide", "screen2-wave", "screen3-trigger", "impulse-system", "confidence-scoring"],
+  "references": ["docs/Analyse.md#5-signal-logic-buy--sell--hold", "docs/architecture/Backend.md#5-signal-engine"],
+  "description": "analyse() in app/signals/engine.py: pulls indicator outputs, evaluates Screens 1-3, applies the Impulse gate, computes confidence, and produces the final (signal, confidence, breakdown) per docs/Analyse.md §5.",
+  "checklist": [
+    { "step": "Implement BUY rule: tide=BULLISH, impulse != RED, wave shows oversold pullback, trigger fired", "done": false },
+    { "step": "Implement SELL rule: tide=BEARISH, impulse != GREEN, wave shows overbought rally, trigger fired", "done": false },
+    { "step": "Default to HOLD when conditions are partial/conflicting/tide is NEUTRAL", "done": false },
+    { "step": "Write unit tests covering each Screen 1/2/3 + Impulse combination explicitly (not just the happy BUY/SELL paths)", "done": false },
+    { "step": "Run the verify-elder-signal skill/agent against this module once implemented, before considering it done", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

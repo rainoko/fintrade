@@ -1,0 +1,17 @@
+{
+  "id": "screen3-trigger",
+  "title": "Screen 3: Trigger (entry timing)",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": [],
+  "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
+  "description": "evaluate_trigger() in app/signals/triple_screen.py: has price resumed direction (close crosses prior day's high/low) using the daily-bar approximation documented in Analyse.md §2, since this is an EOD app rather than intraday.",
+  "checklist": [
+    { "step": "Confirm daily-bar approximation (close > prior high for bullish trigger, close < prior low for bearish) is still the intended approach — Analyse.md §9 flags intraday-vs-EOD as an open decision, verify it wasn't silently resolved elsewhere first", "done": false },
+    { "step": "Implement the trigger check for both tide directions", "done": false },
+    { "step": "Return the shape expected by the API (screens.trigger.fired, screens.trigger.reference) per docs/architecture/API.md", "done": false },
+    { "step": "Write unit tests covering fired=true and fired=false cases for both directions", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

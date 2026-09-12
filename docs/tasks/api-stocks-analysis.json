@@ -1,0 +1,17 @@
+{
+  "id": "api-stocks-analysis",
+  "title": "API: GET /api/stocks/{ticker}/analysis",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["signal-engine-orchestration", "data-cache"],
+  "references": ["docs/architecture/API.md#get-apistocksstickeranalysis"],
+  "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model (AnalysisResponse) are already wired.",
+  "checklist": [
+    { "step": "Route signature + AnalysisResponse schema already defined — confirm no shape changes needed once signal-engine-orchestration lands", "done": true },
+    { "step": "Implement handler: fetch OHLCV via cache, call signals.engine.analyse(), map SignalResult to AnalysisResponse", "done": false },
+    { "step": "Handle unknown ticker -> 404, insufficient history (<26 weeks) -> 422 per docs/architecture/API.md", "done": false },
+    { "step": "Write integration test covering 200 (BUY/SELL/HOLD cases), 404, 422", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

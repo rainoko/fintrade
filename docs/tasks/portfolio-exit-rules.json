@@ -1,0 +1,19 @@
+{
+  "id": "portfolio-exit-rules",
+  "title": "Existing-position exit rules",
+  "area": "backend/portfolio",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["portfolio-risk-rules", "signal-engine-orchestration", "indicator-autoenvelope"],
+  "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
+  "description": "evaluate_exit_flags() in app/portfolio/exits.py: flags a held position for SELL/reduce independently of the fresh-entry signal logic (stop hit, 2%/6% rule breach, profit-zone + Impulse Red, tide flip to bearish).",
+  "checklist": [
+    { "step": "Flag 'stop_hit' when price closes below the position's protective stop", "done": false },
+    { "step": "Flag 'two_percent_rule_breached' / contribute to 'six_percent_rule_contributor' using portfolio-risk-rules output", "done": false },
+    { "step": "Flag 'profit_zone_impulse_red' when price reaches the upper Autoenvelope band with Impulse turning RED", "done": false },
+    { "step": "Flag 'tide_flipped_bearish' when the weekly tide flips from BULLISH to BEARISH for a currently-long position", "done": false },
+    { "step": "Confirm a HOLD signal from signal-engine-orchestration does NOT suppress any of these exit flags (verify-elder-signal checklist)", "done": false },
+    { "step": "Write unit tests covering each flag independently and in combination", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

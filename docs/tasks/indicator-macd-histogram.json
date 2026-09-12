@@ -1,0 +1,18 @@
+{
+  "id": "indicator-macd-histogram",
+  "title": "Indicator: MACD-Histogram",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": ["indicator-ema"],
+  "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
+  "description": "MACD-Histogram (12, 26, 9). Drives the Screen 1 tide slope and the Impulse gate.",
+  "consumed_by": ["screen1-tide", "impulse-system"],
+  "checklist": [
+    { "step": "Confirm fast/slow/signal periods (12, 26, 9) against docs/Analyse.md §4", "done": false },
+    { "step": "Implement app/indicators/macd.py: pure function returning the histogram series (MACD line minus signal line)", "done": false },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_macd.py", "done": false },
+    { "step": "Confirm slope detection (rising/falling/flat) needed by screen1-tide is derivable from this output without duplicating logic", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

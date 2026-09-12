@@ -1,0 +1,17 @@
+{
+  "id": "impulse-system",
+  "title": "Impulse System gate",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["indicator-ema", "indicator-macd-histogram"],
+  "references": ["docs/Analyse.md#3-the-impulse-system-signal-state-filter"],
+  "description": "evaluate_impulse() in app/signals/impulse.py: GREEN / RED / BLUE from EMA(13) direction and MACD-Histogram direction together. Acts as a hard gate — RED blocks fresh BUY signals, GREEN blocks fresh SELL signals.",
+  "checklist": [
+    { "step": "Implement direction detection for both EMA(13) and MACD-Histogram (rising/falling)", "done": false },
+    { "step": "Combine into GREEN (both rising) / RED (both falling) / BLUE (disagree) per docs/Analyse.md §3", "done": false },
+    { "step": "Write unit tests covering all three outputs with fixed daily OHLCV fixtures", "done": false },
+    { "step": "Confirm signal-engine-orchestration actually enforces the gate (blocks/downgrades signals), not just computes the color", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

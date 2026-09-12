@@ -1,0 +1,17 @@
+{
+  "id": "indicator-stochastic",
+  "title": "Indicator: Stochastic Oscillator",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
+  "description": "Stochastic %K/%D (5, 3, 3). Feeds Screen 2 (wave) overbought/oversold timing.",
+  "consumed_by": ["screen2-wave"],
+  "checklist": [
+    { "step": "Confirm %K/%D/smoothing periods (5, 3, 3) against docs/Analyse.md §4", "done": false },
+    { "step": "Implement app/indicators/stochastic.py: pure function returning a DataFrame with 'k' and 'd' columns", "done": false },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_stochastic.py", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

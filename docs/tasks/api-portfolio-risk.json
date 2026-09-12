@@ -1,0 +1,16 @@
+{
+  "id": "api-portfolio-risk",
+  "title": "API: GET /api/portfolio/risk",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["portfolio-risk-rules", "portfolio-exit-rules"],
+  "references": ["docs/architecture/API.md#get-apiportfoliorisk"],
+  "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (RiskResponse) are already wired.",
+  "checklist": [
+    { "step": "Route signature + RiskResponse schema already defined", "done": true },
+    { "step": "Implement handler: compute per-position protective_stop/position_risk_pct plus portfolio total_open_risk_pct and exit_flags", "done": false },
+    { "step": "Write integration test covering a clean portfolio, a 2%-breaching position, and a 6%-breaching portfolio", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

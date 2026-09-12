@@ -1,0 +1,17 @@
+{
+  "id": "indicator-autoenvelope",
+  "title": "Indicator: Autoenvelope (channel)",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": ["indicator-ema"],
+  "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
+  "description": "Moving-average envelope (upper/lower bands) around EMA(13), used for profit-target zones and the exit rule 'price reaches upper band with Impulse Red'.",
+  "consumed_by": ["portfolio-exit-rules"],
+  "checklist": [
+    { "step": "Decide the envelope-width calculation (avg % deviation from EMA) per docs/Analyse.md §4 — not yet pinned to an exact formula, confirm/decide before coding", "done": false },
+    { "step": "Implement app/indicators/autoenvelope.py: pure function returning a DataFrame with 'mid', 'upper', 'lower' columns", "done": false },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_autoenvelope.py", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

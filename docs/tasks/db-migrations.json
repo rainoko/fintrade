@@ -1,0 +1,16 @@
+{
+  "id": "db-migrations",
+  "title": "Alembic migrations setup",
+  "area": "backend/db",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["db-models"],
+  "references": ["docs/architecture/Backend.md#7-persistence"],
+  "description": "Initialize Alembic in app/db/migrations/ and generate the initial migration for positions, account, and ohlcv_cache tables. Migrations are excluded from the coverage gate (pyproject.toml [tool.coverage.run] omit).",
+  "checklist": [
+    { "step": "Run alembic init against app/db/migrations/, wire env.py to app.db.models.Base.metadata and app.config settings", "done": false },
+    { "step": "Generate the initial autogenerate migration covering PositionORM, AccountORM, OHLCVCacheORM", "done": false },
+    { "step": "Verify `alembic upgrade head` produces the expected schema against a throwaway SQLite file", "done": false },
+    { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": false }
+  ]
+}

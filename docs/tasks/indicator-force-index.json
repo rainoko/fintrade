@@ -1,0 +1,17 @@
+{
+  "id": "indicator-force-index",
+  "title": "Indicator: Force Index",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
+  "description": "Force Index = Volume x price change, EMA-smoothed (2-period for entry timing, 13-period for trend confirmation). Feeds Screen 2 (wave) and the volume-confirmation confidence component.",
+  "consumed_by": ["screen2-wave", "confidence-scoring"],
+  "checklist": [
+    { "step": "Confirm this uses its own EMA smoothing (ema_period param), not necessarily indicator-ema's default periods — verify against docs/Analyse.md §2/§4", "done": false },
+    { "step": "Implement app/indicators/force_index.py: pure function, parameterized ema_period", "done": false },
+    { "step": "Write hand-computed reference-value tests for both ema_period=2 and ema_period=13 cases", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

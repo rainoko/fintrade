@@ -1,0 +1,17 @@
+{
+  "id": "api-portfolio-add-position",
+  "title": "API: POST /api/portfolio/positions",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["portfolio-domain-models", "db-models"],
+  "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
+  "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
+  "checklist": [
+    { "step": "Route signature + PositionIn/PositionOut schemas already defined", "done": true },
+    { "step": "Decide and document duplicate-ticker behavior (merge vs reject) — flagged as an open decision in docs/architecture/API.md's Error Cases section", "done": false },
+    { "step": "Implement handler: insert/update PositionORM, return 201 with the created/updated position", "done": false },
+    { "step": "Write integration test covering create, and the decided duplicate-ticker behavior", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

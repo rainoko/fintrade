@@ -1,0 +1,18 @@
+{
+  "id": "data-provider-yfinance",
+  "title": "Data provider: yfinance",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
+  "description": "Implement YFinanceProvider (app/data/yfinance_provider.py) as the primary free market data source, satisfying the DataProvider protocol for daily and weekly OHLCV.",
+  "checklist": [
+    { "step": "Implement get_daily_ohlcv(ticker) using yfinance, returning columns open/high/low/close/volume indexed by date", "done": false },
+    { "step": "Implement get_weekly_ohlcv(ticker) using yfinance's native weekly interval (no manual resampling needed)", "done": false },
+    { "step": "Handle unknown ticker (empty/error response from yfinance) by raising a typed exception the API layer can map to 404", "done": false },
+    { "step": "Handle insufficient history (e.g. <26 weeks) by raising a typed exception the API layer can map to 422", "done": false },
+    { "step": "Write unit tests against recorded fixtures (saved sample yfinance responses) — no live network calls", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression" , "done": false }
+  ]
+}

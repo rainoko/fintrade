@@ -1,0 +1,18 @@
+{
+  "id": "data-cache",
+  "title": "OHLCV cache layer",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["data-provider-yfinance", "data-provider-stooq", "db-models"],
+  "references": ["docs/architecture/Backend.md#7-persistence", "docs/Architecture.md#3-cross-cutting-decisions"],
+  "description": "Implement CachedDataProvider (app/data/cache.py) wrapping a source DataProvider with the SQLite-backed OHLCVCacheORM table, so unchanged history isn't re-fetched on every request.",
+  "checklist": [
+    { "step": "Read cached rows from OHLCVCacheORM for the requested ticker/interval/date range before hitting the source provider", "done": false },
+    { "step": "Fetch only the missing/stale date range from the source provider and upsert it into OHLCVCacheORM (fetched_at timestamp)", "done": false },
+    { "step": "Fall back from YFinanceProvider to StooqProvider on failure, per docs/Analyse.md §9 recommendation", "done": false },
+    { "step": "Write unit tests covering: fully cached, partially cached, empty cache, and both-providers-failed (-> 503) scenarios", "done": false },
+    { "step": "Confirm no test in this suite makes a live network call (mocks only)", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

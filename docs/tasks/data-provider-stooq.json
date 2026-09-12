@@ -1,0 +1,18 @@
+{
+  "id": "data-provider-stooq",
+  "title": "Data provider: Stooq (fallback)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
+  "description": "Implement StooqProvider (app/data/stooq_provider.py) as the fallback market data source when yfinance fails or rate-limits, satisfying the same DataProvider protocol.",
+  "checklist": [
+    { "step": "Implement get_daily_ohlcv(ticker) using Stooq's CSV endpoint, returning the same column shape as YFinanceProvider", "done": false },
+    { "step": "Implement get_weekly_ohlcv(ticker) — resample daily bars to weekly since Stooq has no native weekly interval", "done": false },
+    { "step": "Handle unknown ticker / insufficient history the same way as data-provider-yfinance (typed exceptions -> 404 / 422)", "done": false },
+    { "step": "Write unit tests against recorded CSV fixtures — no live network calls", "done": false },
+    { "step": "Confirm StooqProvider and YFinanceProvider are interchangeable behind the DataProvider protocol (shared contract test)", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "portfolio-risk-rules",
+  "title": "Portfolio risk rules (2% / 6%)",
+  "area": "backend/portfolio",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["portfolio-domain-models", "db-models"],
+  "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
+  "description": "protective_stop(), position_risk_pct(), total_open_risk_pct() in app/portfolio/risk.py: SafeZone-style protective stop, the 2% per-trade rule, and the 6% total-open-risk rule.",
+  "checklist": [
+    { "step": "Implement protective_stop(): recent swing low minus a volatility buffer (average downside penetration of a short EMA)", "done": false },
+    { "step": "Implement position_risk_pct(): position size x distance-to-stop as a fraction of current account equity", "done": false },
+    { "step": "Implement total_open_risk_pct(): sum of position_risk_pct across all positions", "done": false },
+    { "step": "Confirm both rules use CURRENT equity/position size, not values frozen at entry time (verify-elder-signal checklist §Portfolio Risk Overlay)", "done": false },
+    { "step": "Write unit tests against known position/equity scenarios, including a deliberately oversized position and a 6%-breaching portfolio", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

@@ -1,0 +1,888 @@
+{
+  "components": {
+    "schemas": {
+      "AnalysisResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "confidence": {
+            "description": "0-100 weighted composite score (docs/Analyse.md \u00a76). Not a statistical probability.",
+            "title": "Confidence",
+            "type": "integer"
+          },
+          "confidence_band": {
+            "description": "Low <40, Medium 40-70, High >70.",
+            "enum": [
+              "Low",
+              "Medium",
+              "High"
+            ],
+            "title": "Confidence Band",
+            "type": "string"
+          },
+          "confidence_breakdown": {
+            "description": "Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.",
+            "items": {
+              "$ref": "#/components/schemas/ConfidenceBreakdownItem"
+            },
+            "title": "Confidence Breakdown",
+            "type": "array"
+          },
+          "indicators": {
+            "$ref": "#/components/schemas/Indicators"
+          },
+          "screens": {
+            "$ref": "#/components/schemas/Screens"
+          },
+          "signal": {
+            "enum": [
+              "BUY",
+              "SELL",
+              "HOLD"
+            ],
+            "title": "Signal",
+            "type": "string"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "as_of",
+          "signal",
+          "confidence",
+          "confidence_band",
+          "screens",
+          "confidence_breakdown",
+          "indicators"
+        ],
+        "title": "AnalysisResponse",
+        "type": "object"
+      },
+      "ConfidenceBreakdownItem": {
+        "properties": {
+          "component": {
+            "description": "One of the five weighted components from docs/Analyse.md \u00a76, e.g. 'tide_alignment'.",
+            "title": "Component",
+            "type": "string"
+          },
+          "score": {
+            "description": "How strongly this component supports the signal (0-1), before weighting.",
+            "title": "Score",
+            "type": "number"
+          },
+          "weight": {
+            "description": "This component's fixed weight (0-1); all five weights sum to 1.0.",
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "component",
+          "weight",
+          "score"
+        ],
+        "title": "ConfidenceBreakdownItem",
+        "type": "object"
+      },
+      "Equity": {
+        "properties": {
+          "cash": {
+            "title": "Cash",
+            "type": "number"
+          },
+          "positions_value": {
+            "description": "Sum of quantity x current_price across all positions (mark-to-market, not cost basis).",
+            "title": "Positions Value",
+            "type": "number"
+          },
+          "total": {
+            "description": "cash + positions_value.",
+            "title": "Total",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cash",
+          "positions_value",
+          "total"
+        ],
+        "title": "Equity",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryResponse": {
+        "properties": {
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/OHLCVBar"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
+          "interval": {
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Interval",
+            "type": "string"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "interval",
+          "bars"
+        ],
+        "title": "HistoryResponse",
+        "type": "object"
+      },
+      "Indicators": {
+        "properties": {
+          "bear_power": {
+            "description": "Elder-Ray Bear Power = Low - EMA(13).",
+            "title": "Bear Power",
+            "type": "number"
+          },
+          "bull_power": {
+            "description": "Elder-Ray Bull Power = High - EMA(13).",
+            "title": "Bull Power",
+            "type": "number"
+          },
+          "ema_13": {
+            "title": "Ema 13",
+            "type": "number"
+          },
+          "ema_26": {
+            "title": "Ema 26",
+            "type": "number"
+          },
+          "macd_histogram": {
+            "title": "Macd Histogram",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ema_13",
+          "ema_26",
+          "macd_histogram",
+          "bull_power",
+          "bear_power"
+        ],
+        "title": "Indicators",
+        "type": "object"
+      },
+      "OHLCVBar": {
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "open": {
+            "title": "Open",
+            "type": "number"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "OHLCVBar",
+        "type": "object"
+      },
+      "PortfolioResponse": {
+        "properties": {
+          "equity": {
+            "$ref": "#/components/schemas/Equity"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/PositionOut"
+            },
+            "title": "Positions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "equity",
+          "positions"
+        ],
+        "title": "PortfolioResponse",
+        "type": "object"
+      },
+      "PositionIn": {
+        "properties": {
+          "avg_cost_basis": {
+            "title": "Avg Cost Basis",
+            "type": "number"
+          },
+          "entry_date": {
+            "format": "date",
+            "title": "Entry Date",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "quantity",
+          "avg_cost_basis",
+          "entry_date"
+        ],
+        "title": "PositionIn",
+        "type": "object"
+      },
+      "PositionOut": {
+        "properties": {
+          "avg_cost_basis": {
+            "title": "Avg Cost Basis",
+            "type": "number"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null only if the latest price fetch for this ticker failed.",
+            "title": "Current Price"
+          },
+          "entry_date": {
+            "format": "date",
+            "title": "Entry Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "unrealized_pnl_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(current_price - avg_cost_basis) / avg_cost_basis, as a percentage. Null under the same condition as current_price.",
+            "title": "Unrealized Pnl Pct"
+          }
+        },
+        "required": [
+          "id",
+          "ticker",
+          "quantity",
+          "avg_cost_basis",
+          "entry_date"
+        ],
+        "title": "PositionOut",
+        "type": "object"
+      },
+      "RiskPosition": {
+        "properties": {
+          "exit_flags": {
+            "description": "Risk-driven exit reasons, e.g. 'stop_hit', 'tide_flipped_bearish' (docs/Analyse.md \u00a77). Independent of this stock's fresh entry signal \u2014 can be non-empty even when /analysis says HOLD.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Exit Flags",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position_risk_pct": {
+            "description": "Fraction of current account equity lost if this position hits its protective_stop (the 2% rule).",
+            "title": "Position Risk Pct",
+            "type": "number"
+          },
+          "protective_stop": {
+            "description": "Recent swing low minus a volatility buffer (SafeZone concept, docs/Analyse.md \u00a77).",
+            "title": "Protective Stop",
+            "type": "number"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "two_percent_rule_breached": {
+            "title": "Two Percent Rule Breached",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "ticker",
+          "protective_stop",
+          "position_risk_pct",
+          "two_percent_rule_breached",
+          "exit_flags"
+        ],
+        "title": "RiskPosition",
+        "type": "object"
+      },
+      "RiskResponse": {
+        "properties": {
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/RiskPosition"
+            },
+            "title": "Positions",
+            "type": "array"
+          },
+          "six_percent_rule_breached": {
+            "title": "Six Percent Rule Breached",
+            "type": "boolean"
+          },
+          "total_open_risk_pct": {
+            "description": "Sum of position_risk_pct across all positions (the 6% rule).",
+            "title": "Total Open Risk Pct",
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_open_risk_pct",
+          "six_percent_rule_breached",
+          "positions"
+        ],
+        "title": "RiskResponse",
+        "type": "object"
+      },
+      "Screens": {
+        "properties": {
+          "impulse": {
+            "description": "Impulse System gate (docs/Analyse.md \u00a73). RED blocks fresh BUY signals, GREEN blocks fresh SELL signals.",
+            "enum": [
+              "GREEN",
+              "RED",
+              "BLUE"
+            ],
+            "title": "Impulse",
+            "type": "string"
+          },
+          "tide": {
+            "$ref": "#/components/schemas/TideScreen"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/TriggerScreen"
+          },
+          "wave": {
+            "$ref": "#/components/schemas/WaveScreen"
+          }
+        },
+        "required": [
+          "tide",
+          "impulse",
+          "wave",
+          "trigger"
+        ],
+        "title": "Screens",
+        "type": "object"
+      },
+      "TideScreen": {
+        "properties": {
+          "trend": {
+            "description": "Screen 1 output (docs/Analyse.md \u00a72). NEUTRAL when weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree.",
+            "enum": [
+              "BULLISH",
+              "BEARISH",
+              "NEUTRAL"
+            ],
+            "title": "Trend",
+            "type": "string"
+          },
+          "weekly_macd_histogram_slope": {
+            "enum": [
+              "rising",
+              "falling",
+              "flat"
+            ],
+            "title": "Weekly Macd Histogram Slope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trend",
+          "weekly_macd_histogram_slope"
+        ],
+        "title": "TideScreen",
+        "type": "object"
+      },
+      "TriggerScreen": {
+        "properties": {
+          "fired": {
+            "description": "Whether Screen 3 confirmed price has resumed the tide's direction.",
+            "title": "Fired",
+            "type": "boolean"
+          },
+          "reference": {
+            "description": "Which trigger rule fired, e.g. 'close_above_prior_high'.",
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fired",
+          "reference"
+        ],
+        "title": "TriggerScreen",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WaveScreen": {
+        "properties": {
+          "force_index_2ema": {
+            "description": "Force Index, 2-period EMA smoothing (entry-timing variant, not the 13-period trend-confirmation one).",
+            "title": "Force Index 2Ema",
+            "type": "number"
+          },
+          "state": {
+            "description": "Human-readable wave state, e.g. 'OVERSOLD_PULLBACK' \u2014 evaluated against the tide direction, not in isolation (docs/Analyse.md \u00a72).",
+            "title": "State",
+            "type": "string"
+          },
+          "stochastic_k": {
+            "description": "Stochastic %K (5,3,3). Values below 30 are oversold, above 70 are overbought (docs/Analyse.md \u00a74).",
+            "title": "Stochastic K",
+            "type": "number"
+          }
+        },
+        "required": [
+          "stochastic_k",
+          "force_index_2ema",
+          "state"
+        ],
+        "title": "WaveScreen",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Stock and portfolio signal analysis API implementing Dr. Alexander Elder's Triple Screen methodology (see docs/Analyse.md).",
+    "title": "fintrade",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/portfolio": {
+      "get": {
+        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed.",
+        "operationId": "get_portfolio",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get current positions and account equity",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/portfolio/positions": {
+      "post": {
+        "description": "Creates a position from manual entry / CSV-import data. Duplicate-ticker behavior\n(merge quantity/avg cost vs. reject) is not yet decided \u2014 see the\napi-portfolio-add-position task in docs/tasks/ before implementing this handler.",
+        "operationId": "add_position",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add or update a position",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/portfolio/positions/{position_id}": {
+      "delete": {
+        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint \u2014\nreducing a position means deleting and re-adding it with the new quantity.",
+        "operationId": "delete_position",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "position_id",
+            "required": true,
+            "schema": {
+              "title": "Position Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Position not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove a position",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/portfolio/risk": {
+      "get": {
+        "description": "Per-position protective stop, 2%-rule risk, and exit flags, plus the portfolio-wide\n6%-rule total (docs/Analyse.md \u00a77). `exit_flags` can be non-empty even when the\ncorresponding stock's fresh technical signal is HOLD \u2014 risk-driven exits are\nindependent of entry-signal logic by design.",
+        "operationId": "get_portfolio_risk",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get the 2%/6% rule evaluation and per-position exit flags",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/stocks/{ticker}/analysis": {
+      "get": {
+        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.",
+        "operationId": "get_stock_analysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown ticker"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Insufficient history to compute weekly indicators"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Market data provider unavailable"
+          }
+        },
+        "summary": "Get the Triple Screen signal, confidence, and indicator breakdown",
+        "tags": [
+          "stocks"
+        ]
+      }
+    },
+    "/api/stocks/{ticker}/history": {
+      "get": {
+        "description": "Raw OHLCV bars for charting, served from the SQLite cache (docs/architecture/Backend.md \u00a77)\nand backfilled from yfinance/Stooq on a cache miss. Weekly bars are yfinance's native\nweekly interval, not a manual resample of daily bars, per docs/Analyse.md \u00a79.",
+        "operationId": "get_stock_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lookback window, e.g. '1y'",
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "default": "1y",
+              "description": "Lookback window, e.g. '1y'",
+              "title": "Range",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "interval",
+            "required": false,
+            "schema": {
+              "default": "daily",
+              "enum": [
+                "daily",
+                "weekly"
+              ],
+              "title": "Interval",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Unknown ticker"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Market data provider unavailable"
+          }
+        },
+        "summary": "Get OHLCV price history",
+        "tags": [
+          "stocks"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}

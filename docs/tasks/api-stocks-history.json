@@ -1,0 +1,18 @@
+{
+  "id": "api-stocks-history",
+  "title": "API: GET /api/stocks/{ticker}/history",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["data-cache"],
+  "references": ["docs/architecture/API.md#get-apistocksstickerhistory"],
+  "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model are already wired.",
+  "checklist": [
+    { "step": "Route signature + HistoryResponse schema already defined — confirm no shape changes needed", "done": true },
+    { "step": "Implement handler: fetch via the cached data provider, map to HistoryResponse", "done": false },
+    { "step": "Handle unknown ticker -> 404 per docs/architecture/API.md error cases", "done": false },
+    { "step": "Handle both providers unavailable -> 503", "done": false },
+    { "step": "Write integration test (FastAPI TestClient, mocked data provider) covering 200, 404, 503", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

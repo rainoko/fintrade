@@ -1,0 +1,16 @@
+{
+  "id": "api-portfolio-delete-position",
+  "title": "API: DELETE /api/portfolio/positions/{id}",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["db-models"],
+  "references": ["docs/architecture/API.md#delete-apiportfoliopositionsid"],
+  "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature is already wired.",
+  "checklist": [
+    { "step": "Route signature already defined (204 No Content on success)", "done": true },
+    { "step": "Implement handler: delete PositionORM by id, 404 if not found", "done": false },
+    { "step": "Write integration test covering successful delete and delete-of-unknown-id", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

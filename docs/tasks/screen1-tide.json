@@ -1,0 +1,17 @@
+{
+  "id": "screen1-tide",
+  "title": "Screen 1: Tide (weekly trend)",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "planned",
+  "depends_on": ["indicator-ema", "indicator-macd-histogram"],
+  "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine", "docs/architecture/Testing.md"],
+  "description": "evaluate_tide() in app/signals/triple_screen.py: BULLISH / BEARISH / NEUTRAL from weekly MACD-Histogram slope plus 13/26-week EMA relationship.",
+  "checklist": [
+    { "step": "Implement slope detection on weekly MACD-Histogram (rising/falling/flat)", "done": false },
+    { "step": "Combine with 13-week vs 26-week EMA relationship per docs/Analyse.md §2", "done": false },
+    { "step": "Return NEUTRAL (not a forced guess) when the two signals disagree or data is ambiguous", "done": false },
+    { "step": "Write unit tests covering all three outputs (BULLISH/BEARISH/NEUTRAL) with fixed weekly OHLCV fixtures", "done": false },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+  ]
+}

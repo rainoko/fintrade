@@ -1,0 +1,17 @@
+{
+  "id": "db-models",
+  "title": "SQLAlchemy ORM models",
+  "area": "backend/db",
+  "skill": null,
+  "state": "implementing",
+  "depends_on": [],
+  "references": ["docs/architecture/Backend.md#7-persistence"],
+  "description": "PositionORM, AccountORM, and OHLCVCacheORM in app/db/models.py, matching the fields documented in docs/architecture/API.md.",
+  "checklist": [
+    { "step": "Define PositionORM (id, ticker, quantity, avg_cost_basis, entry_date)", "done": true },
+    { "step": "Define AccountORM as a single-row table holding cash balance (single-user MVP)", "done": true },
+    { "step": "Define OHLCVCacheORM keyed by ticker + date + interval, with fetched_at", "done": true },
+    { "step": "Wire app/db/session.py (engine, SessionLocal, get_db dependency) to app/config.py's database_url", "done": true },
+    { "step": "Add unit tests exercising CRUD against an in-memory SQLite session", "done": false }
+  ]
+}
