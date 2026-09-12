@@ -3,15 +3,23 @@
   "title": "Indicator: EMA",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Exponential moving average, periods 13 and 26. Foundational — consumed by MACD-Histogram, the Impulse gate, and Elder-Ray.",
   "consumed_by": ["indicator-macd-histogram", "indicator-elder-ray", "indicator-autoenvelope", "impulse-system", "screen1-tide"],
   "checklist": [
-    { "step": "Confirm periods (13, 26) against docs/Analyse.md §4 before coding — don't invent parameters", "done": false },
-    { "step": "Implement app/indicators/ema.py: pure function, DataFrame/Series in, Series out, no I/O", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_ema.py (fixed small series, 2-3 asserted points, not just shape)", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm periods (13, 26) against docs/Analyse.md §4 before coding — don't invent parameters", "done": true },
+    { "step": "Implement app/indicators/ema.py: pure function, DataFrame/Series in, Series out, no I/O", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_ema.py (fixed small series, 2-3 asserted points, not just shape)", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "EMA is the standard recursive/iterative definition (k = 2/(period+1), EMA_t = close_t*k + EMA_{t-1}*(1-k)), seeded with the first observed value rather than an SMA warm-up average. Implemented as `series.ewm(span=period, adjust=False).mean()`.",
+      "rationale": "docs/Analyse.md §4 pins the periods (13, 26) but not the warm-up seeding method. Two conventions exist in the wild: (a) seed EMA_0 with the simple average of the first `period` bars, then recurse (common in charting platforms like StockCharts), or (b) seed EMA_0 with the first close and recurse from there (pandas' `ewm(adjust=False)`, and the form of the formula Elder gives directly in the book). Chose (b): it matches pandas' built-in vectorized implementation exactly (no need to hand-roll the recursion or pay for an SMA pre-roll window), it's the simpler formula to hand-verify in tests, and the two conventions converge to the same steady-state value after roughly 2-3x the period — the difference only matters in the first few bars, which this app already discards via the ~200-trading-day minimum history requirement in Analyse.md §8. Rejected SMA-seeding because Analyse.md doesn't call for it and it adds a second special-cased code path for no accuracy benefit at the data volumes this app uses."
+    }
   ]
 }
