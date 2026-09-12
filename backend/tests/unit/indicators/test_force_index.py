@@ -104,3 +104,27 @@ class TestForceIndex:
     def test_rejects_mismatched_lengths(self) -> None:
         with pytest.raises(ValueError):
             force_index(CLOSES, VOLUMES.iloc[:-1], ema_period=13)
+
+    def test_rejects_index_misalignment_even_with_equal_length(self) -> None:
+        """close and volume with the same length but offset index labels
+        must raise rather than silently combine via pandas' label-based
+        alignment (volume * close.diff() would otherwise shift one series
+        relative to the other and produce a wrong result with no error)."""
+        offset_volumes = VOLUMES.copy()
+        offset_volumes.index = offset_volumes.index + 1
+
+        with pytest.raises(ValueError):
+            force_index(CLOSES, offset_volumes, ema_period=2)
+
+    def test_rejects_non_integer_ema_period(self) -> None:
+        """ema_period is documented as int; a float like 13.5 must be
+        rejected explicitly rather than silently passed through to
+        app.indicators.ema.ema's own ewm-based span coercion."""
+        with pytest.raises(TypeError):
+            force_index(CLOSES, VOLUMES, ema_period=13.5)
+
+    def test_rejects_bool_ema_period(self) -> None:
+        """bool is a subclass of int in Python; ema_period=True must not be
+        silently accepted as ema_period=1."""
+        with pytest.raises(TypeError):
+            force_index(CLOSES, VOLUMES, ema_period=True)
