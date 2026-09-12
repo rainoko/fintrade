@@ -3,7 +3,7 @@
   "title": "Portfolio domain models (Pydantic)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": ["docs/architecture/API.md"],
   "description": "Position, Equity, Account Pydantic models in app/portfolio/models.py, matching the shapes documented in docs/architecture/API.md.",
@@ -25,5 +25,11 @@
       "decision": "Verified the pre-existing Position/Equity/Account models field-by-field against the GET /api/portfolio JSON example in docs/architecture/API.md instead of trusting the already-checked checklist items, per the task instructions; found them correct (field names, types, and nesting all match) so made no code changes to app/portfolio/models.py.",
       "rationale": "The task explicitly called for re-verification, not blind trust of prior checkmarks. Confirmed via round-trip serialization tests (tests/unit/test_portfolio_models.py) that use the exact JSON dict copied from API.md as both the expected serialization output and a deserialization input, so any future field/type drift between the model and the documented contract fails the test rather than silently passing."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/portfolio-domain-models",
+    "pr_number": 2,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/2",
+    "pushed_at": "2026-09-12T13:53:44Z"
+  }
 }
