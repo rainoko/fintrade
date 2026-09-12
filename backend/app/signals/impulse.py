@@ -7,14 +7,16 @@ from app.indicators.macd import macd_histogram
 def _direction(series: pd.Series) -> str:
     """'rising' | 'falling', from the last two points of ``series``.
 
-    Unlike Screen 1's tide slope (``app.signals.triple_screen._macd_histogram_slope``,
-    which adds a price-normalized "flat" middle threshold because a multi-week tide call
-    needs to filter noise around near-zero moves), the Impulse System colors each bar from
-    a plain bar-over-bar direction test per docs/Analyse.md §3 -- there's no "flat" state
-    in the GREEN/RED/BLUE framing, only "rising" or "falling" for each of the two inputs,
-    with disagreement between them (not an internal flat state) producing BLUE. See this
-    task's `decisions` entry on docs/tasks/impulse-system.json for the full rationale,
-    including the no-change (latest == previous) boundary call.
+    The Impulse System colors each bar from a plain, threshold-free bar-over-bar
+    comparison per docs/Analyse.md §3 -- the GREEN/RED/BLUE framing only has "rising"
+    or "falling" for each of the two inputs (EMA(13), MACD-Histogram), with BLUE
+    reserved for disagreement between them, not for a per-indicator "flat" state; §3
+    describes no such third per-indicator state to detect, so no noise/flat threshold
+    is applied here. A tie (latest == previous) is classified "falling": §3 gives no
+    textual basis for favoring either direction on a tie, and treating a
+    not-yet-advanced indicator as having failed to demonstrate rising momentum is the
+    more conservative read for a gate that can block a fresh BUY. See this task's
+    `decisions` entry on docs/tasks/impulse-system.json for the full rationale.
     """
     latest, previous = series.iloc[-1], series.iloc[-2]
     return "rising" if latest > previous else "falling"
