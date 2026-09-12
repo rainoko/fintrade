@@ -13,5 +13,11 @@
     { "step": "Implement bull_power() and bear_power() in app/indicators/elder_ray.py", "done": true },
     { "step": "Write hand-computed reference-value tests for both functions in tests/unit/indicators/test_elder_ray.py", "done": true },
     { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
-  ]
+  ],
+  "git": {
+    "branch": "task/indicator-elder-ray",
+    "pr_number": 13,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/13",
+    "pushed_at": "2026-09-12T18:43:32Z"
+  }
 }
