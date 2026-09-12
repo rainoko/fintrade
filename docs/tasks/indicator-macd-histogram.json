@@ -22,5 +22,11 @@
       "decision": "app/indicators/macd.py reuses app.indicators.ema.ema for all three EMAs involved (fast=12, slow=26 on price; signal=9 on the MACD line itself), rather than hand-rolling a separate EMA recursion inside macd.py. macd_histogram() returns the raw histogram Series only -- it does not itself classify rising/falling/flat; that classification (needed by Screen 1 tide and the Impulse gate) is left to the screen1-tide/impulse-system tasks, which can derive it via a simple diff()/threshold over this output without needing any new logic duplicated here.",
       "rationale": "docs/Analyse.md §2/§3/§4 pin the three periods (12, 26, 9) and that MACD-Histogram = MACD line - signal line, and that its *slope* (not its raw value) is what drives the tide/impulse decisions, but the doc doesn't say where the rising/falling/flat threshold lives. Reusing ema() (already reference-tested and merged) avoids reimplementing the same EMA recursion three times with the risk of subtly diverging from the already-verified implementation -- 12/26/9 are just parameters to the same function, exactly as this task's description says. Kept macd.py returning only the raw histogram Series, not a slope classification, because 'flat' requires a threshold call (how small a slope counts as flat/ambiguous per Analyse.md §2's 'reduces confidence, does not block signal' language) that is a signal-engine-level policy decision, not an indicator-math one -- bundling it into the indicator module would force this task to invent a threshold the docs don't specify and would duplicate that decision once screen1-tide's own classification is written. Rejected computing histogram = EMA(fast) - EMA(slow) - EMA(EMA(fast)-EMA(slow), signal) via a single hand-rolled loop as an alternative to composing ema() three times: no accuracy or clarity benefit, and it would have reintroduced the same warm-up-seeding question ema.py already resolved."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/indicator-macd-histogram",
+    "pr_number": 6,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/6",
+    "pushed_at": "2026-09-12T14:57:35Z"
+  }
 }
