@@ -3,7 +3,7 @@
   "title": "Indicator: EMA",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Exponential moving average, periods 13 and 26. Foundational — consumed by MACD-Histogram, the Impulse gate, and Elder-Ray.",
@@ -27,5 +27,12 @@
     "pr_number": 3,
     "pr_url": "https://github.com/rainoko/fintrade/pull/3",
     "pushed_at": "2026-09-12T14:07:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T14:21:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/3",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Backend suite: 18 passed; app/indicators/ema.py at 100% line+branch coverage. Whole-repo coverage 59.86%, up from a re-verified 58.18% baseline on a clean main worktree (14 tests) -- below the 90% gate but not a regression, and entirely accounted for by pre-existing 0%-covered stub modules belonging to other not-yet-started tasks (app/data/*, app/indicators/{macd,elder_ray,force_index,stochastic,autoenvelope}, app/signals/*, app/portfolio/*); consistent with the precedent set on PR #1 (db-models). No lint/type-check tool configured anywhere in backend/ (no ruff/mypy/flake8 section or config file) -- nothing to run. Independently re-derived every hand-computed reference value in test_ema.py from scratch via a standalone script calling ema() directly (not just re-running the given assertions): period=3 across 8 points, period=26 warm-up first 3 points, and an additional period=1 degenerate-case sanity check (k=1, output must equal input exactly) -- all match to full float precision, confirming no off-by-one in the recursive seed. Periods (13, 26) and the k=2/(period+1) recursive formula match docs/Analyse.md Sec.4 exactly. verify-elder-signal isn't triggered by the routing rule (area is backend/indicators, skill is add-indicator, not backend/signals/backend/portfolio/verify-elder-signal), but given this indicator is foundational and consumed by 5 not-yet-started tasks I verified the math against Analyse.md directly anyway -- no discrepancy. The one judgment call (EMA warm-up seeding: first-value seed vs SMA seed) is properly recorded in decisions with rationale and rejected alternative; no checklist item phrased as 'decide X' is left unaddressed. Implementation is a pure Series-in/Series-out function against pandas.ewm directly (no TA library), matching docs/architecture/Backend.md Sec.4 -- no new module/dependency/layer, so architecture-review doesn't apply. No API route/schema touched; backend/openapi.json correctly unchanged. Ran the code-review skill (medium effort, backgrounded) against the diff: zero findings, independently corroborating the manual pass. Browser walkthrough N/A -- pure backend indicator function, no UI surface, no frontend consumer yet; noted explicitly rather than skipped silently. Two non-blocking observations recorded on the PR: no test exercises a leading NaN in the input series (moot until data providers are wired in), and period is type-hinted int but not runtime-validated against non-integer values. Posted as a PR review comment (COMMENTED type) because gh pr review --approve failed with GitHub's self-approval block (worker and reviewer share the raino-agent account) -- recording the accepted verdict here per the standing instruction."
   }
 }
