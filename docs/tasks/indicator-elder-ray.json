@@ -3,15 +3,15 @@
   "title": "Indicator: Elder-Ray (Bull/Bear Power)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["indicator-ema"],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Bull Power = High - EMA(13); Bear Power = Low - EMA(13). Feeds the Elder-Ray confirmation confidence component.",
   "consumed_by": ["confidence-scoring"],
   "checklist": [
-    { "step": "Confirm EMA(13) is the correct reference EMA against docs/Analyse.md §4", "done": false },
-    { "step": "Implement bull_power() and bear_power() in app/indicators/elder_ray.py", "done": false },
-    { "step": "Write hand-computed reference-value tests for both functions in tests/unit/indicators/test_elder_ray.py", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm EMA(13) is the correct reference EMA against docs/Analyse.md §4", "done": true },
+    { "step": "Implement bull_power() and bear_power() in app/indicators/elder_ray.py", "done": true },
+    { "step": "Write hand-computed reference-value tests for both functions in tests/unit/indicators/test_elder_ray.py", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
   ]
 }
