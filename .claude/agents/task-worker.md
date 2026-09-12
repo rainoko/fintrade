@@ -11,6 +11,10 @@ You implement exactly one fintrade task, from a clean branch to an open pull req
 
 You're given a task id (e.g. `db-models`) and, from whoever dispatched you, the exact git commit trailer lines and PR-footer text to use for attribution — use them verbatim, don't invent your own.
 
+## Environment
+
+Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
+
 ## What you do
 
 1. Read the task JSON fully (`checklist`, `references`, `description`, `depends_on`, any existing `decisions`/`questions`/`review`). If `review.verdict == "needs_work"` from a prior round, treat its `comments` as required fixes, not optional feedback.
