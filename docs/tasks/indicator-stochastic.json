@@ -29,5 +29,11 @@
       "rationale": "pandas/numpy already produces NaN for a 0.0/0.0 division on float Series with no extra code, and NaN is the same 'undefined, not yet actionable' signal this app already uses for EMA/Force Index warm-up periods -- consistent with how downstream Screen 2 wave logic (not yet implemented) should already be handling NaN oscillator values before a series is fully warmed up.",
       "rejected": "Considered clamping to 50 (a common 'neutral' convention in some TA libraries) but rejected it as inventing a value Analyse.md doesn't specify, for an edge case (a perfectly flat multi-bar range) unlikely to occur in real daily OHLCV data anyway."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/indicator-stochastic",
+    "pr_number": 12,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/12",
+    "pushed_at": "2026-09-12T18:34:51Z"
+  }
 }
