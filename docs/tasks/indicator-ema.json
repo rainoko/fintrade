@@ -3,7 +3,7 @@
   "title": "Indicator: EMA",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "done",
+  "state": "testing",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Exponential moving average, periods 13 and 26. Foundational — consumed by MACD-Histogram, the Impulse gate, and Elder-Ray.",
@@ -20,6 +20,12 @@
       "recorded_by": "add-indicator skill",
       "decision": "EMA is the standard recursive/iterative definition (k = 2/(period+1), EMA_t = close_t*k + EMA_{t-1}*(1-k)), seeded with the first observed value rather than an SMA warm-up average. Implemented as `series.ewm(span=period, adjust=False).mean()`.",
       "rationale": "docs/Analyse.md §4 pins the periods (13, 26) but not the warm-up seeding method. Two conventions exist in the wild: (a) seed EMA_0 with the simple average of the first `period` bars, then recurse (common in charting platforms like StockCharts), or (b) seed EMA_0 with the first close and recurse from there (pandas' `ewm(adjust=False)`, and the form of the formula Elder gives directly in the book). Chose (b): it matches pandas' built-in vectorized implementation exactly (no need to hand-roll the recursion or pay for an SMA pre-roll window), it's the simpler formula to hand-verify in tests, and the two conventions converge to the same steady-state value after roughly 2-3x the period — the difference only matters in the first few bars, which this app already discards via the ~200-trading-day minimum history requirement in Analyse.md §8. Rejected SMA-seeding because Analyse.md doesn't call for it and it adds a second special-cased code path for no accuracy benefit at the data volumes this app uses."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "manual",
+      "decision": "Addressed both non-blocking PR #3 review observations: (1) added `test_leading_nan_gap_is_skipped_then_seeds_from_first_real_value`, hand-computing that pandas' `ewm(adjust=False)` already does the right thing for a leading-NaN data gap -- it propagates NaN through the gap and then seeds the recursion from the first non-NaN observation, consistent with the first-value-seed convention recorded above, just anchored at the first real observation instead of index 0; no code change was needed for this one, only test coverage of the existing (correct) behavior. (2) added runtime validation of `period`: raise `TypeError` for any non-`int` (including `bool`, which is a subclass of `int` in Python and would otherwise silently be accepted as `period=1`/`period=0`), and kept the existing `ValueError` for `period < 1`. Two new negative tests (`test_rejects_non_integer_period`, `test_rejects_bool_period`) assert this.",
+      "rationale": "Chose `TypeError` over `ValueError` for the type check because Python convention reserves `TypeError` for 'wrong kind of value' and `ValueError` for 'right kind, wrong value' -- period=13.5 is a type mismatch against the `int` type hint, whereas period=0 is a valid int that's out of the accepted range. Rejected silently coercing via `int(period)` (e.g. truncating 13.5 to 13) because that would mask a caller bug (a float period almost certainly indicates upstream data corruption or a unit mistake, not an intentional fractional span) and pandas' own `ewm(span=...)` already accepts floats without complaint, which is exactly the silent-pass-through behavior flagged as the gap. Excluded `bool` explicitly because `isinstance(True, int)` is `True` in Python, so a caller accidentally passing a boolean flag would otherwise pass validation and produce a nonsensical period of 0 or 1 with no error."
     }
   ],
   "git": {

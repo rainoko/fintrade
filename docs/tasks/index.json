@@ -7,7 +7,7 @@
     { "id": "data-cache", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
     { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "planned" },
-    { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
+    { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "testing" },
     { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-stochastic", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },

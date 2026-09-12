@@ -68,3 +68,46 @@ class TestEma:
 
         with pytest.raises(ValueError):
             ema(closes, period=0)
+
+    def test_rejects_non_integer_period(self) -> None:
+        """period is documented as int; a float like 13.5 must be rejected
+        explicitly rather than silently passed through to pandas' ``ewm``,
+        which would otherwise accept it via its own ``span`` coercion.
+        """
+        closes = pd.Series([1.0, 2.0, 3.0])
+
+        with pytest.raises(TypeError):
+            ema(closes, period=13.5)
+
+    def test_rejects_bool_period(self) -> None:
+        """bool is a subclass of int in Python; ``period=True`` must not be
+        silently accepted as ``period=1``.
+        """
+        closes = pd.Series([1.0, 2.0, 3.0])
+
+        with pytest.raises(TypeError):
+            ema(closes, period=True)
+
+    def test_leading_nan_gap_is_skipped_then_seeds_from_first_real_value(self) -> None:
+        """A leading data gap (e.g. a ticker with fewer trading days of
+        history than requested) must not poison the whole series. pandas'
+        ``ewm(adjust=False)`` propagates NaN through the gap, then seeds the
+        recursion from the first non-NaN observation and continues normally
+        -- verified here with hand-computed values, matching the same
+        first-value-seed convention recorded in this task's `decisions`
+        entry, just anchored at the first *real* observation instead of
+        index 0.
+
+        period=3 -> k = 0.5.
+        EMA_2 (first real value) = 10
+        EMA_3 = 12*0.5 + 10*0.5   = 11.0
+        EMA_4 = 15*0.5 + 11.0*0.5 = 13.0
+        """
+        closes = pd.Series([float("nan"), float("nan"), 10, 12, 15], dtype=float)
+
+        result = ema(closes, period=3)
+
+        assert result.iloc[0:2].isna().all()
+        assert result.iloc[2] == pytest.approx(10.0)
+        assert result.iloc[3] == pytest.approx(11.0)
+        assert result.iloc[4] == pytest.approx(13.0)

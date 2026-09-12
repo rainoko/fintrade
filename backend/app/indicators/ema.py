@@ -11,7 +11,15 @@ def ema(series: pd.Series, period: int) -> pd.Series:
 
     Consumed by MACD-Histogram, the Impulse gate, Elder-Ray, and the
     Autoenvelope channel (all keyed off EMA(13) and/or EMA(26)).
+
+    Raises:
+        TypeError: if ``period`` is not an ``int`` (e.g. a ``float`` like
+            ``13.5``, which ``pandas.Series.ewm`` would otherwise accept
+            silently via its own ``span`` coercion).
+        ValueError: if ``period`` is not >= 1.
     """
+    if isinstance(period, bool) or not isinstance(period, int):
+        raise TypeError(f"period must be an int, got {type(period).__name__}")
     if period < 1:
         raise ValueError("period must be >= 1")
     return series.ewm(span=period, adjust=False).mean()
