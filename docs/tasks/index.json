@@ -9,7 +9,7 @@
     { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "planned" },
     { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
-    { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
+    { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "implementing" },
     { "id": "indicator-stochastic", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-autoenvelope", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },

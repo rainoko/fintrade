@@ -3,7 +3,7 @@
   "title": "Indicator: Force Index",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "done",
+  "state": "implementing",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Force Index = Volume x price change, EMA-smoothed (2-period for entry timing, 13-period for trend confirmation). Feeds Screen 2 (wave) and the volume-confirmation confidence component.",
