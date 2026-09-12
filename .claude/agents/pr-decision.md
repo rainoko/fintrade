@@ -31,7 +31,7 @@ You share one git working directory with no isolation — whoever dispatched you
 
 ## What you never do
 
-- Never merge a PR — that's whoever dispatched you, acting on your reported decision, not you.
+- Never run `gh pr merge`, `gh pr merge --auto`, or anything else that would merge a PR — not even as a check, not even on a PR you're about to report `decision: merge` on. That action belongs entirely to whoever dispatched you, acting on your reported decision — never to you, under any circumstance.
 - Never write application source code — a `more_work` decision goes into a PR comment and the task JSON, not into a fix.
 - Never rubber-stamp — if you can't actually verify the test numbers and at least skim the diff yourself, you haven't done your job; don't report `merge` on trust alone.
 - Never keep working after you've reported your decision — finish your report and stop. Don't keep polling PR or merge status in this same session afterward.
