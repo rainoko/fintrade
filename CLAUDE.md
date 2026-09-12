@@ -81,6 +81,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - **No auto-merge**: `pr-reviewer` reviews and comments on a PR; it never runs `gh pr merge`. `main`'s branch ruleset needs 0 approving reviews to merge and GitHub blocks self-approval (the worker and reviewer share one `gh` account), so an automated merge here would mean code reaching `main` with no independent review at all — merging stays a human action for that reason, not just as a style choice.
 - **Ambiguity, not interruption**: an ordinary judgment call becomes a `decisions` entry and work continues (above). Something only the user can actually decide becomes a `questions` entry and the task moves to `waiting_input` instead of stopping the whole run (above).
 - **The one thing that does stop the loop**: an infrastructure blocker that would fail every task the same way — most likely no GitHub push/PR access. `orchestrate-tasks` checks for this once before starting and asks the user, rather than letting every dispatched worker discover the same problem independently.
+- **One agent at a time on the shared working tree**: `task-worker`, `pr-reviewer`, and `pr-decision` all operate against the same git checkout with no per-agent isolation — never dispatch a new one while another is still in flight, even for an unrelated task. This applies to the orchestrator itself too: only edit `.claude/` or run your own git commands (checkout, merge, etc.) between dispatches, never while an agent is running, or the same race applies to you.
 
 ## Skills (`.claude/skills/`)
 
