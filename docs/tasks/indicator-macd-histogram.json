@@ -3,16 +3,24 @@
   "title": "Indicator: MACD-Histogram",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["indicator-ema"],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "MACD-Histogram (12, 26, 9). Drives the Screen 1 tide slope and the Impulse gate.",
   "consumed_by": ["screen1-tide", "impulse-system"],
   "checklist": [
-    { "step": "Confirm fast/slow/signal periods (12, 26, 9) against docs/Analyse.md §4", "done": false },
-    { "step": "Implement app/indicators/macd.py: pure function returning the histogram series (MACD line minus signal line)", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_macd.py", "done": false },
-    { "step": "Confirm slope detection (rising/falling/flat) needed by screen1-tide is derivable from this output without duplicating logic", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm fast/slow/signal periods (12, 26, 9) against docs/Analyse.md §4", "done": true },
+    { "step": "Implement app/indicators/macd.py: pure function returning the histogram series (MACD line minus signal line)", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_macd.py", "done": true },
+    { "step": "Confirm slope detection (rising/falling/flat) needed by screen1-tide is derivable from this output without duplicating logic", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "app/indicators/macd.py reuses app.indicators.ema.ema for all three EMAs involved (fast=12, slow=26 on price; signal=9 on the MACD line itself), rather than hand-rolling a separate EMA recursion inside macd.py. macd_histogram() returns the raw histogram Series only -- it does not itself classify rising/falling/flat; that classification (needed by Screen 1 tide and the Impulse gate) is left to the screen1-tide/impulse-system tasks, which can derive it via a simple diff()/threshold over this output without needing any new logic duplicated here.",
+      "rationale": "docs/Analyse.md §2/§3/§4 pin the three periods (12, 26, 9) and that MACD-Histogram = MACD line - signal line, and that its *slope* (not its raw value) is what drives the tide/impulse decisions, but the doc doesn't say where the rising/falling/flat threshold lives. Reusing ema() (already reference-tested and merged) avoids reimplementing the same EMA recursion three times with the risk of subtly diverging from the already-verified implementation -- 12/26/9 are just parameters to the same function, exactly as this task's description says. Kept macd.py returning only the raw histogram Series, not a slope classification, because 'flat' requires a threshold call (how small a slope counts as flat/ambiguous per Analyse.md §2's 'reduces confidence, does not block signal' language) that is a signal-engine-level policy decision, not an indicator-math one -- bundling it into the indicator module would force this task to invent a threshold the docs don't specify and would duplicate that decision once screen1-tide's own classification is written. Rejected computing histogram = EMA(fast) - EMA(slow) - EMA(EMA(fast)-EMA(slow), signal) via a single hand-rolled loop as an alternative to composing ema() three times: no accuracy or clarity benefit, and it would have reintroduced the same warm-up-seeding question ema.py already resolved."
+    }
   ]
 }
