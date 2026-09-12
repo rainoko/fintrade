@@ -5,7 +5,7 @@
     { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "data-cache", "area": "backend/data", "skill": null, "state": "planned" },
-    { "id": "db-models", "area": "backend/db", "skill": null, "state": "implementing" },
+    { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
     { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "planned" },
     { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
