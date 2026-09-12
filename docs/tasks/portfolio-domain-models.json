@@ -3,7 +3,7 @@
   "title": "Portfolio domain models (Pydantic)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/architecture/API.md"],
   "description": "Position, Equity, Account Pydantic models in app/portfolio/models.py, matching the shapes documented in docs/architecture/API.md.",
@@ -31,5 +31,23 @@
     "pr_number": 2,
     "pr_url": "https://github.com/rainoko/fintrade/pull/2",
     "pushed_at": "2026-09-12T13:53:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T13:59:12Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/2",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "test_serializes_to_api_md_example and related assertions compare model_dump(mode=\"json\") (a Python dict) with == against the API.md-derived example dict, which doesn't enforce exact JSON shape: Position.quantity is float and serializes to 100.0, but 100.0 == 100 is True in Python, so the 'exact match' claim in the file's docstring isn't actually enforced for numeric type. Not a bug in models.py (float typing is a pre-existing, reasonable choice for fractional shares); minor test-methodology gap only.",
+        "file": "backend/tests/unit/test_portfolio_models.py",
+        "line": 61
+      },
+      {
+        "summary": "test_positions_defaults_to_empty_list_shape doesn't test a default: Account.positions has no default (required field) and the test always passes positions=[] explicitly, so it wouldn't catch a regression like a shared-mutable-default footgun. Consider renaming or adding a case that omits positions.",
+        "file": "backend/tests/unit/test_portfolio_models.py",
+        "line": 145
+      }
+    ],
+    "notes": "Ran backend/.venv/bin/python -m pytest --cov=app --cov-report=term-missing on the checked-out branch: 9/9 pass, app/portfolio/models.py at 100% coverage. No lint/type-check tool is configured in backend/pyproject.toml (only pytest/pytest-cov/pytest-mock/httpx) and none is installed in backend/.venv/bin -- confirmed explicitly, nothing to run. Repo-wide coverage is 47% (below the 90% gate) but this is pre-existing on main (41% before this PR, due to unimplemented stub modules from unrelated planned tasks) -- not a regression; this PR improves it and is honest about the number in its own description. verify-elder-signal was loaded per area=backend/portfolio; no signal/confidence/risk logic is in scope for this diff (pure static Pydantic models), and the model matches docs/architecture/API.md's GET /api/portfolio example field-for-field. architecture-review not triggered (no new module/dependency/layer). backend/openapi.json regeneration not applicable (no API route/schema touched). Browser walkthrough not applicable -- pure backend Pydantic-model change, no UI surface. Both recorded decisions entries are substantive and adequately cover the judgment calls made (optional current_price/unrealized_pnl_pct, and the re-verification methodology); no undecided 'decide X' checklist items. code-review skill found two minor test-quality nits (see comments), neither blocking. Posted as a COMMENTED-type PR review (gh pr review --approve failed with the expected self-approval error since the worker and reviewer share the same gh account)."
   }
 }
