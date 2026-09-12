@@ -3,7 +3,7 @@
   "title": "Portfolio risk rules (2% / 6%)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
   "description": "protective_stop(), position_risk_pct(), total_open_risk_pct() in app/portfolio/risk.py: SafeZone-style protective stop, the 2% per-trade rule, and the 6% total-open-risk rule.",
@@ -28,5 +28,11 @@
       "decision": "position_risk_pct() requires position.current_price to be set (raises ValueError if None) rather than falling back to avg_cost_basis, and floors distance-to-stop at 0 (never negative) when current_price has already fallen below the stop. total_open_risk_pct()'s `stops` dict is keyed by position.id, not ticker, and a position missing from `stops` is skipped rather than treated as zero risk.",
       "rationale": "The checklist explicitly requires using CURRENT equity/position values, not values frozen at entry -- falling back to avg_cost_basis when current_price is unknown would silently reintroduce an entry-time value into a 'current' risk calculation, so raising is safer than guessing. Flooring at 0 keeps total_open_risk_pct() from being reduced by a position that has already blown through its stop (that position's forward risk to that specific stop level is spent, not negative; the stop-hit condition itself is exits.py's job, not risk.py's). id is used as the stops dict key (instead of ticker) because Position models an id-identified lot -- a portfolio could hold more than one lot of the same ticker -- and ticker collision would silently overwrite one lot's stop with another's."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/portfolio-risk-rules",
+    "pr_number": 11,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/11",
+    "pushed_at": "2026-09-12T18:11:31Z"
+  }
 }
