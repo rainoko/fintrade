@@ -7,6 +7,12 @@ description: Run the fintrade task board autonomously end to end — pick the ne
 
 Drives `docs/tasks/` to completion by repeatedly dispatching the `task-worker` and `pr-reviewer` agents. You (the session running this skill) are the orchestrator — you never write application code or push commits yourself, only dispatch agents and read task state between rounds.
 
+## Working-tree safety: one agent at a time
+
+`task-worker`, `pr-reviewer`, and `pr-decision` all operate against the same shared git working directory — there is no per-agent isolation (no separate worktree or clone). Never have more than one of them running at once, even for unrelated tasks: two agents switching branches or committing concurrently on the same checkout race each other (a checkout mid-flight under another agent's feet, uncommitted work silently stashed and forgotten, a commit landing on the wrong branch). Always dispatch one, wait for it to finish and report back, and only then dispatch the next — exactly as the loop below is written; don't parallelize it to go faster.
+
+This applies to your own edits too: only modify `.claude/` (agent or skill instructions) or run your own git commands (checkout, merge, etc.) between dispatches, never while a `task-worker`/`pr-reviewer`/`pr-decision` call is still in flight. The same shared-checkout race applies to you as to a second agent.
+
 ## Preflight (once, before the loop)
 
 Confirm GitHub push/PR access actually works before dispatching any worker — a broken credential blocks every task, not just one, so it's worth failing fast and asking the user rather than letting every `task-worker` discover it independently:

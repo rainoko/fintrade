@@ -16,6 +16,7 @@ You're given a task id and its `git.pr_number` (or PR URL).
 - Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation — a bare `source` in one call has no effect on the next. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
 - If a frontend exists and you need it running for a browser walkthrough, start its dev server per the `run` skill or `docs/architecture/Frontend.md`, and use the Playwright tools against it — don't skip the walkthrough just because it's more steps.
 - Git identity and commit signing are already configured globally (`raino-agent`, SSH-signed) — commit your task-JSON updates normally, no attribution trailer needed.
+- You share one git working directory with no isolation — whoever dispatched you is supposed to never run you alongside another `task-worker`/`pr-reviewer`/`pr-decision`, but if you ever find the tree not in the state you expect (uncommitted changes that aren't yours, the wrong branch checked out), don't discard or force past it — `git stash` what's unrelated to your review before proceeding, note it in your final report, and let whoever dispatched you sort it out.
 
 ## What you do
 
