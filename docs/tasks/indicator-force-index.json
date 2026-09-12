@@ -3,15 +3,24 @@
   "title": "Indicator: Force Index",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Force Index = Volume x price change, EMA-smoothed (2-period for entry timing, 13-period for trend confirmation). Feeds Screen 2 (wave) and the volume-confirmation confidence component.",
   "consumed_by": ["screen2-wave", "confidence-scoring"],
   "checklist": [
-    { "step": "Confirm this uses its own EMA smoothing (ema_period param), not necessarily indicator-ema's default periods — verify against docs/Analyse.md §2/§4", "done": false },
-    { "step": "Implement app/indicators/force_index.py: pure function, parameterized ema_period", "done": false },
-    { "step": "Write hand-computed reference-value tests for both ema_period=2 and ema_period=13 cases", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm this uses its own EMA smoothing (ema_period param), not necessarily indicator-ema's default periods — verify against docs/Analyse.md §2/§4", "done": true },
+    { "step": "Implement app/indicators/force_index.py: pure function, parameterized ema_period", "done": true },
+    { "step": "Write hand-computed reference-value tests for both ema_period=2 and ema_period=13 cases", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "Implemented Force Index's EMA smoothing inline in app/indicators/force_index.py (raw.ewm(span=ema_period, adjust=False).mean()) rather than importing app.indicators.ema.ema(), and reused the same recursive/first-value-seed EMA convention indicator-ema already established (k = 2/(period+1), seeded with the first non-NaN observation). Force Index's raw series has a leading NaN (no prior close for bar 0); verified that pandas' ewm(adjust=False) correctly skips the leading NaN and seeds from the first real observation (bar 1), consistent with indicator-ema's seeding choice, rather than propagating NaN or requiring special-case handling.",
+      "rationale": "indicator-ema's own implementation (app/indicators/ema.py) is accepted but its PR (#3) is not yet merged to main, so it doesn't exist on origin/main that this task branched from -- importing it would either fail or reintroduce it as an unreviewed dependency of this PR. The task board entry also declares depends_on: [] and calls out that this indicator uses its own ema_period parameter (2 for entry timing, 13 for trend confirmation) rather than indicator-ema's fixed periods (13, 26), so self-contained inline smoothing keeps this task independently mergeable in either PR order. Once indicator-ema merges, a later cleanup could refactor force_index.py to call the shared ema() helper instead of duplicating the ewm call -- deferred rather than done now, since it would create a merge-order dependency between two currently-independent PRs for no behavioral change today.",
+      "rejected": "Considered importing app.indicators.ema.ema() directly for DRY-ness, and considered hand-rolling the SMA-warm-up EMA convention (the alternative rejected on indicator-ema for the same reason: no accuracy benefit at this app's data volumes, adds a second special-cased code path)."
+    }
   ]
 }
