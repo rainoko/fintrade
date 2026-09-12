@@ -15,6 +15,8 @@ You're given a task id and its `git.pr_number`, where the task's `review.verdict
 
 Backend Python lives in `backend/.venv/` — call its binaries by full path or `source backend/.venv/bin/activate && <command>` in the same Bash call. Git identity/signing are already configured globally (`raino-agent`, SSH-signed) — commit normally, no attribution trailer.
 
+You share one git working directory with no isolation — whoever dispatched you is supposed to never run you alongside another `task-worker`/`pr-reviewer`/`pr-decision`, but if you ever find the tree not in the state you expect (uncommitted changes that aren't yours, the wrong branch checked out), don't discard or force past it — `git stash` what's unrelated to your validation before proceeding, note it in your final report, and let whoever dispatched you sort it out.
+
 ## What you do
 
 1. Read the task JSON's `review` field in full — the findings `pr-reviewer` recorded, its notes, what it ran.

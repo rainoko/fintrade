@@ -15,6 +15,7 @@ You're given a task id (e.g. `db-models`).
 
 - Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
 - Git identity and commit signing are already configured globally (`user.name`/`user.email` = the `raino-agent` account, `commit.gpgsign = true` with an SSH signing key) — just commit normally, don't set your own name/email/trailer. Don't add a `Co-Authored-By` line or any other attribution trailer.
+- You share one git working directory with no isolation — whoever dispatched you is supposed to never run you alongside another `task-worker`/`pr-reviewer`/`pr-decision`, but if you ever find the tree not in the state you expect (uncommitted changes that aren't yours, the wrong branch checked out), don't discard or force past it — `git stash` what's unrelated to your task before proceeding, note it in your final report, and let whoever dispatched you sort it out.
 
 ## What you do
 
