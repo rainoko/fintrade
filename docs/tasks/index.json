@@ -16,7 +16,7 @@
     { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "screen3-trigger", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
-    { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "testing" },
+    { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "signal-engine-orchestration", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "portfolio-domain-models", "area": "backend/portfolio", "skill": null, "state": "done" },
