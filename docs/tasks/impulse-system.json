@@ -3,7 +3,7 @@
   "title": "Impulse System gate",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["indicator-ema", "indicator-macd-histogram"],
   "references": ["docs/Analyse.md#3-the-impulse-system-signal-state-filter"],
   "description": "evaluate_impulse() in app/signals/impulse.py: GREEN / RED / BLUE from EMA(13) direction and MACD-Histogram direction together. Acts as a hard gate — RED blocks fresh BUY signals, GREEN blocks fresh SELL signals.",
@@ -27,5 +27,11 @@
       "decision": "Checklist item 4 ('Confirm signal-engine-orchestration actually enforces the gate') is satisfied for this task's scope as: evaluate_impulse() computes and returns the GREEN/RED/BLUE color correctly and completely, with a docstring explicitly stating the gate-*enforcement* contract (RED blocks fresh BUY, GREEN blocks fresh SELL) that the caller must apply. Actually enforcing that gate -- i.e. having app/signals/engine.py's analyse() orchestration check the returned color before emitting a BUY/SELL signal and block/downgrade accordingly -- is out of scope for this task and was deliberately not implemented here.",
       "rationale": "docs/architecture/Backend.md §5 names app/signals/engine.py as 'the orchestration point' that 'applies the Impulse gate', and the signal-engine-orchestration task (docs/tasks/signal-engine-orchestration.json) is a separate, not-yet-started task in the task board specifically for that orchestration work -- app/signals/engine.py's analyse() is still a raise NotImplementedError stub with no dependency on impulse-system declared as an input to it yet. Considered and rejected implementing a stub enforcement helper inside impulse.py itself (e.g. a gate_signal(impulse_color, proposed_signal) function, or having evaluate_impulse() take a proposed signal and veto/downgrade it) to more literally 'confirm enforcement': that would duplicate/preempt signal-engine-orchestration's actual scope ahead of that task existing, and would be the wrong module per docs/architecture/Backend.md's module layout (§2) and §4's 'pure function' convention, which place Screen/BUY-SELL/HOLD orchestration in engine.py, not in the individual gate/indicator modules -- every other module in app/signals and app/indicators is a plain 'data in -> classification out' function with no knowledge of a 'proposed signal'. This task's own checklist item 4 is therefore addressed by verifying evaluate_impulse() is correct and its docstring states the enforcement contract (RED blocks fresh BUY, GREEN blocks fresh SELL) unambiguously for whoever implements signal-engine-orchestration next, not by building enforcement logic prematurely in the wrong module."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/impulse-system",
+    "pr_number": 10,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/10",
+    "pushed_at": "2026-09-12T17:49:33Z"
+  }
 }
