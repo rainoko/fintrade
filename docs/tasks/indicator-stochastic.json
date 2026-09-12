@@ -3,15 +3,31 @@
   "title": "Indicator: Stochastic Oscillator",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Stochastic %K/%D (5, 3, 3). Feeds Screen 2 (wave) overbought/oversold timing.",
   "consumed_by": ["screen2-wave"],
   "checklist": [
-    { "step": "Confirm %K/%D/smoothing periods (5, 3, 3) against docs/Analyse.md §4", "done": false },
-    { "step": "Implement app/indicators/stochastic.py: pure function returning a DataFrame with 'k' and 'd' columns", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_stochastic.py", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm %K/%D/smoothing periods (5, 3, 3) against docs/Analyse.md §4", "done": true },
+    { "step": "Implement app/indicators/stochastic.py: pure function returning a DataFrame with 'k' and 'd' columns", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_stochastic.py", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "Implemented the classic 'slow' Stochastic Oscillator construction: fast %K = 100*(close-LL)/(HH-LL) over a rolling k_period window, %K = simple moving average (rolling().mean(), not ewm) of fast %K over `smooth` bars, %D = simple moving average of %K over `d_period` bars. All three windows use pandas rolling/SMA, not the EMA-based smoothing used by ema.py/macd.py/force_index.py elsewhere in this app.",
+      "rationale": "docs/Analyse.md §4 lists Stochastic's parameters as '%K 5, %D 3, smooth 3' -- three distinct values, which only makes sense under the classic fast-%K -> smoothed-%K -> %D construction (an EMA-only reading would have no third parameter to hang 'smooth' off of). This is also the standard textbook/Elder definition of the Stochastic Oscillator, which historically uses SMA smoothing, unlike Force Index/MACD/EMA which are explicitly EMA-based in Analyse.md's own prose. Rejected treating 'smooth' as an alternate/EMA period for %K (would collapse to a 2-parameter indicator and ignores the doc's explicit 3-parameter listing).",
+      "rejected": "Considered reusing app/indicators/ema.py's ewm-based smoothing for %K/%D (for consistency with the rest of the codebase's EMA-heavy style), but rejected it because it would silently diverge from both Analyse.md's parameter list and the textbook Stochastic definition, which is exactly the kind of library-formula-vs-book-definition mismatch docs/architecture/Backend.md §1/§4 calls out as the reason indicators are hand-written per their Analyse.md definition rather than assumed from a generic pattern."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "A flat trailing range (HH == LL over the k_period window, so fast %K is a 0/0 division) is left as NaN rather than special-cased to 0 or 50.",
+      "rationale": "pandas/numpy already produces NaN for a 0.0/0.0 division on float Series with no extra code, and NaN is the same 'undefined, not yet actionable' signal this app already uses for EMA/Force Index warm-up periods -- consistent with how downstream Screen 2 wave logic (not yet implemented) should already be handling NaN oscillator values before a series is fully warmed up.",
+      "rejected": "Considered clamping to 50 (a common 'neutral' convention in some TA libraries) but rejected it as inventing a value Analyse.md doesn't specify, for an edge case (a perfectly flat multi-bar range) unlikely to occur in real daily OHLCV data anyway."
+    }
   ]
 }
