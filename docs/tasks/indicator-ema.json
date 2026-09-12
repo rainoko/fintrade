@@ -3,15 +3,53 @@
   "title": "Indicator: EMA",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Exponential moving average, periods 13 and 26. Foundational — consumed by MACD-Histogram, the Impulse gate, and Elder-Ray.",
   "consumed_by": ["indicator-macd-histogram", "indicator-elder-ray", "indicator-autoenvelope", "impulse-system", "screen1-tide"],
   "checklist": [
-    { "step": "Confirm periods (13, 26) against docs/Analyse.md §4 before coding — don't invent parameters", "done": false },
-    { "step": "Implement app/indicators/ema.py: pure function, DataFrame/Series in, Series out, no I/O", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_ema.py (fixed small series, 2-3 asserted points, not just shape)", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Confirm periods (13, 26) against docs/Analyse.md §4 before coding — don't invent parameters", "done": true },
+    { "step": "Implement app/indicators/ema.py: pure function, DataFrame/Series in, Series out, no I/O", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_ema.py (fixed small series, 2-3 asserted points, not just shape)", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "EMA is the standard recursive/iterative definition (k = 2/(period+1), EMA_t = close_t*k + EMA_{t-1}*(1-k)), seeded with the first observed value rather than an SMA warm-up average. Implemented as `series.ewm(span=period, adjust=False).mean()`.",
+      "rationale": "docs/Analyse.md §4 pins the periods (13, 26) but not the warm-up seeding method. Two conventions exist in the wild: (a) seed EMA_0 with the simple average of the first `period` bars, then recurse (common in charting platforms like StockCharts), or (b) seed EMA_0 with the first close and recurse from there (pandas' `ewm(adjust=False)`, and the form of the formula Elder gives directly in the book). Chose (b): it matches pandas' built-in vectorized implementation exactly (no need to hand-roll the recursion or pay for an SMA pre-roll window), it's the simpler formula to hand-verify in tests, and the two conventions converge to the same steady-state value after roughly 2-3x the period — the difference only matters in the first few bars, which this app already discards via the ~200-trading-day minimum history requirement in Analyse.md §8. Rejected SMA-seeding because Analyse.md doesn't call for it and it adds a second special-cased code path for no accuracy benefit at the data volumes this app uses."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "manual",
+      "decision": "Addressed both non-blocking PR #3 review observations: (1) added `test_leading_nan_gap_is_skipped_then_seeds_from_first_real_value`, hand-computing that pandas' `ewm(adjust=False)` already does the right thing for a leading-NaN data gap -- it propagates NaN through the gap and then seeds the recursion from the first non-NaN observation, consistent with the first-value-seed convention recorded above, just anchored at the first real observation instead of index 0; no code change was needed for this one, only test coverage of the existing (correct) behavior. (2) added runtime validation of `period`: raise `TypeError` for any non-`int` (including `bool`, which is a subclass of `int` in Python and would otherwise silently be accepted as `period=1`/`period=0`), and kept the existing `ValueError` for `period < 1`. Two new negative tests (`test_rejects_non_integer_period`, `test_rejects_bool_period`) assert this.",
+      "rationale": "Chose `TypeError` over `ValueError` for the type check because Python convention reserves `TypeError` for 'wrong kind of value' and `ValueError` for 'right kind, wrong value' -- period=13.5 is a type mismatch against the `int` type hint, whereas period=0 is a valid int that's out of the accepted range. Rejected silently coercing via `int(period)` (e.g. truncating 13.5 to 13) because that would mask a caller bug (a float period almost certainly indicates upstream data corruption or a unit mistake, not an intentional fractional span) and pandas' own `ewm(span=...)` already accepts floats without complaint, which is exactly the silent-pass-through behavior flagged as the gap. Excluded `bool` explicitly because `isinstance(True, int)` is `True` in Python, so a caller accidentally passing a boolean flag would otherwise pass validation and produce a nonsensical period of 0 or 1 with no error."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-ema",
+    "pr_number": 3,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/3",
+    "pushed_at": "2026-09-12T14:07:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T14:38:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/3",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: an interior NaN (not just a leading gap) in the input series causes ewm(adjust=False) to silently forward-carry the previous EMA value rather than propagating NaN or reseeding (verified: ema([NaN,5,NaN,10,12,15], period=3) -> [NaN,5.0,5.0,8.33,10.17,12.58]). Out of scope for this fix (which specifically addressed the leading-NaN observation the maintainer flagged), but worth a test/decision once the data-provider tasks land and real mid-series gaps become possible.",
+        "file": "backend/app/indicators/ema.py",
+        "line": 25
+      },
+      {
+        "summary": "Non-blocking: the new period type guard (isinstance(period, bool) or not isinstance(period, int)) also rejects numpy integer scalars (e.g. np.int64(13)), which are logically valid periods. No current caller is affected -- ema() has no callers yet and docs/Analyse.md pins periods as literal 13/26 -- but worth revisiting once MACD-Histogram/Elder-Ray/Autoenvelope start calling in, in case a period is ever derived from a pandas/numpy computation rather than a literal.",
+        "file": "backend/app/indicators/ema.py",
+        "line": 21
+      }
+    ],
+    "notes": "Re-review from scratch (not a diff-only re-check) of the fix commit f0e02b0 that addresses the maintainer's PR comment ('fix non blocking observations') requesting the two non-blocking items from the first review: leading-NaN handling test, and runtime validation of period as an int. Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 21 passed (up from 18), app/indicators/ema.py still at 100% line+branch coverage. Whole-repo coverage 60.42% (up from 59.86%), still below the 90% gate but not a regression -- entirely pre-existing 0%-covered stub modules for other not-yet-started tasks, same as the first review. No lint/type-check tool configured anywhere in backend/ (still no ruff/mypy/flake8 section or config file) -- nothing to run. Independently re-verified both fixes by direct execution rather than just re-running the given assertions: reproduced the hand-computed leading-NaN test ([NaN,NaN,10,12,15], period=3 -> [NaN,NaN,10.0,11.0,13.0], k=0.5) exactly; confirmed the new TypeError guard correctly rejects float, bool (both True and False), str, and None, while leaving valid int periods (13, 26) producing identical output to before the fix. Re-verified the EMA formula itself against docs/Analyse.md Sec.4 again since it's foundational -- periods (13, 26) and k=2/(period+1) unchanged and correct; the fix touches only validation and tests, not the formula. Both prior non-blocking observations are now genuinely fixed with real tests, not just silenced. Ran the code-review skill (medium effort) against the branch diff vs main: it surfaced two additional non-blocking findings (both independently re-verified by direct execution, see comments) -- an interior-NaN forward-fill behavior distinct from the leading-NaN case this fix targeted, and a numpy-integer-scalar rejection with no current caller. Neither is a correctness bug in currently-exercised behavior, neither regresses what the first review accepted, and neither affects the two specific items the maintainer asked to be fixed. Decisions cross-check: the new decisions entry (recorded_by manual) documents both judgment calls made in the fix (TypeError vs ValueError, explicit bool exclusion) with rationale and rejected alternatives; no checklist item phrased as 'decide X' is left unaddressed. No API route/schema touched; backend/openapi.json correctly unchanged. No new module/dependency/layer; architecture-review doesn't apply. Browser walkthrough N/A -- pure backend indicator function, no UI surface, no frontend consumer yet, noted explicitly rather than skipped silently. Posted as a new PR review comment (COMMENTED type) referencing the maintainer's request; gh pr review --approve was attempted first per the standing fallback process but is blocked (both by GitHub's own self-approval rule, since worker and reviewer share the raino-agent account, and separately by the local auto-mode permission classifier on the first attempt with a placeholder body) -- recording the accepted verdict here per the standing instruction."
+  }
 }

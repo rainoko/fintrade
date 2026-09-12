@@ -3,16 +3,43 @@
   "title": "Indicator: MACD-Histogram",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["indicator-ema"],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "MACD-Histogram (12, 26, 9). Drives the Screen 1 tide slope and the Impulse gate.",
   "consumed_by": ["screen1-tide", "impulse-system"],
   "checklist": [
-    { "step": "Confirm fast/slow/signal periods (12, 26, 9) against docs/Analyse.md §4", "done": false },
-    { "step": "Implement app/indicators/macd.py: pure function returning the histogram series (MACD line minus signal line)", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_macd.py", "done": false },
-    { "step": "Confirm slope detection (rising/falling/flat) needed by screen1-tide is derivable from this output without duplicating logic", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Confirm fast/slow/signal periods (12, 26, 9) against docs/Analyse.md §4", "done": true },
+    { "step": "Implement app/indicators/macd.py: pure function returning the histogram series (MACD line minus signal line)", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_macd.py", "done": true },
+    { "step": "Confirm slope detection (rising/falling/flat) needed by screen1-tide is derivable from this output without duplicating logic", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "app/indicators/macd.py reuses app.indicators.ema.ema for all three EMAs involved (fast=12, slow=26 on price; signal=9 on the MACD line itself), rather than hand-rolling a separate EMA recursion inside macd.py. macd_histogram() returns the raw histogram Series only -- it does not itself classify rising/falling/flat; that classification (needed by Screen 1 tide and the Impulse gate) is left to the screen1-tide/impulse-system tasks, which can derive it via a simple diff()/threshold over this output without needing any new logic duplicated here.",
+      "rationale": "docs/Analyse.md §2/§3/§4 pin the three periods (12, 26, 9) and that MACD-Histogram = MACD line - signal line, and that its *slope* (not its raw value) is what drives the tide/impulse decisions, but the doc doesn't say where the rising/falling/flat threshold lives. Reusing ema() (already reference-tested and merged) avoids reimplementing the same EMA recursion three times with the risk of subtly diverging from the already-verified implementation -- 12/26/9 are just parameters to the same function, exactly as this task's description says. Kept macd.py returning only the raw histogram Series, not a slope classification, because 'flat' requires a threshold call (how small a slope counts as flat/ambiguous per Analyse.md §2's 'reduces confidence, does not block signal' language) that is a signal-engine-level policy decision, not an indicator-math one -- bundling it into the indicator module would force this task to invent a threshold the docs don't specify and would duplicate that decision once screen1-tide's own classification is written. Rejected computing histogram = EMA(fast) - EMA(slow) - EMA(EMA(fast)-EMA(slow), signal) via a single hand-rolled loop as an alternative to composing ema() three times: no accuracy or clarity benefit, and it would have reintroduced the same warm-up-seeding question ema.py already resolved."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-macd-histogram",
+    "pr_number": 6,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/6",
+    "pushed_at": "2026-09-12T14:57:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T15:20:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/6",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: app/indicators/ema.py's docstring (periods '13, 26' and consumers list) is now stale -- this PR has macd_histogram() calling ema() with fast=12 and signal=9 as well, neither mentioned. ema.py isn't touched by this diff so out of scope here; worth a one-line docstring update next time that file is touched.",
+        "file": "backend/app/indicators/ema.py",
+        "line": 5
+      }
+    ],
+    "notes": "Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 33 passed, app/indicators/macd.py at 100% line coverage. Baseline (worktree at base commit e183428): 66.43% (29 passed) vs 67.83% on this branch -- no regression; remaining shortfall below the 90% gate is entirely pre-existing 0%-covered stub modules for other not-yet-started tasks, same precedent as PR #3. No ruff/mypy/flake8 config anywhere in backend/ -- nothing configured to run. Ran the code-review skill (medium effort) against the diff: no correctness or reuse/simplification/efficiency issues in the diff itself; one non-blocking finding in the adjacent unchanged ema.py docstring (recorded above). Independently re-verified the MACD math with a hand-rolled pure-Python EMA recursion, fully independent of both pandas.ewm and the test file's own composition of ema() -- exact match (0.0 max diff) against the implementation for both the custom-period hand-computed test (fast=2/slow=4/signal=3) and the default 12/26/9 composition over a 30-point series. Confirmed EMA reuse is genuinely wired (not just asserted or claimed in the decision record): macd.py imports app.indicators.ema.ema and calls it three times (ema(close, fast), ema(close, slow), ema(macd_line, signal)) with no separate/hand-rolled EMA recursion -- verified by reading the source directly and cross-checked numerically (a silent reimplementation with different seeding would have diverged from my independent recompute, and did not). Periods (12, 26, 9) and the MACD/signal/histogram construction re-checked against docs/Analyse.md Sec.2-4 directly given this indicator's foundational role (feeds screen1-tide and impulse-system), even though area (backend/indicators) and skill (add-indicator) don't trigger the formal verify-elder-signal routing rule; no discrepancy found. No new module/dependency/layer (fills an existing stub, reuses the existing ema.py) -- architecture-review doesn't apply. No API route/schema touched; backend/openapi.json correctly unchanged. No UI surface -- browser walkthrough explicitly not applicable (pure backend indicator function, no frontend consumer yet), noted rather than silently skipped. Decisions cross-check: checklist item 4 ('confirm slope detection needed by screen1-tide is derivable from this output without duplicating logic') is a decide-X-shaped item and has a corresponding decisions entry (raw histogram only, no slope classification bundled in, with rationale); no gap. index.json's mirror entry and this file's own state agree. Posted as a PR review comment (COMMENTED type); gh pr review --approve was attempted first per the standing fallback process but was blocked by the local auto-mode permission classifier (external-system-write denial on a placeholder-body approve attempt) as well as GitHub's own self-approval rule (worker and reviewer share the raino-agent account) -- recording the accepted verdict here per the standing instruction. Not merging, per standing instructions."
+  }
 }
