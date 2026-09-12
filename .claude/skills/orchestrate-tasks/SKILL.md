@@ -25,19 +25,26 @@ Repeat until no more progress is possible:
    b. Any other task already `"implementing"` or `"testing"` — resume it (matches `next-task`'s priority rule).
    c. Otherwise, the top-ranked `"planned"` task whose `depends_on` are all `"done"` (same ranking `next-task` uses: unblocks count, then area continuity, then checklist size). Either dispatch the `next-task` agent to pick this, or compute it yourself the same way.
 2. If nothing matches any of the above, the loop ends — go to **Stopping**.
-3. **Dispatch `task-worker`** for the chosen task id. Give it the task id, and the exact commit-trailer and PR-footer attribution lines from your own session context — it must not invent its own. Wait for it to finish.
+3. **Dispatch `task-worker`** for the chosen task id. Git identity and commit signing are already configured globally (`raino-agent`, SSH-signed), so no attribution lines need passing through. Wait for it to finish.
 4. Re-read the task's JSON. If `state == "waiting_input"`, log the `questions` entry and go back to step 1 — do not stop the loop for a waiting-input task, and do not try to answer the question yourself.
 5. If `state == "testing"` (a PR was opened), **dispatch `pr-reviewer`** for that task id + PR number. Wait for it to finish.
 6. Re-read the task's JSON:
-   - `state == "done"` → task complete, go back to step 1.
    - `state == "implementing"` with `review.verdict == "needs_work"` → this is a retry. Track a per-task retry count yourself (not written to the task file). Under 3 rounds: go back to step 1 (priority rule `a` picks this task up again). At 3 rounds of `needs_work` without resolution: don't keep spinning — append a `questions` entry summarizing the unresolved review feedback, set `state` to `"waiting_input"`, mirror `index.json`, and move on.
+   - `state == "done"` (`pr-reviewer` accepted it) → **dispatch `pr-decision`** for that task id + PR number to independently double-check the accept before anyone merges. Wait for it to finish, then re-read the task's JSON again:
+     - It reported `decision: merge` (task JSON unchanged, still `state: "done"`) → this PR is genuinely ready. Report it to the user as ready-to-merge and move on to step 1 — merging itself is a decision this skill does not make, see below.
+     - It reported `decision: more_work` (task JSON now back to `state: "implementing"`, `review.verdict: "needs_work"`) → treat this exactly like a `needs_work` retry above (same 3-round cap, counting rounds across both `pr-reviewer` and `pr-decision` overrides). Go back to step 1.
+
+## Merging is always the user's call
+
+Neither `task-worker`, `pr-reviewer`, `pr-decision`, nor this skill ever runs `gh pr merge`. `main`'s branch ruleset needs 0 approving reviews to merge and GitHub blocks self-approval (the worker/reviewer/decision agents all share the `raino-agent` account) — so no chain of automated agents here can constitute genuine independent review; the only real check possible is a human one. `pr-decision` exists to make that human check fast (it's already double-verified, not just single-reviewed) — not to replace it.
 
 ## Stopping
 
-End the loop when every task is `"done"` or `"waiting_input"` (or `"planned"` with dependencies that can never become ready because an upstream task is `"waiting_input"`). Report a summary: tasks completed this run (with PR links), tasks waiting on input (with their open questions, so the user can answer them and resume with a fresh run), and anything left `"planned"` and why.
+End the loop when every task is `"done"` (merge-ready, awaiting the user) or `"waiting_input"` (or `"planned"` with dependencies that can never become ready because an upstream task is `"waiting_input"`). Report a summary: tasks completed and merge-ready this run (with PR links), tasks waiting on input (with their open questions, so the user can answer them and resume with a fresh run), and anything left `"planned"` and why.
 
 ## What this skill never does
 
-- Never pushes to `main` or merges a PR — `task-worker` opens PRs, `pr-reviewer` approves or requests changes, merging is left to the user.
+- Never pushes to `main` or merges a PR, under any agent, including this skill's own orchestrator role — see **Merging is always the user's call** above.
+- Never merges off a single review — always requires `pr-decision`'s independent confirmation first, even though the actual merge command still isn't run by anyone in this pipeline.
 - Never answers a `questions` entry itself — that's the point of recording it instead of guessing.
 - Never retries a `needs_work` task forever — the 3-round cap turns a stuck task into a `waiting_input` one instead.

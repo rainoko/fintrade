@@ -75,10 +75,10 @@ To decide what to work on next, use the `next-task` agent rather than eyeballing
 
 ## Autonomous pipeline (orchestrator → worker → reviewer)
 
-The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task-worker` (implements one task on its own branch, pushes, opens a PR) and `pr-reviewer` (checks out that PR, reviews it, approves or requests changes) in a loop, moving to the next ready task without waiting on a human at each step.
+The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task-worker` (implements one task on its own branch, pushes, opens a PR), `pr-reviewer` (checks out that PR, reviews it, approves or requests changes), and — once `pr-reviewer` accepts — `pr-decision` (independently re-verifies the accept before anyone merges) in a loop, moving to the next ready task without waiting on a human at each step.
 
 - **Branch naming**: `task/<task-id>`, always cut from the latest `main`.
-- **No auto-merge**: `pr-reviewer` approves or requests changes on a PR; it never runs `gh pr merge`. Merging into `main` stays a human action.
+- **No auto-merge**: `pr-reviewer` reviews and comments on a PR; it never runs `gh pr merge`. `main`'s branch ruleset needs 0 approving reviews to merge and GitHub blocks self-approval (the worker and reviewer share one `gh` account), so an automated merge here would mean code reaching `main` with no independent review at all — merging stays a human action for that reason, not just as a style choice.
 - **Ambiguity, not interruption**: an ordinary judgment call becomes a `decisions` entry and work continues (above). Something only the user can actually decide becomes a `questions` entry and the task moves to `waiting_input` instead of stopping the whole run (above).
 - **The one thing that does stop the loop**: an infrastructure blocker that would fail every task the same way — most likely no GitHub push/PR access. `orchestrate-tasks` checks for this once before starting and asks the user, rather than letting every dispatched worker discover the same problem independently.
 
@@ -90,7 +90,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - `test-90` — actively close coverage gaps (the write-tests counterpart to `check-coverage`).
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
 - `architecture-review` — review code structure against `docs/Architecture.md` and its sub-docs.
-- `orchestrate-tasks` — run the whole task board autonomously: dispatch `task-worker` and `pr-reviewer` in a loop (branch → PR → review) until the board is done or genuinely waiting on user input.
+- `orchestrate-tasks` — run the whole task board autonomously: dispatch `task-worker`, `pr-reviewer`, and `pr-decision` in a loop (branch → PR → review → independent double-check) until the board is done or genuinely waiting on user input.
 
 ## Agents (`.claude/agents/`)
 
@@ -100,6 +100,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - `task-qa-reviewer` — verifies a task by running static analysis, the test suite, and (for UI-facing work) an actual browser walkthrough; writes its findings into that task's JSON file. Run this before flipping a task to `done`.
 - `task-worker` — implements one task end to end on branch `task/<id>` and opens a PR; records genuine ambiguities as a `questions` entry + `waiting_input` state instead of asking interactively. Used by `orchestrate-tasks`.
 - `pr-reviewer` — checks out a task's PR and gives it a full review (tests/coverage, code quality, methodology/architecture conformance as relevant); marks it accepted or needs work. Never merges. Used by `orchestrate-tasks`.
+- `pr-decision` — given a `pr-reviewer`-accepted PR, independently re-verifies the accept (re-runs tests, skims the diff itself) before anyone merges; either confirms it or overrides to needs-more-work via a PR comment. Never merges. Used by `orchestrate-tasks`.
 
 ## API documentation standard
 
