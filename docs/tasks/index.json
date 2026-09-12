@@ -19,7 +19,7 @@
     { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "signal-engine-orchestration", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
-    { "id": "portfolio-domain-models", "area": "backend/portfolio", "skill": null, "state": "implementing" },
+    { "id": "portfolio-domain-models", "area": "backend/portfolio", "skill": null, "state": "done" },
     { "id": "portfolio-risk-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "portfolio-exit-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
