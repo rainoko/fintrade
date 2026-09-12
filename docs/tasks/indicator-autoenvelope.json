@@ -3,7 +3,7 @@
   "title": "Indicator: Autoenvelope (channel)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["indicator-ema"],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Moving-average envelope (upper/lower bands) around EMA(13), used for profit-target zones and the exit rule 'price reaches upper band with Impulse Red'.",
@@ -27,5 +27,23 @@
     "pr_number": 14,
     "pr_url": "https://github.com/rainoko/fintrade/pull/14",
     "pushed_at": "2026-09-12T18:54:34Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T19:00:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/14",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking robustness note: `pct_deviation = (close - mid).abs() / mid` is an unguarded division by `mid`. A zero/near-zero EMA value (e.g. a data-provider gap filling `close` with 0.0) would silently produce inf/NaN that propagates through the rolling mean into `upper`/`lower` for the following `deviation_lookback` bars rather than raising. Low likelihood for real equity data, no consumer exists yet to exercise it (not wired into `portfolio-exit-rules` yet), and no sibling indicator (ema.py, macd.py, force_index.py) guards against degenerate zero-price input either. Flagged for whoever implements `portfolio-exit-rules`, not a blocker.",
+        "file": "backend/app/indicators/autoenvelope.py",
+        "line": 43
+      },
+      {
+        "summary": "Non-blocking methodology note on the decision record: the chosen band width (exactly 1x trailing mean absolute % deviation, no multiplier) is a literal, faithful implementation of Analyse.md §4's stated formula ('EMA 13 ± avg % deviation'), and the checklist item correctly scoped this decision to window/rolling/symmetry/basis choices Analyse.md left open, not to second-guessing the formula shape itself. Worth naming anyway: a 1x-mean-absolute-deviation band is narrower than the '~90-95% of recent closes contained' envelope-sizing convention Elder actually describes in the source book, so price may touch/exceed the upper band more often than a rare 'overextension' signal implies. Not a gap in this task's decision -- flagged as a forward-looking note for `portfolio-exit-rules`, which actually consumes the upper-band-touch exit rule, in case it fires too eagerly in practice.",
+        "file": "docs/tasks/indicator-autoenvelope.json",
+        "line": null
+      }
+    ],
+    "notes": "Checked out task/indicator-autoenvelope (PR #14) fresh. Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 66 passed, app/indicators/autoenvelope.py at 100% line+branch coverage. Whole-repo coverage 74.54%, below the 90% gate but not a regression -- verified by running the identical command against main in a separate git worktree (72.44%, 56 tests), so this branch is +2.1pp over baseline, same accepted not-yet-implemented-stub-modules pattern as prior indicator PRs (e.g. #4). No lint/type-check tool configured in backend/pyproject.toml (no ruff/mypy section) -- nothing to run. Independently re-derived the EMA/pct-deviation/rolling-average/upper-lower reference values via a standalone Python loop (no pandas, not reusing the PR's own test-file arithmetic) for the fixture [10,12,15,14,13,16,18,17], ema_period=3, deviation_lookback=3 -- exact match against every reference value in test_autoenvelope.py. Ran the code-review skill (medium effort) against the diff: one non-blocking finding (unguarded division by mid, see comments above), independently re-verified by reading the line myself. Cross-checked the 'decide X' checklist item's decisions entry against docs/Analyse.md Sec.4/Sec.7 in detail, not a rubber stamp: trailing rolling average (avoids look-ahead, matches architecture's pure-function constraint), 100-day default lookback (reasoned, sensible rejected alternatives), symmetric bands (grounded in Sec.4's literal '+/-' phrasing), close-based deviation (consistent with sibling indicators), NaN warm-up (avoids a statistically meaningless expanding average) -- all well-justified with sensible rejected alternatives, no gaps found; added one non-blocking methodology note (see comments) about the band's real-world tightness relative to Elder's book convention, out of scope for this task's decision but relevant to the future portfolio-exit-rules consumer. Area is backend/indicators (not backend/signals or backend/portfolio) and skill is add-indicator (not verify-elder-signal) -- formal verify-elder-signal invocation not required, math independently checked against Analyse.md regardless (see above). No new module/dependency/layer (delegates to already-reviewed app.indicators.ema.ema) -- architecture-review not required. No API route/schema touched -- backend/openapi.json regeneration N/A. No UI surface -- browser walkthrough explicitly N/A, not silently skipped. gh pr review --approve attempted first, blocked by GitHub's self-approval rule (worker and reviewer share the raino-agent account) -- posted as a COMMENTED-type PR review plus one inline comment instead, per the standing fallback process."
   }
 }
