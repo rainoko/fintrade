@@ -3,7 +3,7 @@
   "title": "Indicator: Stochastic Oscillator",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Stochastic %K/%D (5, 3, 3). Feeds Screen 2 (wave) overbought/oversold timing.",
@@ -35,5 +35,18 @@
     "pr_number": 12,
     "pr_url": "https://github.com/rainoko/fintrade/pull/12",
     "pushed_at": "2026-09-12T18:34:51Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T18:39:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/12",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking (reuse/simplification, from code-review skill): _validate_period's int/bool/range guard in stochastic.py duplicates the identical inline check in app/indicators/ema.py::ema(). force_index.py avoided this by delegating to ema() directly, but stochastic.py can't (it's SMA-, not EMA-, based), so this needs its own follow-up -- e.g. a shared _validate_period-style helper -- once a third indicator (elder_ray, autoenvelope) needs the same guard. Not blocking.",
+        "file": "backend/app/indicators/stochastic.py",
+        "line": 4
+      }
+    ],
+    "notes": "Checked out task/indicator-stochastic fresh (mergeable: MERGEABLE / mergeStateStatus: CLEAN). Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 65 passed, app/indicators/stochastic.py at 100% line+branch coverage (18 stmts/6 branches, 0 missed). Whole-repo coverage 75.08%, still below the 90% gate but not a regression -- verified against main in a separate git worktree (72.44%, 56 tests), so this branch is +2.6pp over baseline, same accepted not-yet-implemented-stub-modules pattern as prior indicator PRs (#3/#4/#6/#10). No lint/type-check tool configured in backend/pyproject.toml (no ruff/mypy section) and no frontend scaffolded yet -- nothing to run. Independently re-derived every reference value by hand from the test fixture (5-bar fast %K, two cascading 3-bar SMA layers for %K then %D) -- exact match with the implementation and with docs/Analyse.md Sec.4's '%K 5, %D 3, smoothing 3' parameters; confirmed this is the textbook slow-Stochastic construction (fast %K -> smoothed %K -> %D), not an invented formula, and that SMA (not EMA) is the correct reading of the doc's 3-parameter listing (an EMA-only reading would collapse to 2 parameters). Independently reproduced the flat-range (HH==LL) 0/0 case with warnings.simplefilter('error') -- pandas silently yields NaN with no RuntimeWarning, confirming the decision entry's claim; NaN is a reasonable, minimally-invasive choice for an edge case Analyse.md doesn't specify. Warm-up NaN propagation independently checked against rolling-window arithmetic (k_period+smooth-1 bars for %K, a further d_period-1 for %D) -- correct, no custom seeding needed unlike EMA. Ran the code-review skill (medium effort) fresh against the diff: one non-blocking duplication finding (above), no correctness bugs. No API route/schema touched -- backend/openapi.json regeneration N/A. No new module/dependency/layer -- architecture-review N/A. Area is backend/indicators (not backend/signals or backend/portfolio) and skill is add-indicator (not verify-elder-signal) -- formal verify-elder-signal invocation not required, math independently checked against docs/Analyse.md Sec.4 regardless. No UI surface (pure backend indicator function, no frontend consumer yet; screen2-wave is a separate not-yet-started consumer task) -- browser walkthrough explicitly N/A. Both decision entries (SMA-vs-EMA construction choice, flat-range NaN handling) have proper decision/rationale/rejected content -- satisfies the decision-memory rule; no checklist item is an undecided 'decide X' left unresolved. Diff scope matches the PR description exactly (stochastic.py, its test file, task/index JSON bookkeeping) -- no scope creep. gh pr review --approve attempted first, blocked by GitHub's self-approval rule (worker and reviewer share the raino-agent account) -- posted as a COMMENTED-type PR review instead with the full findings, per the standing fallback process."
   }
 }
