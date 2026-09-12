@@ -10,6 +10,20 @@
   "checklist": [
     { "step": "Define Position (id, ticker, quantity, avg_cost_basis, entry_date, current_price, unrealized_pnl_pct)", "done": true },
     { "step": "Define Equity (cash, positions_value, total) and Account (equity, positions)", "done": true },
-    { "step": "Add unit tests validating serialization matches the docs/architecture/API.md JSON examples exactly", "done": false }
+    { "step": "Add unit tests validating serialization matches the docs/architecture/API.md JSON examples exactly", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T13:53:07Z",
+      "recorded_by": "task-worker",
+      "decision": "Kept current_price and unrealized_pnl_pct as optional (float | None) on Position rather than requiring them, and added a dedicated test asserting they default to None.",
+      "rationale": "docs/architecture/API.md's GET /api/portfolio example always populates both fields, but POST /api/portfolio/positions only accepts ticker/quantity/avg_cost_basis/entry_date (no price) and the response is documented as 'same shape as in GET /api/portfolio' without guaranteeing a price is already known at creation time. Requiring them non-optional would force a fabricated 0.0/None-as-magic-number value immediately after a manual add, before the next price fetch populates them; Optional matches the pre-existing model and is the least surprising choice given the endpoint contract."
+    },
+    {
+      "timestamp": "2026-09-12T13:53:07Z",
+      "recorded_by": "task-worker",
+      "decision": "Verified the pre-existing Position/Equity/Account models field-by-field against the GET /api/portfolio JSON example in docs/architecture/API.md instead of trusting the already-checked checklist items, per the task instructions; found them correct (field names, types, and nesting all match) so made no code changes to app/portfolio/models.py.",
+      "rationale": "The task explicitly called for re-verification, not blind trust of prior checkmarks. Confirmed via round-trip serialization tests (tests/unit/test_portfolio_models.py) that use the exact JSON dict copied from API.md as both the expected serialization output and a deserialization input, so any future field/type drift between the model and the documented contract fails the test rather than silently passing."
+    }
   ]
 }
