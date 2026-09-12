@@ -3,16 +3,30 @@
   "title": "Portfolio risk rules (2% / 6%)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
   "description": "protective_stop(), position_risk_pct(), total_open_risk_pct() in app/portfolio/risk.py: SafeZone-style protective stop, the 2% per-trade rule, and the 6% total-open-risk rule.",
   "checklist": [
-    { "step": "Implement protective_stop(): recent swing low minus a volatility buffer (average downside penetration of a short EMA)", "done": false },
-    { "step": "Implement position_risk_pct(): position size x distance-to-stop as a fraction of current account equity", "done": false },
-    { "step": "Implement total_open_risk_pct(): sum of position_risk_pct across all positions", "done": false },
-    { "step": "Confirm both rules use CURRENT equity/position size, not values frozen at entry time (verify-elder-signal checklist §Portfolio Risk Overlay)", "done": false },
-    { "step": "Write unit tests against known position/equity scenarios, including a deliberately oversized position and a 6%-breaching portfolio", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Implement protective_stop(): recent swing low minus a volatility buffer (average downside penetration of a short EMA)", "done": true },
+    { "step": "Implement position_risk_pct(): position size x distance-to-stop as a fraction of current account equity", "done": true },
+    { "step": "Implement total_open_risk_pct(): sum of position_risk_pct across all positions", "done": true },
+    { "step": "Confirm both rules use CURRENT equity/position size, not values frozen at entry time (verify-elder-signal checklist §Portfolio Risk Overlay)", "done": true },
+    { "step": "Write unit tests against known position/equity scenarios, including a deliberately oversized position and a 6%-breaching portfolio", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-risk-rules)",
+      "decision": "protective_stop() uses a 10-trading-day lookback for both the swing low and the volatility-buffer averaging window, and reuses EMA(13) (the app's existing standard trend EMA, per Analyse.md §4) as the 'short EMA' referenced by §7, rather than introducing a new period. Downside penetration on a given day is max(EMA13 - low, 0) (0 on days the low didn't dip below the EMA), averaged over the same 10-day window; protective_stop = swing_low - that average.",
+      "rationale": "Analyse.md §7 specifies the SafeZone-style concept ('recent swing low minus a volatility buffer, average downside penetration of a short EMA over the last N days') but deliberately leaves N and the EMA period unpinned. 10 trading days (~2 weeks) matches the doc's own 'recent'/short-term framing without inventing an unrelated parameter set. Reusing EMA(13) keeps a single canonical 'short EMA' across Impulse/Elder-Ray/Autoenvelope/protective-stop instead of a second EMA period whose meaning would need separate justification. Rejected: classic SafeZone's own convention (average of consecutive-day downside penetrations of the low itself, per Elder's book) -- Analyse.md's §7 wording explicitly ties the penetration to 'a short EMA', not day-over-day lows, so implementing the book's literal version would contradict this project's own doc rather than fill a gap in it."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-risk-rules)",
+      "decision": "position_risk_pct() requires position.current_price to be set (raises ValueError if None) rather than falling back to avg_cost_basis, and floors distance-to-stop at 0 (never negative) when current_price has already fallen below the stop. total_open_risk_pct()'s `stops` dict is keyed by position.id, not ticker, and a position missing from `stops` is skipped rather than treated as zero risk.",
+      "rationale": "The checklist explicitly requires using CURRENT equity/position values, not values frozen at entry -- falling back to avg_cost_basis when current_price is unknown would silently reintroduce an entry-time value into a 'current' risk calculation, so raising is safer than guessing. Flooring at 0 keeps total_open_risk_pct() from being reduced by a position that has already blown through its stop (that position's forward risk to that specific stop level is spent, not negative; the stop-hit condition itself is exits.py's job, not risk.py's). id is used as the stops dict key (instead of ticker) because Position models an id-identified lot -- a portfolio could hold more than one lot of the same ticker -- and ticker collision would silently overwrite one lot's stop with another's."
+    }
   ]
 }
