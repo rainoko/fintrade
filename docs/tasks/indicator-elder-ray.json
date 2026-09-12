@@ -3,7 +3,7 @@
   "title": "Indicator: Elder-Ray (Bull/Bear Power)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["indicator-ema"],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Bull Power = High - EMA(13); Bear Power = Low - EMA(13). Feeds the Elder-Ray confirmation confidence component.",
@@ -19,5 +19,18 @@
     "pr_number": 13,
     "pr_url": "https://github.com/rainoko/fintrade/pull/13",
     "pushed_at": "2026-09-12T18:43:32Z"
-  }
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T18:49:33Z",
+    "reviewed_by": "pr-reviewer",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Minor: the same-index alignment guard (if not X.index.equals(Y.index): raise ValueError(...)) is now duplicated verbatim across bull_power, bear_power, and force_index's close/volume check. Not blocking — worth factoring into a shared helper (e.g. app/indicators/_validation.py::require_aligned_index) at some point.",
+        "file": "backend/app/indicators/elder_ray.py",
+        "line": 18
+      }
+    ]
+  },
+  "notes": "pytest --cov=app --cov-report=term-missing: 62 passed; app/indicators/elder_ray.py at 100% line+branch coverage. Whole-repo coverage (74.69%) stays below the 90% gate but is entirely pre-existing 0%-covered stub modules unrelated to this change, not a regression. No ruff/mypy configured in backend/pyproject.toml or installed, so no lint to run. code-review skill found no correctness bugs, one minor duplication nit (see review.comments). Hand-verified Bull Power = High - EMA(13) / Bear Power = Low - EMA(13) against docs/Analyse.md §4 across both a fixed-array case and a real-EMA(period=3) integration case -- all values match. Confirmed via git log/git show that the caller-supplied-EMA signature predates this PR (stub committed in c30ddb0), so reusing it wasn't a new judgment call; index-alignment validation directly reuses the force_index precedent. No decisions entry needed -- checklist had no \"decide X\" item and no new ambiguity was resolved here. No API route/schema touched, openapi.json correctly untouched. No UI surface -- browser walkthrough not applicable. Posted as PR review (gh pr review --comment; self-approve correctly rejected by GitHub as expected)."
 }
