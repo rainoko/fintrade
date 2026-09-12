@@ -15,6 +15,7 @@ You're given a task id and its `git.pr_number` (or PR URL).
 
 - Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation — a bare `source` in one call has no effect on the next. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
 - If a frontend exists and you need it running for a browser walkthrough, start its dev server per the `run` skill or `docs/architecture/Frontend.md`, and use the Playwright tools against it — don't skip the walkthrough just because it's more steps.
+- Git identity and commit signing are already configured globally (`raino-agent`, SSH-signed) — commit your task-JSON updates normally, no attribution trailer needed.
 
 ## What you do
 
@@ -31,14 +32,13 @@ You're given a task id and its `git.pr_number` (or PR URL).
 
 ## Verdict
 
-- **Accepted** — no blocking findings (correctness bugs, coverage regressions, methodology/architecture violations, stale OpenAPI snapshot, missing decision records). Minor/nit-level findings alone don't block. Post the summary as a PR review comment: try `gh pr review --approve` first, but expect it to fail with "Can not approve your own pull request" — the worker and reviewer both act as the same authenticated `gh` account, so GitHub blocks a real approve. When that happens, fall back to `gh pr review --comment` (a `COMMENTED`-type review) with the full findings as the body; that's expected, not an error to chase. The task JSON's `review.verdict: "accepted"` is the authoritative record of acceptance regardless of which review type GitHub actually let you post. Set the task's `review` field (`reviewed_at`, `pr_url`, `verdict: "accepted"`, `comments` — empty list if none, `notes`), set task `state` to `"done"`, mirror `index.json`. **Never merge** — merging is left to the user.
-- **Needs work** — any blocking finding. Post the findings as PR comments — inline via `gh pr comment`/`gh api` where you can cite file:line, otherwise a structured summary comment — then `gh pr review --request-changes` with that summary. Set `review.verdict: "needs_work"` with the findings in `comments` (each with `summary`, `file`, `line` where applicable), set task `state` back to `"implementing"` so the orchestrator re-dispatches a worker, mirror `index.json`.
-- **Either way**, commit and push your task-JSON edits (`docs/tasks/<id>.json` and `docs/tasks/index.json`) to the PR's own branch, using the same commit-trailer attribution convention `task-worker` uses — don't leave the review record sitting uncommitted in the working tree.
+- **Accepted** — no blocking findings (correctness bugs, coverage regressions, methodology/architecture violations, stale OpenAPI snapshot, missing decision records). Minor/nit-level findings alone don't block. Post the summary as a PR review: try `gh pr review --approve` first, but expect it to fail with "Can not approve your own pull request" — the worker and reviewer both act as the same authenticated `gh` account, so GitHub blocks a real approve. When that happens, fall back to `gh pr review --comment` (a `COMMENTED`-type review) with the full findings as the body; that's expected, not an error to chase. Commit and push your task-JSON edits (`docs/tasks/<id>.json` and `docs/tasks/index.json`: `review.verdict: "accepted"`, `comments`, `notes`, task `state: "done"`) to the PR's own branch. **Do not merge** — merging needs a human decision (see below).
+- **Needs work** — any blocking finding. Post the findings as PR comments — inline via `gh pr comment`/`gh api` where you can cite file:line, otherwise a structured summary comment — then `gh pr review --request-changes` with that summary. Set `review.verdict: "needs_work"` with the findings in `comments` (each with `summary`, `file`, `line` where applicable), set task `state` back to `"implementing"` so the orchestrator re-dispatches a worker, mirror `index.json`, commit and push to the PR branch. **Do not merge.**
 
 ## What you never do
 
 - Never edit application source code — findings go into PR comments and the task JSON, not into a fix.
-- Never merge a PR, even an approved one.
+- Never merge a PR, ever, regardless of verdict. `main`'s branch ruleset requires 0 approving reviews and this account can't approve its own PR anyway, so a merge here would mean code reaching `main` with no independent review at all — that decision belongs to a human, not to you. Leave merging to whoever dispatched you.
 - Never approve based on "looks reasonable" without actually running the tests, the linter, and the `code-review` skill — and the browser walkthrough for anything UI-facing.
 - Never skip the browser walkthrough for UI-facing work just because the unit tests and lint pass — that combination passing with a broken UI is exactly the gap this step exists to catch.
 

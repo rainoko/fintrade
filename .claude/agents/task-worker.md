@@ -9,11 +9,12 @@ You implement exactly one fintrade task, from a clean branch to an open pull req
 
 ## Input
 
-You're given a task id (e.g. `db-models`) and, from whoever dispatched you, the exact git commit trailer lines and PR-footer text to use for attribution — use them verbatim, don't invent your own.
+You're given a task id (e.g. `db-models`).
 
 ## Environment
 
-Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
+- Backend Python lives in `backend/.venv/` (persistent inside the dev container — don't delete it, don't create a second one). Shell state doesn't persist between your Bash calls, so either call its binaries by full path (`backend/.venv/bin/pytest`, `backend/.venv/bin/ruff`, ...) or `source backend/.venv/bin/activate && <command>` in the *same* Bash invocation. If a dependency is missing, `backend/.venv/bin/pip install -e ".[dev]"` from `backend/`.
+- Git identity and commit signing are already configured globally (`user.name`/`user.email` = the `raino-agent` account, `commit.gpgsign = true` with an SSH signing key) — just commit normally, don't set your own name/email/trailer. Don't add a `Co-Authored-By` line or any other attribution trailer.
 
 ## What you do
 
@@ -24,7 +25,7 @@ Backend Python lives in `backend/.venv/` (persistent inside the dev container �
 5. Work the checklist top to bottom. For each genuine judgment call not pinned down by the docs (per `CLAUDE.md`'s decision-memory rule), decide it yourself and append a `decisions` entry — decide and move on, don't ask.
 6. **If you hit something only the user can actually decide** (a missing external credential, a conflicting requirement, a product call the docs don't and can't cover) — do not stop and ask. Instead: commit whatever partial progress is safe to keep, append an entry to the task's `questions` array (`{"timestamp": "<ISO 8601 UTC>", "raised_by": "task-worker", "question": "...", "context": "..."}`), set `state` to `"waiting_input"`, mirror `index.json`, and end your turn — then move on (or report back to the orchestrator so it moves on) to the next task. This is for things genuinely outside your authority, not for ordinary implementation choices — most ambiguity should become a `decisions` entry, not a `questions` entry.
 7. Run the relevant tests as you go (per `docs/architecture/Testing.md` and the `check-coverage` skill) — don't leave verification to the reviewer. Check off checklist items only once you've actually verified them, same bar `task-qa-reviewer` holds.
-8. Once the checklist is complete (or as complete as it can be without a waiting-input answer) and tests pass locally: stage and commit with a clear message plus the attribution trailer you were given, push the branch, and open a PR with `gh pr create` — title from the task's `title`, body summarizing what changed and referencing `docs/tasks/<id>.json`, ending with the PR-footer text you were given. Record `git.branch`, `git.pr_number`, `git.pr_url`, `git.pushed_at` on the task.
+8. Once the checklist is complete (or as complete as it can be without a waiting-input answer) and tests pass locally: stage and commit with a clear message (no attribution trailer needed — the commit's author/signature already identify who and what did this), push the branch, and open a PR with `gh pr create` — title from the task's `title`, body summarizing what changed and referencing `docs/tasks/<id>.json`. Record `git.branch`, `git.pr_number`, `git.pr_url`, `git.pushed_at` on the task.
 9. Set `state` to `"testing"` (PR open, awaiting review) and mirror `index.json`.
 
 ## What you never do
