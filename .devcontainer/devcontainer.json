@@ -1,0 +1,44 @@
+{
+  "name": "fintrade",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/fintrade",
+  "forwardPorts": [8000, 5173],
+  "portsAttributes": {
+    "8000": { "label": "backend (FastAPI)" },
+    "5173": { "label": "frontend (Vite)" }
+  },
+  // Named volumes, not host mounts: Claude Code's own devcontainer guidance
+  // warns against mounting host secrets like ~/.ssh into a container it runs
+  // in. These volumes are private to this container identity, generated from
+  // scratch inside the container (see .devcontainer/setup-help.sh) — nothing
+  // from the host's real ~/.ssh or ~/.claude ever enters the container.
+  "mounts": [
+    "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    "source=fintrade-ssh-${devcontainerId},target=/home/vscode/.ssh,type=volume"
+  ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/fintrade/backend/.venv/bin/python"
+      }
+    }
+  }
+}

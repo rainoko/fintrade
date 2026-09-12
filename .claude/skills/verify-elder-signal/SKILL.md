@@ -40,6 +40,11 @@ Read `docs/Analyse.md` and the code under review side by side, and confirm:
 
 - If the **code** diverges from Analyse.md without a documented reason: flag it as a bug, fix the code (or raise it to the user if the divergence looks intentional but undocumented).
 - If the **doc** is stale relative to a deliberate, reasoned code change: update `docs/Analyse.md` in the same change rather than leaving the two out of sync — don't fix one side silently while leaving the other wrong.
+- Before calling a divergence "deliberate," check the corresponding task's `decisions` array in `docs/tasks/<id>.json` (see `CLAUDE.md`'s Decision memory section). A deliberate choice with no `decisions` entry is itself a gap — the code may be right, but the reasoning is undocumented and unreviewable by the next person. Ask for it to be recorded rather than assuming it's fine.
+
+## Recording a decision (when used during implementation, not just review)
+
+Several checklist items in `docs/tasks/` explicitly can't be resolved from Analyse.md alone — e.g. `indicator-autoenvelope`'s envelope-width formula, or `screen3-trigger`'s intraday-vs-EOD approximation. If you're using this skill's checklist to *implement* one of these rather than only review it, append an entry to that task's `decisions` array (`decision` + `rationale`) once you resolve the ambiguity. Don't leave the resolution implicit in the code for a future reviewer to reverse-engineer.
 
 ## Output
 

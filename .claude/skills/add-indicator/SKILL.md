@@ -19,7 +19,9 @@ Backend indicator work follows `docs/architecture/Backend.md` §4 and the covera
 
 5. **Update docs if behavior changed.** If parameters or the indicator's role changed, update `docs/Analyse.md` §4 and, if it affects the API response shape, `docs/architecture/API.md`'s `indicators`/`confidence_breakdown` example.
 
-6. **Run coverage before finishing.** Use the `check-coverage` skill (or `pytest --cov=app --cov-report=term-missing --cov-fail-under=90`) to confirm the new code doesn't drop the backend below 90%.
+6. **Record any judgment call.** If step 1 or step 2 required resolving something Analyse.md doesn't fully pin down (a rounding/edge-case choice, how to handle the warm-up period before an EMA has enough bars, a case where a library-style formula and Elder's book definition could both be read as "the" definition), append an entry to this task's `decisions` array in its `docs/tasks/<id>.json` file — `decision` (what you chose) and `rationale` (why, and what you rejected). Skip this step if nothing was actually ambiguous; don't manufacture a decision entry for a straightforward implementation.
+
+7. **Run coverage before finishing.** Use the `check-coverage` skill (or `pytest --cov=app --cov-report=term-missing --cov-fail-under=90`) to confirm the new code doesn't drop the backend below 90%.
 
 ## Common Mistakes to Avoid
 

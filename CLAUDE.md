@@ -11,6 +11,13 @@ Stock/portfolio analysis app that signals BUY/SELL/HOLD with a confidence percen
 - `frontend/` — TypeScript/React frontend (not yet scaffolded).
 - `.claude/skills/` — repeatable workflows (see below).
 - `.claude/agents/` — task-scoped subagents (see below).
+- `.devcontainer/` — the dev container all development happens in (see below).
+
+## Dev container
+
+Development happens inside `.devcontainer/` — it provisions Python 3.12, Node 22, git, the GitHub CLI, and Claude Code itself, so there's nothing to install on the host beyond a Dev Containers-capable editor. `.devcontainer/post-create.sh` runs once per container creation: it builds the backend venv and runs `.devcontainer/setup-help.sh` (re-runnable as `fintrade-help`), which prints setup steps for the GitHub MCP server and an SSH authentication key, and **automatically applies the git commit-signing config** (`gpg.format`, `user.signingkey`, `commit.gpgsign`, `allowed_signers`) as soon as a key exists — only the parts that need a human decision (generating the key, registering it on GitHub) stay manual.
+
+The container generates and keeps its own SSH key in a private named volume (`fintrade-ssh-${devcontainerId}`) rather than mounting the host's real `~/.ssh` — Claude Code's own dev container guidance warns against mounting host secrets into a container it operates in, since a compromised container could exfiltrate them. If you ever add a mount or credential to `.devcontainer/devcontainer.json`, apply the same rule: container-scoped and revocable, never a bind-mount of a host secret.
 
 ## Task board (`docs/tasks/`)
 
@@ -27,6 +34,9 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
   "references": ["docs/Analyse.md#section"],
   "description": "...",
   "checklist": [{ "step": "...", "done": false }],
+  "decisions": [
+    { "timestamp": "ISO 8601 timestamp", "recorded_by": "skill/agent name, or 'manual'", "decision": "what was decided", "rationale": "why, including any alternative considered and rejected" }
+  ],
   "test": {
     "reviewed_at": "ISO 8601 timestamp",
     "method": ["static_analysis", "unit_tests", "browser_walkthrough"],
@@ -36,7 +46,13 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
 }
 ```
 
-`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). The `test` object is written by the `task-qa-reviewer` agent (see below); it's absent until a task has been reviewed.
+`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). `test` is written by the `task-qa-reviewer` agent (see below); it's absent until a task has been reviewed. `decisions` is absent until at least one has been recorded.
+
+### Decision memory (`decisions`)
+
+Whoever works a task — human or agent — makes judgment calls that aren't fully pinned down by `docs/Analyse.md` or `docs/architecture/*.md`: which of several valid technical approaches to use, how to interpret an ambiguous parameter, how to resolve a checklist item phrased as "decide X" (e.g. the duplicate-ticker behavior flagged in `api-portfolio-add-position`). **Record these in the task's own `decisions` array as they're made** — not only in a code comment or a chat reply, both of which are invisible to the next session or agent that picks the task back up. A decision entry needs `decision` (what) and `rationale` (why, including what you rejected and why) to be useful; a bare "changed X" isn't a decision record.
+
+This is enforced by the `add-indicator`, `add-api-endpoint`, and `verify-elder-signal` skills (which write entries), and checked by `next-task` (which surfaces existing entries when resuming in-progress work) and `task-qa-reviewer` (which flags an undocumented decision as a gap).
 
 **`docs/tasks/index.json`'s per-task `state` is a mirror, not a separate source of truth.** Whenever a task file's `state` changes, update `index.json`'s entry for that task in the same change — don't let them drift.
 
@@ -75,4 +91,6 @@ Run `python scripts/export_openapi.py` from `backend/` and commit the updated `b
 
 ## Backend environment notes
 
-Backend `pyproject.toml` pins `requires-python>=3.12` and `pandas>=2.2,<3` (pandas 3.x resolves by default if unpinned; `pandas-ta` is intentionally not a dependency — see `docs/architecture/Backend.md` §1). Virtualenvs (`.venv/`) are ephemeral and gitignored — create one to install/test, remove it when done rather than leaving it in the tree.
+Backend `pyproject.toml` pins `requires-python>=3.12` and `pandas>=2.2,<3` (pandas 3.x resolves by default if unpinned; `pandas-ta` is intentionally not a dependency — see `docs/architecture/Backend.md` §1).
+
+`backend/.venv/` is gitignored either way, but its lifecycle depends on context: **inside the dev container**, it's created once by `.devcontainer/post-create.sh` and is meant to persist for the container's lifetime — don't delete it. **Outside the dev container** (e.g. an ad hoc host-side verification pass, or a sandboxed agent session with no persistent filesystem across turns), treat it as ephemeral — create one to install/test, remove it when done rather than leaving it in the tree.

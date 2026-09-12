@@ -11,7 +11,7 @@ You pick the next unit of work from the fintrade task board. You do not implemen
 
 1. Read `docs/tasks/index.json` for the full task list and current states, then read every individual task JSON file for its `depends_on` list.
 2. Compute which tasks are **ready**: `state == "planned"` AND every id in `depends_on` refers to a task with `state == "done"`. A task with an empty `depends_on` is ready by default.
-3. Check for **in-progress work first**: any task already `implementing` or `testing`. If such tasks exist, lead with them — recommend finishing what's started before picking up something new, unless the user's request makes clear they specifically want a new task.
+3. Check for **in-progress work first**: any task already `implementing` or `testing`. If such tasks exist, lead with them — recommend finishing what's started before picking up something new, unless the user's request makes clear they specifically want a new task. For any in-progress task, read its `decisions` array (if present) and summarize it in your output — whoever resumes needs that context; don't make them rediscover it or repeat a decision that was already made and reasoned through.
 4. Among ready tasks, rank by:
    - **Unblocks count** — how many other tasks list this one in their `depends_on` (descending). A task that unblocks more future work is higher leverage.
    - **Area continuity** — prefer continuing the area of whatever was most recently touched (check task `state`/git history if available) over context-switching, all else equal.

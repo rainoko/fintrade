@@ -9,7 +9,7 @@ The API contract is documented in `docs/architecture/API.md` and is meant to be 
 
 ## Steps
 
-1. **Check `docs/architecture/API.md` first.** If the endpoint or shape you need isn't documented there, decide the shape as part of this change (conventions: ISO 8601 UTC timestamps, floats not strings for money/price, `{"detail": string}` error shape, versionless `/api/...` paths) and update the doc in the same change — don't let API.md drift from what actually ships.
+1. **Check `docs/architecture/API.md` first.** If the endpoint or shape you need isn't documented there, decide the shape as part of this change (conventions: ISO 8601 UTC timestamps, floats not strings for money/price, `{"detail": string}` error shape, versionless `/api/...` paths) and update the doc in the same change — don't let API.md drift from what actually ships. If the task's checklist has an item phrased as "decide X" (e.g. `api-portfolio-add-position`'s duplicate-ticker behavior), resolving it belongs in step 6 below, not silently baked into the handler with no record.
 
 2. **Backend: schema + router.**
    - Define/update the Pydantic request/response models in `app/api/schemas.py`.
@@ -26,7 +26,9 @@ The API contract is documented in `docs/architecture/API.md` and is meant to be 
 
 7. **Frontend: hook/component tests.** If a hook (`useStockAnalysis`, `usePortfolio`) or component consumes the new/changed endpoint, add tests for its happy path and its error/empty states (per `docs/architecture/Testing.md`), not just the happy path.
 
-8. **Run coverage on both sides** before finishing — see the `check-coverage` skill.
+8. **Record any judgment call.** If step 1 required resolving an ambiguous shape/behavior, or you chose one of several valid ways to implement the handler, append an entry to this task's `decisions` array in its `docs/tasks/<id>.json` file — `decision` and `rationale`. A checklist item phrased as "decide X" is not satisfied by code that implicitly picks one behavior; it needs a decision entry saying which and why.
+
+9. **Run coverage on both sides** before finishing — see the `check-coverage` skill.
 
 ## Common Mistakes to Avoid
 
