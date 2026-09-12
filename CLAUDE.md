@@ -29,7 +29,7 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
   "title": "...",
   "area": "backend/indicators",
   "skill": "add-indicator | null",
-  "state": "planned | implementing | testing | done",
+  "state": "planned | implementing | testing | waiting_input | done",
   "depends_on": ["other-task-id"],
   "references": ["docs/Analyse.md#section"],
   "description": "...",
@@ -37,16 +37,27 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
   "decisions": [
     { "timestamp": "ISO 8601 timestamp", "recorded_by": "skill/agent name, or 'manual'", "decision": "what was decided", "rationale": "why, including any alternative considered and rejected" }
   ],
+  "questions": [
+    { "timestamp": "ISO 8601 timestamp", "raised_by": "skill/agent name", "question": "what needs a human decision", "context": "why the worker couldn't resolve this itself" }
+  ],
+  "git": { "branch": "task/kebab-case-id", "pr_number": 12, "pr_url": "...", "pushed_at": "ISO 8601 timestamp" },
   "test": {
     "reviewed_at": "ISO 8601 timestamp",
     "method": ["static_analysis", "unit_tests", "browser_walkthrough"],
     "verdict": "pass | gaps_found",
     "gap_analysis": [{ "summary": "...", "severity": "blocker | major | minor", "evidence": "..." }]
+  },
+  "review": {
+    "reviewed_at": "ISO 8601 timestamp",
+    "pr_url": "...",
+    "verdict": "accepted | needs_work",
+    "comments": [{ "summary": "...", "file": "...", "line": 0 }],
+    "notes": "..."
   }
 }
 ```
 
-`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). `test` is written by the `task-qa-reviewer` agent (see below); it's absent until a task has been reviewed. `decisions` is absent until at least one has been recorded.
+`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). `state: "waiting_input"` means a `questions` entry needs a human decision before the task can resume (see below) — it's distinct from a task simply waiting on `depends_on`. `test` is written by the `task-qa-reviewer` agent (see below); `git` is written by `task-worker` when it pushes a branch and opens a PR; `review` is written by `pr-reviewer` after checking out that PR. All of `test`, `git`, `review`, `decisions`, `questions` are absent until something has actually happened to populate them.
 
 ### Decision memory (`decisions`)
 
@@ -58,6 +69,19 @@ This is enforced by the `add-indicator`, `add-api-endpoint`, and `verify-elder-s
 
 To decide what to work on next, use the `next-task` agent rather than eyeballing the board — it reads the dependency graph and current states for you.
 
+### Blocked tasks and open questions (`questions`)
+
+`decisions` is for judgment calls a worker *can* make itself and just needs to record. `questions` is its counterpart for the rarer case where the call genuinely belongs to the user — a missing external credential, a conflicting requirement, a product decision the docs don't and can't settle. When that happens mid-task, the right move is not to stop and ask interactively: append an entry to the task's `questions` array, set `state` to `"waiting_input"`, mirror `index.json`, and move on to other work. `next-task` surfaces waiting-input tasks and their open questions so a human session can answer them; answering one means editing the task (often adding a `decisions` entry that records the answer) and moving `state` back to `"planned"` or `"implementing"` to resume it. See "Autonomous pipeline" below for how `orchestrate-tasks` uses this to keep working instead of stalling on one task.
+
+## Autonomous pipeline (orchestrator → worker → reviewer)
+
+The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task-worker` (implements one task on its own branch, pushes, opens a PR) and `pr-reviewer` (checks out that PR, reviews it, approves or requests changes) in a loop, moving to the next ready task without waiting on a human at each step.
+
+- **Branch naming**: `task/<task-id>`, always cut from the latest `main`.
+- **No auto-merge**: `pr-reviewer` approves or requests changes on a PR; it never runs `gh pr merge`. Merging into `main` stays a human action.
+- **Ambiguity, not interruption**: an ordinary judgment call becomes a `decisions` entry and work continues (above). Something only the user can actually decide becomes a `questions` entry and the task moves to `waiting_input` instead of stopping the whole run (above).
+- **The one thing that does stop the loop**: an infrastructure blocker that would fail every task the same way — most likely no GitHub push/PR access. `orchestrate-tasks` checks for this once before starting and asks the user, rather than letting every dispatched worker discover the same problem independently.
+
 ## Skills (`.claude/skills/`)
 
 - `add-indicator` — add/change a technical indicator, with hand-computed reference-value tests.
@@ -66,6 +90,7 @@ To decide what to work on next, use the `next-task` agent rather than eyeballing
 - `test-90` — actively close coverage gaps (the write-tests counterpart to `check-coverage`).
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
 - `architecture-review` — review code structure against `docs/Architecture.md` and its sub-docs.
+- `orchestrate-tasks` — run the whole task board autonomously: dispatch `task-worker` and `pr-reviewer` in a loop (branch → PR → review) until the board is done or genuinely waiting on user input.
 
 ## Agents (`.claude/agents/`)
 
@@ -73,6 +98,8 @@ To decide what to work on next, use the `next-task` agent rather than eyeballing
 - `architecture-reviewer` — read-only audit of code structure against the architecture docs (loads the `architecture-review` skill).
 - `next-task` — reads `docs/tasks/`, recommends what to work on next based on dependencies and current state.
 - `task-qa-reviewer` — verifies a task by running static analysis, the test suite, and (for UI-facing work) an actual browser walkthrough; writes its findings into that task's JSON file. Run this before flipping a task to `done`.
+- `task-worker` — implements one task end to end on branch `task/<id>` and opens a PR; records genuine ambiguities as a `questions` entry + `waiting_input` state instead of asking interactively. Used by `orchestrate-tasks`.
+- `pr-reviewer` — checks out a task's PR and gives it a full review (tests/coverage, code quality, methodology/architecture conformance as relevant); marks it accepted or needs work. Never merges. Used by `orchestrate-tasks`.
 
 ## API documentation standard
 

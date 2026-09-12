@@ -1,6 +1,6 @@
 {
-  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file in this folder. State values: planned | implementing | testing | done. skill (nullable) names the .claude/skills/ workflow that governs the task, if any.",
-  "states": ["planned", "implementing", "testing", "done"],
+  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file in this folder. State values: planned | implementing | testing | waiting_input | done. skill (nullable) names the .claude/skills/ workflow that governs the task, if any. See CLAUDE.md's 'Autonomous pipeline' section for how orchestrate-tasks drives this board via the task-worker and pr-reviewer agents.",
+  "states": ["planned", "implementing", "testing", "waiting_input", "done"],
   "tasks": [
     { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "planned" },

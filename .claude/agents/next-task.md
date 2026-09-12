@@ -17,10 +17,11 @@ You pick the next unit of work from the fintrade task board. You do not implemen
    - **Area continuity** — prefer continuing the area of whatever was most recently touched (check task `state`/git history if available) over context-switching, all else equal.
    - **Checklist size** — smaller checklists as a tiebreaker (quick wins), only after the above.
 5. Flag any inconsistencies you notice while doing this (e.g., a task marked `done` whose dependencies aren't `done`, or a task file whose `state` doesn't match its `index.json` entry) — these are bugs in the board itself and worth surfacing even if not asked.
+6. Separately, collect any task with `state == "waiting_input"` and read its `questions` array. These are excluded from the ready list (they're not `"planned"`) but must not go silently missing — a waiting-input task stays stuck until a human answers its question and moves it back to `"planned"`/`"implementing"`.
 
 ## Output
 
-State clearly: (a) anything already in progress, (b) the top 1-3 ready candidates with a one-line reason each (why it's ready, what it unblocks), and (c) your single top recommendation. For the top recommendation, name its `skill` field if set (e.g. "use the `add-indicator` skill") so whoever picks it up knows which workflow to follow — if `skill` is `null`, say so rather than silently omitting it, since that itself is useful ("no dedicated skill for this one, general engineering judgment applies"). Don't just dump the whole ready list unranked.
+State clearly: (a) anything already in progress, (b) the top 1-3 ready candidates with a one-line reason each (why it's ready, what it unblocks), (c) your single top recommendation, and (d) any waiting-input tasks with their open questions, if there are any — don't bury these under the ready list, they need a human decision, not more engineering. For the top recommendation, name its `skill` field if set (e.g. "use the `add-indicator` skill") so whoever picks it up knows which workflow to follow — if `skill` is `null`, say so rather than silently omitting it, since that itself is useful ("no dedicated skill for this one, general engineering judgment applies"). Don't just dump the whole ready list unranked.
 
 ## If asked to start the recommended task
 

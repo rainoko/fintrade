@@ -8,6 +8,10 @@ if [ -d backend ]; then
   (cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]")
 fi
 
+echo "==> Fixing ownership on persistent Claude Code config volume"
+mkdir -p ~/.claude
+sudo chown -R "$(id -u):$(id -g)" ~/.claude
+
 echo "==> Preparing persistent SSH volume (container-scoped, not your host's ~/.ssh)"
 mkdir -p ~/.ssh
 sudo chown -R "$(id -u):$(id -g)" ~/.ssh
