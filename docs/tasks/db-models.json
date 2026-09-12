@@ -3,7 +3,7 @@
   "title": "SQLAlchemy ORM models",
   "area": "backend/db",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": ["docs/architecture/Backend.md#7-persistence"],
   "description": "PositionORM, AccountORM, and OHLCVCacheORM in app/db/models.py, matching the fields documented in docs/architecture/API.md.",
@@ -21,5 +21,11 @@
       "decision": "Verified the 4 pre-existing checklist items (PositionORM, AccountORM, OHLCVCacheORM, session.py wiring) against docs/architecture/API.md's documented field shapes and docs/architecture/Backend.md §7 before trusting the checkmarks, then added tests/unit/test_db_models.py (CRUD for all three ORM models against an in-memory SQLite engine created from Base.metadata) and tests/unit/test_db_session.py (engine wired to Settings.database_url, SessionLocal produces real Sessions, get_db's generator/finally-close contract). No code changes to app/db/models.py or app/db/session.py were needed — both matched the documented schema and wiring as written.",
       "rationale": "The task explicitly calls for verifying the existing checkmarks rather than trusting them; cross-checking against the API.md response shapes (Position fields, Account single-row cash, OHLCVCache composite key) and Backend.md's persistence section was the fastest reliable way to do that without duplicating a full architecture-review pass. Testing session.py's get_db dependency (not just the models) was included even though the checklist item only mentions CRUD, since the prior checklist item claims session wiring is done and that claim is just as easy to falsify with a cheap unit test."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/db-models",
+    "pr_number": 1,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/1",
+    "pushed_at": "2026-09-12T13:40:12Z"
+  }
 }
