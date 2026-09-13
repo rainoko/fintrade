@@ -27,5 +27,11 @@
       "decision": "Added a FastAPI lifespan hook in app/main.py that runs Base.metadata.create_all(bind=engine) on startup, as a stopgap until the separate db-migrations task (Alembic) lands.",
       "rationale": "Without it, POST /api/portfolio/positions (and any other DB-backed route) would fail with 'no such table: positions' against a fresh SQLite file, since nothing in the codebase currently creates the schema outside of test fixtures that build their own in-memory engine. db-migrations (docs/tasks/db-migrations.json) is explicitly a separate, not-yet-done task scoped to Alembic setup, and isn't a dependency of this task, so building full migration tooling here would be out of scope. create_all is idempotent and only creates tables that don't already exist, so it's safe to leave in place after db-migrations ships (Alembic's own upgrade path will simply find the tables already present, matching the standard 'stamp head' pattern for retrofitting Alembic onto an existing create_all-based schema) — rejected alternative was leaving the endpoint non-functional against a real (non-test) database until db-migrations is picked up, which would make this task's own deliverable not actually work end-to-end."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-add-position",
+    "pr_number": 17,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/17",
+    "pushed_at": "2026-09-13T09:35:36Z"
+  }
 }
