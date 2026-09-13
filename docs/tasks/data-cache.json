@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["data-provider-yfinance", "data-provider-stooq", "db-models"],
   "references": ["docs/architecture/Backend.md#7-persistence", "docs/Architecture.md#3-cross-cutting-decisions"],
   "description": "Implement CachedDataProvider (app/data/cache.py) wrapping a source DataProvider with the SQLite-backed OHLCVCacheORM table, so unchanged history isn't re-fetched on every request.",
@@ -46,5 +46,38 @@
     "pr_number": 20,
     "pr_url": "https://github.com/rainoko/fintrade/pull/20",
     "pushed_at": "2026-09-13T10:48:20Z"
+  },
+  "review": {
+    "verdict": "accepted",
+    "reviewed_at": "2026-09-13T00:00:00Z",
+    "reviewed_by": "pr-reviewer",
+    "pr_number": 20,
+    "comments": [
+      {
+        "summary": "Perf (non-blocking): _upsert does one self._db.get() per row in a loop instead of reusing rows _read_cache() already loaded, so a cold/stale refresh does O(n) individual SELECTs. Correct, just wasteful for long-history tickers -- worth a follow-up (bulk PK lookup or upsert statement).",
+        "file": "backend/app/data/cache.py",
+        "line": 122
+      },
+      {
+        "summary": "Design fragility in _is_fresh (assessed non-blocking): freshness is derived from max(fetched_at) across all cached rows for a ticker/interval, so if a source's returned history window ever shrank between calls, orphaned older rows would never be individually revalidated yet would still read as fresh because newer sibling rows dominate the max. Traced end-to-end: doesn't manifest under this PR's actual behavior, because both YFinanceProvider and StooqProvider always fetch full, un-windowed history on every call, so _upsert re-stamps the entire cached set together each refresh -- no cached row is ever dropped from the table either. Real latent gap if that provider assumption ever changes (e.g. a future windowed-fetch DataProvider). Recommend a follow-up: track a single per-(ticker,interval) cache_refreshed_at instead of max() over row timestamps, and/or evict rows that drop out of a fresh fetch.",
+        "file": "backend/app/data/cache.py",
+        "line": 93
+      },
+      {
+        "summary": "Concurrency (non-blocking): two concurrent first-time-population calls for the same (ticker, date, interval) would both see self._db.get(...) is None, both add() a new row, and the second commit() would raise IntegrityError on the composite primary key -- no try/except around it. Low urgency: CachedDataProvider isn't wired into any router yet (verified -- no other reference in app/ besides its own tests), so no live concurrent caller exists today. Flag before wiring into the API layer under real concurrency.",
+        "file": "backend/app/data/cache.py",
+        "line": 133
+      },
+      {
+        "summary": "Dtype inconsistency (assessed non-blocking): reproduced directly -- cache-miss path returns volume as int64 (straight from the provider frame), cache-hit path returns float64 (ORM Float column via _rows_to_frame). Not externally observable today since app/api/schemas.py declares volume: float and Pydantic coerces either dtype at the response boundary; CachedDataProvider also isn't wired into that boundary yet. Worth a cleanup for internal consistency (cast to float on the read path) in case downstream code ever branches on dtype.",
+        "file": "backend/app/data/cache.py",
+        "line": 70
+      },
+      {
+        "summary": "Test coverage gap (confirmed non-blocking): no test exercises the fallback or both-providers-failed path specifically for get_weekly_ohlcv (only get_daily_ohlcv is covered by TestFallback/TestBothProvidersFailed), and no test explicitly asserts InsufficientHistoryError propagates without triggering the fallback (only inferable from shared code with the tested TickerNotFoundError case). 100% line/branch coverage is still achieved because the daily/weekly split in _call happens to be exercised by other, unrelated tests. Worth closing given how central the fallback behavior is to this task's purpose.",
+        "file": "backend/tests/unit/data/test_cache.py"
+      }
+    ],
+    "notes": "Full review: gh pr checkout 20; pytest --cov=app --cov-report=term-missing -> 100/100 pass, app/data/cache.py at 100% line/branch coverage. Repo-wide coverage is 87.76% (below the 90% gate) but confirmed via a throwaway worktree at f6b9b94 (this branch's state immediately before this task's own commits) that the shortfall is entirely pre-existing (83.54% baseline, from other tasks' scaffolded stub modules already on main) -- this PR improves coverage, no regression, matching the same reasoning already applied in PR #19's review. No ruff/mypy configured in backend/pyproject.toml -> no separate lint step. No API/schema change -> openapi.json correctly untouched. No UI surface (CachedDataProvider isn't wired into any router yet) -> browser walkthrough explicitly not applicable. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal's trigger wasn't met, but docs/architecture/Backend.md §7 / docs/Architecture.md §3 conformance was checked directly per the caching-design instruction and matches (cache keyed to avoid re-fetching unchanged history, TTL-gated source calls). All 5 findings from a prior backgrounded code-review skill run were independently reproduced (direct code reading, a standalone dtype repro script, and tracing the actual upsert/freshness logic against both real provider implementations) rather than transcribed -- none reached blocking severity under the code's actual as-shipped behavior. All 4 decisions entries are genuine (what + rejected alternatives + why) and cover every judgment call the checklist implied; no undecided 'decide X' items. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected."
   }
 }
