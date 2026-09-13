@@ -79,7 +79,19 @@ def evaluate_wave(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
     ``app.indicators.stochastic.stochastic_oscillator`` and
     ``app.indicators.force_index.force_index``); NaN indicator values always classify as
     ``"NO_WAVE"`` rather than a guessed direction.
+
+    An empty (0-row) ``daily_ohlcv`` degrades to the same NaN/``"NO_WAVE"`` shape rather than
+    raising, mirroring ``evaluate_impulse``'s ``len(daily_ohlcv) < 2`` guard in this same
+    module (app/signals/impulse.py) for the analogous reason: there's no bar to read
+    ``.iloc[-1]`` from, so this is a data-availability case, not a signal to compute.
     """
+    if len(daily_ohlcv) == 0:
+        return {
+            "stochastic_k": float("nan"),
+            "force_index_2ema": float("nan"),
+            "state": "NO_WAVE",
+        }
+
     stochastic = stochastic_oscillator(daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"])
     force_index_2ema = force_index(daily_ohlcv["close"], daily_ohlcv["volume"], ema_period=2)
 

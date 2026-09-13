@@ -3,7 +3,7 @@
   "title": "Screen 2: Wave (oscillator timing)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["indicator-force-index", "indicator-stochastic"],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
   "description": "evaluate_wave() in app/signals/triple_screen.py: evaluates Force Index and Stochastic against the tide direction to detect a pullback (bullish tide) or rally (bearish tide).",
@@ -32,7 +32,7 @@
     "branch": "task/screen2-wave",
     "pr_number": 21,
     "pr_url": "https://github.com/rainoko/fintrade/pull/21",
-    "pushed_at": "2026-09-13T00:10:00Z"
+    "pushed_at": "2026-09-13T00:20:00Z"
   },
   "review": {
     "reviewed_at": "2026-09-13T00:00:00Z",

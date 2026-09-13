@@ -197,6 +197,17 @@ class TestEvaluateWave:
         assert result["state"] == "NO_WAVE"
         assert pd.isna(result["stochastic_k"])
 
+    def test_empty_daily_ohlcv_degrades_to_no_wave_instead_of_raising(self, mocker) -> None:
+        # 0-row frame: there's no bar for stochastic_oscillator()/force_index() to compute
+        # from, let alone for .iloc[-1] to read -- must degrade to NaN/NO_WAVE like any other
+        # insufficient-history case, not raise IndexError. Real (unmocked) indicators here,
+        # since the guard must fire before stochastic_oscillator/force_index are even called.
+        result = evaluate_wave(_daily_ohlcv(0), "BULLISH")
+
+        assert result["state"] == "NO_WAVE"
+        assert pd.isna(result["stochastic_k"])
+        assert pd.isna(result["force_index_2ema"])
+
     def test_returns_latest_bar_values_matching_api_shape(self, mocker) -> None:
         force_index_2ema = pd.Series([1.0, 2.0, -18234.5])
         self._mock_wave_inputs(mocker, stochastic_k=24.3, force_index_2ema=force_index_2ema)
