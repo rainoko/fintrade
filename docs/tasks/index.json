@@ -3,7 +3,7 @@
   "states": ["planned", "implementing", "testing", "waiting_input", "done"],
   "tasks": [
     { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "planned" },
-    { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "testing" },
+    { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "done" },
     { "id": "data-cache", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
     { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "planned" },

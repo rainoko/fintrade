@@ -3,7 +3,7 @@
   "title": "Data provider: Stooq (fallback)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
   "description": "Implement StooqProvider (app/data/stooq_provider.py) as the fallback market data source when yfinance fails or rate-limits, satisfying the same DataProvider protocol.",
@@ -46,5 +46,31 @@
     "pr_number": 19,
     "pr_url": "https://github.com/rainoko/fintrade/pull/19",
     "pushed_at": "2026-09-13T10:30:15Z"
+  },
+  "review": {
+    "verdict": "accepted",
+    "reviewed_at": "2026-09-13T10:40:00Z",
+    "reviewed_by": "pr-reviewer",
+    "pr_number": 19,
+    "comments": [
+      {
+        "summary": "exceptions.py provenance claim independently verified: diffed against origin/task/data-provider-yfinance's copy, identical except a 4-line docstring pointing at this task's own decisions entry instead of the yfinance task's — a cosmetic, expected difference, not a functional divergence.",
+        "file": "backend/app/data/exceptions.py"
+      },
+      {
+        "summary": "Minor correctness edge case (non-blocking): _to_stooq_symbol treats any '.' in the ticker as an existing market suffix, so a literal dotted class-share ticker like 'BRK.B' would skip the '.us' suffix and produce the wrong Stooq symbol (Stooq/yfinance both use a hyphen for class shares, e.g. brk-b.us). Low impact since this app's own ticker convention already uses hyphens, so it only bites on non-canonical input. Worth a follow-up fix + test.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 101
+      },
+      {
+        "summary": "Nit (non-blocking): unused `import urllib.error` — all transport failures go through the broad `except Exception` in _fetch_daily, never a specific urllib.error type. Dead code.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 2
+      },
+      {
+        "summary": "Minor doc gap (non-blocking): docs/architecture/Backend.md §2's module-layout diagram doesn't list app/data/exceptions.py. The module's existence is well-justified and recorded in this task's decisions, just not reflected in the architecture doc's diagram yet — suggest a small follow-up once the exceptions.py duplication with PR #18 (data-provider-yfinance) is reconciled."
+      }
+    ],
+    "notes": "Full review: gh pr checkout 19; pytest --cov=app --cov-report=term-missing -> 81/81 pass, app/data/stooq_provider.py + exceptions.py at 100% coverage, repo-wide 80.32% (confirmed via throwaway worktree that main itself is already at 72.44% pre-existing, so no regression -- this PR improves coverage). No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Manually re-executed (outside the test suite) the weekly W-FRI resample, unknown-ticker 'No data'/header-only detection, and '.us' auto-suffix behavior against the real module code to confirm the claimed behavior, not just reading the tests. No API/schema changes -> openapi.json correctly untouched. No UI surface -> browser walkthrough explicitly not applicable. code-review (medium) and architecture-review skills both run against the diff; architecture-review triggered because app/data/exceptions.py is a new module not in Backend.md §2's layout diagram -- found to be a well-justified addition (recorded in decisions), non-blocking doc gap only. All 4 recorded decisions are genuine (what + rejected alternatives + why) and cover every checklist item that involved a judgment call. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected, plus two inline file:line comments for the code findings above."
   }
 }
