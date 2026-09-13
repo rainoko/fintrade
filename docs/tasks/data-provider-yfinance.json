@@ -34,5 +34,11 @@
       "decision": "Recorded fixtures are CSV files under backend/tests/fixtures/yfinance/ that reproduce the shape of yfinance's own Ticker.history() *return value* (a DataFrame with columns Open/High/Low/Close/Volume/Dividends/'Stock Splits', tz-aware DatetimeIndex named Date) — not a raw Yahoo Chart API JSON payload. Tests mock yfinance.Ticker itself (via pytest-mock) and feed its .history() a DataFrame loaded from one of these CSVs.",
       "rationale": "The provider's only real dependency is yfinance's public Ticker.history() contract, not Yahoo's undocumented chart-API JSON shape that yfinance itself parses internally (see scrapers/history.py) — mocking at the JSON level would coincidentally tie every test to yfinance's current internal parsing logic (which isn't part of yfinance's own public API and has changed across its versions) rather than to the boundary this adapter actually crosses. CSV was chosen over pickle for readability/diffability in code review and portability across pandas versions, matching the plain-text bias of the rest of the repo's fixtures (no existing fixture-format precedent in this codebase prior to this task, so this establishes one for future provider/cache tasks: data-provider-stooq, data-cache). Four fixtures were recorded: aapl_daily.csv (300 daily bars), aapl_weekly.csv (60 weekly bars, exercises the >=26-week success path), newco_weekly_short.csv (10 weekly bars, exercises InsufficientHistoryError), and unknown_empty.csv (zero rows, exercises TickerNotFoundError) — all synthetic/deterministic (numpy seeded RNG), not captured from a live call, since the goal is exercising the provider's shape-handling and error-branch logic, not validating real market values (that's the indicator tests' job per docs/architecture/Backend.md's reference-value requirement)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/data-provider-yfinance",
+    "pr_number": 18,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/18",
+    "pushed_at": "2026-09-13T10:20:00Z"
+  }
 }
