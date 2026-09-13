@@ -3,14 +3,14 @@
   "title": "API: POST /api/portfolio/positions",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
   "checklist": [
     { "step": "Route signature + PositionIn/PositionOut schemas already defined", "done": true },
     { "step": "Decide and document duplicate-ticker behavior (merge vs reject) — flagged as an open decision in docs/architecture/API.md's Error Cases section", "done": true },
-    { "step": "Implement handler: insert/update PositionORM, return 201 with the created/updated position", "done": false },
+    { "step": "Implement handler: insert/update PositionORM, return 201 with the created/updated position", "done": true },
     { "step": "Write integration test covering create, and the decided duplicate-ticker behavior", "done": true },
     { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
   ],
@@ -26,13 +26,31 @@
       "recorded_by": "task-worker",
       "decision": "Added a FastAPI lifespan hook in app/main.py that runs Base.metadata.create_all(bind=engine) on startup, as a stopgap until the separate db-migrations task (Alembic) lands.",
       "rationale": "Without it, POST /api/portfolio/positions (and any other DB-backed route) would fail with 'no such table: positions' against a fresh SQLite file, since nothing in the codebase currently creates the schema outside of test fixtures that build their own in-memory engine. db-migrations (docs/tasks/db-migrations.json) is explicitly a separate, not-yet-done task scoped to Alembic setup, and isn't a dependency of this task, so building full migration tooling here would be out of scope. create_all is idempotent and only creates tables that don't already exist, so it's safe to leave in place after db-migrations ships (Alembic's own upgrade path will simply find the tables already present, matching the standard 'stamp head' pattern for retrofitting Alembic onto an existing create_all-based schema) — rejected alternative was leaving the endpoint non-functional against a real (non-test) database until db-migrations is picked up, which would make this task's own deliverable not actually work end-to-end."
+    },
+    {
+      "timestamp": "2026-09-13T09:45:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the blocking ZeroDivisionError (PR #17 review) by adding Field(gt=0) to both PositionIn.quantity and PositionIn.avg_cost_basis in app/api/schemas.py, rather than adding a defensive check in the router handler. Also added regression tests covering zero/negative quantity, zero/negative avg_cost_basis, and the specific duplicate-ticker-quantity-cancels-to-zero scenario from the review (all now 422, not 500).",
+      "rationale": "Rejecting non-positive quantity/cost-basis at the schema layer is a strict improvement over a router-level guard: it produces FastAPI's standard 422 validation-error shape for free (consistent with every other invalid-body case), it documents the constraint directly in the OpenAPI schema so API consumers see it without reading the handler, and it eliminates the ZeroDivisionError at its root rather than special-casing merged_quantity == 0 in the merge arithmetic (a targeted `if merged_quantity == 0: raise HTTPException(422, ...)` guard was considered and rejected — it would only catch the exact-cancellation case the reviewer found, not the broader problem that quantity/avg_cost_basis were never meant to be negative or zero in the first place, e.g. a negative avg_cost_basis would otherwise still be silently accepted). A negative-quantity 'reduce a position' operation was also considered and rejected as out of scope: docs/architecture/API.md's Error Cases section and the route's own docstring already state there is no partial-quantity-reduction endpoint (delete and re-add instead), so this endpoint has never supported negative quantities as a feature — the missing constraint was a gap, not an intentionally permissive design."
+    },
+    {
+      "timestamp": "2026-09-13T09:45:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Added unique=True to PositionORM.ticker (app/db/models.py) to close the TOCTOU gap flagged as non-blocking in the PR #17 review, but did not add explicit IntegrityError handling in the router for the resulting rare concurrent-insert-collision case.",
+      "rationale": "The constraint itself is a clean, one-line, low-risk change: there's no Alembic migration to retrofit yet (schema is still produced by the create_all stopgap — see the other decision below), and every existing insert path already normalizes tickers to uppercase before the lookup/write, so no existing test or code path relies on two rows sharing a ticker. Stopped short of also catching the resulting IntegrityError (e.g. retry-as-merge) because that's materially more logic (a retry loop or a transaction-level upsert) for a race that requires two concurrent requests for a brand-new ticker to interleave between the existing SELECT and INSERT — genuinely low-probability against the current single-process/single-worker uvicorn setup the review itself called out as low risk, and worth its own focused change (with its own tests) rather than folding into this fix-round. Net effect of doing only the constraint: the race, if it ever happens, now surfaces as a loud 500 (IntegrityError) instead of silently creating two rows for one ticker and breaking the merge invariant — a strict improvement even without the retry handling, and the retry handling is deferred, not abandoned."
+    },
+    {
+      "timestamp": "2026-09-13T09:45:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the create_all lifespan stopgap as an explicit interim state in docs/architecture/Backend.md §7, and added a checklist item plus a description note to docs/tasks/db-migrations.json flagging that a fresh install already has tables from create_all, so db-migrations needs `alembic stamp head` (not a blind `alembic upgrade head`) against such a database.",
+      "rationale": "Addresses the PR #17 review's third (non-blocking) comment directly: the interim state was previously only recorded in this task's own decisions array, which whoever picks up db-migrations wouldn't necessarily read before starting. Putting it in Backend.md (the doc db-migrations.json's own references field points to) and in db-migrations.json's own checklist/description makes it discoverable from the two places that task will actually be read from."
     }
   ],
   "git": {
     "branch": "task/api-portfolio-add-position",
     "pr_number": 17,
     "pr_url": "https://github.com/rainoko/fintrade/pull/17",
-    "pushed_at": "2026-09-13T09:35:36Z"
+    "pushed_at": "2026-09-13T09:45:52Z"
   },
   "review": {
     "reviewed_at": "2026-09-13T09:45:00Z",

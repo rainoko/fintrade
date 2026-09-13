@@ -83,6 +83,8 @@ Implement each indicator directly against its Analyse.md §4 definition and para
 
 SQLite via SQLAlchemy for MVP: positions, account equity, and a cache table for fetched OHLCV (ticker, date, OHLCV columns, fetched_at) to avoid re-hitting yfinance/Stooq on every request. Migrations via Alembic from day one, even though schema is simple — avoids a painful retrofit later.
 
+**Interim state (until `db-migrations` lands):** `app/main.py`'s FastAPI lifespan hook calls `Base.metadata.create_all(bind=engine)` on startup as a stopgap so DB-backed routes work against a real (non-test) SQLite file before Alembic exists — see the `api-portfolio-add-position` task's `decisions`. This means any fresh install between now and `db-migrations` shipping will already have tables created by `create_all`, not by a migration. Whoever picks up `db-migrations` needs to run `alembic stamp head` against such a database (mark the initial migration as already applied) rather than a blind `alembic upgrade head` (which would try to `CREATE TABLE` against tables that already exist and fail). `create_all` is idempotent and safe to leave in place after Alembic lands.
+
 ## Testing Notes
 
 - Indicator unit tests assert against **hand-computed reference values** (small fixed input series, expected output computed independently, e.g. against a spreadsheet or a known textbook example) — not just "the function returns a Series of the right length."

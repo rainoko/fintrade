@@ -150,3 +150,55 @@ class TestAddPosition:
         )
 
         assert response.status_code == 422
+
+    def test_zero_quantity_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 0, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_negative_quantity_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": -100, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_zero_avg_cost_basis_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 10, "avg_cost_basis": 0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_negative_avg_cost_basis_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 10, "avg_cost_basis": -5.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_duplicate_ticker_with_quantity_that_would_cancel_existing_returns_422_not_500(
+        self, client: TestClient
+    ) -> None:
+        """Regression test: a negative quantity that would exactly cancel an existing position's
+        quantity previously crashed the merge's weighted-avg-cost-basis division with an
+        unhandled ZeroDivisionError (raw 500). quantity now has a gt=0 constraint, so this is
+        rejected at the validation layer as a 422 before it ever reaches the merge arithmetic."""
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 100.0, "entry_date": "2026-05-14"},
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": -100, "avg_cost_basis": 100.0, "entry_date": "2026-06-01"},
+        )
+
+        assert second.status_code == 422

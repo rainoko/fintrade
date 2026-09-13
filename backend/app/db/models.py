@@ -12,7 +12,7 @@ class PositionORM(Base):
     __tablename__ = "positions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    ticker: Mapped[str] = mapped_column(String, index=True)
+    ticker: Mapped[str] = mapped_column(String, unique=True, index=True)
     quantity: Mapped[float] = mapped_column(Float)
     avg_cost_basis: Mapped[float] = mapped_column(Float)
     entry_date: Mapped[date] = mapped_column(Date)

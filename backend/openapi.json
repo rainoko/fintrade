@@ -268,7 +268,8 @@
       "PositionIn": {
         "properties": {
           "avg_cost_basis": {
-            "description": "Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten.",
+            "description": "Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten. Must be positive.",
+            "exclusiveMinimum": 0.0,
             "title": "Avg Cost Basis",
             "type": "number"
           },
@@ -279,7 +280,8 @@
             "type": "string"
           },
           "quantity": {
-            "description": "Number of shares being added.",
+            "description": "Number of shares being added. Must be positive \u2014 this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.",
+            "exclusiveMinimum": 0.0,
             "title": "Quantity",
             "type": "number"
           },
