@@ -3,7 +3,7 @@
   "title": "Confidence scoring (weighted composite)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["screen1-tide", "screen2-wave", "impulse-system", "indicator-elder-ray"],
   "references": ["docs/Analyse.md#6-confidence-score-0100"],
   "description": "compute_confidence() and confidence_band() in app/signals/confidence.py: weighted composite (tide 30%, impulse 20%, oscillator extremity 25%, Elder-Ray confirmation 15%, volume confirmation 10%) producing a 0-100 integer, plus Low/Medium/High banding.",
