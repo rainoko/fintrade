@@ -14,7 +14,7 @@
     { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "indicator-autoenvelope", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
     { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
-    { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
+    { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "testing" },
     { "id": "screen3-trigger", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
     { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },

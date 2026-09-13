@@ -3,15 +3,35 @@
   "title": "Screen 2: Wave (oscillator timing)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["indicator-force-index", "indicator-stochastic"],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
   "description": "evaluate_wave() in app/signals/triple_screen.py: evaluates Force Index and Stochastic against the tide direction to detect a pullback (bullish tide) or rally (bearish tide).",
   "checklist": [
-    { "step": "Given tide=BULLISH, detect oversold Stochastic + negative Force Index spike as a pullback", "done": false },
-    { "step": "Given tide=BEARISH, detect overbought Stochastic + positive Force Index spike as a rally", "done": false },
-    { "step": "Return the state dict shape expected by the API (screens.wave.stochastic_k, force_index_2ema, state) per docs/architecture/API.md", "done": false },
-    { "step": "Write unit tests covering both tide directions and the neutral/no-signal case", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Given tide=BULLISH, detect oversold Stochastic + negative Force Index spike as a pullback", "done": true },
+    { "step": "Given tide=BEARISH, detect overbought Stochastic + positive Force Index spike as a rally", "done": true },
+    { "step": "Return the state dict shape expected by the API (screens.wave.stochastic_k, force_index_2ema, state) per docs/architecture/API.md", "done": true },
+    { "step": "Write unit tests covering both tide directions and the neutral/no-signal case", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "verify-elder-signal skill (task-worker)",
+      "decision": "evaluate_wave()'s 'state' field uses a three-value vocabulary: 'OVERSOLD_PULLBACK' (tide BULLISH, latest Stochastic %K < 30 AND the latest 2-EMA Force Index is a negative 'spike'), 'OVERBOUGHT_RALLY' (tide BEARISH, %K > 70 AND a positive Force Index spike), and 'NO_WAVE' for every other case (NEUTRAL tide, a directional tide without a matching oscillator extreme, an oscillator extreme without a matching Force Index spike, or NaN indicator values from insufficient warm-up history). Both the Stochastic and Force Index conditions are required together, matching this task's own checklist phrasing ('oversold Stochastic + negative Force Index spike') and docs/Analyse.md §2's framing of the two indicators acting together, not as independent triggers.",
+      "rationale": "docs/architecture/API.md's screens.wave.state example value is only 'OVERSOLD_PULLBACK' with a free-text `str` type in app/api/schemas.py (not a Literal enum), so the exact vocabulary -- including the bearish-tide counterpart's name and the no-signal value's name -- was left open and had to be decided here. 'OVERBOUGHT_RALLY' was chosen as the direct mirror of the given 'OVERSOLD_PULLBACK' example (same pullback/rally + oversold/overbought terminology docs/Analyse.md §2 itself uses: 'a pullback ... or rally'). 'NO_WAVE' (rather than e.g. reusing 'NEUTRAL', which docs/Analyse.md §2 already uses for a different concept -- the *tide's* neutral state) was chosen to avoid conflating 'the tide itself is neutral' with 'the tide has a direction but Screen 2 hasn't produced a qualifying oscillator signal yet'; those are different conditions (only the former literally has tide=='NEUTRAL') and collapsing their names risked confusing a future reader of the API response. Considered and rejected treating an oversold Stochastic without a Force Index spike (or vice versa) as a weaker/partial pullback state (e.g. 'WEAK_PULLBACK'): docs/Analyse.md §2 describes the pullback/rally as the joint outcome of both indicators, §6's separate 'oscillator extremity' confidence component already exists to grade *how* oversold/overbought within a real pullback, and NotImplemented confidence-scoring (a separate, not-yet-started task) is the natural home for degrees of partial agreement, not a Screen 2 boolean/tri-state classifier -- so partial matches are simply NO_WAVE here, not a fourth named state Analyse.md never mentions."
+    },
+    {
+      "timestamp": "2026-09-13T00:05:00Z",
+      "recorded_by": "verify-elder-signal skill (task-worker)",
+      "decision": "'Force Index spike' (docs/Analyse.md §2/§4: 'negative spike in an uptrend', 'positive spike in a downtrend', no numeric definition given) is defined in app.signals.triple_screen._is_force_index_spike as: the latest 2-EMA Force Index value has the required sign, AND its magnitude exceeds 1.0x the standard deviation of the trailing 13-bar window of the same 2-EMA Force Index series (pandas rolling().std(), sample/ddof=1). Returns False (not a spike) if there's insufficient history for that rolling window, if the rolling standard deviation is exactly zero, or if the latest value is NaN.",
+      "rationale": "Considered and rejected a pure sign-only definition (any negative value during a bullish tide counts as a 'spike'): that would make 'spike' meaningless as a qualifier -- any single down day would qualify, which doesn't match Elder's own description of Force Index spikes as outsized, attention-grabbing moves distinct from ordinary daily noise, and would make the OVERSOLD_PULLBACK/OVERBOUGHT_RALLY states fire far too often relative to how selective docs/Analyse.md §2 describes Screen 2 as being ('wait for' a pullback/rally, not 'any day the sign matches'). Considered and rejected a fixed absolute-value threshold (e.g. '|Force Index| > $10,000'): Force Index's magnitude scales with a stock's own price times volume, so a single fixed number would be meaningless across tickers of different sizes -- a per-stock, self-relative threshold is required. Chose the trailing rolling standard deviation of the same 2-EMA series (self-relative, scale-free) over alternatives considered: (a) a percentile-of-history threshold -- rejected as needing a much longer lookback window than this function otherwise requires, and no principled percentile cutoff is given by Analyse.md either; (b) comparing the 2-EMA reading against the 13-EMA trend-confirmation variant (also named in docs/Analyse.md §2/§4) -- rejected because the 13-EMA is a *slower*, more heavily smoothed series measuring a different thing (trend confirmation, not entry timing), not a volatility/typical-magnitude baseline for the faster 2-EMA series, so comparing the two directly would conflate two purposes the doc keeps separate. The specific window (13 bars) reuses the Force Index trend-confirmation period Analyse.md §2/§4 already names for a different purpose, rather than inventing an unrelated fourth number; the 1.0x standard-deviation multiplier is a plain 'one standard deviation is enough to call a value statistically outsized' choice with no doc anchor -- both are judgment calls that should be revisited if/when this app has real historical data to backtest signal quality against (see docs/Analyse.md §10's open item on backtested tuning of thresholds generally)."
+    }
+  ],
+  "git": {
+    "branch": "task/screen2-wave",
+    "pr_number": null,
+    "pr_url": null,
+    "pushed_at": null
+  }
 }
