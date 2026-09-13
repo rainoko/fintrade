@@ -3,7 +3,7 @@
   "title": "Confidence scoring (weighted composite)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "screen1-tide",
     "screen2-wave",
@@ -85,5 +85,47 @@
     "pr_number": 22,
     "pr_url": "https://github.com/rainoko/fintrade/pull/22",
     "pushed_at": "2026-09-13T20:03:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-13T20:10:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/22",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: score_elder_ray_confirmation() has no NaN guard, unlike its sibling score_oscillator_extremity() (which explicitly returns 0.0 on pd.isna(stochastic_k)). When the latest bear_power/bull_power value is NaN (e.g. early in a ticker's history before the EMA(13) warm-up completes), both branch comparisons (`latest >= 0` / `latest > previous`) evaluate False for NaN, so execution falls through to `return 0.5` -- reporting a 15%-weighted 'partial confirmation' for a signal where Elder-Ray is actually undefined, instead of 0.0. Verified independently: score_elder_ray_confirmation(pd.Series([1.0,1.0]), pd.Series([nan,nan]), 'BUY') == 0.5, expected 0.0. TestScoreElderRayConfirmation has no NaN test case, unlike the NaN cases present for score_oscillator_extremity and score_volume_confirmation -- untested gap. Fix: add an explicit pd.isna() guard returning 0.0, mirroring score_oscillator_extremity, plus a regression test.",
+        "file": "backend/app/signals/confidence.py",
+        "line": 207
+      },
+      {
+        "summary": "Non-blocking: score_elder_ray_confirmation() indexes bear_power.iloc[-2]/bull_power.iloc[-2] with no length guard, raising an unhandled IndexError (verified) instead of a descriptive ValueError for a 0- or 1-row Series, inconsistent with every other validation path in this module.",
+        "file": "backend/app/signals/confidence.py",
+        "line": 204
+      },
+      {
+        "summary": "Non-blocking observation: score_volume_confirmation() takes no signal_direction and doesn't cross-check wave_state against it, unlike its four sibling score_* functions -- defensible given Analyse.md §6's non-directional phrasing of volume confirmation, but flagged in case the asymmetry wasn't deliberate.",
+        "file": "backend/app/signals/confidence.py",
+        "line": 230
+      },
+      {
+        "summary": "Non-blocking nit: score_tide_alignment() and score_impulse_gate() duplicate the same three-way categorical-mapping shape (agrees/contradicts labels from signal_direction, then if/elif/else to three fixed scores); could share a helper to avoid drift.",
+        "file": "backend/app/signals/confidence.py",
+        "line": 76
+      },
+      {
+        "summary": "Merge-conflict resolution (triple_screen.py, screen1-tide vs screen2-wave) independently verified clean: diffed the merged file against both origin/task/screen1-tide and origin/task/screen2-wave separately -- each diff shows only the other branch's own additions layered on top, evaluate_tide/_macd_histogram_slope and evaluate_wave/_is_force_index_spike (including the prior empty-frame fix) are both fully intact. Test file def counts: screen1-tide 15 + screen2-wave 21 = 36, matching the merged file's 36 test functions exactly -- nothing dropped.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": null
+      },
+      {
+        "summary": "Confidence-scoring logic vs docs/Analyse.md §6 hand-verified and correct: WEIGHTS sums to 1.0; confidence_band() boundaries hand-checked at 0/39/40/41/55/69/70/71/100 (Low<40, Medium 40-70 inclusive both edges, High>70) with no off-by-one; the banker's-rounding worked example (82.5 -> 82) hand-verified; score_oscillator_extremity's %K-depth formula hand-verified at multiple points including the 30/70 boundary. All 6 decisions entries are genuinely reasoned against the doc text (not invented shortcuts). confidence_breakdown is preserved unmutated for the future API response (verified via TestBreakdownPreserved) and matches docs/architecture/API.md's documented shape. No app/api/ or openapi.json changes in this diff (no staleness concern). No UI surface -- browser walkthrough not applicable.",
+        "file": "backend/app/signals/confidence.py",
+        "line": null
+      },
+      {
+        "summary": "pytest --cov=app --cov-report=term-missing: 172 passed, no regression. app/signals/confidence.py at 100% line+branch coverage. Overall repo coverage 89% (below the 90% gate) confirmed pre-existing: all uncovered modules (app/data/*, app/portfolio/exits.py, app/portfolio/risk.py, app/signals/engine.py, app/indicators/autoenvelope.py, triple_screen.py's still-stubbed evaluate_trigger) are outside this PR's file list and this task's depends_on chain. No ruff/mypy configured in backend/pyproject.toml -- nothing else to lint.",
+        "file": null,
+        "line": null
+      }
+    ]
   }
 }
