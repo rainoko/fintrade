@@ -3,14 +3,14 @@
   "title": "API: POST /api/portfolio/positions",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
   "checklist": [
     { "step": "Route signature + PositionIn/PositionOut schemas already defined", "done": true },
     { "step": "Decide and document duplicate-ticker behavior (merge vs reject) — flagged as an open decision in docs/architecture/API.md's Error Cases section", "done": true },
-    { "step": "Implement handler: insert/update PositionORM, return 201 with the created/updated position", "done": true },
+    { "step": "Implement handler: insert/update PositionORM, return 201 with the created/updated position", "done": false },
     { "step": "Write integration test covering create, and the decided duplicate-ticker behavior", "done": true },
     { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
   ],
@@ -33,5 +33,39 @@
     "pr_number": 17,
     "pr_url": "https://github.com/rainoko/fintrade/pull/17",
     "pushed_at": "2026-09-13T09:35:36Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-13T09:45:00Z",
+    "recorded_by": "pr-reviewer",
+    "pr_number": 17,
+    "method": ["unit_tests", "coverage", "static_analysis", "code_review_skill", "architecture_review_skill"],
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: unhandled ZeroDivisionError when a duplicate-ticker POST's quantity exactly cancels the existing position's quantity (e.g. create AAPL qty=100, then POST AAPL qty=-100 -> merged_quantity == 0 -> crash, surfaced as a raw 500). PositionIn.quantity/avg_cost_basis have no positivity constraint, and no new test covers a negative/zero-crossing quantity. Reproduced directly against a live TestClient and independently confirmed by the code-review skill. Fix suggestion: Field(gt=0) on quantity/avg_cost_basis (yields automatic 422) plus a regression test.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 65,
+        "severity": "blocker"
+      },
+      {
+        "summary": "Non-blocking: TOCTOU race on the duplicate-ticker check (read-then-write with no unique constraint on PositionORM.ticker) can let two concurrent POSTs for the same new ticker both insert separate rows, defeating the merge invariant this PR implements. Low risk for the current single-process MVP; worth a unique=True before concurrent traffic is realistic.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 50,
+        "severity": "minor"
+      },
+      {
+        "summary": "Non-blocking: merge-averaging arithmetic is inlined in the router handler rather than a small pure function in app/portfolio/ (where risk.py/exits.py already live per Backend.md's module layout). Minor reuse/testability nit for this amount of logic, not a hard violation.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": null,
+        "severity": "minor"
+      },
+      {
+        "summary": "Non-blocking: the new lifespan create_all stopgap is a reasonable, well-rationalized, idempotent bootstrap and is recorded as a decision, but docs/architecture/Backend.md §7 ('Migrations via Alembic from day one... avoids a painful retrofit later') wasn't updated to note this interim state, and db-migrations.json's checklist doesn't flag that a fresh install will already have tables from create_all (meaning `alembic stamp head`, not a blind `alembic upgrade head`, will be needed) — not currently discoverable by whoever picks up db-migrations next.",
+        "file": "backend/app/main.py",
+        "line": null,
+        "severity": "minor"
+      }
+    ],
+    "notes": "openapi.json snapshot verified up to date (regenerated via scripts/export_openapi.py and diffed clean). Duplicate-ticker decisions entry and docs/architecture/API.md update are both substantive and satisfy CLAUDE.md's decision-memory standard. Backend coverage: 63 passed, whole-repo 74.26% vs 72.44% pre-PR baseline on main (confirmed via a clean worktree) -- net improvement, not a regression; shortfall is pre-existing unimplemented stub modules unrelated to this PR. No frontend exists yet, so the browser walkthrough step doesn't apply. Findings posted as inline PR review comments and a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR, same as --approve)."
   }
 }
