@@ -113,10 +113,10 @@ class PortfolioResponse(BaseModel):
 
 
 class PositionIn(BaseModel):
-    ticker: str
-    quantity: float
-    avg_cost_basis: float
-    entry_date: date
+    ticker: str = Field(description="Stock ticker symbol, normalized to uppercase. Adding a ticker that's already held merges into the existing position (quantity-weighted average cost basis) rather than creating a duplicate row — see the api-portfolio-add-position task's decisions.")
+    quantity: float = Field(description="Number of shares being added.")
+    avg_cost_basis: float = Field(description="Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten.")
+    entry_date: date = Field(description="Date this lot was purchased. On merge with an existing position, the earlier of the two entry dates is kept.")
 
 
 # --- /api/portfolio/risk ---------------------------------------------------

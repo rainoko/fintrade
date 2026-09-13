@@ -97,7 +97,9 @@ Request:
 { "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14" }
 ```
 
-Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`).
+Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct` are always `null` in this response — price enrichment happens on read, not on write.
+
+Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale).
 
 ### `DELETE /api/portfolio/positions/{id}`
 
@@ -131,7 +133,7 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
 - Market data provider unavailable (both yfinance and Stooq fail) → `503` with a clear `detail`, not a raw stack trace.
 - Insufficient history to compute weekly indicators (e.g. newly listed stock, <26 weeks of data) → `422` with `detail` explaining which indicator couldn't be computed, rather than silently returning partial/wrong signals.
-- Duplicate position add for the same ticker → defined behavior (merge quantity/avg cost, or reject) — decide and document before implementation; not yet specified here.
+- Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
 
 ## Contract Snapshot & Parallel Development
 

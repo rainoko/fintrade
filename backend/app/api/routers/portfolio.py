@@ -1,6 +1,11 @@
-from fastapi import APIRouter, HTTPException
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.schemas import ErrorDetail, PortfolioResponse, PositionIn, PositionOut, RiskResponse
+from app.db.models import PositionORM
+from app.db.session import get_db
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -31,11 +36,49 @@ def get_portfolio() -> PortfolioResponse:
     operation_id="add_position",
     summary="Add or update a position",
 )
-def add_position(position: PositionIn) -> PositionOut:
-    """Creates a position from manual entry / CSV-import data. Duplicate-ticker behavior
-    (merge quantity/avg cost vs. reject) is not yet decided — see the
-    api-portfolio-add-position task in docs/tasks/ before implementing this handler."""
-    raise HTTPException(status_code=501, detail="not implemented yet")
+def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
+    """Creates a position from manual entry / CSV-import data. If a position for this ticker
+    already exists it is merged rather than duplicated: quantities are summed and
+    avg_cost_basis becomes the quantity-weighted average of the existing and incoming cost
+    bases (mirrors how a brokerage averages up/down a position instead of tracking separate
+    lots) — see the api-portfolio-add-position task's `decisions` for the full rationale and
+    the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
+    `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
+    read (GET /api/portfolio), not on write, and isn't available until the data-cache task
+    lands."""
+    ticker = position.ticker.upper()
+    existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
+
+    if existing is None:
+        row = PositionORM(
+            id=f"pos_{uuid.uuid4().hex[:12]}",
+            ticker=ticker,
+            quantity=position.quantity,
+            avg_cost_basis=position.avg_cost_basis,
+            entry_date=position.entry_date,
+        )
+        db.add(row)
+    else:
+        merged_quantity = existing.quantity + position.quantity
+        existing.avg_cost_basis = (
+            existing.quantity * existing.avg_cost_basis + position.quantity * position.avg_cost_basis
+        ) / merged_quantity
+        existing.quantity = merged_quantity
+        existing.entry_date = min(existing.entry_date, position.entry_date)
+        row = existing
+
+    db.commit()
+    db.refresh(row)
+
+    return PositionOut(
+        id=row.id,
+        ticker=row.ticker,
+        quantity=row.quantity,
+        avg_cost_basis=row.avg_cost_basis,
+        entry_date=row.entry_date,
+        current_price=None,
+        unrealized_pnl_pct=None,
+    )
 
 
 @router.delete(
