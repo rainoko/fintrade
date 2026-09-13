@@ -3,7 +3,7 @@
   "title": "Screen 2: Wave (oscillator timing)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["indicator-force-index", "indicator-stochastic"],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
   "description": "evaluate_wave() in app/signals/triple_screen.py: evaluates Force Index and Stochastic against the tide direction to detect a pullback (bullish tide) or rally (bearish tide).",
@@ -33,5 +33,23 @@
     "pr_number": 21,
     "pr_url": "https://github.com/rainoko/fintrade/pull/21",
     "pushed_at": "2026-09-13T00:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-13T00:00:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/21",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking (correctness bug, from code-review skill, independently reproduced): evaluate_wave() raises an unhandled IndexError on an empty (0-row) daily_ohlcv instead of returning NO_WAVE. Reproduced directly: evaluate_wave(pd.DataFrame({'open':[],'high':[],'low':[],'close':[],'volume':[]}), 'BULLISH') raises IndexError: single positional indexer is out-of-bounds at stochastic['k'].iloc[-1]. This breaks the function's own docstring contract ('NaN indicator values always classify as NO_WAVE rather than a guessed direction') and deviates from the established evaluate_impulse() precedent in the same file (app/signals/impulse.py:42 guards len(daily_ohlcv) < 2, with dedicated tests for it) -- a pattern this PR's own test-file docstring cites but doesn't itself follow. A 1-row frame is handled fine (verified: NaN -> NO_WAVE); only 0 rows crashes, and no test covers it. Needs a len(daily_ohlcv) guard (matching evaluate_impulse's pattern) plus a regression test before this is mergeable.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 86
+      },
+      {
+        "summary": "Non-blocking nit (from code-review skill): _is_force_index_spike's `negative: bool` parameter forces double-negative reasoning (`if negative and latest >= 0`, `if not negative and latest <= 0`). Both branches are correct and covered by tests; a signed-multiplier form would read more directly for a future editor. Not blocking.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 43
+      }
+    ],
+    "notes": "Checked out task/screen2-wave (PR #21) fresh. Reviewed only this task's own commits (064ceb5, 62fa505) touching evaluate_wave()/_is_force_index_spike() and their tests -- the carried-in indicator-stochastic commits (b5876a1/7935d51/507b275, already-accepted PR #12) were explicitly out of scope per dispatch instructions and not re-reviewed. Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 85 passed, app/signals/triple_screen.py at 96% (only the two untouched evaluate_tide/evaluate_trigger NotImplementedError stub lines uncovered). Whole-repo coverage 79.2%, verified against a fresh main-branch worktree (72.44%, 56 tests) -- +6.8pp over baseline, not a regression; the shortfall against the 90% gate is pre-existing stub modules tracked by other tasks, same accepted pattern as prior PRs (#12 etc). No ruff/mypy configured in backend/pyproject.toml -- nothing to lint. Ran verify-elder-signal against docs/Analyse.md Sec.2: Stochastic thresholds (<30/>70, strict) match 'below 30 / above 70' exactly; both Stochastic and Force Index conditions correctly required jointly per Sec.2's pullback/rally framing; evaluate_wave() correctly uses only the 2-EMA Force Index (entry timing) -- the pre-existing (unchanged by this PR) WaveScreen.force_index_2ema schema field already documents the 2-EMA/13-EMA split, so not using 13-EMA here is correct, not a gap; Elder-Ray (also listed under Sec.2 'indicators used') is correctly out of scope, feeding a separate not-yet-implemented confidence component instead; evaluate_tide/evaluate_trigger confirmed untouched stubs. Both judgment-call decisions (OVERSOLD_PULLBACK/OVERBOUGHT_RALLY/NO_WAVE state vocabulary; Force-Index-spike as sign match + magnitude > 1.0x trailing 13-bar rolling stdev) are recorded in this task's decisions array with real alternatives-considered-and-rejected rationale -- satisfies the decision-memory rule, well-reasoned given screens.wave.state is a free-text str field (not a Literal) in app/api/schemas.py. Returned dict shape {stochastic_k, force_index_2ema, state} matches docs/architecture/API.md's screens.wave exactly. No API route/schema changed in this PR -- backend/openapi.json diff confirmed empty, regeneration N/A. No new module/dependency/layer -- architecture-review N/A. No UI surface (pure backend signal function, no frontend consumer wired yet) -- browser walkthrough explicitly N/A, stated in the PR comment. Ran the code-review skill (high effort) against the diff, scoped as above: found and independently reproduced one blocking correctness bug (0-row IndexError) plus one non-blocking readability nit; both posted to the PR. gh pr review --approve/--request-changes both attempted; both blocked by GitHub's self-review rule (worker and reviewer share the raino-agent account) -- posted findings as a COMMENTED-type PR review plus a standalone PR comment instead, per the standing fallback process. Task state set back to implementing for re-dispatch; do not merge."
   }
 }
