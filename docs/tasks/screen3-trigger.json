@@ -3,15 +3,23 @@
   "title": "Screen 3: Trigger (entry timing)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine"],
   "description": "evaluate_trigger() in app/signals/triple_screen.py: has price resumed direction (close crosses prior day's high/low) using the daily-bar approximation documented in Analyse.md §2, since this is an EOD app rather than intraday.",
   "checklist": [
-    { "step": "Confirm daily-bar approximation (close > prior high for bullish trigger, close < prior low for bearish) is still the intended approach — Analyse.md §9 flags intraday-vs-EOD as an open decision, verify it wasn't silently resolved elsewhere first", "done": false },
-    { "step": "Implement the trigger check for both tide directions", "done": false },
-    { "step": "Return the shape expected by the API (screens.trigger.fired, screens.trigger.reference) per docs/architecture/API.md", "done": false },
-    { "step": "Write unit tests covering fired=true and fired=false cases for both directions", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Confirm daily-bar approximation (close > prior high for bullish trigger, close < prior low for bearish) is still the intended approach — Analyse.md §9 flags intraday-vs-EOD as an open decision, verify it wasn't silently resolved elsewhere first", "done": true },
+    { "step": "Implement the trigger check for both tide directions", "done": true },
+    { "step": "Return the shape expected by the API (screens.trigger.fired, screens.trigger.reference) per docs/architecture/API.md", "done": true },
+    { "step": "Write unit tests covering fired=true and fired=false cases for both directions", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T19:30:00Z",
+      "recorded_by": "verify-elder-signal skill (task-worker)",
+      "decision": "Confirmed the daily-bar EOD approximation from docs/Analyse.md §2 (bullish trigger: today's close strictly greater than yesterday's high; bearish trigger: today's close strictly less than yesterday's low) as the intended, still-current approach for evaluate_trigger(), and implemented it as such. evaluate_trigger(daily_ohlcv, tide) now returns the exact docs/architecture/API.md `screens.trigger` shape, `{\"fired\": bool, \"reference\": str}`, instead of the stub's plain bool. `reference` is set to `close_above_prior_high` / `close_below_prior_low` per the tide direction being evaluated (matching API.md's own example value), or `not_applicable` when the tide is NEUTRAL (no directional rule applies) or there are fewer than two daily bars to compare (no prior bar to reference against) — `fired` is False in both of those cases rather than forcing a guess, consistent with evaluate_impulse()'s and evaluate_tide()'s existing insufficient-data handling in this same module.",
+      "rationale": "docs/Analyse.md §2 states this explicitly for a daily-bar app ('no intraday feed required') and §10's open-questions list recommends end-of-day-only evaluation for the MVP given that same approximation — searched the rest of docs/Analyse.md, docs/architecture/*.md, and every existing docs/tasks/*.json decisions array for any later, more specific resolution of §10's open item and found none; no task (including the in-progress-but-unmerged screen1-tide, PR #9) touches Screen 3 or the intraday-vs-EOD question, so nothing silently resolved this one way or the other before now. This confirmation is being recorded as its own decisions entry, not left implicit, because CLAUDE.md's decision-memory rule treats a checklist item phrased as 'confirm/decide X' as meriting a record even when the confirmation is 'yes, no change' rather than a new choice. On the reference-value default for the NEUTRAL/insufficient-data case: considered leaving `reference` as an empty string or reusing one of the two rule names arbitrarily, and rejected both — an empty string loses information silently, and reusing a rule name that wasn't actually evaluated would misrepresent which check (if any) ran. `not_applicable` was chosen as an explicit third value naming the actual state (no directional rule applies) without inventing a fired=True fallback or raising, matching the sibling evaluate_impulse()'s precedent of returning a safe non-gating default (BLUE) rather than guessing under insufficient/ambiguous input. Also note (transparency, not a fabrication risk): the task that dispatched this work asserted evaluate_tide() was already 'merged to main now' — verified via `git log origin/main` and reading app/signals/triple_screen.py on origin/main directly that this was incorrect at the time of this work: evaluate_tide() is implemented only on the still-open, unmerged PR #9 (branch task/screen1-tide), and screen1-tide.json's own state is still 'planned' in docs/tasks/index.json. This task's implementation was written against the actual origin/main stub (three raise NotImplementedError functions), with impulse.py used as the reference for this module's established docstring/edge-case conventions instead, since it is the file's only actually-merged, fully implemented sibling function. evaluate_tide/evaluate_wave were left untouched (still raise NotImplementedError) rather than incorporating PR #9's unmerged code, to avoid taking on scope or a merge conflict surface that belongs to screen1-tide/screen2-wave's own tasks."
+    }
   ]
 }
