@@ -3,15 +3,59 @@
   "title": "Confidence scoring (weighted composite)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["screen1-tide", "screen2-wave", "impulse-system", "indicator-elder-ray"],
   "references": ["docs/Analyse.md#6-confidence-score-0100"],
   "description": "compute_confidence() and confidence_band() in app/signals/confidence.py: weighted composite (tide 30%, impulse 20%, oscillator extremity 25%, Elder-Ray confirmation 15%, volume confirmation 10%) producing a 0-100 integer, plus Low/Medium/High banding.",
   "checklist": [
-    { "step": "Implement compute_confidence() summing weight x score across the 5 documented components (weights already defined in WEIGHTS constant)", "done": false },
-    { "step": "Implement confidence_band(): Low <40, Medium 40-70, High >70 per docs/Analyse.md §6", "done": false },
-    { "step": "Write unit tests for boundary values (0, 100, and the 40/70 band edges) — off-by-one errors here are easy to introduce", "done": false },
-    { "step": "Confirm the per-component breakdown is preserved for the API response (confidence_breakdown), not collapsed to just the final number", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Implement compute_confidence() summing weight x score across the 5 documented components (weights already defined in WEIGHTS constant)", "done": true },
+    { "step": "Implement confidence_band(): Low <40, Medium 40-70, High >70 per docs/Analyse.md §6", "done": true },
+    { "step": "Write unit tests for boundary values (0, 100, and the 40/70 band edges) — off-by-one errors here are easy to introduce", "done": true },
+    { "step": "Confirm the per-component breakdown is preserved for the API response (confidence_breakdown), not collapsed to just the final number", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "compute_confidence() raises ValueError if the given components list doesn't contain exactly the 5 names in WEIGHTS (no missing/extra/duplicate), each with the matching WEIGHTS weight and a score in [0.0, 1.0], instead of silently summing whatever it's given.",
+      "rationale": "docs/Analyse.md §6 defines confidence as Σ(component_score × weight) over a fixed 5-component set; a caller that drops a component, double-counts one, or passes a mismatched weight would produce a quietly wrong confidence score with no indication anything went wrong. Failing loudly at the compute_confidence() boundary catches that class of bug immediately (e.g. in the future signal-engine-orchestration wiring) rather than letting it silently mis-score. Rejected: accepting any subset/weight and just summing — simpler but defeats the point of having a single documented WEIGHTS source of truth."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Round the weighted total to the nearest whole percent using Python's built-in round() (banker's rounding — exact .5 ties go to the nearest even integer), rather than a custom round-half-up.",
+      "rationale": "docs/Analyse.md §6 says only 'round to nearest whole percent' with no tie-breaking rule specified, and ties can only occur from a weighted sum landing on an exact X.5, an edge case the doc doesn't address. Using the language's own default avoids inventing an unstated rule; documented here so a future change that needs round-half-up (e.g. to match a specific worked example) has the rationale for the current behavior to weigh against."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "confidence_band(): both boundary values are inclusive to 'Medium' — confidence == 40 and confidence == 70 both classify as Medium, not Low/High respectively (Low is strictly < 40, High is strictly > 70).",
+      "rationale": "docs/Analyse.md §6 literally writes '<40% = Low, 40-70% = Medium, >70% = High' — the Low and High bounds are given as strict inequalities (< and >), which by elimination makes the 40-70 Medium range inclusive of both endpoints; this is also the only reading that doesn't leave 40 and 70 unclassified by any band. Tested explicitly at 39/40/70/71 per the task's own off-by-one warning."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added score_tide_alignment(), score_impulse_gate(), score_oscillator_extremity(), score_elder_ray_confirmation(), and score_volume_confirmation() helper functions to app/signals/confidence.py, translating each dependency task's real categorical/numeric output (evaluate_tide, evaluate_impulse, evaluate_wave, bull_power/bear_power, volume) into the 0.0-1.0 ConfidenceComponent score docs/Analyse.md §6's table describes per component, even though the checklist only named compute_confidence()/confidence_band() explicitly.",
+      "rationale": "confidence-scoring depends specifically on screen1-tide, screen2-wave, impulse-system, and indicator-elder-ray (not screen3-trigger or signal-engine-orchestration) — the natural reading is that this task owns turning those four dependencies' raw outputs into the component scores compute_confidence() sums, leaving signal-engine-orchestration (a separate, later task) to just call these helpers with real evaluate_*/indicator outputs and feed the result to compute_confidence(). Also directly requested by the dispatching task text ('decide how oscillator extremity is scored from the wave state, and how volume confirmation is scored from Force Index... record real decisions entries'). Rejected: leaving compute_confidence()/confidence_band() as the only public API and pushing all scoring-curve logic into the not-yet-started signal-engine-orchestration task — this would leave the Analyse.md §6 'Scoring' column (confidence.py's stated domain per docs/architecture/Backend.md line 31, 'confidence.py # weighted scoring (Analyse.md §6)') unimplemented anywhere, and duplicate/reinvent this same judgment call as a bigger, harder-to-review task later."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "score_oscillator_extremity() scores 0.0 whenever evaluate_wave's state doesn't match the signal direction's qualifying setup (OVERSOLD_PULLBACK for BUY, OVERBOUGHT_RALLY for SELL) — regardless of how extreme the raw Stochastic %K looks in isolation — and otherwise scales linearly with %K depth beyond the 30/70 threshold: (30-k)/30 for oversold, (k-70)/30 for overbought, clamped to [0,1]. Force Index's magnitude is not blended into the continuous scale as a second term; its confirmation role is captured entirely via the state gate.",
+      "rationale": "docs/Analyse.md §6 says this component is 'scaled by how deep into oversold/overbought territory Stochastic + Force Index are' but gives no formula. evaluate_wave (screen2-wave) already requires both a qualifying Stochastic reading AND a Force Index spike (via triple_screen.py's _is_force_index_spike, which normalizes against a rolling standard deviation of the full historical Force Index series) to reach OVERSOLD_PULLBACK/OVERBOUGHT_RALLY, so the state field already encodes 'Force Index confirms too' — using it as a gate avoids re-deriving that same spike threshold a second time with a different, possibly inconsistent definition. The %K depth formula matches the doc's own worked example ('Stochastic < 20 scores higher than < 30'): tested explicitly that %K=20 scores higher than %K=29. Force Index's raw magnitude wasn't blended in as a separate continuous term because, unlike Stochastic's fixed 0-100 range, Force Index has no ticker-independent scale to normalize a raw scalar against at this layer — the API's screens.wave shape (docs/architecture/API.md) only exposes the latest scalar force_index_2ema value, not the historical series _is_force_index_spike needs to normalize it; re-deriving that normalization here would require the same series and duplicate triple_screen.py's own logic rather than reusing it via state."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "score_elder_ray_confirmation() takes bull_power/bear_power as pd.Series (at least the last two bars) and scores based on sign + last-two-point rising/falling trajectory, not just the latest scalar sign: BUY scores 1.0 if Bear Power is negative and rising, 0.5 if negative but not rising, 0.0 if non-negative (SELL mirrors on Bull Power, rising/falling swapped).",
+      "rationale": "docs/Analyse.md §2 states the confirmation cue in trajectory terms, not just sign: 'Bear Power negative but rising (weak dip)' for a buy cue, 'Bull Power positive but falling' for a sell cue — the word 'rising'/'falling' is doing real work here, since a same-day sign-only test (e.g. bull_power > 0 and bear_power < 0) can't distinguish this exhaustion-then-reversal pattern from an ordinary trending day where the daily high/low simply straddle EMA(13), which is common and not itself confirmatory. Reused the same last-two-points 'rising'/'falling' direction convention (tie counts as not-rising) already established in app.signals.impulse._direction for consistency with that precedent, and mirrored the 100/50/0 tiering docs/Analyse.md §6 already uses for tide_alignment rather than inventing a new scale. Rejected: a scalar-only sign test (bull_power/bear_power as plain floats, matching the scalar shape docs/architecture/API.md's indicators.bull_power/bear_power expose) — simpler and matches that API shape, but can't express the doc's own 'rising'/'falling' requirement at all, so it would misclassify ordinary trending days as full confirmations."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "score_volume_confirmation() is a plain binary 1.0/0.0 (Force Index spike OR volume above 20-day average → 1.0, else 0.0), with no intermediate value; 'Force Index spike' is read off evaluate_wave's state (OVERSOLD_PULLBACK/OVERBOUGHT_RALLY) rather than re-computing a separate spike check.",
+      "rationale": "docs/Analyse.md §6 phrases this component as a pure OR of two binary conditions ('100% if Force Index spike / trigger bar volume is above 20-day average') with no partial-credit tier documented, unlike tide_alignment (100/50/0) or the impulse gate (100/40/0) — inventing an intermediate value here would be adding a rule the doc doesn't state. Reusing evaluate_wave's state as the Force-Index-spike signal (rather than re-implementing triple_screen.py's _is_force_index_spike rolling-stdev check a second time in confidence.py) avoids two independent, potentially-drifting definitions of 'spike' in the codebase."
+    }
   ]
 }
