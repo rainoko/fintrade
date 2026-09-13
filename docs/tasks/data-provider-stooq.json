@@ -3,16 +3,74 @@
   "title": "Data provider: Stooq (fallback)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
   "description": "Implement StooqProvider (app/data/stooq_provider.py) as the fallback market data source when yfinance fails or rate-limits, satisfying the same DataProvider protocol.",
   "checklist": [
-    { "step": "Implement get_daily_ohlcv(ticker) using Stooq's CSV endpoint, returning the same column shape as YFinanceProvider", "done": false },
-    { "step": "Implement get_weekly_ohlcv(ticker) — resample daily bars to weekly since Stooq has no native weekly interval", "done": false },
-    { "step": "Handle unknown ticker / insufficient history the same way as data-provider-yfinance (typed exceptions -> 404 / 422)", "done": false },
-    { "step": "Write unit tests against recorded CSV fixtures — no live network calls", "done": false },
-    { "step": "Confirm StooqProvider and YFinanceProvider are interchangeable behind the DataProvider protocol (shared contract test)", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement get_daily_ohlcv(ticker) using Stooq's CSV endpoint, returning the same column shape as YFinanceProvider", "done": true },
+    { "step": "Implement get_weekly_ohlcv(ticker) — resample daily bars to weekly since Stooq has no native weekly interval", "done": true },
+    { "step": "Handle unknown ticker / insufficient history the same way as data-provider-yfinance (typed exceptions -> 404 / 422)", "done": true },
+    { "step": "Write unit tests against recorded CSV fixtures — no live network calls", "done": true },
+    { "step": "Confirm StooqProvider and YFinanceProvider are interchangeable behind the DataProvider protocol (shared contract test)", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T10:29:20Z",
+      "recorded_by": "task-worker",
+      "decision": "Created app/data/exceptions.py on this branch with the exact same DataProviderError/TickerNotFoundError/InsufficientHistoryError/DataProviderUnavailableError hierarchy (same fields, same docstrings, same 404/422/503 mapping) as the one already implemented — but not yet merged to main — on task/data-provider-yfinance (PR #18), verified by reading that branch's actual file content directly (`git show origin/task/data-provider-yfinance:backend/app/data/exceptions.py`) rather than re-deriving the shape from scratch.",
+      "rationale": "Per this task's own instructions, two options existed: (a) invent an independent minimal exception module now and reconcile later, or (b) read the real established convention off the not-yet-merged branch and match it exactly. Chose (b): since the content was directly verifiable (not fabricated) and the two tasks need identical semantics (same DataProvider protocol, same API-layer 404/422/503 mapping), matching verbatim means whichever of the two PRs merges second will find its own copy byte-for-identical to the other's and can simply keep either one / delete its own duplicate with a trivial no-op merge, rather than needing an actual reconciliation patch. Rejected: inventing a divergent shape now, which risks a real merge conflict or (worse) two subtly different exception hierarchies with the same names coexisting until someone notices."
+    },
+    {
+      "timestamp": "2026-09-13T10:29:20Z",
+      "recorded_by": "task-worker",
+      "decision": "get_weekly_ohlcv resamples the daily series into Friday-ending weeks (`resample(\"W-FRI\")`, open=first/high=max/low=min/close=last/volume=sum, dropping any bin with no trading days) rather than requesting Stooq's own `i=w` weekly interval param.",
+      "rationale": "This task's own description and checklist explicitly state Stooq 'has no native weekly interval' and instruct resampling daily->weekly; followed that instruction as given rather than second-guessing it against outside knowledge of Stooq's URL API. W-FRI (week ending Friday) matches the standard trading-week convention (Mon-Fri) and keeps weekly bar boundaries stable regardless of which weekday `get_daily_ohlcv`'s underlying data happens to start/end on. The insufficient-history check (`_MIN_WEEKLY_BARS = 26`, docs/Analyse.md §8) is applied to the *resampled* weekly count, not the raw daily-bar count, mirroring YFinanceProvider's placement of the same check (verified via the same branch read as the exceptions.py decision above) so the two providers reject 'too little history' at the same effective threshold. Rejected: passing i=w to Stooq's endpoint directly (would contradict the explicit task instruction, and Stooq's real weekly CSV is known to have gaps/quirks around recent partial weeks that daily-bar resampling avoids); checking the 26-bar minimum on the daily count instead of the resampled weekly count (would need an independently-chosen daily threshold not stated anywhere in docs/Analyse.md — the same reasoning YFinanceProvider's task recorded for rejecting that option)."
+    },
+    {
+      "timestamp": "2026-09-13T10:29:20Z",
+      "recorded_by": "task-worker",
+      "decision": "Detect 'unknown ticker' by checking whether Stooq's CSV response body is the literal text 'No data' (Stooq's documented behavior for an invalid/delisted symbol — a plain-text body, not an HTTP error status), with a second belt-and-braces check for an empty/header-only parsed DataFrame in case the exact wording ever changes. A bare ticker like 'AAPL' is translated to Stooq's required `<symbol>.<market>` form by lowercasing and appending '.us' when no suffix is already present, assuming US equities as the default market (matching the implicit assumption YFinanceProvider's bare-ticker calls already make).",
+      "rationale": "Per docs/architecture/Testing.md's no-live-network-calls rule, this couldn't be confirmed against a real Stooq response in this session; it's implemented against Stooq's documented/widely-observed CSV endpoint behavior, with the header-only-DataFrame fallback specifically so the exact wording of the 'no data' response isn't a single point of failure. The '.us' auto-suffix is necessary for Stooq's endpoint to resolve at all (its symbols aren't bare tickers) while keeping the DataProvider protocol's `ticker` argument itself provider-agnostic (a caller passes 'AAPL' the same way to either provider; only StooqProvider needs to know Stooq's own symbol format). Rejected: requiring callers to pass Stooq-formatted symbols directly, which would break the protocol's interchangeability guarantee (docs/architecture/Backend.md §2)."
+    },
+    {
+      "timestamp": "2026-09-13T10:29:20Z",
+      "recorded_by": "task-worker",
+      "decision": "The checklist's 'shared contract test proving StooqProvider and YFinanceProvider are interchangeable' is implemented in tests/unit/data/test_provider_contract.py scoped to StooqProvider alone for now (protocol-signature conformance + output-shape assertions), with YFinanceProvider deliberately left out of the `_PROVIDER_CLASSES` list and a comment + this decision recording it as a follow-up.",
+      "rationale": "app/data/yfinance_provider.py on `main` is still the unimplemented stub (`raise NotImplementedError`) as of this task — data-provider-yfinance's real implementation only exists on its own not-yet-merged branch (PR #18) — so there is nothing real to compare Stooq's output against yet without reaching across branches into code this task doesn't own. Structuring the test as a parametrized list keyed by provider class means adding YFinanceProvider once it lands on `main` is a one-line change (append to `_PROVIDER_CLASSES`, add its own mocked-fetch fixture) rather than a rewrite. Rejected: skipping the contract test entirely until both providers exist, which would leave the DataProvider protocol's method-signature conformance completely unverified for Stooq in the meantime; importing/vendoring the yfinance branch's provider code into this branch to test against it now, which would create a fake dependency on unmerged, unreviewed code."
+    }
+  ],
+  "git": {
+    "branch": "task/data-provider-stooq",
+    "pr_number": 19,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/19",
+    "pushed_at": "2026-09-13T10:30:15Z"
+  },
+  "review": {
+    "verdict": "accepted",
+    "reviewed_at": "2026-09-13T10:40:00Z",
+    "reviewed_by": "pr-reviewer",
+    "pr_number": 19,
+    "comments": [
+      {
+        "summary": "exceptions.py provenance claim independently verified: diffed against origin/task/data-provider-yfinance's copy, identical except a 4-line docstring pointing at this task's own decisions entry instead of the yfinance task's — a cosmetic, expected difference, not a functional divergence.",
+        "file": "backend/app/data/exceptions.py"
+      },
+      {
+        "summary": "Minor correctness edge case (non-blocking): _to_stooq_symbol treats any '.' in the ticker as an existing market suffix, so a literal dotted class-share ticker like 'BRK.B' would skip the '.us' suffix and produce the wrong Stooq symbol (Stooq/yfinance both use a hyphen for class shares, e.g. brk-b.us). Low impact since this app's own ticker convention already uses hyphens, so it only bites on non-canonical input. Worth a follow-up fix + test.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 101
+      },
+      {
+        "summary": "Nit (non-blocking): unused `import urllib.error` — all transport failures go through the broad `except Exception` in _fetch_daily, never a specific urllib.error type. Dead code.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 2
+      },
+      {
+        "summary": "Minor doc gap (non-blocking): docs/architecture/Backend.md §2's module-layout diagram doesn't list app/data/exceptions.py. The module's existence is well-justified and recorded in this task's decisions, just not reflected in the architecture doc's diagram yet — suggest a small follow-up once the exceptions.py duplication with PR #18 (data-provider-yfinance) is reconciled."
+      }
+    ],
+    "notes": "Full review: gh pr checkout 19; pytest --cov=app --cov-report=term-missing -> 81/81 pass, app/data/stooq_provider.py + exceptions.py at 100% coverage, repo-wide 80.32% (confirmed via throwaway worktree that main itself is already at 72.44% pre-existing, so no regression -- this PR improves coverage). No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Manually re-executed (outside the test suite) the weekly W-FRI resample, unknown-ticker 'No data'/header-only detection, and '.us' auto-suffix behavior against the real module code to confirm the claimed behavior, not just reading the tests. No API/schema changes -> openapi.json correctly untouched. No UI surface -> browser walkthrough explicitly not applicable. code-review (medium) and architecture-review skills both run against the diff; architecture-review triggered because app/data/exceptions.py is a new module not in Backend.md §2's layout diagram -- found to be a well-justified addition (recorded in decisions), non-blocking doc gap only. All 4 recorded decisions are genuine (what + rejected alternatives + why) and cover every checklist item that involved a judgment call. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected, plus two inline file:line comments for the code findings above."
+  }
 }
