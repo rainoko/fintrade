@@ -5,7 +5,9 @@ pattern in tests/unit/test_db_models.py, so these tests never touch the real fin
 and don't depend on the db-migrations task's Alembic setup having run.
 """
 
+import json
 from datetime import date
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +18,23 @@ from sqlalchemy.pool import StaticPool
 from app.db.models import Base
 from app.db.session import get_db
 from app.main import app
+
+
+def post_position_allowing_non_finite_floats(client: TestClient, payload: dict[str, Any]):
+    """httpx (used by TestClient's `json=` kwarg) refuses to serialize float('inf')/float('nan')
+    client-side, which would make it impossible to even construct a request carrying them —
+    that's a limitation of the test client, not something the server-side schema validation can
+    rely on. `json.dumps` (stdlib, `allow_nan=True` by default) happily emits the non-standard
+    but widely-accepted `Infinity`/`NaN`/`-Infinity` literals, and Python's own `json.loads`
+    (what FastAPI parses the request body with) accepts them right back — so this sends the body
+    as raw bytes to reach the server exactly as a real non-Python client sending those literals
+    would, and exercises the schema's `allow_inf_nan=False` rejection rather than the test
+    client's own serializer."""
+    return client.post(
+        "/api/portfolio/positions",
+        content=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
 
 
 @pytest.fixture
@@ -202,3 +221,122 @@ class TestAddPosition:
         )
 
         assert second.status_code == 422
+
+    def test_infinite_quantity_returns_422_not_201(self, client: TestClient) -> None:
+        """Regression test (PR #17 second review round): gt=0 alone doesn't reject Infinity
+        (float('inf') > 0 is True), so quantity=Infinity used to be accepted (201) and, on a
+        subsequent same-ticker merge, produced merged_quantity=inf / avg_cost_basis=nan, which
+        crashed db.commit() with an unhandled sqlalchemy IntegrityError (NaN into a NOT NULL
+        column). allow_inf_nan=False now rejects Infinity/NaN at the schema layer."""
+        response = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": float("inf"), "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_infinite_quantity_422_body_is_valid_json_and_echoes_input_safely(
+        self, client: TestClient
+    ) -> None:
+        """Regression test for a second-order bug surfaced while fixing the Infinity gap:
+        Pydantic's finite_number validation error echoes the raw rejected value back in its
+        `input` field (e.g. `input: inf`). FastAPI's default RequestValidationError handler
+        then hands that straight to Starlette's JSONResponse, which renders with
+        `json.dumps(..., allow_nan=False)` — serializing a literal `inf` there raises an
+        unhandled ValueError *inside the error handler*, so the client received a raw 500
+        (not even a real HTTP response body) instead of a 422, even after the schema-level
+        fix. app/main.py registers a RequestValidationError handler that sanitizes non-finite
+        floats before responding; this asserts the response is both a real 422 and valid,
+        parseable JSON that doesn't crash on decode."""
+        response = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": float("inf"), "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+        body = response.json()  # would itself raise if the body weren't valid JSON
+        [quantity_error] = [e for e in body["detail"] if e["loc"] == ["body", "quantity"]]
+        assert quantity_error["type"] == "finite_number"
+        # The raw non-finite float is sanitized to its string form rather than omitted, so the
+        # error message stays informative without breaking JSON encoding.
+        assert quantity_error["input"] == "inf"
+
+    def test_nan_quantity_returns_422(self, client: TestClient) -> None:
+        response = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": float("nan"), "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_infinite_avg_cost_basis_returns_422(self, client: TestClient) -> None:
+        response = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": 10, "avg_cost_basis": float("inf"), "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_nan_avg_cost_basis_returns_422(self, client: TestClient) -> None:
+        response = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": 10, "avg_cost_basis": float("nan"), "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_duplicate_ticker_merge_with_finite_second_post_after_would_be_infinite_first_stays_rejected(
+        self, client: TestClient
+    ) -> None:
+        """End-to-end regression for the exact scenario in the second review round: the first
+        POST with Infinity quantity is rejected outright (422), so there's no merged row for a
+        second, finite-quantity POST to corrupt via inf/nan arithmetic."""
+        first = post_position_allowing_non_finite_floats(
+            client,
+            {"ticker": "AAPL", "quantity": float("inf"), "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 422
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 10, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+        assert second.status_code == 201
+        assert second.json()["quantity"] == 10
+
+    def test_empty_ticker_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "", "quantity": 10, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_whitespace_only_ticker_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "   ", "quantity": 10, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert response.status_code == 422
+
+    def test_whitespace_padded_ticker_is_stripped_and_merges_with_existing(
+        self, client: TestClient
+    ) -> None:
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 201
+        first_id = first.json()["id"]
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": " AAPL ", "quantity": 10, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+
+        assert second.status_code == 201
+        body = second.json()
+        assert body["id"] == first_id
+        assert body["ticker"] == "AAPL"
+        assert body["quantity"] == 110
