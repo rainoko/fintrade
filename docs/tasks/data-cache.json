@@ -40,5 +40,11 @@
       "decision": "When both the primary and fallback providers fail (both raise DataProviderUnavailableError), CachedDataProvider re-raises DataProviderUnavailableError (wrapping the fallback's exception, with a message naming both providers) rather than introducing a new exception type. This applies uniformly whether the cache was empty or merely stale for that ticker/interval -- CachedDataProvider does not fall back to silently serving stale cached data when a refresh is attempted and both providers fail.",
       "rationale": "app/data/exceptions.py already documents DataProviderUnavailableError as mapping to HTTP 503 for exactly this case ('the upstream provider itself is unreachable or refusing requests... as opposed to a per-ticker problem'), which is precisely the both-providers-failed condition -- a new exception type would be a distinction without a difference for the API layer. Not falling back to stale data was the closer call: silently serving out-of-date bars as if they were current, for a tool whose whole purpose is signaling BUY/SELL off recent price action, risks misleading a signal computed from data staler than the caller (and the 503 response) implies. Surfacing the failure explicitly is safer and matches the checklist's own framing ('both-providers-failed (-> 503) scenario') without conditioning it on cache state. Rejected: serving stale cached data as a graceful-degradation fallback, which would be a reasonable choice for a less safety-sensitive read path but trades correctness for uptime in a context (trading signals) where that's the wrong trade; introducing a distinct 'stale data served under outage' exception/flag, which is unneeded complexity with no consumer yet defined for it."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/data-cache",
+    "pr_number": 20,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/20",
+    "pushed_at": "2026-09-13T10:48:20Z"
+  }
 }
