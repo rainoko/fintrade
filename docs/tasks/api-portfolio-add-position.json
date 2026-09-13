@@ -3,7 +3,7 @@
   "title": "API: POST /api/portfolio/positions",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
@@ -53,37 +53,55 @@
     "pushed_at": "2026-09-13T09:45:52Z"
   },
   "review": {
-    "reviewed_at": "2026-09-13T09:45:00Z",
+    "reviewed_at": "2026-09-13T09:54:32Z",
     "recorded_by": "pr-reviewer",
     "pr_number": 17,
-    "method": ["unit_tests", "coverage", "static_analysis", "code_review_skill", "architecture_review_skill"],
+    "method": ["unit_tests", "coverage", "static_analysis", "code_review_skill"],
     "verdict": "needs_work",
     "comments": [
       {
-        "summary": "Blocking: unhandled ZeroDivisionError when a duplicate-ticker POST's quantity exactly cancels the existing position's quantity (e.g. create AAPL qty=100, then POST AAPL qty=-100 -> merged_quantity == 0 -> crash, surfaced as a raw 500). PositionIn.quantity/avg_cost_basis have no positivity constraint, and no new test covers a negative/zero-crossing quantity. Reproduced directly against a live TestClient and independently confirmed by the code-review skill. Fix suggestion: Field(gt=0) on quantity/avg_cost_basis (yields automatic 422) plus a regression test.",
-        "file": "backend/app/api/routers/portfolio.py",
-        "line": 65,
+        "summary": "Blocking (new in this fix round): Field(gt=0) on PositionIn.quantity/avg_cost_basis rejects zero/negative but not Infinity (float('inf') > 0 is True in Python/Pydantic), so the merge arithmetic can still crash with an unhandled 500 -- the same failure class the fix round set out to eliminate, just reached via a different input than the exact-cancellation case that's now fixed. Reproduced independently: POST quantity=Infinity is accepted (201, and the response silently serializes quantity back as null -- data loss), then a second same-ticker POST with a finite quantity computes merged_quantity=inf and avg_cost_basis=(inf*a+b*c)/inf=nan; SQLite rejects binding NaN into the NOT NULL avg_cost_basis column, raising an unhandled sqlalchemy.exc.IntegrityError out of db.commit() with no rollback and no ErrorDetail body. Fix suggestion: Field(gt=0, lt=float('inf')) (or a finite-float validator) plus a regression test for an Infinity/NaN quantity or cost basis.",
+        "file": "backend/app/api/schemas.py",
+        "line": 117,
         "severity": "blocker"
       },
       {
-        "summary": "Non-blocking: TOCTOU race on the duplicate-ticker check (read-then-write with no unique constraint on PositionORM.ticker) can let two concurrent POSTs for the same new ticker both insert separate rows, defeating the merge invariant this PR implements. Low risk for the current single-process MVP; worth a unique=True before concurrent traffic is realistic.",
+        "summary": "RESOLVED (was blocker in the prior review pass): the originally-reported ZeroDivisionError from an exact-cancellation duplicate-ticker merge is confirmed closed. Reproduced directly: create AAPL qty=100, then POST AAPL qty=-100 now returns 422 (Field(gt=0) rejects it before the merge division runs), never reaching the crash path. Since both merge operands are now schema-constrained > 0, their sum can't be <= 0 for finite inputs.",
         "file": "backend/app/api/routers/portfolio.py",
-        "line": 50,
-        "severity": "minor"
+        "line": 62,
+        "severity": "resolved"
       },
       {
-        "summary": "Non-blocking: merge-averaging arithmetic is inlined in the router handler rather than a small pure function in app/portfolio/ (where risk.py/exits.py already live per Backend.md's module layout). Minor reuse/testability nit for this amount of logic, not a hard violation.",
-        "file": "backend/app/api/routers/portfolio.py",
-        "line": null,
-        "severity": "minor"
+        "summary": "RESOLVED (was minor in the prior review pass): the TOCTOU race on the duplicate-ticker check is confirmed closed. Verified independently at the DB layer (bypassing the API entirely): two direct PositionORM inserts with the same ticker against the same engine raise sqlite3.IntegrityError: UNIQUE constraint failed: positions.ticker on the second commit. The resulting rare concurrent-insert 500 is explicitly decided as deferred, with rationale, in this task's decisions array.",
+        "file": "backend/app/db/models.py",
+        "line": 15,
+        "severity": "resolved"
       },
       {
-        "summary": "Non-blocking: the new lifespan create_all stopgap is a reasonable, well-rationalized, idempotent bootstrap and is recorded as a decision, but docs/architecture/Backend.md §7 ('Migrations via Alembic from day one... avoids a painful retrofit later') wasn't updated to note this interim state, and db-migrations.json's checklist doesn't flag that a fresh install will already have tables from create_all (meaning `alembic stamp head`, not a blind `alembic upgrade head`, will be needed) — not currently discoverable by whoever picks up db-migrations next.",
+        "summary": "RESOLVED (was minor in the prior review pass): the create_all lifespan stopgap is now documented as an interim state in docs/architecture/Backend.md §7, and db-migrations.json has a new checklist item + description note about needing `alembic stamp head` instead of a blind `upgrade head` against a pre-existing create_all'd database.",
         "file": "backend/app/main.py",
         "line": null,
+        "severity": "resolved"
+      },
+      {
+        "summary": "Non-blocking: PositionIn.ticker has no length/strip validation -- an empty string (\"\") is accepted and creates a position with that ticker, and a leading/trailing-whitespace ticker (e.g. \" AAPL\") is normalized only via .upper(), not .strip(), so it's treated as a different ticker from \"AAPL\" and creates a second row instead of merging. Both reproduced directly. Undermines the documented same-ticker-merges invariant for malformed-but-technically-valid input. Worth min_length=1 plus .strip() in the normalization step.",
+        "file": "backend/app/api/schemas.py",
+        "line": 116,
+        "severity": "minor"
+      },
+      {
+        "summary": "Non-blocking: unique=True on PositionORM.ticker is only applied by create_all to freshly created tables -- a database created before this PR won't retroactively gain the unique index. Already implicit in the documented create_all stopgap limitation, not new scope for this PR, but worth calling out alongside the existing stamp-head note once db-migrations picks this up.",
+        "file": "backend/app/db/models.py",
+        "line": 15,
+        "severity": "minor"
+      },
+      {
+        "summary": "Non-blocking, unaddressed carryover from the prior review pass: merge-averaging arithmetic (weighted avg cost, min(entry_date)) is still inlined in the router handler rather than a small pure function in app/portfolio/ (where risk.py/exits.py already live per Backend.md's module layout). Fine to leave for a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 62,
         "severity": "minor"
       }
     ],
-    "notes": "openapi.json snapshot verified up to date (regenerated via scripts/export_openapi.py and diffed clean). Duplicate-ticker decisions entry and docs/architecture/API.md update are both substantive and satisfy CLAUDE.md's decision-memory standard. Backend coverage: 63 passed, whole-repo 74.26% vs 72.44% pre-PR baseline on main (confirmed via a clean worktree) -- net improvement, not a regression; shortfall is pre-existing unimplemented stub modules unrelated to this PR. No frontend exists yet, so the browser walkthrough step doesn't apply. Findings posted as inline PR review comments and a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR, same as --approve)."
+    "notes": "Independent re-verification (not just trusting the fix-round report): reproduced the ZeroDivisionError-is-closed claim directly against a live TestClient (create AAPL qty=100, then POST AAPL qty=-100 -> 422 not 500); reproduced the unique-constraint claim directly at the DB layer bypassing the API (two direct PositionORM inserts for the same ticker -> IntegrityError on the second commit); regenerated backend/openapi.json locally via scripts/export_openapi.py and diffed byte-identical against the committed snapshot, and confirmed exclusiveMinimum: 0.0 is present on both quantity and avg_cost_basis in the committed schema. All three previously-flagged issues (ZeroDivisionError, TOCTOU race, undocumented create_all stopgap) are genuinely fixed. However the code-review skill (medium), run fresh against this fix round's diff, surfaced a new blocking gap in the same fix (Infinity bypasses gt=0 and produces a NaN avg_cost_basis that crashes db.commit() with an unhandled IntegrityError) which I independently reproduced -- see the blocking comment above. Backend coverage: 68 passed (up from 63 in the prior review pass -- the fix round's own regression tests), whole-repo 74.26% vs 72.44% pre-PR baseline on main (confirmed via a clean worktree) -- net improvement, not a regression; shortfall is pre-existing unimplemented stub modules unrelated to this PR. No ruff/mypy/lint config exists yet in backend/pyproject.toml -- nothing to run beyond pytest. No frontend exists yet, so the browser walkthrough step doesn't apply; noted explicitly rather than silently skipped. Findings posted as inline PR comment (schemas.py:117-118 / portfolio.py:70) and a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR, same as --approve)."
   }
 }
