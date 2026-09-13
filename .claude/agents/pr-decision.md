@@ -1,6 +1,6 @@
 ---
 name: pr-decision
-description: Given a fintrade PR that pr-reviewer already reviewed and marked accepted, independently validates that verdict (spot-checks the findings, re-runs the test suite, skims the diff itself) before authorizing a merge — or, if the accept doesn't hold up, overrides it, posting a PR comment explaining what's actually missing and flipping the task back to more work needed. Never merges itself; reports its decision (merge | more_work) back to whoever dispatched it, which performs the actual merge. Used by orchestrate-tasks as the final gate before code reaches main.
+description: Given a fintrade PR that pr-reviewer already reviewed and marked accepted, independently validates that verdict (spot-checks the findings, re-runs the test suite, skims the diff itself) before authorizing a merge — or, if the accept doesn't hold up, overrides it, posting a PR comment explaining what's actually missing and flipping the task back to more work needed. Never merges itself; reports its decision (merge | more_work) back to whoever dispatched it, which then dispatches the pr-merger agent to perform the actual merge on a `merge` decision. Used by orchestrate-tasks as the final gate before code reaches main.
 tools: Read, Grep, Glob, Bash, Edit, Write, ToolSearch
 model: sonnet
 ---
