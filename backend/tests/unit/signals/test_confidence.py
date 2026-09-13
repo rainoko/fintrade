@@ -266,6 +266,25 @@ class TestScoreElderRayConfirmation:
         with pytest.raises(ValueError):
             score_elder_ray_confirmation(pd.Series([1.0, 1.0]), pd.Series([-1.0, -1.0]), "HOLD")
 
+    def test_buy_nan_bear_power_is_zero_not_partial(self) -> None:
+        # Pre-warm-up (e.g. EMA(13) not yet available): undefined, not "partial confirmation".
+        bear_power = pd.Series([float("nan"), float("nan")])
+        bull_power = pd.Series([1.0, 1.0])
+        assert score_elder_ray_confirmation(bull_power, bear_power, "BUY") == 0.0
+
+    def test_sell_nan_bull_power_is_zero_not_partial(self) -> None:
+        bull_power = pd.Series([float("nan"), float("nan")])
+        bear_power = pd.Series([-1.0, -1.0])
+        assert score_elder_ray_confirmation(bull_power, bear_power, "SELL") == 0.0
+
+    def test_buy_too_few_points_raises(self) -> None:
+        with pytest.raises(ValueError):
+            score_elder_ray_confirmation(pd.Series([1.0]), pd.Series([-1.0]), "BUY")
+
+    def test_sell_too_few_points_raises(self) -> None:
+        with pytest.raises(ValueError):
+            score_elder_ray_confirmation(pd.Series([1.0]), pd.Series([-1.0]), "SELL")
+
 
 class TestScoreVolumeConfirmation:
     def test_force_index_spike_alone_is_full_score(self) -> None:

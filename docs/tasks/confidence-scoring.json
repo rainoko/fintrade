@@ -3,7 +3,7 @@
   "title": "Confidence scoring (weighted composite)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "screen1-tide",
     "screen2-wave",
@@ -78,6 +78,12 @@
       "recorded_by": "task-worker",
       "decision": "score_volume_confirmation() is a plain binary 1.0/0.0 (Force Index spike OR volume above 20-day average → 1.0, else 0.0), with no intermediate value; 'Force Index spike' is read off evaluate_wave's state (OVERSOLD_PULLBACK/OVERBOUGHT_RALLY) rather than re-computing a separate spike check.",
       "rationale": "docs/Analyse.md §6 phrases this component as a pure OR of two binary conditions ('100% if Force Index spike / trigger bar volume is above 20-day average') with no partial-credit tier documented, unlike tide_alignment (100/50/0) or the impulse gate (100/40/0) — inventing an intermediate value here would be adding a rule the doc doesn't state. Reusing evaluate_wave's state as the Force-Index-spike signal (rather than re-implementing triple_screen.py's _is_force_index_spike rolling-stdev check a second time in confidence.py) avoids two independent, potentially-drifting definitions of 'spike' in the codebase."
+    },
+    {
+      "timestamp": "2026-09-13T21:00:00Z",
+      "recorded_by": "manual",
+      "decision": "Addressed pr-reviewer's blocking finding on PR #22: score_elder_ray_confirmation() now returns 0.0 (not falls through to 0.5) when the latest or previous bear_power/bull_power value is NaN, mirroring score_oscillator_extremity's pd.isna() guard. Also fixed the accompanying non-blocking finding by raising a descriptive ValueError when bear_power/bull_power has fewer than 2 points, instead of letting an IndexError escape from .iloc[-2]. Added 4 regression tests (NaN on both BUY/SELL sides, too-few-points on both sides).",
+      "rationale": "Pre-EMA(13)-warm-up bear_power/bull_power is undefined, not 'weak/partial confirmation' — scoring it 0.5 would misreport a 15%-weighted component as partially confirming a signal the data can't actually speak to yet. Fixed the length guard in the same pass since it's the same function, same review comment, and the fix is a one-line mirror of the module's existing ValueError convention (see score_tide_alignment/score_impulse_gate's signal_direction checks) rather than a separate change. Left the two other non-blocking review notes (score_volume_confirmation's lack of a signal_direction parameter; score_tide_alignment/score_impulse_gate's shared categorical-mapping shape) as-is: both were flagged by the reviewer as defensible/optional, not required for this task's checklist, and reworking them wasn't part of what was found broken."
     }
   ],
   "git": {

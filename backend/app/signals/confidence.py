@@ -201,12 +201,20 @@ def score_elder_ray_confirmation(bull_power: pd.Series, bear_power: pd.Series, s
         raise ValueError(f"signal_direction must be 'BUY' or 'SELL', got {signal_direction!r}")
 
     if signal_direction == "BUY":
+        if len(bear_power) < 2:
+            raise ValueError(f"bear_power must have at least 2 points, got {len(bear_power)}")
         latest, previous = bear_power.iloc[-1], bear_power.iloc[-2]
+        if pd.isna(latest) or pd.isna(previous):
+            return 0.0
         if latest >= 0:
             return 0.0
         return 1.0 if latest > previous else 0.5
     else:
+        if len(bull_power) < 2:
+            raise ValueError(f"bull_power must have at least 2 points, got {len(bull_power)}")
         latest, previous = bull_power.iloc[-1], bull_power.iloc[-2]
+        if pd.isna(latest) or pd.isna(previous):
+            return 0.0
         if latest <= 0:
             return 0.0
         return 1.0 if latest < previous else 0.5
