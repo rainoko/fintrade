@@ -3,16 +3,42 @@
   "title": "OHLCV cache layer",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["data-provider-yfinance", "data-provider-stooq", "db-models"],
   "references": ["docs/architecture/Backend.md#7-persistence", "docs/Architecture.md#3-cross-cutting-decisions"],
   "description": "Implement CachedDataProvider (app/data/cache.py) wrapping a source DataProvider with the SQLite-backed OHLCVCacheORM table, so unchanged history isn't re-fetched on every request.",
   "checklist": [
-    { "step": "Read cached rows from OHLCVCacheORM for the requested ticker/interval/date range before hitting the source provider", "done": false },
-    { "step": "Fetch only the missing/stale date range from the source provider and upsert it into OHLCVCacheORM (fetched_at timestamp)", "done": false },
-    { "step": "Fall back from YFinanceProvider to StooqProvider on failure, per docs/Analyse.md §9 recommendation", "done": false },
-    { "step": "Write unit tests covering: fully cached, partially cached, empty cache, and both-providers-failed (-> 503) scenarios", "done": false },
-    { "step": "Confirm no test in this suite makes a live network call (mocks only)", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Read cached rows from OHLCVCacheORM for the requested ticker/interval/date range before hitting the source provider", "done": true },
+    { "step": "Fetch only the missing/stale date range from the source provider and upsert it into OHLCVCacheORM (fetched_at timestamp)", "done": true },
+    { "step": "Fall back from YFinanceProvider to StooqProvider on failure, per docs/Analyse.md §9 recommendation", "done": true },
+    { "step": "Write unit tests covering: fully cached, partially cached, empty cache, and both-providers-failed (-> 503) scenarios", "done": true },
+    { "step": "Confirm no test in this suite makes a live network call (mocks only)", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "This task's branch (task/data-cache) merges in origin/task/data-provider-yfinance and origin/task/data-provider-stooq wholesale (via `git merge`) rather than reimplementing either provider, since CachedDataProvider genuinely needs both real, working adapters to build the fallback logic against. Both provider PRs (#18, #19) are accepted (state: done) but not yet merged to main as of this task, so this branch's diff against main includes their commits until they land first. The only merge conflicts were the duplicate app/data/exceptions.py module and its test (both tasks independently created an identical copy) and docs/tasks/index.json's per-task `state` fields -- resolved by keeping one copy of exceptions.py (yfinance's, since it merged first in this branch) and marking both data-provider-yfinance and data-provider-stooq as \"done\" in index.json, matching each task's own file.",
+      "rationale": "Reimplementing a third copy of two ~100-line provider adapters (with recorded CSV fixtures) purely to keep this branch's diff 'clean' would waste review effort and risk silently diverging from the already-accepted implementations. The exceptions.py duplication was anticipated by data-provider-stooq's own decisions entry, which explicitly says whichever PR merges second should drop its own copy in favor of the other's -- this merge does exactly that. Rejected: cherry-picking only app/data/exceptions.py and stubbing the two providers, which would still leave this task depending on interfaces (get_daily_ohlcv/get_weekly_ohlcv exact behavior, exception timing) that only the real implementations pin down, defeating the point of testing the fallback path against real logic."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "CachedDataProvider's cache-freshness policy is a flat 24-hour TTL keyed on OHLCVCacheORM.fetched_at (the most recent fetched_at among a ticker/interval's cached rows), not a trading-calendar-aware 'do we already have the latest session's bar' check. 'Fully cached' means cached rows exist and the most recent fetch is within the last 24h (served straight from SQLite, no source call); 'partially cached' (stale) means cached rows exist but the most recent fetch is older than that (triggers a refresh). Because the DataProvider protocol (app/data/base.py) takes no date-range argument -- get_daily_ohlcv/get_weekly_ohlcv always return the full available history -- 'read cached rows for the requested date range' is read as 'read whatever date range is already cached for this ticker/interval', and 'fetch only the missing/stale range' is satisfied at the point of deciding *whether* to call the source at all (only on a miss or staleness) rather than by requesting a narrower window from yfinance/Stooq, which their APIs don't support. The actual upsert, when it does run, is one full pass over the freshly fetched frame (insert-or-update per ticker+date+interval row), which is idempotent and correctly limited to rows that changed or are new.",
+      "rationale": "A market-calendar-aware freshness check (accounting for weekends/holidays/pre-market) would need logic and data this MVP-scope cache doesn't otherwise have any use for, and the DataProvider protocol's lack of a date-range parameter is a pre-existing, already-merged contract (app/data/base.py, used identically by both real providers and their tests) that this task shouldn't change just to support a windowed fetch -- doing so would ripple into both provider implementations and their already-accepted tests. A flat TTL is simple, testable, and correct in spirit: it avoids re-fetching on every single request (the documented goal, docs/Architecture.md §3) while still refreshing within a bounded staleness window. Rejected: (a) extending DataProvider with a start/end-date parameter, out of scope for this task and breaking an already-accepted interface; (b) a per-row/per-date freshness check instead of a whole-ticker/interval one, which would require partial-range source requests the providers don't support anyway; (c) treating 'partially cached' as literally 'some but not all expected dates present', which isn't observable without a market calendar."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The yfinance->Stooq fallback in CachedDataProvider only triggers on DataProviderUnavailableError from the primary provider. TickerNotFoundError and InsufficientHistoryError propagate immediately without attempting the fallback provider.",
+      "rationale": "docs/Analyse.md §9 recommends Stooq specifically 'if Yahoo endpoints fail or rate-limit' -- an availability problem, not a statement about a given ticker's existence or history depth, which the fallback provider isn't guaranteed to resolve differently anyway (and silently trying a second network call on every not-found ticker would double request volume against both free-tier providers for no expected benefit). Rejected: falling back on every DataProviderError subtype including not-found/insufficient-history, which would mask a real 404/422 outcome behind an extra network round-trip and could return a misleadingly different not-found/insufficient-history error from the fallback (different history depth, different ticker coverage) instead of the primary's authoritative one."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "When both the primary and fallback providers fail (both raise DataProviderUnavailableError), CachedDataProvider re-raises DataProviderUnavailableError (wrapping the fallback's exception, with a message naming both providers) rather than introducing a new exception type. This applies uniformly whether the cache was empty or merely stale for that ticker/interval -- CachedDataProvider does not fall back to silently serving stale cached data when a refresh is attempted and both providers fail.",
+      "rationale": "app/data/exceptions.py already documents DataProviderUnavailableError as mapping to HTTP 503 for exactly this case ('the upstream provider itself is unreachable or refusing requests... as opposed to a per-ticker problem'), which is precisely the both-providers-failed condition -- a new exception type would be a distinction without a difference for the API layer. Not falling back to stale data was the closer call: silently serving out-of-date bars as if they were current, for a tool whose whole purpose is signaling BUY/SELL off recent price action, risks misleading a signal computed from data staler than the caller (and the 503 response) implies. Surfacing the failure explicitly is safer and matches the checklist's own framing ('both-providers-failed (-> 503) scenario') without conditioning it on cache state. Rejected: serving stale cached data as a graceful-degradation fallback, which would be a reasonable choice for a less safety-sensitive read path but trades correctness for uptime in a context (trading signals) where that's the wrong trade; introducing a distinct 'stale data served under outage' exception/flag, which is unneeded complexity with no consumer yet defined for it."
+    }
   ]
 }
