@@ -3,15 +3,52 @@
   "title": "Screen 1: Tide (weekly trend)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["indicator-ema", "indicator-macd-histogram"],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine", "docs/architecture/Testing.md"],
   "description": "evaluate_tide() in app/signals/triple_screen.py: BULLISH / BEARISH / NEUTRAL from weekly MACD-Histogram slope plus 13/26-week EMA relationship.",
   "checklist": [
-    { "step": "Implement slope detection on weekly MACD-Histogram (rising/falling/flat)", "done": false },
-    { "step": "Combine with 13-week vs 26-week EMA relationship per docs/Analyse.md §2", "done": false },
-    { "step": "Return NEUTRAL (not a forced guess) when the two signals disagree or data is ambiguous", "done": false },
-    { "step": "Write unit tests covering all three outputs (BULLISH/BEARISH/NEUTRAL) with fixed weekly OHLCV fixtures", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement slope detection on weekly MACD-Histogram (rising/falling/flat)", "done": true },
+    { "step": "Combine with 13-week vs 26-week EMA relationship per docs/Analyse.md §2", "done": true },
+    { "step": "Return NEUTRAL (not a forced guess) when the two signals disagree or data is ambiguous", "done": true },
+    { "step": "Write unit tests covering all three outputs (BULLISH/BEARISH/NEUTRAL) with fixed weekly OHLCV fixtures", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "verify-elder-signal skill (task-worker)",
+      "decision": "evaluate_tide() classifies the weekly MACD-Histogram slope from only the last two histogram points (macd_histogram(weekly_close).iloc[-1] vs .iloc[-2]), and calls it 'flat' when the step between them, expressed as a fraction of the latest weekly close (|step| / |latest_close|), is below 0.001 (0.1%). BULLISH requires slope=='rising' AND ema(13) > ema(26); BEARISH requires slope=='falling' AND ema(13) < ema(26); every other combination (flat slope, slope/EMA disagreement, or fewer than 2 weekly bars to even compute a slope) returns NEUTRAL.",
+      "rationale": "docs/Analyse.md §2 pins the two inputs (weekly MACD-Histogram slope, 13/26-week EMA relationship) and says tide is NEUTRAL 'if MACD-H slope is flat/ambiguous', but deliberately does not define the flat threshold -- indicator-macd-histogram's own decisions entry explicitly deferred that choice to this task rather than baking a threshold into the indicator module. Chose a two-point (last step) slope over a longer lookback (e.g. comparing the latest point to a 3- or 5-week-back average) because it matches the doc's literal 'rising/falling' language most directly, is trivial to hand-verify in tests, and avoids inventing a second undocumented window-length parameter on top of the undocumented threshold. Chose to normalize the flat threshold by the latest close price (a relative/percentage cutoff) rather than a fixed absolute dollar threshold, because MACD-Histogram magnitude scales with the underlying price -- a fixed absolute cutoff (e.g. 0.01) would misclassify a $5 stock's genuine moves as never-flat and a $500 stock's noise as always-flat; 0.1% of price is a small-but-nonzero cutoff chosen to filter near-zero noise while still classifying any histogram step that's a meaningful fraction of the price as directional. Rejected requiring a longer minimum history (e.g. >=26 weeks) before evaluating tide at all: ema() already handles short series correctly via its documented first-value seed (see indicator-ema's decisions entry), docs/Analyse.md §8's '~200 trading days' guidance is a data-acquisition recommendation for the app as a whole, not a hard gate this specific function needs to enforce; the only hard guard added is len(weekly_ohlcv) < 2 (can't compute a slope with fewer than 2 points at all), which returns NEUTRAL as 'ambiguous data' per checklist item 3, not a fabricated BULLISH/BEARISH guess."
+    }
+  ],
+  "git": {
+    "branch": "task/screen1-tide",
+    "pr_number": 9,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/9",
+    "pushed_at": "2026-09-12T17:34:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T18:10:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/9",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking (reuse/efficiency): evaluate_tide() computes ema(weekly_close, 26) itself even though macd_histogram (called one line earlier via _macd_histogram_slope) already computes EMA(close, 26) internally as its default 'slow' EMA -- same series, same period, computed twice per call. Cheap at current data sizes (weekly bars); eliminating it would need macd.py's API to expose its intermediate EMAs, a real tradeoff against it staying a pure 'return the histogram' function. Worth a look only if macd.py is touched again for other reasons.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 55
+      },
+      {
+        "summary": "Non-blocking (forward-compatibility): evaluate_tide() returns only the BULLISH/BEARISH/NEUTRAL trend string, discarding the rising/falling/flat slope classification, but TideScreen in schemas.py already declares both `trend` and `weekly_macd_histogram_slope` as required response fields, and the helper that computes the slope (_macd_histogram_slope) is private. Whichever task wires up the /analysis endpoint will need to either import the underscore-prefixed helper across module boundaries or recompute the slope independently (risking drift if the threshold/algorithm changes later). Nothing broken today -- evaluate_tide()'s return type matches this task's own description/checklist exactly -- but flagging now so the API-wiring task doesn't have to rediscover it.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 39
+      },
+      {
+        "summary": "Observation, not a bug: docs/Analyse.md §2 only names a flat/ambiguous slope as the NEUTRAL trigger, while §6's confidence-weighting table implies a 'mixed' (slope/EMA disagree) case that's still categorically bullish/bearish with reduced confidence. This implementation makes any slope/EMA disagreement NEUTRAL, per the task's own checklist item 3, which forecloses that 'mixed' scenario. Pre-existing tension in the source doc, not introduced by this PR -- flagging for whoever builds the confidence-score task so they don't discover it's unreachable code.",
+        "file": "docs/Analyse.md",
+        "line": 111
+      }
+    ],
+    "notes": "gh pr checkout 9 (task/screen1-tide, commits 81bb539 + 9794d10). Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -q -> 56 passed; app/signals/triple_screen.py at 95% (only the still-NotImplementedError evaluate_wave/evaluate_trigger stubs are uncovered, out of scope here -- evaluate_tide() itself is fully exercised). tests/unit/signals/ alone: 23 passed, matching the PR description. Coverage regression check against a clean main worktree: main at 67.83% (33 tests) vs this branch at 73.07% (56 tests) -- this PR raises coverage, no regression; the remaining shortfall below the 90% gate is entirely pre-existing 0%-covered stub modules for other not-yet-started tasks, same precedent as PRs #3/#6. No ruff/mypy/flake8 config anywhere in backend/ -- nothing configured to run. Ran the code-review skill (medium effort) against the diff: two non-blocking reuse/forward-compatibility findings (recorded above), no correctness bugs. Ran verify-elder-signal against docs/Analyse.md Sec.2: slope detection (last-two-points, price-normalized 0.1% threshold), EMA relationship (13 EMA above/below 26 EMA), and NEUTRAL-on-disagreement/ambiguous-data behavior all check out against the doc and this task's own checklist; one pre-existing Sec.2/Sec.6 tension in the doc itself noted above (recorded as an observation, not a blocking finding). Independently verified the two floating-point-boundary test fixes are mathematically sound, not just passing by coincidence: [1.0, 2.0]/close 1000.0 and [2.0, 1.0]/close 1100.0->1000.0 were chosen because 1.0/2.0/1000.0/1100.0 are exactly representable in binary floating point, so (2.0-1.0)/1000.0 == 0.001 exactly, whereas the previous style of literal (e.g. 1.10-1.0)/100.0 lands on 0.0010000000000000009 != 0.001 due to decimal-to-binary rounding -- reproduced both computations directly in Python to confirm. Decisions cross-check: checklist item 3 ('decide' the flat-threshold/disagreement behavior) has a corresponding decisions entry with real rationale including rejected alternatives (longer slope lookback, absolute-dollar threshold, requiring >=26 weeks of history); no gap. No new module/dependency/layer (reuses existing ema()/macd_histogram()) -- architecture-review doesn't formally apply, not run as a separate pass. No API route/schema touched by this PR; backend/openapi.json correctly unchanged. No UI surface -- browser walkthrough explicitly not applicable (pure backend signal function, no frontend consumer yet), noted rather than silently skipped. index.json's mirror entry and this file's own state agree (done). Posted as a PR review comment (COMMENTED type); gh pr review --approve was attempted first per the standing fallback process and failed with GitHub's own self-approval rule ('Can not approve your own pull request') as expected, since the worker and reviewer share the raino-agent account -- recording the accepted verdict here per the standing instruction. Not merging, per standing instructions."
+  }
 }
