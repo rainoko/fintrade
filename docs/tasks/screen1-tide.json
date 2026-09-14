@@ -3,7 +3,7 @@
   "title": "Screen 1: Tide (weekly trend)",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "done",
+  "state": "implementing",
   "depends_on": ["indicator-ema", "indicator-macd-histogram"],
   "references": ["docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine", "docs/architecture/Testing.md"],
   "description": "evaluate_tide() in app/signals/triple_screen.py: BULLISH / BEARISH / NEUTRAL from weekly MACD-Histogram slope plus 13/26-week EMA relationship.",
@@ -31,7 +31,12 @@
   "review": {
     "reviewed_at": "2026-09-12T18:10:00Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/9",
-    "verdict": "accepted",
+    "verdict": "needs_work",
+    "verdict_override": {
+      "timestamp": "2026-09-14T00:00:00Z",
+      "overridden_by": "human (rainoko, PR #9 comments)",
+      "reason": "PR comments from the actual repo owner ('not minor. fix all', 'fix non blocking findings') explicitly reject pr-reviewer's 'accepted, non-blocking findings don't need action' judgment on all three findings below. Per CLAUDE.md's autonomous-pipeline rule, a human PR comment always overrides an automated verdict -- reopening this task for rework rather than treating it as merge-ready."
+    },
     "comments": [
       {
         "summary": "Non-blocking (reuse/efficiency): evaluate_tide() computes ema(weekly_close, 26) itself even though macd_histogram (called one line earlier via _macd_histogram_slope) already computes EMA(close, 26) internally as its default 'slow' EMA -- same series, same period, computed twice per call. Cheap at current data sizes (weekly bars); eliminating it would need macd.py's API to expose its intermediate EMAs, a real tradeoff against it staying a pure 'return the histogram' function. Worth a look only if macd.py is touched again for other reasons.",
