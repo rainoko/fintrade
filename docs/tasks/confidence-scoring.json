@@ -129,5 +129,10 @@
       }
     ],
     "notes": "Re-review of PR #22 after the fix pushed in commit 92a5b0a. Both prior findings (blocking NaN fallthrough, non-blocking IndexError) are verified resolved with matching regression tests. Full independent re-run: 176 tests pass, confidence.py at 100% coverage, no regression vs. the branch's own prior state; repo-wide 88.87% coverage confirmed pre-existing relative to main (main itself is at 72.44% since several dependency branches aren't merged there yet) and out of this task's scope, so not treated as blocking. code-review and verify-elder-signal skills both re-run clean against the current diff. Accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-14T00:00:00Z",
+    "verdict": "merge",
+    "notes": "Fresh full re-verification post-merge-surgery: pytest --cov=app --cov-report=term-missing -> 190 passed, 90.02% coverage (gate cleared), confidence.py itself still 100%. `git diff origin/main -- backend/app/signals/triple_screen.py backend/tests/unit/signals/test_triple_screen.py` is empty -- confirms main's side was taken cleanly with nothing dropped/duplicated; `git diff origin/main...HEAD --stat` shows only confidence.py/its tests/the task json/index.json changed, nothing else touched. Hand-verified a full composite: BUY with tide=BULLISH, impulse=GREEN, wave={stochastic_k:20, state:OVERSOLD_PULLBACK}, bear_power rising from -5.0 to -3.0, volume above average -> component scores 1.0/1.0/0.3333/1.0/1.0, compute_confidence()=83 (hand math: 0.30+0.20+0.25*(10/30)+0.15+0.10=0.8333->83), confidence_band(83)='High', matching docs/Analyse.md #6's weights and >70 rule exactly; also spot-checked the 39/40/70/71 band-edge tests are present in test_confidence.py as claimed. Grepped the full backend tree: score_tide_alignment/score_impulse_gate/score_oscillator_extremity/score_elder_ray_confirmation/score_volume_confirmation/compute_confidence are referenced only from confidence.py and its own test file -- app/signals/engine.py::analyse is still `raise NotImplementedError`, so the 'no live call site' / TideResult-mismatch claim holds. Accept confirmed; recommend merge."
   }
 }
