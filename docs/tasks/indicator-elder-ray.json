@@ -18,7 +18,9 @@
     "branch": "task/indicator-elder-ray",
     "pr_number": 13,
     "pr_url": "https://github.com/rainoko/fintrade/pull/13",
-    "pushed_at": "2026-09-12T18:43:32Z"
+    "pushed_at": "2026-09-12T18:43:32Z",
+    "merged_at": "2026-09-14T21:05:00Z",
+    "merge_commit": "ae5bcda8faf5374873a3a322721788b1f58ed2ef"
   },
   "review": {
     "reviewed_at": "2026-09-12T18:49:33Z",
