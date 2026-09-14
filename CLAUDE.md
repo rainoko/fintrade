@@ -53,6 +53,11 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
     "verdict": "accepted | needs_work",
     "comments": [{ "summary": "...", "file": "...", "line": 0 }],
     "notes": "..."
+  },
+  "pr_decision": {
+    "confirmed_at": "ISO 8601 timestamp",
+    "verdict": "merge",
+    "notes": "..."
   }
 }
 ```
