@@ -18,7 +18,9 @@
     "branch": "task/indicator-elder-ray",
     "pr_number": 13,
     "pr_url": "https://github.com/rainoko/fintrade/pull/13",
-    "pushed_at": "2026-09-12T18:43:32Z"
+    "pushed_at": "2026-09-12T18:43:32Z",
+    "merged_at": "2026-09-14T21:05:00Z",
+    "merge_commit": "ae5bcda8faf5374873a3a322721788b1f58ed2ef"
   },
   "review": {
     "reviewed_at": "2026-09-12T18:49:33Z",
@@ -32,5 +34,10 @@
       }
     ]
   },
-  "notes": "pytest --cov=app --cov-report=term-missing: 62 passed; app/indicators/elder_ray.py at 100% line+branch coverage. Whole-repo coverage (74.69%) stays below the 90% gate but is entirely pre-existing 0%-covered stub modules unrelated to this change, not a regression. No ruff/mypy configured in backend/pyproject.toml or installed, so no lint to run. code-review skill found no correctness bugs, one minor duplication nit (see review.comments). Hand-verified Bull Power = High - EMA(13) / Bear Power = Low - EMA(13) against docs/Analyse.md §4 across both a fixed-array case and a real-EMA(period=3) integration case -- all values match. Confirmed via git log/git show that the caller-supplied-EMA signature predates this PR (stub committed in c30ddb0), so reusing it wasn't a new judgment call; index-alignment validation directly reuses the force_index precedent. No decisions entry needed -- checklist had no \"decide X\" item and no new ambiguity was resolved here. No API route/schema touched, openapi.json correctly untouched. No UI surface -- browser walkthrough not applicable. Posted as PR review (gh pr review --comment; self-approve correctly rejected by GitHub as expected)."
+  "notes": "pytest --cov=app --cov-report=term-missing: 62 passed; app/indicators/elder_ray.py at 100% line+branch coverage. Whole-repo coverage (74.69%) stays below the 90% gate but is entirely pre-existing 0%-covered stub modules unrelated to this change, not a regression. No ruff/mypy configured in backend/pyproject.toml or installed, so no lint to run. code-review skill found no correctness bugs, one minor duplication nit (see review.comments). Hand-verified Bull Power = High - EMA(13) / Bear Power = Low - EMA(13) against docs/Analyse.md §4 across both a fixed-array case and a real-EMA(period=3) integration case -- all values match. Confirmed via git log/git show that the caller-supplied-EMA signature predates this PR (stub committed in c30ddb0), so reusing it wasn't a new judgment call; index-alignment validation directly reuses the force_index precedent. No decisions entry needed -- checklist had no \"decide X\" item and no new ambiguity was resolved here. No API route/schema touched, openapi.json correctly untouched. No UI surface -- browser walkthrough not applicable. Posted as PR review (gh pr review --comment; self-approve correctly rejected by GitHub as expected).",
+  "pr_decision": {
+    "confirmed_at": "2026-09-14T21:00:00Z",
+    "verdict": "merge",
+    "notes": "Re-ran pytest --cov=app --cov-report=term-missing on task/indicator-elder-ray: 108 passed (repo has grown since pr-reviewer's 62-passed snapshot due to other merged PRs), app/indicators/elder_ray.py still at 100% line+branch coverage, whole-repo total 82.97% (< 90% gate) confirmed still entirely pre-existing unrelated 0%-covered stub modules, not a regression from this PR. Skimmed the full diff (elder_ray.py, test_elder_ray.py, task JSON, index.json) myself. Hand-verified the real-EMA(13) integration reference values independently: EMA(period=3, k=0.5) seeded on first value over closes=[10,12,15,14,13] gives [10, 11.0, 13.0, 13.5, 13.25] by hand recursion (matches ema.py's documented seeding), and bull_power/bear_power = high/low - ema_3 match the test's asserted [0.5,1.5,2.5,1.0,0.25] / [-0.5,0.5,1.5,0.0,-0.75]. Confirmed no ruff/mypy config or binaries present (grep on pyproject.toml, ls .venv/bin) and EMA(13) is the correct reference per docs/Analyse.md line 44-45/77. pr-reviewer's duplication nit is genuinely non-blocking (cosmetic, no correctness/architecture impact). Accept holds; nothing pr-reviewer missed or underweighted."
+  }
 }
