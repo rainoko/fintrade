@@ -40,7 +40,7 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
   "questions": [
     { "timestamp": "ISO 8601 timestamp", "raised_by": "skill/agent name", "question": "what needs a human decision", "context": "why the worker couldn't resolve this itself" }
   ],
-  "git": { "branch": "task/kebab-case-id", "pr_number": 12, "pr_url": "...", "pushed_at": "ISO 8601 timestamp", "merged_at": "ISO 8601 timestamp", "merge_commit": "sha" },
+  "git": { "branch": "task/kebab-case-id", "pr_number": 12, "pr_url": "...", "pushed_at": "ISO 8601 timestamp" },
   "test": {
     "reviewed_at": "ISO 8601 timestamp",
     "method": ["static_analysis", "unit_tests", "browser_walkthrough"],
@@ -57,7 +57,7 @@ Each feature is one JSON file in `docs/tasks/`, plus `docs/tasks/index.json` as 
 }
 ```
 
-`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). `state: "waiting_input"` means a `questions` entry needs a human decision before the task can resume (see below) — it's distinct from a task simply waiting on `depends_on`. `test` is written by the `task-qa-reviewer` agent (see below); `git` is written by `task-worker` when it pushes a branch and opens a PR (`branch`/`pr_number`/`pr_url`/`pushed_at`), then `merged_at`/`merge_commit` are added by `pr-merger` once it actually merges; `review` is written by `pr-reviewer` after checking out that PR. All of `test`, `git`, `review`, `decisions`, `questions` are absent until something has actually happened to populate them.
+`skill` names the `.claude/skills/` workflow that governs the task (`null` for pure scaffolding/infra tasks with no dedicated skill — don't force a fit). `state: "waiting_input"` means a `questions` entry needs a human decision before the task can resume (see below) — it's distinct from a task simply waiting on `depends_on`. `test` is written by the `task-qa-reviewer` agent (see below); `git` is written by `task-worker` when it pushes a branch and opens a PR; `review` is written by `pr-reviewer` after checking out that PR. Once `pr-merger` actually merges a task's PR, the task JSON that lands on `main` is just whatever was already on the PR branch (a squash merge, so no separate sync step) — there's no `git.merged_at`/`merge_commit` field, since `main`'s branch-protection ruleset rejects every direct push, including a bookkeeping-only one, so nothing can add it after the fact without a whole extra PR for one timestamp; the merge commit itself (`gh pr view <n> --json mergeCommit`) is the source of truth if that's ever needed. All of `test`, `git`, `review`, `decisions`, `questions` are absent until something has actually happened to populate them.
 
 ### Decision memory (`decisions`)
 
