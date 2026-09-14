@@ -3,15 +3,60 @@
   "title": "Indicator: Force Index",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Force Index = Volume x price change, EMA-smoothed (2-period for entry timing, 13-period for trend confirmation). Feeds Screen 2 (wave) and the volume-confirmation confidence component.",
   "consumed_by": ["screen2-wave", "confidence-scoring"],
   "checklist": [
-    { "step": "Confirm this uses its own EMA smoothing (ema_period param), not necessarily indicator-ema's default periods — verify against docs/Analyse.md §2/§4", "done": false },
-    { "step": "Implement app/indicators/force_index.py: pure function, parameterized ema_period", "done": false },
-    { "step": "Write hand-computed reference-value tests for both ema_period=2 and ema_period=13 cases", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Confirm this uses its own EMA smoothing (ema_period param), not necessarily indicator-ema's default periods — verify against docs/Analyse.md §2/§4", "done": true },
+    { "step": "Implement app/indicators/force_index.py: pure function, parameterized ema_period", "done": true },
+    { "step": "Write hand-computed reference-value tests for both ema_period=2 and ema_period=13 cases", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "Implemented Force Index's EMA smoothing inline in app/indicators/force_index.py (raw.ewm(span=ema_period, adjust=False).mean()) rather than importing app.indicators.ema.ema(), and reused the same recursive/first-value-seed EMA convention indicator-ema already established (k = 2/(period+1), seeded with the first non-NaN observation). Force Index's raw series has a leading NaN (no prior close for bar 0); verified that pandas' ewm(adjust=False) correctly skips the leading NaN and seeds from the first real observation (bar 1), consistent with indicator-ema's seeding choice, rather than propagating NaN or requiring special-case handling.",
+      "rationale": "indicator-ema's own implementation (app/indicators/ema.py) is accepted but its PR (#3) is not yet merged to main, so it doesn't exist on origin/main that this task branched from -- importing it would either fail or reintroduce it as an unreviewed dependency of this PR. The task board entry also declares depends_on: [] and calls out that this indicator uses its own ema_period parameter (2 for entry timing, 13 for trend confirmation) rather than indicator-ema's fixed periods (13, 26), so self-contained inline smoothing keeps this task independently mergeable in either PR order. Once indicator-ema merges, a later cleanup could refactor force_index.py to call the shared ema() helper instead of duplicating the ewm call -- deferred rather than done now, since it would create a merge-order dependency between two currently-independent PRs for no behavioral change today.",
+      "rejected": "Considered importing app.indicators.ema.ema() directly for DRY-ness, and considered hand-rolling the SMA-warm-up EMA convention (the alternative rejected on indicator-ema for the same reason: no accuracy benefit at this app's data volumes, adds a second special-cased code path)."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed all three PR #4 review findings in one pass, now that indicator-ema (PR #3) is merged and the merge-order constraint from the first decision entry no longer applies: (1) force_index now imports and delegates to app.indicators.ema.ema() instead of its own inline ewm() call, removing the duplication; (2) as a direct consequence, ema_period validation (TypeError for non-int/bool, ValueError for < 1) is now inherited from ema()'s own guard rather than re-implemented locally, so force_index no longer has a separate, weaker check; (3) the length-only alignment check (len(close) != len(volume)) was replaced with close.index.equals(volume.index), which catches both length mismatches and same-length-but-offset/reordered indices -- volume * close.diff() aligns by index label, so this is the correct alignment check, not just a length check.",
+      "rationale": "Delegating to ema() is now safe and non-circular (ema.py has no dependency back on force_index.py) and directly resolves findings #2 and #3 together, since #2's fix (an int/bool guard identical to ema()'s) becomes redundant once force_index calls ema() directly -- implementing the guard twice would just be a second place for the two checks to drift out of sync. index.equals() was chosen over a manual index-label comparison (e.g. (close.index == volume.index).all()) because it also correctly handles differing index length or dtype without a separate pre-check, and because it's the same idiom pandas itself recommends for this comparison.",
+      "rejected": "Considered keeping a local ema_period guard in force_index.py in addition to ema()'s (belt-and-suspenders), but rejected it as redundant dead code now that ema() unconditionally performs the same check first -- any call path reaches ema()'s guard before the raw series is even used. Considered a positional/iloc-based re-indexing fallback (e.g. volume.set_axis(close.index) after a length check) instead of rejecting misaligned input outright, but rejected it because silently re-aligning by position would mask a real caller bug (passing two Series that were never meant to line up) rather than surfacing it, which is the same reasoning the review comment itself pointed at."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-force-index",
+    "pr_number": 4,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/4",
+    "pushed_at": "2026-09-12T15:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T18:27:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/4",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RESOLVED (was non-blocking finding #1 from the 2026-09-12T14:47:27Z review): index misalignment is now caught. close.index.equals(volume.index) is checked before volume * close.diff(). Independently re-verified with two self-constructed cases beyond the PR's own offset-by-1 test: an offset-tail index and a fully reordered index are both correctly rejected with ValueError; confirmed the offset case previously produced a silently wrong iloc[1] (2000.0 instead of 3000.0) before this fix.",
+        "file": "backend/app/indicators/force_index.py",
+        "line": 30
+      },
+      {
+        "summary": "RESOLVED (was non-blocking finding #2): ema_period is now validated as a non-bool int >= 1, inherited from app.indicators.ema.ema()'s own guard via delegation. Independently re-verified by direct execution: ema_period=True -> TypeError, ema_period=13.5 -> TypeError, ema_period=0/-1 -> ValueError.",
+        "file": "backend/app/indicators/force_index.py",
+        "line": 34
+      },
+      {
+        "summary": "RESOLVED (was non-blocking finding #3): force_index no longer duplicates EMA smoothing inline; it imports and delegates to app.indicators.ema.ema() (merged to main). Independently re-derived the Force Index reference values (raw = volume_t * (close_t - close_{t-1}), recursive EMA k=2/(period+1)) via a standalone Python loop, separate from both pandas.ewm and the PR's own test file, for ema_period=2 -- matches the implementation's output exactly, confirming the refactor is behavior-preserving.",
+        "file": "backend/app/indicators/force_index.py",
+        "line": 33
+      }
+    ],
+    "notes": "Re-review from scratch per maintainer request after the branch went stale/conflicting and was reworked. Confirmed gh pr view 4 --json mergeable,mergeStateStatus -> MERGEABLE / CLEAN, no conflicts. Checked out task/indicator-force-index fresh. Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 56 passed, app/indicators/force_index.py and app/indicators/ema.py both at 100% line+branch coverage. Whole-repo coverage 72.44%, still below the 90% gate but not a regression -- verified by running the identical command against main in a separate git worktree (70.92%, 47 tests), so this branch is +1.5pp over baseline, same accepted not-yet-implemented-modules pattern as prior indicator PRs. No lint/type-check tool configured in backend/pyproject.toml (no ruff/mypy section) -- nothing to run, consistent with prior review. Independently re-derived the Force Index math via a standalone Python loop (not reusing the PR's own test comments or pandas.ewm) for ema_period=2 against the documented fixture -- exact match with the implementation's output, confirming the EMA-reuse refactor didn't change behavior. Independently verified ema_period validation by direct execution (bool/float/zero/negative all correctly rejected with the right exception types) rather than just reading the guard. Independently constructed two index-misalignment cases myself (offset-tail index, fully reordered index) beyond the PR's own test and confirmed both raise ValueError; reproduced the pre-fix silent-corruption case (iloc[1] shifted to 2000.0) to confirm this is a real, closed gap. Ran the code-review skill (medium effort) fresh against the diff: zero findings; it independently re-verified the same reference values via pandas.ewm and noted one pre-existing, non-blocking, not-introduced-by-this-diff observation (ema()'s isinstance(period, int) guard would reject numpy.int64, inherited from already-accepted PR #3, no current callers to exercise it). Confirmed diff is exactly the three-finding fix plus its tests -- no scope creep. No API route/schema touched -- backend/openapi.json regeneration N/A. No new module/dependency/layer (delegating to an existing, already-reviewed indicator module) -- architecture-review N/A. Area is backend/indicators (not backend/signals or backend/portfolio) and skill is add-indicator (not verify-elder-signal) -- formal verify-elder-signal invocation not required, math independently checked against docs/Analyse.md Sec.2/Sec.4 regardless. No UI surface -- browser walkthrough explicitly N/A. Both decision entries (original inline-EMA rationale, and this rework's delegate-to-ema()/index.equals() rationale) have proper decision/rationale/rejected content -- satisfies the decision-memory rule; checklist items all remain accurately marked done. gh pr review --approve attempted first, blocked by GitHub's self-approval rule (worker and reviewer share the raino-agent account) -- posted as a COMMENTED-type PR review instead with the full findings, per the standing fallback process."
+  }
 }
