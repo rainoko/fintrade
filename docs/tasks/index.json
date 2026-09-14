@@ -11,7 +11,7 @@
     { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
     { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
     { "id": "indicator-stochastic", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "planned" },
+    { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
     { "id": "indicator-autoenvelope", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
     { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "planned" },
