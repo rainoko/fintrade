@@ -33,7 +33,8 @@
     { "id": "portfolio-exit-rules-followups-followups", "area": "backend/portfolio", "skill": null, "state": "planned" },
     { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
     { "id": "api-stocks-analysis", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
-    { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
+    { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
+    { "id": "api-portfolio-get-followups", "area": "backend/api", "skill": null, "state": "planned" },
     { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
     { "id": "api-portfolio-risk", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" }

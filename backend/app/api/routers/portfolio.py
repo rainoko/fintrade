@@ -2,11 +2,22 @@ import math
 import uuid
 from decimal import Decimal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.schemas import ErrorDetail, PortfolioResponse, PositionIn, PositionOut, RiskResponse
-from app.db.models import PositionORM
+from app.api.dependencies import get_data_provider
+from app.api.schemas import (
+    ErrorDetail,
+    Equity,
+    PortfolioResponse,
+    PositionIn,
+    PositionOut,
+    RiskResponse,
+)
+from app.data.base import DataProvider
+from app.data.exceptions import DataProviderError
+from app.db.models import AccountORM, PositionORM
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
@@ -24,11 +35,69 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
     operation_id="get_portfolio",
     summary="Get current positions and account equity",
 )
-def get_portfolio() -> PortfolioResponse:
+def get_portfolio(
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> PortfolioResponse:
     """All held positions plus account equity (cash + mark-to-market positions value).
     `current_price`/`unrealized_pnl_pct` on each position are enriched from the market
-    data cache and are null only if a price fetch for that ticker has failed."""
-    raise HTTPException(status_code=501, detail="not implemented yet")
+    data cache and are null only if a price fetch for that ticker has failed. A position
+    whose price couldn't be fetched contributes nothing to `equity.positions_value`
+    (it can't be marked to market) rather than falling back to cost basis — see this
+    task's `decisions` entry."""
+    account = db.get(AccountORM, 1)
+    cash = account.cash if account is not None else 0.0
+
+    positions_out: list[PositionOut] = []
+    positions_value = 0.0
+    for row in db.query(PositionORM).all():
+        current_price = _latest_close(provider, row.ticker)
+        unrealized_pnl_pct = (
+            (current_price - row.avg_cost_basis) / row.avg_cost_basis * 100.0
+            if current_price is not None
+            else None
+        )
+        if current_price is not None:
+            positions_value += row.quantity * current_price
+
+        positions_out.append(
+            PositionOut(
+                id=row.id,
+                ticker=row.ticker,
+                quantity=row.quantity,
+                avg_cost_basis=row.avg_cost_basis,
+                entry_date=row.entry_date,
+                current_price=current_price,
+                unrealized_pnl_pct=unrealized_pnl_pct,
+            )
+        )
+
+    return PortfolioResponse(
+        equity=Equity(cash=cash, positions_value=positions_value, total=cash + positions_value),
+        positions=positions_out,
+    )
+
+
+def _latest_close(provider: DataProvider, ticker: str) -> float | None:
+    """Most recent daily close for `ticker`, or None if the fetch failed for any
+    reason a `DataProvider` can raise (unknown ticker, insufficient history, or
+    the provider being unavailable), the frame came back empty, or the latest
+    close itself is NaN -- GET /api/portfolio degrades a single bad ticker to a
+    null price rather than failing the whole response, since a portfolio
+    commonly holds several positions and one bad price shouldn't hide the rest
+    (see this task's `decisions` entry). Neither provider's daily series is
+    guaranteed NaN-free (only the derived weekly series gets `.dropna()`), and a
+    NaN current_price is `is not None` -- it would otherwise flow into the
+    running `positions_value` float total via `+=` and silently NaN-poison the
+    whole response (NaN is contagious under float addition), not just the one
+    position."""
+    try:
+        frame = provider.get_daily_ohlcv(ticker)
+    except DataProviderError:
+        return None
+    if frame.empty or pd.isna(frame.iloc[-1]["close"]):
+        return None
+    return float(frame.iloc[-1]["close"])
 
 
 @router.post(

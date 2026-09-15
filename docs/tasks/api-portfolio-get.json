@@ -3,14 +3,88 @@
   "title": "API: GET /api/portfolio",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#get-apiportfolio"],
+  "review": {
+    "reviewed_at": "2026-09-15T21:10:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/30",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RESOLVED (was BLOCKING in the prior review pass): the NaN-daily-close-poisons-whole-portfolio-equity bug is fixed correctly. `_latest_close` in backend/app/api/routers/portfolio.py now returns None when `pd.isna(frame.iloc[-1][\"close\"])`, at the single call site that feeds both `unrealized_pnl_pct` and the `positions_value +=` running total, so the fix is complete (no other path constructs current_price). Verified: (1) the fix is placed correctly -- confirmed `_latest_close` is the sole producer of `current_price` for both fields; (2) the new regression test `test_nan_latest_close_yields_null_price_not_nan_poisoned_total` (backend/tests/integration/test_portfolio_get.py) genuinely reproduces-then-fixes the exact scenario from the prior review: it builds a non-empty 1-row frame with a NaN close for AAPL via `_StubProvider`/`_frame` (so it exercises the `pd.isna(...)` branch specifically, not the `frame.empty` branch), mixes it with a good $250 MSFT close, and asserts AAPL gets null current_price/unrealized_pnl_pct while MSFT's price/pnl and equity.positions_value ($1250)/equity.total ($2250) reflect only the good position -- i.e. it actually re-triggers the NaN-poisoning path a naive fix (e.g. only checking `frame.empty`) would still fail; (3) full backend suite re-run by this reviewer independently: 371 passed, 99.43% coverage (>= 90% gate, no regression); (4) a backgrounded `code-review` skill pass (medium effort, full PR diff) returned zero new findings, corroborating the manual check; (5) openapi.json correctly untouched -- this commit changes no route signature/schema; (6) a new `decisions` entry records the fix rationale and rejected alternatives, satisfying CLAUDE.md's decision-memory requirement.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 98
+      },
+      {
+        "summary": "Non-blocking: get_portfolio's db session and get_data_provider's CachedDataProvider share the same request-scoped SQLAlchemy Session (default expire_on_commit=True, app/db/session.py's sessionmaker doesn't override it). A cache-miss/stale price fetch mid-loop commits (CachedDataProvider._upsert) on that same session, expiring every already-loaded PositionORM object, so each subsequent row.ticker/quantity/avg_cost_basis/entry_date access re-issues a SELECT -- an N+1 query pattern for a portfolio with a cold cache. Not a correctness bug (values are still consistent), just wasteful. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 51
+      },
+      {
+        "summary": "Non-blocking: the account=None -> cash=0.0 fallback (no AccountORM row exists for a fresh DB, since nothing seeds account id=1) is a real judgment call not pinned down by docs/architecture/API.md, but wasn't recorded in this task's decisions array per CLAUDE.md's decision-memory section. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 47
+      },
+      {
+        "summary": "Non-blocking: mark-to-market enrichment logic (fetch current_price, compute unrealized_pnl_pct, sum positions_value, drop a position whose price fetch failed) is embedded in the get_portfolio route handler rather than as a reusable function on the existing app.portfolio.models domain shapes. The still-stubbed GET /api/portfolio/risk endpoint will need position.current_price populated too and will likely duplicate this loop as currently structured. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 37
+      },
+      {
+        "summary": "Non-blocking: per-position price fetches run strictly sequentially in a synchronous handler, so total request latency scales linearly with position count on any cache miss. Worth naming as portfolios grow, though the DataProvider protocol has no batch method today. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 52
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's module layout diagram doesn't list the new app/api/dependencies.py file. Doesn't violate any documented principle, but the diagram should be updated for accuracy. Tracked as a follow-up.",
+        "file": "docs/architecture/Backend.md",
+        "line": 11
+      },
+      {
+        "summary": "Non-blocking: db.query(PositionORM).all() has no explicit order_by, so response position ordering isn't guaranteed/deterministic. Low impact for a single-user MVP. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 52
+      }
+    ],
+    "notes": "RE-REVIEW (commit 50b54a9): task-worker fixed the blocking NaN-close/positions_value-corruption bug from the prior needs_work pass by making _latest_close return None when pd.isna(frame.iloc[-1][\"close\"]), and added a targeted regression test. This pass independently verified the fix is correctly placed (single call site feeds both unrealized_pnl_pct and positions_value, so no other path can still leak a NaN) and that the new test genuinely reproduces the prior bug's exact mixed-position scenario before asserting it's fixed, not just testing something incidental (confirmed it builds a non-empty NaN-close frame, i.e. exercises the pd.isna branch specifically rather than the pre-existing frame.empty branch). Re-ran the full backend suite independently: 371 passed, 99.43% coverage (>= 90% gate, no regression). Confirmed openapi.json is untouched (correct -- no schema/route signature changed in this commit). Launched the code-review skill in the background (medium effort, full PR diff) and waited for it to complete before posting this verdict, per this run's established practice; it returned zero new findings, corroborating the manual check. A new decisions entry records the fix's rationale and rejected alternatives (filtering NaN out of the provider layer, coercing to 0.0 inline), satisfying CLAUDE.md's decision-memory requirement for this fix. Area is backend/api (not backend/signals or backend/portfolio) and skill is add-api-endpoint (not verify-elder-signal), so the verify-elder-signal skill doesn't apply; no new module/dependency/layer was introduced, so architecture-review doesn't apply either. No lint/type step applies (no ruff/mypy configured in backend/pyproject.toml). Browser walkthrough not applicable -- no frontend exists yet and this PR has no UI surface. The 6 non-blocking findings from the prior review remain unchanged and are already tracked on docs/tasks/api-portfolio-get-followups.json (state planned) -- no new follow-ups needed since the fix commit didn't introduce anything new. Verdict: accepted; task state moved to done."
+  },
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (PortfolioResponse) are already wired.",
   "checklist": [
     { "step": "Route signature + PortfolioResponse schema already defined", "done": true },
-    { "step": "Implement handler: read AccountORM + PositionORM rows, enrich with current_price/unrealized_pnl_pct via the data cache", "done": false },
-    { "step": "Write integration test covering empty portfolio and populated portfolio", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement handler: read AccountORM + PositionORM rows, enrich with current_price/unrealized_pnl_pct via the data cache", "done": true },
+    { "step": "Write integration test covering empty portfolio and populated portfolio", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-15T20:55:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Added app/api/dependencies.py with a get_data_provider() FastAPI dependency that composes CachedDataProvider(YFinanceProvider(), StooqProvider(), db) fresh per request, and wired GET /api/portfolio to it (alongside the existing get_db dependency).",
+      "rationale": "No router previously constructed the data-provider stack (stocks.py's history/analysis routes are still 501 stubs), so there was no existing wiring pattern to follow. A dedicated dependencies module (rather than inlining the construction in portfolio.py, or adding a factory method onto CachedDataProvider itself) keeps the composition in one place api-stocks-history/api-stocks-analysis can reuse later, and lets integration tests override just get_data_provider via app.dependency_overrides (mirroring the existing get_db override pattern in test_portfolio_positions.py) to inject a stub DataProvider without touching the DB wiring or making a live network call, per docs/architecture/Testing.md's mocked-data-provider-layer requirement."
+    },
+    {
+      "timestamp": "2026-09-15T20:55:46Z",
+      "recorded_by": "task-worker",
+      "decision": "current_price is the most recent daily close from provider.get_daily_ohlcv(ticker) (via the cache). A position whose price fetch fails for any DataProviderError reason (unknown ticker, insufficient history, or provider unavailable) gets current_price=None/unrealized_pnl_pct=None and contributes 0 to equity.positions_value (not its cost basis) rather than failing the whole GET /api/portfolio request.",
+      "rationale": "API.md documents current_price/unrealized_pnl_pct as 'null only if the latest price fetch for that ticker failed' but doesn't say what a null price does to positions_value, and doesn't declare any 404/422/503 responses for this route (unlike the /api/stocks/* routes) -- the endpoint is meant to degrade gracefully per-position rather than fail outright, since a portfolio commonly holds several tickers and one bad price shouldn't hide the rest. Falling back to cost basis for positions_value was considered and rejected: it would silently blend real mark-to-market value with stale cost-basis value in the same total with no way for a client to tell which portions are which, whereas excluding the failed position is a conservative, easily-documented choice (and unrealized_pnl_pct is already null for that same position, so the two fields stay consistent with each other)."
+    },
+    {
+      "timestamp": "2026-09-15T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the blocking bug from pr-reviewer's needs_work verdict: `_latest_close` in app/api/routers/portfolio.py now returns None when the latest daily close is NaN (`pd.isna(frame.iloc[-1][\"close\"])`), not just when the fetch raises DataProviderError or the frame is empty.",
+      "rationale": "Neither YFinanceProvider._normalize nor StooqProvider._fetch_daily filters NaN out of the daily close series (only the derived weekly series gets .dropna()), so a real, non-empty, non-erroring fetch could return a NaN latest close. Since float('nan') is not None, that NaN was passing the existing null-check, flowing into unrealized_pnl_pct (nan) and, more seriously, into the running `positions_value += row.quantity * current_price` float total -- NaN is contagious under float addition, so one bad-close position silently nulled out equity.positions_value/equity.total for the ENTIRE response (confirmed live by pr-reviewer: a good MSFT position's real $1250 value and the account's cash both vanished to null). This directly violated this task's own prior decision (above) that a failed price fetch should degrade only that one position, not the whole response. Treating a NaN close identically to an empty/erroring fetch (return None from _latest_close) was the only option consistent with that existing decision -- alternatives like filtering NaN rows out of the provider's daily series before caching, or coercing NaN to 0.0/skipping it inline in the summation, were rejected as either changing provider behavior relied on elsewhere (the weekly resample already dedupes via its own .dropna()) or duplicating the null-handling logic that _latest_close's callers already correctly implement for the empty/erroring cases. Added a regression test (test_nan_latest_close_yields_null_price_not_nan_poisoned_total in tests/integration/test_portfolio_get.py) reproducing pr-reviewer's exact mixed-position scenario: one NaN-close position (AAPL) and one good-close position (MSFT), asserting the NaN position gets null current_price/unrealized_pnl_pct while MSFT's price/pnl and equity.positions_value/equity.total are correct, non-null figures reflecting only MSFT's contribution. Full suite re-run: 371 passed, 99.43% coverage; openapi.json regenerated and confirmed byte-identical (no schema/route signature changed)."
+    }
+  ],
+  "git": {
+    "branch": "task/api-portfolio-get",
+    "pr_number": 30,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/30",
+    "pushed_at": "2026-09-15T20:55:46Z"
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T21:20:00Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite at commit c95e7ff: 371 passed, 99.43% coverage (matches pr-reviewer's numbers, no regression). Skimmed the full PR diff (git diff origin/main...HEAD, 9 files) myself: app/api/routers/portfolio.py's _latest_close correctly returns None on `frame.empty or pd.isna(frame.iloc[-1][\"close\"])`, the sole call site feeding both unrealized_pnl_pct and the positions_value running total. Confirmed the regression test (test_nan_latest_close_yields_null_price_not_nan_poisoned_total, tests/integration/test_portfolio_get.py:228) genuinely exercises the pd.isna branch, not the empty-frame one: its _StubProvider returns _frame([float('nan')]) for AAPL, a 1-row (non-empty) frame with a NaN close mixed with a good $250 MSFT close, and asserts AAPL degrades to null price/pnl while MSFT's price/pnl and equity.positions_value ($1250)/equity.total are correct and non-null. Hand-checked MSFT's unrealized_pnl_pct arithmetic: (250-200)/200*100 = 25%, matches the assertion. Verified PR #30 mergeability against latest main via `gh pr view 30 --json mergeable,mergeStateStatus`: MERGEABLE/CLEAN. Cross-checked review.reviewed_at (21:10:00Z) against the actual GitHub review timestamp (`gh api repos/rainoko/fintrade/pulls/30/reviews`, final accept submitted_at 21:09:15Z) -- within 45s, accurate. docs/tasks/api-portfolio-get-followups.json and index.json are consistent with the 6 non-blocking findings and the done state. No issues found; accept holds."
+  }
 }
