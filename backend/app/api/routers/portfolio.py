@@ -209,10 +209,15 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     summary="Remove a position",
     responses={404: {"model": ErrorDetail, "description": "Position not found"}},
 )
-def delete_position(position_id: str) -> None:
+def delete_position(position_id: str, db: Session = Depends(get_db)) -> None:
     """Removes a position entirely. There is no partial-quantity reduction endpoint —
     reducing a position means deleting and re-adding it with the new quantity."""
-    raise HTTPException(status_code=501, detail="not implemented yet")
+    row = db.get(PositionORM, position_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Position '{position_id}' not found")
+
+    db.delete(row)
+    db.commit()
 
 
 @router.get(
