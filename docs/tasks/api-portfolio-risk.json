@@ -3,14 +3,40 @@
   "title": "API: GET /api/portfolio/risk",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["portfolio-risk-rules", "portfolio-exit-rules"],
   "references": ["docs/architecture/API.md#get-apiportfoliorisk"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (RiskResponse) are already wired.",
   "checklist": [
     { "step": "Route signature + RiskResponse schema already defined", "done": true },
-    { "step": "Implement handler: compute per-position protective_stop/position_risk_pct plus portfolio total_open_risk_pct and exit_flags", "done": false },
-    { "step": "Write integration test covering a clean portfolio, a 2%-breaching position, and a 6%-breaching portfolio", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Implement handler: compute per-position protective_stop/position_risk_pct plus portfolio total_open_risk_pct and exit_flags", "done": true },
+    { "step": "Write integration test covering a clean portfolio, a 2%-breaching position, and a 6%-breaching portfolio", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted GET /api/portfolio's mark-to-market fetch-and-degrade-gracefully loop into a new app/portfolio/pricing.py module (EnrichedPosition dataclass + enrich_positions_with_price()/positions_value() functions, built on the existing app.portfolio.models domain models) rather than implementing GET /api/portfolio/risk with its own independent copy of that logic, and refactored GET /api/portfolio's handler to use the same shared function. This does the extraction the docs/tasks/api-portfolio-get-followups.json task's first checklist item calls for, ahead of that task itself.",
+      "rationale": "GET /api/portfolio/risk unavoidably needs the exact same per-position current-price fetch (app.portfolio.risk.position_risk_pct's precondition is a populated position.current_price) plus the same degrade-gracefully-per-ticker semantics GET /api/portfolio already established (a failed price fetch excludes the position from any value/percentage sum rather than defaulting to 0 or falling back to cost basis) -- reimplementing that loop a second time inline in the risk handler would have produced two copies of nontrivial, already-subtle logic (the NaN-poisoning guard, the empty-frame check, the DataProviderError catch) that would silently drift from each other over time. The alternative (implement api-portfolio-risk independently, leave extraction to the other task) was rejected because api-portfolio-get-followups hasn't been scheduled yet and there's no guarantee it runs before further changes touch either handler; doing the extraction now, while both call sites and their exact needs are freshly in view, is lower-risk than writing a second copy today and reconciling two implementations later. EnrichedPosition additionally carries the fetched daily_ohlcv frame itself (not just the price), so GET /api/portfolio/risk can reuse that same frame for protective_stop/evaluate_exit_flags instead of re-fetching -- a need GET /api/portfolio never had, so this one extra field was added to the shared module rather than to the domain Position model itself. The docs/tasks/api-portfolio-get-followups.json task's first checklist item is left in place but effectively satisfied by this change; its remaining items (Backend.md diagram, positions ordering, session expire_on_commit, sequential-fetch latency) are unrelated and untouched here."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A position that GET /api/portfolio/risk can't fully evaluate -- current price fetch failed, daily history has fewer than 2 rows, weekly history fetch failed, or protective_stop()/evaluate_exit_flags() raised ValueError for a malformed frame -- is silently excluded from the response's `positions` list entirely (and so also excluded from total_open_risk_pct, via app.portfolio.risk.total_open_risk_pct's existing 'skip positions missing from stops' behavior), rather than appearing with null/placeholder risk fields.",
+      "rationale": "Unlike PositionOut (GET /api/portfolio), every field on RiskPosition (protective_stop, position_risk_pct, two_percent_rule_breached, exit_flags) is non-nullable in the documented schema (docs/architecture/API.md), so there is no partial representation available for a position whose risk genuinely can't be computed -- inventing nullable fields here would be a bigger, undocumented schema change for an edge case, and silently defaulting protective_stop/position_risk_pct to 0 would misrepresent an unknown risk as a *known-zero* one, which is worse than omitting the position (mirrors GET /api/portfolio's own precedent of excluding a bad-price position from positions_value rather than defaulting it to 0). Rejected alternative: return the position with a 200 but flag it via a synthetic exit_flags entry like 'risk_unavailable' -- rejected because exit_flags is documented as drawn specifically from Analyse.md §7's five named exit conditions, and overloading it with a data-availability signal would blur that contract for frontend consumers filtering/rendering it. docs/architecture/API.md's GET /api/portfolio/risk section was updated to document this exclusion explicitly."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The router's `protective_stop`/`position_risk_pct` display values for a position (used for the `protective_stop`/`position_risk_pct`/`two_percent_rule_breached` response fields) are computed with the stop excluding today's own bar (`protective_stop(position, daily_ohlcv.iloc[:-1])`), the same 'stop in force as of today' semantics `app.portfolio.exits.evaluate_exit_flags` uses internally for its own `stop_hit`/`two_percent_rule_breached` flag logic, rather than a today-inclusive stop.",
+      "rationale": "evaluate_exit_flags computes its own stop/risk_pct internally and doesn't expose them, so the router has no choice but to independently call protective_stop/position_risk_pct for the values it needs to display -- keeping those calls' semantics identical to evaluate_exit_flags' internal ones (rather than, say, a today-inclusive 'current' stop) ensures the top-level `two_percent_rule_breached` boolean field can never disagree with whether `'two_percent_rule_breached'` appears in that same position's `exit_flags` list, which would otherwise be a confusing self-contradiction in one API response. The cost is recomputing protective_stop/position_risk_pct a second time (once directly in the handler, once inside evaluate_exit_flags) per risk-eligible position; this was accepted as a reasonable single-request tradeoff rather than restructuring evaluate_exit_flags's signature to also return its internal stop/risk_pct, which would be a larger, riskier change to an already-reviewed module for a per-request cost that's small (a handful of already-cached OHLCV rows, no extra network/DB fetch)."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The 2%/6% rule threshold constants (2.0/6.0) used for the response's `two_percent_rule_breached`/`six_percent_rule_breached` fields are re-declared as local constants in app/api/routers/portfolio.py rather than imported from app.portfolio.exits's identical (but module-private, underscore-prefixed) `_TWO_PERCENT_RULE_THRESHOLD`/`_SIX_PERCENT_RULE_THRESHOLD`.",
+      "rationale": "exits.py's own thresholds are themselves not imported from app.portfolio.risk (which doesn't define them at all) -- there was no existing public/shared home for these two float constants to import from without also promoting exits.py's private constants to public, a change to an already-reviewed module out of scope for this task. Duplicating two named float constants with a comment cross-referencing the module they must stay in sync with was judged lower-risk than that wider change; both mirror docs/Analyse.md §7 and are exercised by tests on both sides (tests/unit/test_portfolio_exits.py, tests/integration/test_portfolio_risk.py) that would catch a drift."
+    }
   ]
 }

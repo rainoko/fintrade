@@ -13,12 +13,26 @@ from app.api.schemas import (
     PortfolioResponse,
     PositionIn,
     PositionOut,
+    RiskPosition,
     RiskResponse,
 )
 from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
 from app.db.models import AccountORM, PositionORM
 from app.db.session import get_db
+from app.portfolio.exits import evaluate_exit_flags
+from app.portfolio.models import Account
+from app.portfolio.models import Equity as DomainEquity
+from app.portfolio.pricing import enrich_positions_with_price, positions_value
+from app.portfolio.risk import position_risk_pct, protective_stop, total_open_risk_pct
+
+# 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
+# `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
+# in app.portfolio.exits (`_TWO_PERCENT_RULE_THRESHOLD`/`_SIX_PERCENT_RULE_THRESHOLD`), the
+# same way exits.py's own constants are hand-kept in sync with docs/Analyse.md §7 rather than
+# imported from app.portfolio.risk -- see this task's `decisions` entry.
+_TWO_PERCENT_RULE_THRESHOLD = 2.0
+_SIX_PERCENT_RULE_THRESHOLD = 6.0
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -44,60 +58,32 @@ def get_portfolio(
     data cache and are null only if a price fetch for that ticker has failed. A position
     whose price couldn't be fetched contributes nothing to `equity.positions_value`
     (it can't be marked to market) rather than falling back to cost basis — see this
-    task's `decisions` entry."""
+    task's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in
+    `app.portfolio.pricing` (shared with GET /api/portfolio/risk) — see the
+    api-portfolio-risk task's `decisions` entry."""
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 
-    positions_out: list[PositionOut] = []
-    positions_value = 0.0
-    for row in db.query(PositionORM).all():
-        current_price = _latest_close(provider, row.ticker)
-        unrealized_pnl_pct = (
-            (current_price - row.avg_cost_basis) / row.avg_cost_basis * 100.0
-            if current_price is not None
-            else None
-        )
-        if current_price is not None:
-            positions_value += row.quantity * current_price
+    enriched = enrich_positions_with_price(db.query(PositionORM).all(), provider)
+    value = positions_value(enriched)
 
-        positions_out.append(
-            PositionOut(
-                id=row.id,
-                ticker=row.ticker,
-                quantity=row.quantity,
-                avg_cost_basis=row.avg_cost_basis,
-                entry_date=row.entry_date,
-                current_price=current_price,
-                unrealized_pnl_pct=unrealized_pnl_pct,
-            )
+    positions_out = [
+        PositionOut(
+            id=e.position.id,
+            ticker=e.position.ticker,
+            quantity=e.position.quantity,
+            avg_cost_basis=e.position.avg_cost_basis,
+            entry_date=e.position.entry_date,
+            current_price=e.position.current_price,
+            unrealized_pnl_pct=e.position.unrealized_pnl_pct,
         )
+        for e in enriched
+    ]
 
     return PortfolioResponse(
-        equity=Equity(cash=cash, positions_value=positions_value, total=cash + positions_value),
+        equity=Equity(cash=cash, positions_value=value, total=cash + value),
         positions=positions_out,
     )
-
-
-def _latest_close(provider: DataProvider, ticker: str) -> float | None:
-    """Most recent daily close for `ticker`, or None if the fetch failed for any
-    reason a `DataProvider` can raise (unknown ticker, insufficient history, or
-    the provider being unavailable), the frame came back empty, or the latest
-    close itself is NaN -- GET /api/portfolio degrades a single bad ticker to a
-    null price rather than failing the whole response, since a portfolio
-    commonly holds several positions and one bad price shouldn't hide the rest
-    (see this task's `decisions` entry). Neither provider's daily series is
-    guaranteed NaN-free (only the derived weekly series gets `.dropna()`), and a
-    NaN current_price is `is not None` -- it would otherwise flow into the
-    running `positions_value` float total via `+=` and silently NaN-poison the
-    whole response (NaN is contagious under float addition), not just the one
-    position."""
-    try:
-        frame = provider.get_daily_ohlcv(ticker)
-    except DataProviderError:
-        return None
-    if frame.empty or pd.isna(frame.iloc[-1]["close"]):
-        return None
-    return float(frame.iloc[-1]["close"])
 
 
 @router.post(
@@ -226,9 +212,84 @@ def delete_position(position_id: str, db: Session = Depends(get_db)) -> None:
     operation_id="get_portfolio_risk",
     summary="Get the 2%/6% rule evaluation and per-position exit flags",
 )
-def get_risk() -> RiskResponse:
+def get_risk(
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> RiskResponse:
     """Per-position protective stop, 2%-rule risk, and exit flags, plus the portfolio-wide
     6%-rule total (docs/Analyse.md §7). `exit_flags` can be non-empty even when the
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
-    independent of entry-signal logic by design."""
-    raise HTTPException(status_code=501, detail="not implemented yet")
+    independent of entry-signal logic by design.
+
+    A position is silently excluded from `positions` (and so from `total_open_risk_pct`,
+    which only sums positions with a known stop — see `app.portfolio.risk
+    .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
+    couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
+    task's `decisions` entry), its daily history has fewer than 2 rows (the minimum
+    `evaluate_exit_flags` needs to test today's close against yesterday's stop), its weekly
+    history couldn't be fetched, or `protective_stop`/`evaluate_exit_flags` raised for a
+    malformed frame. `RiskPosition`'s fields are all non-nullable, so a position that can't
+    be fully evaluated has no partial representation in this schema — see this task's
+    `decisions` entry."""
+    account_row = db.get(AccountORM, 1)
+    cash = account_row.cash if account_row is not None else 0.0
+
+    enriched = enrich_positions_with_price(db.query(PositionORM).all(), provider)
+    value = positions_value(enriched)
+    account = Account(
+        equity=DomainEquity(cash=cash, positions_value=value, total=cash + value),
+        positions=[e.position for e in enriched],
+    )
+
+    # First pass: figure out which positions have enough data to compute a protective stop
+    # at all, and fetch each one's weekly history (needed for the tide_flipped_bearish exit
+    # flag) up front so the second pass can call evaluate_exit_flags without any further
+    # fetches.
+    stops: dict[str, float] = {}
+    weekly_by_id: dict[str, pd.DataFrame] = {}
+    for e in enriched:
+        if e.position.current_price is None or e.daily_ohlcv is None or len(e.daily_ohlcv) < 2:
+            continue
+        try:
+            weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
+        except DataProviderError:
+            continue
+        try:
+            stop = protective_stop(e.position, e.daily_ohlcv.iloc[:-1])
+        except ValueError:
+            continue
+        stops[e.position.id] = stop
+        weekly_by_id[e.position.id] = weekly_ohlcv
+
+    total_risk = total_open_risk_pct(account, stops)
+    six_percent_rule_breached = total_risk > _SIX_PERCENT_RULE_THRESHOLD
+
+    risk_positions: list[RiskPosition] = []
+    for e in enriched:
+        if e.position.id not in stops:
+            continue
+        stop = stops[e.position.id]
+        try:
+            risk_pct = position_risk_pct(e.position, stop, account)
+            exit_flags = evaluate_exit_flags(
+                e.position, account, e.daily_ohlcv, weekly_by_id[e.position.id], total_risk
+            )
+        except ValueError:
+            continue
+
+        risk_positions.append(
+            RiskPosition(
+                id=e.position.id,
+                ticker=e.position.ticker,
+                protective_stop=stop,
+                position_risk_pct=risk_pct,
+                two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD,
+                exit_flags=exit_flags,
+            )
+        )
+
+    return RiskResponse(
+        total_open_risk_pct=total_risk,
+        six_percent_rule_breached=six_percent_rule_breached,
+        positions=risk_positions,
+    )
