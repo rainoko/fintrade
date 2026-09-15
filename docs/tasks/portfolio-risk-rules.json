@@ -3,16 +3,54 @@
   "title": "Portfolio risk rules (2% / 6%)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
   "description": "protective_stop(), position_risk_pct(), total_open_risk_pct() in app/portfolio/risk.py: SafeZone-style protective stop, the 2% per-trade rule, and the 6% total-open-risk rule.",
   "checklist": [
-    { "step": "Implement protective_stop(): recent swing low minus a volatility buffer (average downside penetration of a short EMA)", "done": false },
-    { "step": "Implement position_risk_pct(): position size x distance-to-stop as a fraction of current account equity", "done": false },
-    { "step": "Implement total_open_risk_pct(): sum of position_risk_pct across all positions", "done": false },
-    { "step": "Confirm both rules use CURRENT equity/position size, not values frozen at entry time (verify-elder-signal checklist §Portfolio Risk Overlay)", "done": false },
-    { "step": "Write unit tests against known position/equity scenarios, including a deliberately oversized position and a 6%-breaching portfolio", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement protective_stop(): recent swing low minus a volatility buffer (average downside penetration of a short EMA)", "done": true },
+    { "step": "Implement position_risk_pct(): position size x distance-to-stop as a fraction of current account equity", "done": true },
+    { "step": "Implement total_open_risk_pct(): sum of position_risk_pct across all positions", "done": true },
+    { "step": "Confirm both rules use CURRENT equity/position size, not values frozen at entry time (verify-elder-signal checklist §Portfolio Risk Overlay)", "done": true },
+    { "step": "Write unit tests against known position/equity scenarios, including a deliberately oversized position and a 6%-breaching portfolio", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-risk-rules)",
+      "decision": "protective_stop() uses a 10-trading-day lookback for both the swing low and the volatility-buffer averaging window, and reuses EMA(13) (the app's existing standard trend EMA, per Analyse.md §4) as the 'short EMA' referenced by §7, rather than introducing a new period. Downside penetration on a given day is max(EMA13 - low, 0) (0 on days the low didn't dip below the EMA), averaged over the same 10-day window; protective_stop = swing_low - that average.",
+      "rationale": "Analyse.md §7 specifies the SafeZone-style concept ('recent swing low minus a volatility buffer, average downside penetration of a short EMA over the last N days') but deliberately leaves N and the EMA period unpinned. 10 trading days (~2 weeks) matches the doc's own 'recent'/short-term framing without inventing an unrelated parameter set. Reusing EMA(13) keeps a single canonical 'short EMA' across Impulse/Elder-Ray/Autoenvelope/protective-stop instead of a second EMA period whose meaning would need separate justification. Rejected: classic SafeZone's own convention (average of consecutive-day downside penetrations of the low itself, per Elder's book) -- Analyse.md's §7 wording explicitly ties the penetration to 'a short EMA', not day-over-day lows, so implementing the book's literal version would contradict this project's own doc rather than fill a gap in it."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-risk-rules)",
+      "decision": "position_risk_pct() requires position.current_price to be set (raises ValueError if None) rather than falling back to avg_cost_basis, and floors distance-to-stop at 0 (never negative) when current_price has already fallen below the stop. total_open_risk_pct()'s `stops` dict is keyed by position.id, not ticker, and a position missing from `stops` is skipped rather than treated as zero risk.",
+      "rationale": "The checklist explicitly requires using CURRENT equity/position values, not values frozen at entry -- falling back to avg_cost_basis when current_price is unknown would silently reintroduce an entry-time value into a 'current' risk calculation, so raising is safer than guessing. Flooring at 0 keeps total_open_risk_pct() from being reduced by a position that has already blown through its stop (that position's forward risk to that specific stop level is spent, not negative; the stop-hit condition itself is exits.py's job, not risk.py's). id is used as the stops dict key (instead of ticker) because Position models an id-identified lot -- a portfolio could hold more than one lot of the same ticker -- and ticker collision would silently overwrite one lot's stop with another's."
+    }
+  ],
+  "git": {
+    "branch": "task/portfolio-risk-rules",
+    "pr_number": 11,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/11",
+    "pushed_at": "2026-09-12T18:11:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T19:10:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/11",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: the 'daily_ohlcv must be ordered oldest-first (most recent row last)' contract used by protective_stop() (via .tail()) is only documented in risk.py's own docstring. app/data/base.py's DataProvider.get_daily_ohlcv docstring says 'indexed by date' but doesn't state sort order. Column naming (lowercase open/high/low/close/volume) is already established precedent and consistent with OHLCVCacheORM, but the ordering half of the contract should be reconciled into the shared DataProvider docstring once the data-provider tasks (data-provider-yfinance/stooq, data-cache) are implemented, so those implementations agree with this assumption and not just the column names.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 36
+      }
+    ],
+    "notes": "Backend suite: backend/.venv/bin/pytest -q -> 49/49 pass, no failures. backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> app/portfolio/risk.py at 100% line/branch coverage; overall repo coverage 73.91% on this branch. Independently verified the main-branch baseline via a separate git worktree (not just trusting the PR description): 67.83% / 33 passed on main at commit 40c4abf -- both branches are below the 90% gate, but that shortfall is entirely pre-existing (other tasks' app/data, app/signals, app/indicators modules are still NotImplementedError stubs at 0% on both branches), and this PR improves coverage with no regression. No ruff/mypy/flake8 config anywhere in backend/pyproject.toml or elsewhere in the repo -- nothing configured to run beyond pytest. Ran the verify-elder-signal skill against docs/Analyse.md Sec.7 (Portfolio Risk Overlay): position_risk_pct()/total_open_risk_pct() correctly use CURRENT position.current_price and account.equity.total (never avg_cost_basis or entry-time values), verified both by the decisions entries' rationale and by a dedicated test (test_uses_current_price_not_entry_cost_basis) that would fail if entry-time values leaked in; protective_stop() is swing-low-minus-volatility-buffer per the SafeZone concept, not a fixed-percentage stop. exits.py, Screens 1-3, Impulse and confidence scoring are untouched by this diff and correctly out of scope (separate tasks). Both decisions entries are genuine decision records (what changed, why, and what alternative was rejected and why) covering the two real judgment calls this task required: the 10-day lookback + EMA(13)-reuse choice for protective_stop(), and the current_price-required/floor-at-zero/id-keyed-stops design for position_risk_pct()/total_open_risk_pct() -- both match what's implemented; no undocumented judgment calls found. Ran the code-review skill (medium effort) against the diff plus an independent manual line-by-line pass and a runtime sanity check of protective_stop() against a hand-computed constant-series case (confirmed 98.0 as expected): no correctness bugs. EMA is correctly computed over the full daily_ohlcv history with only the tail window of the resulting penetration series averaged, avoiding EMA seed-discontinuity bias from re-seeding on just the last N rows -- called out as a detail handled correctly. Reuses the existing app.indicators.ema function rather than reimplementing EMA -- good reuse; no new module/dependency/layer introduced, so architecture-review wasn't triggered. Test suite (backend/tests/unit/test_portfolio_risk.py) includes the required oversized-position (2% breach, risk=200% > 2%) and multi-position 6%-breach (22.5% > 6%) scenarios, plus edge cases (missing current_price raises, zero equity raises, distance-to-stop floored at 0, position missing from stops skipped, multi-lot-same-ticker keyed correctly by id, and 10-day windowing verified with a padding/outlier test). Checked the invented daily_ohlcv column contract (lowercase low/close matching OHLCVCacheORM) against existing precedent in app/data/base.py and app/indicators/ema.py's chronological-order reliance -- reasonable and internally consistent, with one non-blocking documentation-reconciliation note recorded above for when the data-provider tasks land. No API route/schema touched; backend/openapi.json regeneration not applicable. No UI surface -- browser walkthrough explicitly not applicable (pure backend risk-calculation module, no frontend or endpoint consumer yet), noted rather than silently skipped. index.json's mirror entry updated in the same change. Posted as a PR review comment (COMMENTED type); gh pr review --approve was attempted first per the standing fallback process but was blocked by GitHub's own self-approval rule (worker and reviewer share the raino-agent account) -- recording the accepted verdict here per the standing instruction. Not merging, per standing instructions."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-14T00:00:00Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv/bin/pytest (49/49 pass) and pytest --cov=app --cov-report=term-missing (app/portfolio/risk.py 100% line/branch, overall 73.91%, no ruff/mypy config present) -- matches pr-reviewer's reported numbers exactly. Skimmed the full diff (risk.py, test_portfolio_risk.py, task JSON/index.json bookkeeping only, no scope creep). Hand-verified protective_stop() independently with my own scenario (close=100 flat first 10 days then low dips to 95 for last 10 days, EMA(13) of a constant-close series stays 100): swing_low=95, volatility_buffer=mean(100-95)=5, stop=90 -- function returned 90.0, matching. Also hand-verified position_risk_pct() at the exact 2% boundary (qty=20, price=100, stop=90, equity=10000 -> 200/10000*100=2.0%) and total_open_risk_pct() at the exact 6% boundary (3 such positions -> 6.0%) plus a 4-position breach case (8.0% > 6%) -- both match docs/Analyse.md Sec.7's 2%/6% rules and the function output. Accept holds."
+  }
 }

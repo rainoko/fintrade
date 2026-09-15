@@ -3,15 +3,50 @@
   "title": "Indicator: Stochastic Oscillator",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#4-indicator-summary-table", "docs/architecture/Backend.md#4-indicator-engine-notes"],
   "description": "Stochastic %K/%D (5, 3, 3). Feeds Screen 2 (wave) overbought/oversold timing.",
   "consumed_by": ["screen2-wave"],
   "checklist": [
-    { "step": "Confirm %K/%D/smoothing periods (5, 3, 3) against docs/Analyse.md §4", "done": false },
-    { "step": "Implement app/indicators/stochastic.py: pure function returning a DataFrame with 'k' and 'd' columns", "done": false },
-    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_stochastic.py", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Confirm %K/%D/smoothing periods (5, 3, 3) against docs/Analyse.md §4", "done": true },
+    { "step": "Implement app/indicators/stochastic.py: pure function returning a DataFrame with 'k' and 'd' columns", "done": true },
+    { "step": "Write hand-computed reference-value test in tests/unit/indicators/test_stochastic.py", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "Implemented the classic 'slow' Stochastic Oscillator construction: fast %K = 100*(close-LL)/(HH-LL) over a rolling k_period window, %K = simple moving average (rolling().mean(), not ewm) of fast %K over `smooth` bars, %D = simple moving average of %K over `d_period` bars. All three windows use pandas rolling/SMA, not the EMA-based smoothing used by ema.py/macd.py/force_index.py elsewhere in this app.",
+      "rationale": "docs/Analyse.md §4 lists Stochastic's parameters as '%K 5, %D 3, smooth 3' -- three distinct values, which only makes sense under the classic fast-%K -> smoothed-%K -> %D construction (an EMA-only reading would have no third parameter to hang 'smooth' off of). This is also the standard textbook/Elder definition of the Stochastic Oscillator, which historically uses SMA smoothing, unlike Force Index/MACD/EMA which are explicitly EMA-based in Analyse.md's own prose. Rejected treating 'smooth' as an alternate/EMA period for %K (would collapse to a 2-parameter indicator and ignores the doc's explicit 3-parameter listing).",
+      "rejected": "Considered reusing app/indicators/ema.py's ewm-based smoothing for %K/%D (for consistency with the rest of the codebase's EMA-heavy style), but rejected it because it would silently diverge from both Analyse.md's parameter list and the textbook Stochastic definition, which is exactly the kind of library-formula-vs-book-definition mismatch docs/architecture/Backend.md §1/§4 calls out as the reason indicators are hand-written per their Analyse.md definition rather than assumed from a generic pattern."
+    },
+    {
+      "timestamp": "2026-09-12T00:00:00Z",
+      "recorded_by": "add-indicator skill",
+      "decision": "A flat trailing range (HH == LL over the k_period window, so fast %K is a 0/0 division) is left as NaN rather than special-cased to 0 or 50.",
+      "rationale": "pandas/numpy already produces NaN for a 0.0/0.0 division on float Series with no extra code, and NaN is the same 'undefined, not yet actionable' signal this app already uses for EMA/Force Index warm-up periods -- consistent with how downstream Screen 2 wave logic (not yet implemented) should already be handling NaN oscillator values before a series is fully warmed up.",
+      "rejected": "Considered clamping to 50 (a common 'neutral' convention in some TA libraries) but rejected it as inventing a value Analyse.md doesn't specify, for an edge case (a perfectly flat multi-bar range) unlikely to occur in real daily OHLCV data anyway."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-stochastic",
+    "pr_number": 12,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/12",
+    "pushed_at": "2026-09-12T18:34:51Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-12T18:39:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/12",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking (reuse/simplification, from code-review skill): _validate_period's int/bool/range guard in stochastic.py duplicates the identical inline check in app/indicators/ema.py::ema(). force_index.py avoided this by delegating to ema() directly, but stochastic.py can't (it's SMA-, not EMA-, based), so this needs its own follow-up -- e.g. a shared _validate_period-style helper -- once a third indicator (elder_ray, autoenvelope) needs the same guard. Not blocking.",
+        "file": "backend/app/indicators/stochastic.py",
+        "line": 4
+      }
+    ],
+    "notes": "Checked out task/indicator-stochastic fresh (mergeable: MERGEABLE / mergeStateStatus: CLEAN). Backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -> 65 passed, app/indicators/stochastic.py at 100% line+branch coverage (18 stmts/6 branches, 0 missed). Whole-repo coverage 75.08%, still below the 90% gate but not a regression -- verified against main in a separate git worktree (72.44%, 56 tests), so this branch is +2.6pp over baseline, same accepted not-yet-implemented-stub-modules pattern as prior indicator PRs (#3/#4/#6/#10). No lint/type-check tool configured in backend/pyproject.toml (no ruff/mypy section) and no frontend scaffolded yet -- nothing to run. Independently re-derived every reference value by hand from the test fixture (5-bar fast %K, two cascading 3-bar SMA layers for %K then %D) -- exact match with the implementation and with docs/Analyse.md Sec.4's '%K 5, %D 3, smoothing 3' parameters; confirmed this is the textbook slow-Stochastic construction (fast %K -> smoothed %K -> %D), not an invented formula, and that SMA (not EMA) is the correct reading of the doc's 3-parameter listing (an EMA-only reading would collapse to 2 parameters). Independently reproduced the flat-range (HH==LL) 0/0 case with warnings.simplefilter('error') -- pandas silently yields NaN with no RuntimeWarning, confirming the decision entry's claim; NaN is a reasonable, minimally-invasive choice for an edge case Analyse.md doesn't specify. Warm-up NaN propagation independently checked against rolling-window arithmetic (k_period+smooth-1 bars for %K, a further d_period-1 for %D) -- correct, no custom seeding needed unlike EMA. Ran the code-review skill (medium effort) fresh against the diff: one non-blocking duplication finding (above), no correctness bugs. No API route/schema touched -- backend/openapi.json regeneration N/A. No new module/dependency/layer -- architecture-review N/A. Area is backend/indicators (not backend/signals or backend/portfolio) and skill is add-indicator (not verify-elder-signal) -- formal verify-elder-signal invocation not required, math independently checked against docs/Analyse.md Sec.4 regardless. No UI surface (pure backend indicator function, no frontend consumer yet; screen2-wave is a separate not-yet-started consumer task) -- browser walkthrough explicitly N/A. Both decision entries (SMA-vs-EMA construction choice, flat-range NaN handling) have proper decision/rationale/rejected content -- satisfies the decision-memory rule; no checklist item is an undecided 'decide X' left unresolved. Diff scope matches the PR description exactly (stochastic.py, its test file, task/index JSON bookkeeping) -- no scope creep. gh pr review --approve attempted first, blocked by GitHub's self-approval rule (worker and reviewer share the raino-agent account) -- posted as a COMMENTED-type PR review instead with the full findings, per the standing fallback process."
+  }
 }

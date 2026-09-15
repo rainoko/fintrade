@@ -3,16 +3,60 @@
   "title": "Data provider: yfinance",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": [],
   "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
   "description": "Implement YFinanceProvider (app/data/yfinance_provider.py) as the primary free market data source, satisfying the DataProvider protocol for daily and weekly OHLCV.",
   "checklist": [
-    { "step": "Implement get_daily_ohlcv(ticker) using yfinance, returning columns open/high/low/close/volume indexed by date", "done": false },
-    { "step": "Implement get_weekly_ohlcv(ticker) using yfinance's native weekly interval (no manual resampling needed)", "done": false },
-    { "step": "Handle unknown ticker (empty/error response from yfinance) by raising a typed exception the API layer can map to 404", "done": false },
-    { "step": "Handle insufficient history (e.g. <26 weeks) by raising a typed exception the API layer can map to 422", "done": false },
-    { "step": "Write unit tests against recorded fixtures (saved sample yfinance responses) — no live network calls", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression" , "done": false }
-  ]
+    { "step": "Implement get_daily_ohlcv(ticker) using yfinance, returning columns open/high/low/close/volume indexed by date", "done": true },
+    { "step": "Implement get_weekly_ohlcv(ticker) using yfinance's native weekly interval (no manual resampling needed)", "done": true },
+    { "step": "Handle unknown ticker (empty/error response from yfinance) by raising a typed exception the API layer can map to 404", "done": true },
+    { "step": "Handle insufficient history (e.g. <26 weeks) by raising a typed exception the API layer can map to 422", "done": true },
+    { "step": "Write unit tests against recorded fixtures (saved sample yfinance responses) — no live network calls", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression" , "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Introduced app/data/exceptions.py with a DataProviderError base and three subtypes: TickerNotFoundError (-> 404), InsufficientHistoryError (-> 422, carries ticker/available/required), and DataProviderUnavailableError (-> 503, for yfinance-itself failures like rate-limiting or network errors, not a per-ticker problem).",
+      "rationale": "No data-provider exception module existed yet (base.py only defines the DataProvider Protocol). A three-way split matches the three distinct HTTP outcomes already documented on the /history and /analysis routes in app/api/routers/stocks.py (404/422/503), so the future API-layer task (api-stocks-history / api-stocks-analysis) can do a straightforward except-clause-per-status mapping instead of inspecting exception messages or reusing a single generic error for cases that need different HTTP codes. Rejected: (a) a single DataProviderError with a status-code field/enum baked in, which would leak an HTTP concern into the data layer that CLAUDE.md's layering keeps API-only; (b) reusing/subclassing yfinance's own YFTickerMissingError/YFPricesMissingError hierarchy directly, which would leak a yfinance-specific dependency into code that's also meant to be raised by the (future) Stooq provider, breaking the DataProvider protocol's interchangeability guarantee."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Detect 'insufficient history' as len(weekly_bars) < 26 in get_weekly_ohlcv only (not get_daily_ohlcv), checked after fetching yfinance's native interval='1wk' series with period='max'. Unknown ticker is detected as raw.empty on whatever yfinance's default (non-raising) history() call returns, for both get_daily_ohlcv and get_weekly_ohlcv.",
+      "rationale": "docs/Analyse.md §8 ties the '~200 trading days' / '26-week' minimum specifically to seeding the weekly 26-week EMA for Screen 1, which is what get_weekly_ohlcv feeds — so checking there (rather than duplicating an equivalent-but-differently-scaled threshold in get_daily_ohlcv) keeps the 26 constant meaningful and in one place. yfinance's default history() call (raise_errors left at its default False, i.e. YfConfig.debug.hide_exceptions stays on) swallows an unknown/delisted ticker, a bad date range, and most transport failures alike into a silently-returned empty DataFrame rather than a distinguishable exception (verified by reading yfinance 1.7.0's scrapers/history.py) — emptiness is therefore the only reliable signal available for 'no such ticker' without depending on yfinance's internal logging. The one case yfinance does raise regardless of that setting, YFRateLimitError, plus any other unexpected exception from the call itself, is treated as DataProviderUnavailableError (503) rather than TickerNotFoundError (404), since it's a provider problem, not evidence the ticker doesn't exist. Rejected: passing raise_errors=True / flipping YfConfig.debug.hide_exceptions off to get yfinance's own typed exceptions (YFTickerMissingError etc.) instead of checking emptiness, which the yfinance docs (raise_errors' docstring) mark deprecated in favor of the global YfConfig switch and which would still require mapping several yfinance-internal exception types to this project's 404/422/503 outcomes anyway; checking on get_daily_ohlcv too, which would need an independently-chosen daily-bar threshold not stated anywhere in docs/Analyse.md."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Recorded fixtures are CSV files under backend/tests/fixtures/yfinance/ that reproduce the shape of yfinance's own Ticker.history() *return value* (a DataFrame with columns Open/High/Low/Close/Volume/Dividends/'Stock Splits', tz-aware DatetimeIndex named Date) — not a raw Yahoo Chart API JSON payload. Tests mock yfinance.Ticker itself (via pytest-mock) and feed its .history() a DataFrame loaded from one of these CSVs.",
+      "rationale": "The provider's only real dependency is yfinance's public Ticker.history() contract, not Yahoo's undocumented chart-API JSON shape that yfinance itself parses internally (see scrapers/history.py) — mocking at the JSON level would coincidentally tie every test to yfinance's current internal parsing logic (which isn't part of yfinance's own public API and has changed across its versions) rather than to the boundary this adapter actually crosses. CSV was chosen over pickle for readability/diffability in code review and portability across pandas versions, matching the plain-text bias of the rest of the repo's fixtures (no existing fixture-format precedent in this codebase prior to this task, so this establishes one for future provider/cache tasks: data-provider-stooq, data-cache). Four fixtures were recorded: aapl_daily.csv (300 daily bars), aapl_weekly.csv (60 weekly bars, exercises the >=26-week success path), newco_weekly_short.csv (10 weekly bars, exercises InsufficientHistoryError), and unknown_empty.csv (zero rows, exercises TickerNotFoundError) — all synthetic/deterministic (numpy seeded RNG), not captured from a live call, since the goal is exercising the provider's shape-handling and error-branch logic, not validating real market values (that's the indicator tests' job per docs/architecture/Backend.md's reference-value requirement)."
+    }
+  ],
+  "git": {
+    "branch": "task/data-provider-yfinance",
+    "pr_number": 18,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/18",
+    "pushed_at": "2026-09-13T10:20:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-13T00:00:00Z",
+    "reviewed_by": "pr-reviewer",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "YFinanceProvider._normalize() runs outside _fetch()'s try/except, so a non-empty-but-malformed yfinance response missing an expected OHLCV column raises a raw KeyError instead of the documented DataProviderUnavailableError (503). Low-probability with yfinance's actual current failure modes (verified: real 'no data' responses are always fully empty or fully columned), and not exercised by any fixture. Non-blocking; worth a follow-up if a future yfinance version proves it reachable.",
+        "file": "backend/app/data/yfinance_provider.py",
+        "line": 66
+      }
+    ],
+    "notes": "Ran the full backend suite via backend/.venv (pytest --cov=app --cov-report=term-missing): 73/73 pass; app/data/yfinance_provider.py and app/data/exceptions.py both 100% line/branch coverage; repo-wide coverage improved 72.44% (main) -> 79.15%, no regression (repo-wide 90% gate still blocked by other unimplemented tasks, unrelated to this PR). No ruff/mypy config exists yet in backend/pyproject.toml, so no lint/type step was skipped. Verified no-live-network-calls is genuine: every test patches app.data.yfinance_provider.yf.Ticker itself and feeds recorded CSV fixtures. Verified DataProvider protocol conformance exactly (method signatures match app/data/base.py via inspect.signature). Ran architecture-review checklist against docs/Architecture.md + docs/architecture/Backend.md §2: module placement matches documented layout; app/data/exceptions.py is a new-but-sensible extension of data/, backed by a decisions entry; no new dependency added; coverage config untouched. Cross-checked against docs/Analyse.md §9 (native interval='1wk', no manual resample) and §8 (26-week minimum to seed the weekly EMA) -- implementation matches. All three judgment calls (exception hierarchy shape, insufficient-history detection scope, CSV fixture convention) recorded in this task's decisions array with rationale and rejected alternatives, per CLAUDE.md. No API/UI surface touched (pure data-provider adapter) -- browser walkthrough correctly not applicable; no backend/openapi.json change needed since no route/schema changed. Ran the code-review skill independently in parallel; it converged on the same single non-blocking finding (the _normalize KeyError gap) via its own trace through yfinance's real source, corroborating this review. Posted as a COMMENTED-type PR review (gh pr review --approve failed with 'Can not approve your own pull request', as expected since the worker and reviewer share one authenticated gh account)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T00:00:00Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing: 73/73 pass, app/data/yfinance_provider.py and app/data/exceptions.py both 100% line/branch coverage, repo-wide 79.15% -- matches pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD): exceptions.py hierarchy and yfinance_provider.py's _fetch/_normalize/get_daily_ohlcv/get_weekly_ohlcv, plus both test files and all four fixtures. Confirmed the one non-blocking finding (_normalize's KeyError path sitting outside _fetch's try/except) is real but genuinely non-blocking as described, and independently confirmed the reviewer's other factual claims: yfinance was already a declared dependency in backend/pyproject.toml pre-PR, and no ruff/mypy/flake8 config exists anywhere in the repo. Cross-checked docs/Analyse.md §8/§9 text myself against the 26-week-weekly-only threshold and native interval='1wk' decisions -- both match. Note (non-blocking to this merge decision): no docs/tasks/data-provider-yfinance-followups.json exists yet for the _normalize KeyError finding, per CLAUDE.md's tracked-findings rule -- an existing retroactive-sweep PR (#23, chore/retroactive-followup-tasks) covers six other tasks but not this one; flagging for whoever processes that sweep next, not treating it as grounds to reopen this PR since it doesn't bear on PR #18's own code correctness."
+  }
 }
