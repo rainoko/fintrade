@@ -3,7 +3,7 @@
   "title": "API: DELETE /api/portfolio/positions/{id}",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["db-models"],
   "references": ["docs/architecture/API.md#delete-apiportfoliopositionsid"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature is already wired.",
@@ -26,5 +26,18 @@
     "pr_number": 31,
     "pr_url": "https://github.com/rainoko/fintrade/pull/31",
     "pushed_at": "2026-09-15T21:14:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-15T21:30:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/31",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "tests/integration/test_portfolio_delete_position.py re-pastes the same db_session/client (in-memory SQLite + StaticPool + get_db override) fixture pair already duplicated in test_portfolio_positions.py and test_portfolio_get.py -- third copy now. Non-blocking; tracked as a follow-up to extract into a shared tests/integration/conftest.py fixture.",
+        "file": "backend/tests/integration/test_portfolio_delete_position.py",
+        "line": 20
+      }
+    ],
+    "notes": "Full backend suite: 376 passed, 99.52% coverage (90% gate met), no regressions from main. New test file (5 tests) covers success, GET-reflects-delete, unknown-id 404, targeted-only delete among several, and repeated-delete-404-on-second-call. Handler correctness: db.get(PositionORM, position_id) is a valid primary-key lookup (id is PositionORM's PK); 404 with ErrorDetail-shaped string on miss; db.delete + db.commit on hit; no FK/relationships on PositionORM so no cascade concerns. No lint/type-checker is configured in backend/pyproject.toml, so none was run (none invented). Route signature/response contract (operation_id, summary, docstring, 404 responses entry) was already finalized by a prior task and is unchanged here; backend/openapi.json has no diff, confirmed correct since this PR made no schema/signature change (verified the committed snapshot's delete_position entry matches the route as implemented). No frontend exists yet in this repo, so no browser walkthrough or frontend-sync steps apply (explicitly out of scope, not skipped). Decision on 404-detail-shape and Session.get vs. filter().one_or_none() properly recorded in this task's decisions array. code-review skill (medium effort) ran independently and returned no additional findings. One non-blocking reuse/simplification finding filed as docs/tasks/api-portfolio-delete-position-followups.json."
   }
 }

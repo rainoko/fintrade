@@ -1,0 +1,19 @@
+{
+  "id": "api-portfolio-delete-position-followups",
+  "title": "DELETE /api/portfolio/positions/{id} — non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-portfolio-delete-position"],
+  "references": [
+    "docs/tasks/api-portfolio-delete-position.json#review",
+    "https://github.com/rainoko/fintrade/pull/31"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #31 (api-portfolio-delete-position), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "tests/integration/test_portfolio_delete_position.py re-pastes the same db_session/client (in-memory SQLite + StaticPool + get_db override) fixture pair already duplicated verbatim in tests/integration/test_portfolio_positions.py and tests/integration/test_portfolio_get.py -- this is now the third copy. Extract into a shared fixture in a tests/integration/conftest.py so future DB-touching route tests don't paste a fourth copy.",
+      "done": false
+    }
+  ]
+}
