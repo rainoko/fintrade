@@ -9,10 +9,7 @@ standard (every documented error case declared in a route's ``responses={}``):
 
 See the `decisions` entry on docs/tasks/data-provider-yfinance.json for why
 this hierarchy has this shape (no exception module existed for `app/data`
-before this task). The data-provider-stooq task independently added an
-identical copy of this module; per that task's own `decisions` entry, the
-duplicate is dropped here in favor of this one now that both are merged
-together.
+before this task).
 """
 
 
