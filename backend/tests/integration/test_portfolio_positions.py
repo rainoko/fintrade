@@ -320,6 +320,59 @@ class TestAddPosition:
 
         assert response.status_code == 422
 
+    def test_duplicate_ticker_merge_of_two_large_finite_values_returns_422_not_500(
+        self, client: TestClient
+    ) -> None:
+        """Regression test (PR #17 third review round): quantity=avg_cost_basis=1e308 is
+        individually finite and positive, so it passes schema validation cleanly (201) both
+        times it's posted. But merging the two on the second POST overflows Python float64
+        arithmetic -- merged_quantity = 1e308 + 1e308 overflows toward the edge of float64's
+        representable range, and the weighted-average division produces a value that can't be
+        represented as a finite float64 either, which previously reached db.commit() as NaN
+        and crashed with an unhandled sqlalchemy.exc.IntegrityError (NOT NULL constraint
+        failed) instead of a clean 422. The merge arithmetic now runs on decimal.Decimal and
+        the result is checked with math.isfinite() before ever reaching the database."""
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-02"},
+        )
+
+        assert second.status_code == 422
+        assert "detail" in second.json()
+
+    def test_duplicate_ticker_merge_of_two_large_finite_values_does_not_corrupt_existing_row(
+        self, client: TestClient
+    ) -> None:
+        """The rejected merge must not partially mutate or corrupt the existing row: a
+        follow-up GET-equivalent (re-triggering the same overflow via a second identical
+        oversized POST) should keep failing the same way rather than succeeding after a
+        broken commit, and a normal, small merge against the same ticker afterward should
+        still succeed and reflect only the original (pre-overflow) quantity."""
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 201
+
+        rejected = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-02"},
+        )
+        assert rejected.status_code == 422
+
+        small_merge = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 1e308, "entry_date": "2026-01-03"},
+        )
+        assert small_merge.status_code == 201
+        assert small_merge.json()["quantity"] == pytest.approx(1e308 + 1)
+
     def test_whitespace_padded_ticker_is_stripped_and_merges_with_existing(
         self, client: TestClient
     ) -> None:

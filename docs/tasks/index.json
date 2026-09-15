@@ -25,7 +25,7 @@
     { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
     { "id": "api-stocks-analysis", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
     { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
-    { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "waiting_input" },
+    { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "implementing" },
     { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" },
     { "id": "api-portfolio-risk", "area": "backend/api", "skill": "add-api-endpoint", "state": "planned" }
   ]

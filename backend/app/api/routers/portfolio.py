@@ -1,4 +1,6 @@
+import math
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -35,6 +37,13 @@ def get_portfolio() -> PortfolioResponse:
     status_code=201,
     operation_id="add_position",
     summary="Add or update a position",
+    responses={
+        422: {
+            "model": ErrorDetail,
+            "description": "Request body failed validation, or merging with an existing "
+            "position would produce a quantity/avg_cost_basis too large to represent",
+        },
+    },
 )
 def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
     """Creates a position from manual entry / CSV-import data. If a position for this ticker
@@ -59,11 +68,42 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         )
         db.add(row)
     else:
-        merged_quantity = existing.quantity + position.quantity
-        existing.avg_cost_basis = (
-            existing.quantity * existing.avg_cost_basis + position.quantity * position.avg_cost_basis
-        ) / merged_quantity
+        # Merge arithmetic runs on decimal.Decimal rather than the native floats directly:
+        # two individually-valid, individually-finite floats (each already rejected if
+        # non-finite/non-positive at the schema layer) can still overflow Python float64
+        # arithmetic to inf, and an inf/inf weighted-average division silently produces nan
+        # rather than raising -- see this task's `decisions` for the full round-3 history.
+        # Decimal's default context has far more exponent headroom than float64, so the sum
+        # and weighted-average division themselves don't silently overflow; the remaining
+        # risk is the final float64 conversion for storage (the ORM columns are SQLAlchemy
+        # Float), which *also* silently saturates to inf rather than raising -- so the
+        # explicit math.isfinite() check below, not Decimal alone, is what turns that case
+        # into a clean 422 instead of an unhandled 500 from db.commit(). (existing.quantity/
+        # avg_cost_basis and position.quantity/avg_cost_basis are always finite floats by the
+        # time execution reaches here -- either already-committed rows or schema-validated
+        # `allow_inf_nan=False`/`gt=0` request fields -- so Decimal construction and division
+        # below can't themselves raise; there's deliberately no try/except DecimalException
+        # around them.)
+        existing_quantity_dec = Decimal(existing.quantity)
+        incoming_quantity_dec = Decimal(position.quantity)
+        merged_quantity_dec = existing_quantity_dec + incoming_quantity_dec
+        merged_avg_cost_basis_dec = (
+            existing_quantity_dec * Decimal(existing.avg_cost_basis)
+            + incoming_quantity_dec * Decimal(position.avg_cost_basis)
+        ) / merged_quantity_dec
+        merged_quantity = float(merged_quantity_dec)
+        merged_avg_cost_basis = float(merged_avg_cost_basis_dec)
+
+        if not (math.isfinite(merged_quantity) and math.isfinite(merged_avg_cost_basis)):
+            raise HTTPException(
+                status_code=422,
+                detail="Merging this position with the existing one would produce a quantity "
+                "or average cost basis too large to represent (overflow). Reduce the "
+                "quantity/avg_cost_basis or split the addition into smaller increments.",
+            )
+
         existing.quantity = merged_quantity
+        existing.avg_cost_basis = merged_avg_cost_basis
         existing.entry_date = min(existing.entry_date, position.entry_date)
         row = existing
 

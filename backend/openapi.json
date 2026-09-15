@@ -636,11 +636,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request body failed validation, or merging with an existing position would produce a quantity/avg_cost_basis too large to represent"
           }
         },
         "summary": "Add or update a position",
