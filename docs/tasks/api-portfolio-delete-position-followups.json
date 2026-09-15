@@ -23,5 +23,11 @@
       "decision": "Extracted db_session and client into backend/tests/integration/conftest.py, moving both test_portfolio_positions.py and test_portfolio_delete_position.py (whose db_session/client pair was byte-for-byte identical) onto the shared fixtures unmodified. test_portfolio_get.py keeps its own local `client` fixture (renamed nothing, just no longer redefines db_session) because it additionally overrides get_data_provider with a stub DataProvider, which the other two files don't need -- forcing that into the shared fixture would either leak a market-data stub into unrelated tests or require a parametrized/conditional shared fixture that's harder to read than just keeping one small override local to the file that needs it.",
       "rationale": "Matches the checklist's own framing (extract the *duplicated* pair, not force every DB-touching test onto one universal fixture) and keeps the shared conftest.py fixture minimal and easy to reason about; test_health.py (also in tests/integration/) picks up the new `client` fixture transparently since it doesn't touch the database and was previously using the plain TestClient(app) fixture from the parent tests/conftest.py -- verified via the full integration suite still passing."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-delete-position-followups",
+    "pr_number": 32,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/32",
+    "pushed_at": "2026-09-15T21:33:05Z"
+  }
 }
