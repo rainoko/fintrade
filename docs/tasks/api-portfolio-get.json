@@ -81,5 +81,10 @@
     "pr_number": 30,
     "pr_url": "https://github.com/rainoko/fintrade/pull/30",
     "pushed_at": "2026-09-15T20:55:46Z"
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T21:20:00Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite at commit c95e7ff: 371 passed, 99.43% coverage (matches pr-reviewer's numbers, no regression). Skimmed the full PR diff (git diff origin/main...HEAD, 9 files) myself: app/api/routers/portfolio.py's _latest_close correctly returns None on `frame.empty or pd.isna(frame.iloc[-1][\"close\"])`, the sole call site feeding both unrealized_pnl_pct and the positions_value running total. Confirmed the regression test (test_nan_latest_close_yields_null_price_not_nan_poisoned_total, tests/integration/test_portfolio_get.py:228) genuinely exercises the pd.isna branch, not the empty-frame one: its _StubProvider returns _frame([float('nan')]) for AAPL, a 1-row (non-empty) frame with a NaN close mixed with a good $250 MSFT close, and asserts AAPL degrades to null price/pnl while MSFT's price/pnl and equity.positions_value ($1250)/equity.total are correct and non-null. Hand-checked MSFT's unrealized_pnl_pct arithmetic: (250-200)/200*100 = 25%, matches the assertion. Verified PR #30 mergeability against latest main via `gh pr view 30 --json mergeable,mergeStateStatus`: MERGEABLE/CLEAN. Cross-checked review.reviewed_at (21:10:00Z) against the actual GitHub review timestamp (`gh api repos/rainoko/fintrade/pulls/30/reviews`, final accept submitted_at 21:09:15Z) -- within 45s, accurate. docs/tasks/api-portfolio-get-followups.json and index.json are consistent with the 6 non-blocking findings and the done state. No issues found; accept holds."
   }
 }
