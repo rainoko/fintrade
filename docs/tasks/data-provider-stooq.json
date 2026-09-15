@@ -3,7 +3,7 @@
   "title": "Data provider: Stooq (fallback)",
   "area": "backend/data",
   "skill": null,
-  "state": "done",
+  "state": "implementing",
   "depends_on": [],
   "references": ["docs/Analyse.md#9-data-sources-free", "docs/architecture/Backend.md#2-module-layout"],
   "description": "Implement StooqProvider (app/data/stooq_provider.py) as the fallback market data source when yfinance fails or rate-limits, satisfying the same DataProvider protocol.",
@@ -48,7 +48,7 @@
     "pushed_at": "2026-09-13T10:30:15Z"
   },
   "review": {
-    "verdict": "accepted",
+    "verdict": "needs_work",
     "reviewed_at": "2026-09-13T10:40:00Z",
     "reviewed_by": "pr-reviewer",
     "pr_number": 19,
@@ -69,8 +69,12 @@
       },
       {
         "summary": "Minor doc gap (non-blocking): docs/architecture/Backend.md §2's module-layout diagram doesn't list app/data/exceptions.py. The module's existence is well-justified and recorded in this task's decisions, just not reflected in the architecture doc's diagram yet — suggest a small follow-up once the exceptions.py duplication with PR #18 (data-provider-yfinance) is reconciled."
+      },
+      {
+        "summary": "OVERRIDE (pr-decision, blocking): the exceptions.py duplication with PR #18 flagged above as a cosmetic non-issue is no longer cosmetic now that #18 actually merged to main (2026-09-15, after this review). `gh pr view 19 --json mergeable,mergeStateStatus` now reports CONFLICTING/DIRTY. Reproduced locally: merging origin/main into this branch produces real add/add conflicts in backend/app/data/exceptions.py (differing docstring) and backend/tests/unit/data/test_exceptions.py (differing DataProviderUnavailableError message fixture: 'unreachable' vs 'rate-limited', not just the docstring), plus a content conflict in docs/tasks/index.json (both branches flip the same two task-state lines in opposite directions, since yfinance's own task now shows done on main but this branch still has it as planned). None of this is architecturally hard to resolve, but it does require an actual code change (picking/merging the exceptions.py and test content, fixing index.json) that pr-decision is not permitted to make itself — GitHub itself will refuse gh pr merge as-is.",
+        "file": "backend/app/data/exceptions.py"
       }
     ],
-    "notes": "Full review: gh pr checkout 19; pytest --cov=app --cov-report=term-missing -> 81/81 pass, app/data/stooq_provider.py + exceptions.py at 100% coverage, repo-wide 80.32% (confirmed via throwaway worktree that main itself is already at 72.44% pre-existing, so no regression -- this PR improves coverage). No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Manually re-executed (outside the test suite) the weekly W-FRI resample, unknown-ticker 'No data'/header-only detection, and '.us' auto-suffix behavior against the real module code to confirm the claimed behavior, not just reading the tests. No API/schema changes -> openapi.json correctly untouched. No UI surface -> browser walkthrough explicitly not applicable. code-review (medium) and architecture-review skills both run against the diff; architecture-review triggered because app/data/exceptions.py is a new module not in Backend.md §2's layout diagram -- found to be a well-justified addition (recorded in decisions), non-blocking doc gap only. All 4 recorded decisions are genuine (what + rejected alternatives + why) and cover every checklist item that involved a judgment call. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected, plus two inline file:line comments for the code findings above."
+    "notes": "Full review: gh pr checkout 19; pytest --cov=app --cov-report=term-missing -> 81/81 pass, app/data/stooq_provider.py + exceptions.py at 100% coverage, repo-wide 80.32% (confirmed via throwaway worktree that main itself is already at 72.44% pre-existing, so no regression -- this PR improves coverage). No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Manually re-executed (outside the test suite) the weekly W-FRI resample, unknown-ticker 'No data'/header-only detection, and '.us' auto-suffix behavior against the real module code to confirm the claimed behavior, not just reading the tests. No API/schema changes -> openapi.json correctly untouched. No UI surface -> browser walkthrough explicitly not applicable. code-review (medium) and architecture-review skills both run against the diff; architecture-review triggered because app/data/exceptions.py is a new module not in Backend.md §2's layout diagram -- found to be a well-justified addition (recorded in decisions), non-blocking doc gap only. All 4 recorded decisions are genuine (what + rejected alternatives + why) and cover every checklist item that involved a judgment call. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected, plus two inline file:line comments for the code findings above.\n\npr-decision override (2026-09-15): independently re-ran the backend suite on this branch (81/81 pass, same 80.32% coverage figure pr-reviewer reported -- confirmed, not stale) and skimmed the full diff; the code-quality findings above all check out (BRK.B suffix bug and dead urllib.error import both verified by reading stooq_provider.py directly). But main moved forward since this review (data-provider-yfinance PR #18 and portfolio-risk-rules PR #11 both merged 2026-09-15, after this review's 2026-09-13 timestamp), and `git merge-tree`/an actual local trial merge against current origin/main now shows real add/add conflicts (exceptions.py, test_exceptions.py) and a content conflict (docs/tasks/index.json) that did not exist at review time. GitHub confirms: mergeStateStatus=DIRTY, mergeable=CONFLICTING. The accept doesn't hold up against the branch's actual current mergeability, so this needs a rebase/conflict-resolution pass before it can go back to pr-reviewer and then merge -- flipping to needs_work rather than reporting merge."
   }
 }
