@@ -74,6 +74,31 @@ def macd_histogram_slope(histogram: pd.Series, latest_close: float) -> str:
     return "flat"
 
 
+def validate_weekly_ohlcv_columns(weekly_ohlcv: pd.DataFrame) -> None:
+    """Raise if ``weekly_ohlcv`` lacks the ``close`` column ``evaluate_tide`` requires.
+
+    Factored out (mirroring ``app.portfolio.risk.validate_daily_ohlcv_columns``'s equivalent
+    role for ``protective_stop``/daily OHLCV) so a caller that needs to touch
+    ``weekly_ohlcv``'s columns of its own *before* calling ``evaluate_tide`` (e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which shares a precomputed MACD/EMA(13) of
+    ``weekly_ohlcv['close']`` across two ``evaluate_tide`` calls) can validate first and get
+    the same fail-fast ``ValueError`` contract, instead of raising a bare ``KeyError`` from its
+    own premature column access -- see the ``portfolio-exit-rules-followups`` task's
+    `decisions` entry.
+
+    Unlike the daily-side validator, a ``weekly_ohlcv`` with fewer than 2 rows is *not* treated
+    as an error here: ``evaluate_tide`` itself degrades gracefully to NEUTRAL for that case
+    (see its docstring) without ever touching ``'close'``, so this only guards the
+    missing-column case that would otherwise raise a bare ``KeyError`` once there's enough
+    history to reach the column access.
+
+    Raises:
+        ValueError: if ``weekly_ohlcv`` is missing the ``close`` column.
+    """
+    if "close" not in weekly_ohlcv.columns:
+        raise ValueError("weekly_ohlcv is missing required column(s): ['close']")
+
+
 def evaluate_tide(
     weekly_ohlcv: pd.DataFrame,
     *,
@@ -123,9 +148,18 @@ def evaluate_tide(
     recomputing over the truncated series) instead of each call independently
     re-deriving its own MACD/EMA pass -- see the
     ``portfolio-exit-rules-followups`` task's `decisions` entry.
+
+    Raises:
+        ValueError: if ``weekly_ohlcv`` has 2 or more rows but is missing the ``close``
+            column -- validated via ``validate_weekly_ohlcv_columns`` so this doesn't instead
+            raise a bare ``KeyError`` from the access below. A ``weekly_ohlcv`` with fewer
+            than 2 rows never raises, regardless of its columns -- see the "too little
+            history" behavior above.
     """
     if len(weekly_ohlcv) < 2:
         return TideResult(trend="NEUTRAL", weekly_macd_histogram_slope="flat")
+
+    validate_weekly_ohlcv_columns(weekly_ohlcv)
 
     weekly_close = weekly_ohlcv["close"]
     latest_close = weekly_close.iloc[-1]

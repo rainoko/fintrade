@@ -51,6 +51,7 @@ from app.signals.triple_screen import (
     evaluate_tide,
     evaluate_wave,
     macd_histogram_slope,
+    validate_weekly_ohlcv_columns,
 )
 
 
@@ -313,6 +314,50 @@ class TestEvaluateTideEndToEnd:
         assert evaluate_tide(weekly_ohlcv) == TideResult(
             trend="NEUTRAL", weekly_macd_histogram_slope="rising"
         )
+
+    def test_malformed_weekly_ohlcv_missing_close_raises_value_error_not_key_error(self) -> None:
+        # Regression test for the PR #29 re-review finding: evaluate_tide() raised a bare
+        # KeyError('close') for a >=2-row weekly_ohlcv missing the 'close' column, instead of
+        # the documented ValueError, because weekly_ohlcv['close'] was accessed with no
+        # column validation -- see the portfolio-exit-rules-followups task's `decisions`
+        # entry. Reproduced against pre-fix code first (confirmed it raised
+        # KeyError('close')) before adding the validate_weekly_ohlcv_columns() call this
+        # asserts on.
+        weekly_ohlcv = pd.DataFrame(
+            {"open": [1.0, 2.0], "high": [1.0, 2.0], "low": [1.0, 2.0], "volume": [1_000_000] * 2}
+        )
+
+        with pytest.raises(ValueError, match="missing required column"):
+            evaluate_tide(weekly_ohlcv)
+
+    def test_short_weekly_ohlcv_missing_close_does_not_raise(self) -> None:
+        # A <2-row weekly_ohlcv degrades gracefully to NEUTRAL without ever touching
+        # 'close' -- validate_weekly_ohlcv_columns must not turn that pre-existing,
+        # documented graceful-degradation path into a new error.
+        weekly_ohlcv = pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0], "volume": [1_000_000]})
+
+        assert evaluate_tide(weekly_ohlcv) == TideResult(
+            trend="NEUTRAL", weekly_macd_histogram_slope="flat"
+        )
+
+
+class TestValidateWeeklyOhlcvColumns:
+    def test_raises_on_missing_close_column(self) -> None:
+        weekly_ohlcv = pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0]})
+
+        with pytest.raises(ValueError, match="missing required column"):
+            validate_weekly_ohlcv_columns(weekly_ohlcv)
+
+    def test_does_not_raise_when_close_present(self) -> None:
+        weekly_ohlcv = pd.DataFrame({"close": [1.0]})
+
+        validate_weekly_ohlcv_columns(weekly_ohlcv)  # no raise
+
+    def test_does_not_raise_on_empty_frame_with_close_column(self) -> None:
+        # Row-count emptiness is not this validator's concern -- only column presence.
+        weekly_ohlcv = pd.DataFrame({"close": pd.Series([], dtype=float)})
+
+        validate_weekly_ohlcv_columns(weekly_ohlcv)  # no raise
 
 
 class TestEvaluateTidePrecomputedSeries:

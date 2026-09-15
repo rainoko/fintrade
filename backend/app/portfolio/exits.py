@@ -6,7 +6,7 @@ from app.indicators.macd import macd_components
 from app.portfolio.models import Account, Position
 from app.portfolio.risk import position_risk_pct, protective_stop, validate_daily_ohlcv_columns
 from app.signals.impulse import evaluate_impulse
-from app.signals.triple_screen import evaluate_tide
+from app.signals.triple_screen import evaluate_tide, validate_weekly_ohlcv_columns
 
 # 2% rule threshold: a position's *own* current risk exceeding this is flagged
 # (docs/Analyse.md §7). Matches the strict ">" used by risk.py's own tests
@@ -105,7 +105,13 @@ def evaluate_exit_flags(
             ``daily_ohlcv['close']`` access (needed before ``protective_stop`` is called, to
             share EMA(13) across collaborators -- see above) can't raise a bare ``KeyError``
             instead; ``daily_ohlcv`` with fewer than 2 rows still raises from
-            ``protective_stop`` on its ``.iloc[:-1]`` slice; or propagated from
+            ``protective_stop`` on its ``.iloc[:-1]`` slice; for a ``weekly_ohlcv`` missing the
+            ``close`` column (regardless of row count) -- validated via ``triple_screen
+            .validate_weekly_ohlcv_columns`` before this function's own
+            ``weekly_ohlcv['close']`` access, for the same reason as the daily-side check
+            (``evaluate_tide`` runs the identical validation itself, but only once there are
+            already >= 2 rows -- see its docstring -- so this function's own earlier, row-
+            count-independent access needs its own guard too); or propagated from
             ``position_risk_pct`` (``position.current_price`` unset, non-positive account
             equity).
     """
@@ -148,6 +154,16 @@ def evaluate_exit_flags(
         and evaluate_impulse(daily_ohlcv, ema_13=daily_ema_13) == "RED"
     ):
         flags.append("profit_zone_impulse_red")
+
+    # Validate weekly_ohlcv's columns *before* this function's own weekly_close =
+    # weekly_ohlcv["close"] access below -- same rationale as the daily-side
+    # validate_daily_ohlcv_columns call above: this function's own direct access runs
+    # regardless of row count (unlike evaluate_tide's internal access, which is only
+    # reached once there are >= 2 rows), so a malformed weekly_ohlcv missing "close" would
+    # otherwise raise a bare KeyError here before evaluate_tide ever gets a chance to run
+    # its own (equivalent) validation. See the portfolio-exit-rules-followups task's
+    # `decisions` entry.
+    validate_weekly_ohlcv_columns(weekly_ohlcv)
 
     # Weekly MACD-Histogram + EMA(13)/EMA(26), likewise computed once over the full weekly
     # series and shared across both evaluate_tide calls below (current bar, then the

@@ -422,6 +422,27 @@ class TestEvaluateExitFlagsEndToEnd:
         with pytest.raises(ValueError, match="missing required column"):
             evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
 
+    def test_real_malformed_weekly_ohlcv_missing_close_raises_value_error_not_key_error(
+        self,
+    ) -> None:
+        # Regression test for the PR #29 re-review finding: evaluate_exit_flags() must raise
+        # the documented ValueError (matching validate_weekly_ohlcv_columns' own "missing
+        # required column(s)" message) for a weekly_ohlcv missing "close", not a bare
+        # KeyError('close') from its own premature weekly_ohlcv["close"] access (used to
+        # share the weekly MACD/EMA(13) across both evaluate_tide calls) happening before any
+        # column validation runs -- see this task's `decisions` entry. Uses a daily_ohlcv with
+        # enough rows that the daily side never raises first, isolating this to the weekly
+        # column-validation gap alone.
+        daily = _daily_ohlcv([100.0] * 10)
+        weekly = pd.DataFrame(
+            {"open": [1.0, 2.0], "high": [1.0, 2.0], "low": [1.0, 2.0], "volume": [1_000_000] * 2}
+        )
+        position = _position()
+        account = _account(positions=[position])
+
+        with pytest.raises(ValueError, match="missing required column"):
+            evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
 
 class TestSharedIndicatorComputation:
     """Regression coverage for the portfolio-exit-rules-followups task: evaluate_exit_flags
