@@ -38,5 +38,11 @@
       "decision": "The 2%/6% rule threshold constants (2.0/6.0) used for the response's `two_percent_rule_breached`/`six_percent_rule_breached` fields are re-declared as local constants in app/api/routers/portfolio.py rather than imported from app.portfolio.exits's identical (but module-private, underscore-prefixed) `_TWO_PERCENT_RULE_THRESHOLD`/`_SIX_PERCENT_RULE_THRESHOLD`.",
       "rationale": "exits.py's own thresholds are themselves not imported from app.portfolio.risk (which doesn't define them at all) -- there was no existing public/shared home for these two float constants to import from without also promoting exits.py's private constants to public, a change to an already-reviewed module out of scope for this task. Duplicating two named float constants with a comment cross-referencing the module they must stay in sync with was judged lower-risk than that wider change; both mirror docs/Analyse.md §7 and are exercised by tests on both sides (tests/unit/test_portfolio_exits.py, tests/integration/test_portfolio_risk.py) that would catch a drift."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-risk",
+    "pr_number": 33,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/33",
+    "pushed_at": "2026-09-15T21:52:34Z"
+  }
 }
