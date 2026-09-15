@@ -35,5 +35,11 @@
       "decision": "'profit_zone_impulse_red' is evaluated as a plain current-state test (today's close >= today's upper Autoenvelope band AND today's Impulse color is RED), not a same-day transition test requiring yesterday's Impulse to have been non-RED. This is in deliberate contrast to 'tide_flipped_bearish', which IS implemented as an explicit prior-bar-vs-current-bar transition (BULLISH on the prior weekly bar, BEARISH on the latest one).",
       "rationale": "docs/Analyse.md §7 uses two different phrasings for these two flags: 'Impulse turning Red' vs. 'Tide flips from BULLISH to BEARISH'. The Tide phrasing explicitly names both the before-state and after-state, unambiguously describing a transition captured by evaluate_tide()'s own possible NEUTRAL/BULLISH/BEARISH history. 'Impulse turning Red' has no stated 'from' state, and Impulse (unlike Tide) already flips color routinely bar-to-bar as a fast daily gate (docs/Analyse.md §3) rather than a persisted longer-term stance -- requiring a same-day-only transition would make this exit flag a one-shot event that stops re-firing the very next day even if the position remains sitting at the top of its channel in a still-weakening (still-Red) state, which is exactly the ongoing 'profit-taking zone in an overbought state' risk condition §7 describes wanting surfaced. A persistent current-state flag re-evaluated fresh each call (consistent with how every other Screen/gate function in this codebase reports only the latest bar's state, not a transition) is the more useful and internally consistent reading. Rejected: a strict transition test (today RED, yesterday not-RED) -- defensible from the word 'turning' alone, but would silently stop protecting a position that stays in the profit-taking zone for more than one day, and treats Impulse's routine day-to-day color changes as equivalent in significance to Tide's much rarer weekly-trend reversals, which the doc's own differing wording doesn't support."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/portfolio-exit-rules",
+    "pr_number": 28,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/28",
+    "pushed_at": "2026-09-15T18:00:10Z"
+  }
 }
