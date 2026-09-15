@@ -1,0 +1,21 @@
+{
+  "id": "portfolio-exit-rules-followups-followups",
+  "title": "Existing-position exit rules follow-ups — further non-blocking review follow-up",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["portfolio-exit-rules-followups"],
+  "references": [
+    "docs/tasks/portfolio-exit-rules-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/29"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #29 (portfolio-exit-rules-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. Surfaced by the code-review skill (high effort) dispatched as part of that review.",
+  "checklist": [
+    {
+      "step": "In evaluate_exit_flags() (backend/app/portfolio/exits.py), the weekly MACD-Histogram/EMA(13)/EMA(26) (`weekly_macd = macd_components(weekly_close)`, `weekly_ema_13 = ema(weekly_close, 13)`) are computed unconditionally, before either evaluate_tide() call, even when weekly_ohlcv has fewer than 2 rows. In that case evaluate_tide() short-circuits internally (its own `if len(weekly_ohlcv) < 2:` check) and returns NEUTRAL/'flat' without ever touching the histogram/ema_13/ema_26 passed in, so this work is computed and discarded on every call with short weekly history. Not a correctness issue (matches the non-hot-path caveat already noted for the original redundant-computation finding this PR fixed) -- worth a short-circuit guard (e.g. only compute weekly_macd/weekly_ema_13 when len(weekly_ohlcv) >= 2) next time exits.py is touched, since it's exactly the kind of wasted computation this PR's own fix set out to eliminate on the daily side.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
