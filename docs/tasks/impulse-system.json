@@ -11,7 +11,7 @@
     { "step": "Implement direction detection for both EMA(13) and MACD-Histogram (rising/falling)", "done": true },
     { "step": "Combine into GREEN (both rising) / RED (both falling) / BLUE (disagree) per docs/Analyse.md §3", "done": true },
     { "step": "Write unit tests covering all three outputs with fixed daily OHLCV fixtures", "done": true },
-    { "step": "Confirm signal-engine-orchestration actually enforces the gate (blocks/downgrades signals), not just computes the color", "done": false },
+    { "step": "Confirm signal-engine-orchestration actually enforces the gate (blocks/downgrades signals), not just computes the color", "done": true },
     { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
   ],
   "decisions": [
@@ -33,6 +33,12 @@
       "recorded_by": "verify-elder-signal skill (task-worker)",
       "decision": "Checklist item 4 ('Confirm signal-engine-orchestration actually enforces the gate...') is now marked done: false, reverting its earlier (incorrect) done: true.",
       "rationale": "PR #10's review flagged that item 4's literal wording ('confirm...enforces') and its done:true status disagreed with decisions[1]'s own honest text, which states enforcement was deliberately not implemented or verified because signal-engine-orchestration doesn't exist yet. Between the review's two offered fixes -- reword the checklist step's intent, or mark it not done -- marking it done: false was chosen as the more honest option: 'confirm X enforces Y' cannot truthfully be checked off when X (signal-engine.py's analyse()) doesn't exist yet to enforce anything, regardless of how reasonable the scoping decision to defer it was. Rewording the step's wording was rejected because the checklist item was authored by (and is presumably still meaningful to) whoever originally scoped this task's checklist; silently changing its stated intent risks papering over the real gap -- that gate enforcement is still unverified end-to-end -- rather than just correcting the completion status against the existing wording. This item should be revisited and closed out for real once signal-engine-orchestration exists and actually calls evaluate_impulse()."
+    },
+    {
+      "timestamp": "2026-09-15T00:20:00Z",
+      "recorded_by": "verify-elder-signal skill (task-worker, from the signal-engine-orchestration task)",
+      "decision": "Checklist item 4 is now marked done: true for real: signal-engine-orchestration (app/signals/engine.py::analyse() / _determine_signal()) now exists, calls evaluate_impulse(), and enforces the gate exactly as this task's own docstring/decisions describe -- RED blocks a fresh BUY, GREEN blocks a fresh SELL, both falling through to HOLD rather than being emitted.",
+      "rationale": "Per decisions[2]'s own instruction ('This item should be revisited and closed out for real once signal-engine-orchestration exists and actually calls evaluate_impulse()'), that condition is now met -- see docs/tasks/signal-engine-orchestration.json's own decisions entry recording this same closure with the specific enforcement code and regression tests. Recorded here too (not only on the other task) so a reader of this task's own history doesn't need to cross-reference to see the deferred item was genuinely resolved, not silently dropped."
     }
   ],
   "git": {

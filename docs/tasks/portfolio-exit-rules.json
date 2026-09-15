@@ -3,17 +3,76 @@
   "title": "Existing-position exit rules",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["portfolio-risk-rules", "signal-engine-orchestration", "indicator-autoenvelope"],
   "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
   "description": "evaluate_exit_flags() in app/portfolio/exits.py: flags a held position for SELL/reduce independently of the fresh-entry signal logic (stop hit, 2%/6% rule breach, profit-zone + Impulse Red, tide flip to bearish).",
   "checklist": [
-    { "step": "Flag 'stop_hit' when price closes below the position's protective stop", "done": false },
-    { "step": "Flag 'two_percent_rule_breached' / contribute to 'six_percent_rule_contributor' using portfolio-risk-rules output", "done": false },
-    { "step": "Flag 'profit_zone_impulse_red' when price reaches the upper Autoenvelope band with Impulse turning RED", "done": false },
-    { "step": "Flag 'tide_flipped_bearish' when the weekly tide flips from BULLISH to BEARISH for a currently-long position", "done": false },
-    { "step": "Confirm a HOLD signal from signal-engine-orchestration does NOT suppress any of these exit flags (verify-elder-signal checklist)", "done": false },
-    { "step": "Write unit tests covering each flag independently and in combination", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Flag 'stop_hit' when price closes below the position's protective stop", "done": true },
+    { "step": "Flag 'two_percent_rule_breached' / contribute to 'six_percent_rule_contributor' using portfolio-risk-rules output", "done": true },
+    { "step": "Flag 'profit_zone_impulse_red' when price reaches the upper Autoenvelope band with Impulse turning RED", "done": true },
+    { "step": "Flag 'tide_flipped_bearish' when the weekly tide flips from BULLISH to BEARISH for a currently-long position", "done": true },
+    { "step": "Confirm a HOLD signal from signal-engine-orchestration does NOT suppress any of these exit flags (verify-elder-signal checklist)", "done": true },
+    { "step": "Write unit tests covering each flag independently and in combination", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-exit-rules)",
+      "decision": "evaluate_exit_flags() computes the protective stop from daily_ohlcv[:-1] -- history strictly BEFORE today's bar -- and compares today's close against that stop for 'stop_hit', rather than calling protective_stop(position, daily_ohlcv) with today's own bar included.",
+      "rationale": "protective_stop()'s swing low is min(low) over its trailing window, and stop = swing_low - buffer with buffer >= 0, so stop <= swing_low always. If today's own bar is included in that window, swing_low <= today's low <= today's close (a bar's close can never be below its own low), which forces stop <= today's close on every single day by construction -- 'stop_hit' would be mathematically unreachable, a silent correctness bug that a test using an arbitrary mocked stop value would never catch. Excluding today's bar from the stop computation (using yesterday's already-established stop, watched against today's close) matches how a protective/trailing stop actually operates in practice: it's set from prior data, then price is tested against it going forward, not recomputed from a window that already contains the very close being tested. position_risk_pct() (feeding both the 2% and 6% rules) uses this same as-of-today (yesterday-computed) stop for consistency -- it's the stop currently 'in force' for this position. Rejected: computing the stop from the full daily_ohlcv including today, which was the initial implementation and silently made 'stop_hit' untestable/unreachable until caught by a real (unmocked) end-to-end test rather than a mocked-stop unit test alone -- recorded here specifically so a future reviewer doesn't 'fix' this back to the simpler-looking but broken form."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-exit-rules)",
+      "decision": "evaluate_exit_flags()'s signature adds a required `portfolio_open_risk_pct: float` parameter (the caller's precomputed `risk.total_open_risk_pct()` across the whole account), used only for the 'six_percent_rule_contributor' flag: flagged when portfolio_open_risk_pct > 6.0 AND this position's own position_risk_pct() > 0.0 (i.e. it hasn't already hit its stop, which floors its own risk at 0 -- see risk.py's own documented floor-at-zero rationale, so 'stop_hit' and 'six_percent_rule_contributor' are mutually exclusive by construction, not a redundant double-flag). 'two_percent_rule_breached' uses the strict '> 2.0' threshold (matching risk.py's own test naming, e.g. test_oversized_position_exceeds_two_percent); 'profit_zone_impulse_red''s 'reaches the upper band' is a close >= upper-band comparison (close-based, consistent with autoenvelope() itself being computed off the close series, not high).",
+      "rationale": "The task description's originally-stubbed 4-argument signature (position, account, daily_ohlcv, weekly_ohlcv) only carries this ONE position's own OHLCV -- there's no way to derive the portfolio-wide 6% total from that alone without either (a) passing every other position's OHLCV into a per-position function (breaking the module's single-position framing and duplicating risk.total_open_risk_pct()'s own aggregation logic here), or (b) accepting the portfolio-level total as an already-computed input, which is what 'contribute to six_percent_rule_contributor using portfolio-risk-rules output' in this task's own checklist wording already implies. (b) keeps risk.py as the sole owner of the aggregate 6% computation and keeps this function's contract to exactly the one position it's evaluating, consistent with docs/architecture/Backend.md's exits.py description ('evaluates the existing-position exit conditions independently ... for that position'). Rejected: silently defaulting portfolio_open_risk_pct or making it optional -- the 6% flag is a real risk-management signal, and a caller who forgets to pass it should get an explicit TypeError (missing required argument) rather than a always-False flag masquerading as 'checked'."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker (portfolio-exit-rules)",
+      "decision": "'profit_zone_impulse_red' is evaluated as a plain current-state test (today's close >= today's upper Autoenvelope band AND today's Impulse color is RED), not a same-day transition test requiring yesterday's Impulse to have been non-RED. This is in deliberate contrast to 'tide_flipped_bearish', which IS implemented as an explicit prior-bar-vs-current-bar transition (BULLISH on the prior weekly bar, BEARISH on the latest one).",
+      "rationale": "docs/Analyse.md §7 uses two different phrasings for these two flags: 'Impulse turning Red' vs. 'Tide flips from BULLISH to BEARISH'. The Tide phrasing explicitly names both the before-state and after-state, unambiguously describing a transition captured by evaluate_tide()'s own possible NEUTRAL/BULLISH/BEARISH history. 'Impulse turning Red' has no stated 'from' state, and Impulse (unlike Tide) already flips color routinely bar-to-bar as a fast daily gate (docs/Analyse.md §3) rather than a persisted longer-term stance -- requiring a same-day-only transition would make this exit flag a one-shot event that stops re-firing the very next day even if the position remains sitting at the top of its channel in a still-weakening (still-Red) state, which is exactly the ongoing 'profit-taking zone in an overbought state' risk condition §7 describes wanting surfaced. A persistent current-state flag re-evaluated fresh each call (consistent with how every other Screen/gate function in this codebase reports only the latest bar's state, not a transition) is the more useful and internally consistent reading. Rejected: a strict transition test (today RED, yesterday not-RED) -- defensible from the word 'turning' alone, but would silently stop protecting a position that stays in the profit-taking zone for more than one day, and treats Impulse's routine day-to-day color changes as equivalent in significance to Tide's much rarer weekly-trend reversals, which the doc's own differing wording doesn't support."
+    }
+  ],
+  "git": {
+    "branch": "task/portfolio-exit-rules",
+    "pr_number": 28,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/28",
+    "pushed_at": "2026-09-15T18:00:10Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-15T18:06:23Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/28",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the PR's headline correctness claim: protective_stop()'s swing_low = min(low) over its window and stop = swing_low - buffer (buffer >= 0) means stop <= swing_low always; since a bar's close can never be below its own low, including today's bar in that window forces stop <= today's low <= today's close on every call, making 'stop_hit' mathematically unreachable by construction. Confirmed the fix (protective_stop(position, daily_ohlcv.iloc[:-1]), tested against today's close) is correctly implemented, that position_risk_pct() consistently uses the same as-of-today stop, and hand-traced test_real_stop_hit's numbers (10 quiet days -> swing_low=99, buffer=1.0 -> stop=98; gap-down close=80 < 98 -> stop_hit fires) to confirm the end-to-end test genuinely exercises the fixed path rather than relying only on the mocked-stop unit tests (which separately assert protective_stop is called with the today-excluded 2-row slice via test_stop_computed_excluding_todays_bar).",
+        "file": "backend/app/portfolio/exits.py",
+        "line": 94
+      },
+      {
+        "summary": "verify-elder-signal checklist against docs/Analyse.md §7 passes: 2%/6% rules use current equity/current position risk (never entry-time values), exit flags are evaluated independently of the fresh-entry signal (evaluate_exit_flags takes no signal parameter at all, confirmed by both a dedicated contract test and by construction), and the protective stop is swing-low-minus-volatility-buffer (not a fixed-percentage stop). All three recorded `decisions` entries (today-excluded stop, portfolio_open_risk_pct as a required caller-supplied parameter, profit_zone_impulse_red as current-state vs. tide_flipped_bearish as an explicit transition) are well-reasoned and consistent with both the code and Analyse.md's differing wording for those two flags.",
+        "file": "docs/tasks/portfolio-exit-rules.json",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: evaluate_exit_flags() recomputes EMA(13)/MACD-Histogram from scratch multiple times per call (protective_stop, autoenvelope, evaluate_impulse each independently derive EMA(13) over overlapping windows; evaluate_tide is called twice, each recomputing its own MACD/EMA pass). Not a correctness issue and not yet a hot path, but the same class of redundancy already tracked for signal-engine-orchestration. Filed as a checklist item on docs/tasks/portfolio-exit-rules-followups.json rather than blocking this PR.",
+        "file": "backend/app/portfolio/exits.py",
+        "line": 105
+      },
+      {
+        "summary": "Non-blocking (raised by the code-review skill's automated pass, independently verified): the decisions entry's claim that 'stop_hit and six_percent_rule_contributor are mutually exclusive by construction' only holds if daily_ohlcv's latest close and position.current_price represent the same 'today' -- evaluate_exit_flags() takes both as independent parameters with no validation or documented precondition tying them together. Not a live bug (no wired caller exists yet -- GET /api/portfolio/risk is still a 501 stub) and not a docs/Analyse.md violation (§7 doesn't require these flags be mutually exclusive), but worth an explicit documented precondition or a softened decisions claim once api-portfolio-risk actually wires a caller. Filed as a checklist item on docs/tasks/portfolio-exit-rules-followups.json.",
+        "file": "docs/tasks/portfolio-exit-rules.json",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: gh pr checkout 28; backend/.venv/bin/pytest -q -> 317/317 passing, no regression; pytest --cov=app --cov-report=term-missing -> app/portfolio/exits.py 100% line/branch, repo-wide 99.33% (gate is 90%). No ruff/mypy config exists in backend/pyproject.toml, so no lint step was invented/run per CLAUDE.md guidance. code-review skill (medium effort) dispatched against the diff in addition to a manual line-by-line pass; it surfaced one additional non-blocking finding (the current_price/daily_ohlcv same-day precondition underlying the six_percent_rule_contributor decision's mutual-exclusivity claim, above) plus the already-noted indicator-recomputation efficiency note -- no correctness issue was found that would change the accepted verdict. verify-elder-signal run against docs/Analyse.md §7 (Portfolio Risk Overlay) -- no divergence found. This PR only fills in a pre-existing exits.py stub within the existing module layout (no new module/dependency/layer), so architecture-review wasn't triggered. No API route or schema touched, so no OpenAPI snapshot check applies. No UI surface (pure backend module, not yet wired to an API router or frontend) -- browser walkthrough explicitly skipped as not applicable rather than silently omitted. Cross-checked all three `decisions` entries against the checklist items they resolve; no undocumented judgment calls found."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T18:07:35Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest -q (317/317 passing) and --cov=app --cov-report=term-missing (app/portfolio/exits.py 100% line/branch, repo-wide 99.33%), matching pr-reviewer's reported numbers exactly. Read exits.py in full and confirmed line 94 calls protective_stop(position, daily_ohlcv.iloc[:-1]) (today's bar excluded); hand-verified the mathematical claim against risk.py's protective_stop (swing_low = min(low) over its window, buffer >= 0, so stop <= swing_low always) and traced test_real_stop_hit's real (unmocked) scenario -- even with the gap-down bar's low=78 folded into a today-inclusive window, swing_low would be <=78 and stop <= swing_low <= today's low < today's close(80), so a regression to the today-inclusive form would make this specific unmocked test's `assert 'stop_hit' in flags` fail, confirming it's a genuine regression guard. Skimmed the full diff (exits.py, test_portfolio_exits.py, the two follow-up decisions) and gh pr view 28 shows mergeable=MERGEABLE, mergeStateStatus=CLEAN against current main, no human PR comments overriding the accept. Corrected review.reviewed_at (was 2026-09-15T18:30:00Z, a fabricated time after the actual review comment) to the real gh pr view submitted_at of the accept comment, 2026-09-15T18:06:23Z."
+  }
 }

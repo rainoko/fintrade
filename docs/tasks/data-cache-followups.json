@@ -9,10 +9,30 @@
     "docs/tasks/data-cache.json#review",
     "https://github.com/rainoko/fintrade/pull/20"
   ],
-  "description": "Non-blocking finding from pr-reviewer's review of PR #20 (data-cache), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "description": "Non-blocking findings from pr-reviewer's/pr-decision's review of PR #20 (data-cache), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
   "checklist": [
     {
       "step": "_upsert does one self._db.get() per row in a loop instead of reusing rows _read_cache() already loaded, so a cold/stale refresh does O(n) individual SELECTs. Correct, just wasteful for long-history tickers — follow up with a bulk PK lookup or a single upsert statement.",
+      "done": false
+    },
+    {
+      "step": "_is_fresh derives freshness from max(fetched_at) across all cached rows for a ticker/interval, so if a source's returned history window ever shrank between calls, orphaned older rows would never be individually revalidated yet would still read as fresh because newer sibling rows dominate the max. Doesn't manifest under current provider behavior (both providers always return full un-windowed history), but is a latent gap if a future DataProvider ever supports windowed fetches. Track a single per-(ticker,interval) cache_refreshed_at instead of max() over row timestamps, and/or evict rows that drop out of a fresh fetch.",
+      "done": false
+    },
+    {
+      "step": "Two concurrent first-time-population calls for the same (ticker, date, interval) would both see self._db.get(...) is None, both add() a new row, and the second commit() would raise IntegrityError on the composite primary key — no try/except around it. CachedDataProvider isn't wired into any router yet, so no live concurrent caller exists today, but flag before wiring into the API layer under real concurrency.",
+      "done": false
+    },
+    {
+      "step": "Dtype inconsistency: cache-miss path returns volume as int64 (straight from the provider frame), cache-hit path returns float64 (ORM Float column via _rows_to_frame). Not externally observable today since app/api/schemas.py declares volume: float and Pydantic coerces either dtype, and CachedDataProvider isn't wired into that boundary yet. Cast to float on the read path for internal consistency.",
+      "done": false
+    },
+    {
+      "step": "No test exercises the fallback or both-providers-failed path specifically for get_weekly_ohlcv (only get_daily_ohlcv is covered by TestFallback/TestBothProvidersFailed), and no test explicitly asserts InsufficientHistoryError propagates without triggering the fallback (only inferable from shared code with the tested TickerNotFoundError case). 100% coverage is achieved incidentally via other tests exercising the daily/weekly split. Worth closing given how central the fallback behavior is to this task's purpose.",
+      "done": false
+    },
+    {
+      "step": "_fetch_from_source's `except DataProviderUnavailableError: pass` on the primary call discards the primary's failure with no logging. If the fallback then succeeds, there's no record anywhere that the primary failed at all; if the fallback also fails, only the fallback's exception survives as __cause__, losing the primary's actual failure reason. No logging framework exists anywhere in this backend yet (greenfield), so this is a real observability gap worth a follow-up (log the primary's exception before falling back), not a deviation from an established convention.",
       "done": false
     }
   ]
