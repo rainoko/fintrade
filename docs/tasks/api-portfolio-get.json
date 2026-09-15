@@ -26,5 +26,11 @@
       "decision": "current_price is the most recent daily close from provider.get_daily_ohlcv(ticker) (via the cache). A position whose price fetch fails for any DataProviderError reason (unknown ticker, insufficient history, or provider unavailable) gets current_price=None/unrealized_pnl_pct=None and contributes 0 to equity.positions_value (not its cost basis) rather than failing the whole GET /api/portfolio request.",
       "rationale": "API.md documents current_price/unrealized_pnl_pct as 'null only if the latest price fetch for that ticker failed' but doesn't say what a null price does to positions_value, and doesn't declare any 404/422/503 responses for this route (unlike the /api/stocks/* routes) -- the endpoint is meant to degrade gracefully per-position rather than fail outright, since a portfolio commonly holds several tickers and one bad price shouldn't hide the rest. Falling back to cost basis for positions_value was considered and rejected: it would silently blend real mark-to-market value with stale cost-basis value in the same total with no way for a client to tell which portions are which, whereas excluding the failed position is a conservative, easily-documented choice (and unrealized_pnl_pct is already null for that same position, so the two fields stay consistent with each other)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-get",
+    "pr_number": 30,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/30",
+    "pushed_at": "2026-09-15T20:55:46Z"
+  }
 }
