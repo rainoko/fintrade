@@ -587,7 +587,7 @@
   "paths": {
     "/api/portfolio": {
       "get": {
-        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed.",
+        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry.",
         "operationId": "get_portfolio",
         "responses": {
           "200": {
