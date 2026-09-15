@@ -15,13 +15,13 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-15T00:00:00Z",
+      "timestamp": "2026-09-15T20:55:46Z",
       "recorded_by": "task-worker",
       "decision": "Added app/api/dependencies.py with a get_data_provider() FastAPI dependency that composes CachedDataProvider(YFinanceProvider(), StooqProvider(), db) fresh per request, and wired GET /api/portfolio to it (alongside the existing get_db dependency).",
       "rationale": "No router previously constructed the data-provider stack (stocks.py's history/analysis routes are still 501 stubs), so there was no existing wiring pattern to follow. A dedicated dependencies module (rather than inlining the construction in portfolio.py, or adding a factory method onto CachedDataProvider itself) keeps the composition in one place api-stocks-history/api-stocks-analysis can reuse later, and lets integration tests override just get_data_provider via app.dependency_overrides (mirroring the existing get_db override pattern in test_portfolio_positions.py) to inject a stub DataProvider without touching the DB wiring or making a live network call, per docs/architecture/Testing.md's mocked-data-provider-layer requirement."
     },
     {
-      "timestamp": "2026-09-15T00:00:00Z",
+      "timestamp": "2026-09-15T20:55:46Z",
       "recorded_by": "task-worker",
       "decision": "current_price is the most recent daily close from provider.get_daily_ohlcv(ticker) (via the cache). A position whose price fetch fails for any DataProviderError reason (unknown ticker, insufficient history, or provider unavailable) gets current_price=None/unrealized_pnl_pct=None and contributes 0 to equity.positions_value (not its cost basis) rather than failing the whole GET /api/portfolio request.",
       "rationale": "API.md documents current_price/unrealized_pnl_pct as 'null only if the latest price fetch for that ticker failed' but doesn't say what a null price does to positions_value, and doesn't declare any 404/422/503 responses for this route (unlike the /api/stocks/* routes) -- the endpoint is meant to degrade gracefully per-position rather than fail outright, since a portfolio commonly holds several tickers and one bad price shouldn't hide the rest. Falling back to cost basis for positions_value was considered and rejected: it would silently blend real mark-to-market value with stale cost-basis value in the same total with no way for a client to tell which portions are which, whereas excluding the failed position is a conservative, easily-documented choice (and unrealized_pnl_pct is already null for that same position, so the two fields stay consistent with each other)."
