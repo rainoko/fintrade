@@ -4,7 +4,7 @@ from app.indicators.autoenvelope import autoenvelope
 from app.indicators.ema import ema
 from app.indicators.macd import macd_components
 from app.portfolio.models import Account, Position
-from app.portfolio.risk import position_risk_pct, protective_stop
+from app.portfolio.risk import position_risk_pct, protective_stop, validate_daily_ohlcv_columns
 from app.signals.impulse import evaluate_impulse
 from app.signals.triple_screen import evaluate_tide
 
@@ -99,12 +99,24 @@ def evaluate_exit_flags(
     for why this is documented rather than enforced.
 
     Raises:
-        ValueError: propagated from ``protective_stop`` (``daily_ohlcv`` with fewer than 2
-            rows, or malformed) or ``position_risk_pct`` (``position.current_price`` unset,
-            non-positive account equity) -- this function adds no additional validation of its
-            own beyond what those two already enforce.
+        ValueError: for a malformed ``daily_ohlcv`` (empty, or missing a required column) --
+            validated up front via ``risk.validate_daily_ohlcv_columns``, the same check
+            ``protective_stop`` itself enforces, run here first so this function's own
+            ``daily_ohlcv['close']`` access (needed before ``protective_stop`` is called, to
+            share EMA(13) across collaborators -- see above) can't raise a bare ``KeyError``
+            instead; ``daily_ohlcv`` with fewer than 2 rows still raises from
+            ``protective_stop`` on its ``.iloc[:-1]`` slice; or propagated from
+            ``position_risk_pct`` (``position.current_price`` unset, non-positive account
+            equity).
     """
     flags: list[str] = []
+
+    # Validate daily_ohlcv's columns *before* this function's own daily_close = daily_ohlcv
+    # ["close"] access below -- otherwise a malformed daily_ohlcv missing "close" would raise a
+    # bare KeyError here instead of the documented ValueError that protective_stop (called
+    # further down) would otherwise have raised first. See the portfolio-exit-rules-followups
+    # task's `decisions` entry.
+    validate_daily_ohlcv_columns(daily_ohlcv)
 
     # EMA(13) of the daily close, computed once over the full (today-inclusive) series and
     # shared -- via each function's optional precomputed-series parameter -- across

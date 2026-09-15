@@ -15,6 +15,26 @@ _SWING_LOW_WINDOW_DAYS = 10
 _VOLATILITY_EMA_PERIOD = 13
 
 
+def validate_daily_ohlcv_columns(daily_ohlcv: pd.DataFrame) -> None:
+    """Raise if ``daily_ohlcv`` lacks the ``low``/``close`` columns ``protective_stop`` requires.
+
+    Factored out of ``protective_stop`` so a caller that needs to touch ``daily_ohlcv`` columns
+    of its own *before* calling ``protective_stop`` (e.g. ``app.portfolio.exits
+    .evaluate_exit_flags``, which shares a precomputed EMA(13) of ``daily_ohlcv['close']`` across
+    several collaborators) can validate first and preserve the same fail-fast ``ValueError``
+    contract, instead of raising a bare ``KeyError`` from its own premature column access -- see
+    the ``portfolio-exit-rules-followups`` task's `decisions` entry.
+
+    Raises:
+        ValueError: if ``daily_ohlcv`` is empty or missing a required column.
+    """
+    if daily_ohlcv.empty:
+        raise ValueError("daily_ohlcv must contain at least one row to compute a protective stop")
+    missing = {"low", "close"} - set(daily_ohlcv.columns)
+    if missing:
+        raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
+
+
 def protective_stop(
     position: Position, daily_ohlcv: pd.DataFrame, *, short_ema: pd.Series | None = None
 ) -> float:
@@ -52,11 +72,7 @@ def protective_stop(
     Raises:
         ValueError: if ``daily_ohlcv`` is empty or missing a required column.
     """
-    if daily_ohlcv.empty:
-        raise ValueError("daily_ohlcv must contain at least one row to compute a protective stop")
-    missing = {"low", "close"} - set(daily_ohlcv.columns)
-    if missing:
-        raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
+    validate_daily_ohlcv_columns(daily_ohlcv)
 
     window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
     swing_low = float(window["low"].min())
