@@ -20,5 +20,11 @@
       "decision": "404 error detail is a single ErrorDetail-shaped string (\"Position '<id>' not found\"), consistent with the route's existing `responses={404: {\"model\": ErrorDetail, ...}}` declaration and with how add_position's merge-overflow guard raises its own single-string 422. No new schema was introduced.",
       "rationale": "The route signature/response contract (including the 404 responses entry) was already finalized by a prior task and required no change, so the only remaining judgment call was the exact lookup/delete mechanics. Used Session.get(PositionORM, position_id) (primary-key lookup, the SQLAlchemy-idiomatic form) rather than a filter().one_or_none() query, mirroring how GET /api/portfolio's account lookup already uses db.get(AccountORM, 1). Rejected returning 204 on delete-of-unknown-id (silently succeeding) since API.md and the route's own responses={} already commit to 404 for that case, and idempotent-delete-as-204 wasn't asked for anywhere in the docs."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-delete-position",
+    "pr_number": 31,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/31",
+    "pushed_at": "2026-09-15T21:14:22Z"
+  }
 }
