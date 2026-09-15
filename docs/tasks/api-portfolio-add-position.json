@@ -3,7 +3,7 @@
   "title": "API: POST /api/portfolio/positions",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
@@ -76,7 +76,7 @@
     "branch": "task/api-portfolio-add-position",
     "pr_number": 17,
     "pr_url": "https://github.com/rainoko/fintrade/pull/17",
-    "pushed_at": "2026-09-13T09:59:54Z"
+    "pushed_at": "2026-09-15T20:21:54Z"
   },
   "review": {
     "reviewed_at": "2026-09-13T10:05:28Z",
