@@ -46,5 +46,11 @@
       "decision": "Closed out docs/tasks/impulse-system.json's checklist item 4 ('Confirm signal-engine-orchestration actually enforces the gate') to done: true, with this note added there, since that task's own decisions array explicitly deferred verifying real gate enforcement to this task. `_determine_signal()` in app/signals/engine.py now requires `impulse != 'RED'` for a fresh BUY and `impulse != 'GREEN'` for a fresh SELL -- both a Red-gated would-be-BUY and a Green-gated would-be-SELL fall through to HOLD rather than being emitted, per docs/Analyse.md §3's 'do not emit a fresh Buy signal even if Screen 2/3 line up' / mirror-image Sell wording. Covered by dedicated regression tests (TestDetermineSignal::test_buy_blocked_by_red_impulse, test_sell_blocked_by_green_impulse; TestAnalyseCombinations::test_bullish_red_oversold_fired_is_hold_not_buy, test_bearish_green_overbought_fired_is_hold_not_sell) that assert a fully-aligned-otherwise setup still degrades to HOLD once the opposing-color gate is added.",
       "rationale": "Verified via re-reading impulse-system.json's decisions[1]/decisions[2]: the gate's *computation* (GREEN/RED/BLUE) was already correct and complete, but its *enforcement* was explicitly left unimplemented and unverified pending this task existing -- decisions[2] says 'This item should be revisited and closed out for real once signal-engine-orchestration exists and actually calls evaluate_impulse().' That is now true: analyse() calls evaluate_impulse() and _determine_signal() enforces the gate as described above, so the checklist item's literal wording ('confirm...enforces') can now be honestly marked done rather than left permanently false on a merged, closed task."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/signal-engine-orchestration",
+    "pr_number": 27,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/27",
+    "pushed_at": "2026-09-15T17:40:31Z"
+  }
 }
