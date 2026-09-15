@@ -1,0 +1,23 @@
+{
+  "id": "api-portfolio-risk-followups",
+  "title": "GET /api/portfolio/risk — non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-portfolio-risk"],
+  "references": [
+    "docs/tasks/api-portfolio-risk.json#review",
+    "https://github.com/rainoko/fintrade/pull/33"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #33 (api-portfolio-risk), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md's §2 module layout tree and §6 'Portfolio & Risk Engine' narrative don't mention the new app/portfolio/pricing.py module (EnrichedPosition/enrich_positions_with_price/positions_value) added by this PR and now shared by both GET /api/portfolio and GET /api/portfolio/risk. Not a violation of any documented layering principle (it fits the existing portfolio/ package correctly, imports only from data/db/portfolio.models, and is imported only by the api/ layer), but the diagram and narrative should be updated for accuracy -- same category of gap as the api-portfolio-get-followups task's analogous finding about app/api/dependencies.py missing from the same diagram.",
+      "done": false
+    },
+    {
+      "step": "In get_risk()'s first pass loop (app/api/routers/portfolio.py), provider.get_weekly_ohlcv(ticker) is fetched before protective_stop() is attempted. A position whose daily frame fails protective_stop's validation (missing column, too short) still pays for a weekly fetch (a network/cache round trip) that gets thrown away once the daily side excludes it. Swap the order -- attempt protective_stop() first, only fetch weekly on success -- to avoid the wasted I/O for positions that are ultimately excluded on the daily side.",
+      "done": false
+    }
+  ]
+}
