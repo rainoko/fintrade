@@ -1,6 +1,13 @@
-from fastapi import APIRouter, HTTPException
+import math
+import uuid
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.api.schemas import ErrorDetail, PortfolioResponse, PositionIn, PositionOut, RiskResponse
+from app.db.models import PositionORM
+from app.db.session import get_db
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -30,12 +37,100 @@ def get_portfolio() -> PortfolioResponse:
     status_code=201,
     operation_id="add_position",
     summary="Add or update a position",
+    responses={
+        422: {
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary "
+            "request-body validation failure (FastAPI's standard HTTPValidationError — "
+            "`detail` is a list of per-field errors), or merging with an existing position "
+            "would produce a quantity/avg_cost_basis too large to represent (`detail` is a "
+            "single string, ErrorDetail).",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                        ],
+                    },
+                },
+            },
+        },
+    },
 )
-def add_position(position: PositionIn) -> PositionOut:
-    """Creates a position from manual entry / CSV-import data. Duplicate-ticker behavior
-    (merge quantity/avg cost vs. reject) is not yet decided — see the
-    api-portfolio-add-position task in docs/tasks/ before implementing this handler."""
-    raise HTTPException(status_code=501, detail="not implemented yet")
+def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
+    """Creates a position from manual entry / CSV-import data. If a position for this ticker
+    already exists it is merged rather than duplicated: quantities are summed and
+    avg_cost_basis becomes the quantity-weighted average of the existing and incoming cost
+    bases (mirrors how a brokerage averages up/down a position instead of tracking separate
+    lots) — see the api-portfolio-add-position task's `decisions` for the full rationale and
+    the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
+    `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
+    read (GET /api/portfolio), not on write, and isn't available until the data-cache task
+    lands."""
+    ticker = position.ticker.upper()
+    existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
+
+    if existing is None:
+        row = PositionORM(
+            id=f"pos_{uuid.uuid4().hex[:12]}",
+            ticker=ticker,
+            quantity=position.quantity,
+            avg_cost_basis=position.avg_cost_basis,
+            entry_date=position.entry_date,
+        )
+        db.add(row)
+    else:
+        # Merge arithmetic runs on decimal.Decimal rather than the native floats directly:
+        # two individually-valid, individually-finite floats (each already rejected if
+        # non-finite/non-positive at the schema layer) can still overflow Python float64
+        # arithmetic to inf, and an inf/inf weighted-average division silently produces nan
+        # rather than raising -- see this task's `decisions` for the full round-3 history.
+        # Decimal's default context has far more exponent headroom than float64, so the sum
+        # and weighted-average division themselves don't silently overflow; the remaining
+        # risk is the final float64 conversion for storage (the ORM columns are SQLAlchemy
+        # Float), which *also* silently saturates to inf rather than raising -- so the
+        # explicit math.isfinite() check below, not Decimal alone, is what turns that case
+        # into a clean 422 instead of an unhandled 500 from db.commit(). (existing.quantity/
+        # avg_cost_basis and position.quantity/avg_cost_basis are always finite floats by the
+        # time execution reaches here -- either already-committed rows or schema-validated
+        # `allow_inf_nan=False`/`gt=0` request fields -- so Decimal construction and division
+        # below can't themselves raise; there's deliberately no try/except DecimalException
+        # around them.)
+        existing_quantity_dec = Decimal(existing.quantity)
+        incoming_quantity_dec = Decimal(position.quantity)
+        merged_quantity_dec = existing_quantity_dec + incoming_quantity_dec
+        merged_avg_cost_basis_dec = (
+            existing_quantity_dec * Decimal(existing.avg_cost_basis)
+            + incoming_quantity_dec * Decimal(position.avg_cost_basis)
+        ) / merged_quantity_dec
+        merged_quantity = float(merged_quantity_dec)
+        merged_avg_cost_basis = float(merged_avg_cost_basis_dec)
+
+        if not (math.isfinite(merged_quantity) and math.isfinite(merged_avg_cost_basis)):
+            raise HTTPException(
+                status_code=422,
+                detail="Merging this position with the existing one would produce a quantity "
+                "or average cost basis too large to represent (overflow). Reduce the "
+                "quantity/avg_cost_basis or split the addition into smaller increments.",
+            )
+
+        existing.quantity = merged_quantity
+        existing.avg_cost_basis = merged_avg_cost_basis
+        existing.entry_date = min(existing.entry_date, position.entry_date)
+        row = existing
+
+    db.commit()
+    db.refresh(row)
+
+    return PositionOut(
+        id=row.id,
+        ticker=row.ticker,
+        quantity=row.quantity,
+        avg_cost_basis=row.avg_cost_basis,
+        entry_date=row.entry_date,
+        current_price=None,
+        unrealized_pnl_pct=None,
+    )
 
 
 @router.delete(

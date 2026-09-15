@@ -268,19 +268,26 @@
       "PositionIn": {
         "properties": {
           "avg_cost_basis": {
+            "description": "Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten. Must be a positive, finite number (Infinity/NaN are rejected).",
+            "exclusiveMinimum": 0.0,
             "title": "Avg Cost Basis",
             "type": "number"
           },
           "entry_date": {
+            "description": "Date this lot was purchased. On merge with an existing position, the earlier of the two entry dates is kept.",
             "format": "date",
             "title": "Entry Date",
             "type": "string"
           },
           "quantity": {
+            "description": "Number of shares being added. Must be a positive, finite number (Infinity/NaN are rejected) \u2014 this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.",
+            "exclusiveMinimum": 0.0,
             "title": "Quantity",
             "type": "number"
           },
           "ticker": {
+            "description": "Stock ticker symbol, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker that's already held merges into the existing position (quantity-weighted average cost basis) rather than creating a duplicate row \u2014 see the api-portfolio-add-position task's decisions.",
+            "minLength": 1,
             "title": "Ticker",
             "type": "string"
           }
@@ -602,7 +609,7 @@
     },
     "/api/portfolio/positions": {
       "post": {
-        "description": "Creates a position from manual entry / CSV-import data. Duplicate-ticker behavior\n(merge quantity/avg cost vs. reject) is not yet decided \u2014 see the\napi-portfolio-add-position task in docs/tasks/ before implementing this handler.",
+        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands.",
         "operationId": "add_position",
         "requestBody": {
           "content": {
@@ -629,11 +636,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary request-body validation failure (FastAPI's standard HTTPValidationError \u2014 `detail` is a list of per-field errors), or merging with an existing position would produce a quantity/avg_cost_basis too large to represent (`detail` is a single string, ErrorDetail)."
           }
         },
         "summary": "Add or update a position",

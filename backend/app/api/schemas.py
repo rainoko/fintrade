@@ -10,7 +10,7 @@ documentation standard.
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Signal = Literal["BUY", "SELL", "HOLD"]
 ConfidenceBand = Literal["Low", "Medium", "High"]
@@ -113,10 +113,18 @@ class PortfolioResponse(BaseModel):
 
 
 class PositionIn(BaseModel):
-    ticker: str
-    quantity: float
-    avg_cost_basis: float
-    entry_date: date
+    ticker: str = Field(min_length=1, description="Stock ticker symbol, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker that's already held merges into the existing position (quantity-weighted average cost basis) rather than creating a duplicate row — see the api-portfolio-add-position task's decisions.")
+    quantity: float = Field(gt=0, allow_inf_nan=False, description="Number of shares being added. Must be a positive, finite number (Infinity/NaN are rejected) — this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.")
+    avg_cost_basis: float = Field(gt=0, allow_inf_nan=False, description="Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten. Must be a positive, finite number (Infinity/NaN are rejected).")
+    entry_date: date = Field(description="Date this lot was purchased. On merge with an existing position, the earlier of the two entry dates is kept.")
+
+    @field_validator("ticker")
+    @classmethod
+    def _strip_and_require_non_blank_ticker(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("ticker must not be blank or whitespace-only")
+        return stripped
 
 
 # --- /api/portfolio/risk ---------------------------------------------------
