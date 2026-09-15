@@ -3,7 +3,7 @@
   "title": "Existing-position exit rules — non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["portfolio-exit-rules"],
   "references": [
     "docs/tasks/portfolio-exit-rules.json#review",
@@ -39,5 +39,28 @@
     "pr_number": 29,
     "pr_url": "https://github.com/rainoko/fintrade/pull/29",
     "pushed_at": "2026-09-15T19:42:47Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-15T19:48:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/29",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: evaluate_exit_flags() now raises an undocumented KeyError instead of the documented ValueError for a malformed daily_ohlcv missing the 'close' column. Before this PR, protective_stop(position, daily_ohlcv.iloc[:-1]) was the first statement in the function body, and protective_stop owns explicit column validation (raises ValueError('daily_ohlcv is missing required column(s): ...')) -- matching evaluate_exit_flags's own docstring ('Raises: ValueError: propagated from protective_stop ... or malformed'). This PR inserts `daily_close = daily_ohlcv[\"close\"]; daily_ema_13 = ema(daily_close, 13)` before protective_stop is called, so a daily_ohlcv missing 'close' now raises a bare KeyError('close') first instead, contradicting the function's own unchanged docstring contract. Reproduced by hand: evaluate_exit_flags(position, account, pd.DataFrame({\"low\": [...]}), weekly, portfolio_open_risk_pct=0.0) raises KeyError('close'), not ValueError. No existing test covers this malformed-input path (all fixtures build full valid OHLCV), so 330/330 green + 100% branch coverage on exits.py don't catch it. No live caller of evaluate_exit_flags exists yet (api-portfolio-risk is still a stub), so nothing breaks in practice today, but this is a genuine contract regression worth fixing now while cheap -- e.g. by computing daily_ema_13 after protective_stop's own validation runs, or hoisting an explicit column check to the top of the function.",
+        "file": "backend/app/portfolio/exits.py",
+        "line": 116
+      },
+      {
+        "summary": "Verified (not a finding, a confirmation): the default-None behavior of protective_stop/autoenvelope/evaluate_impulse/evaluate_tide's new keyword-only parameters is bit-for-bit identical to prior behavior for every existing caller (each new param wraps the exact original expression in an `if x is None:` guard); the only other in-app callers (app/signals/engine.py's evaluate_impulse(daily_ohlcv)/evaluate_tide(weekly_ohlcv)) call positionally with no new kwargs and are unaffected. The causal-EMA/MACD slicing claim underlying the sharing (ema() is series.ewm(adjust=False), macd_components() built entirely from EMAs -- both causal) holds. The TestSharedIndicatorComputation call-counting regression test is genuinely load-bearing, not incidental: empirically confirmed by temporarily swapping in the pre-fix (PR #28) exits.py and re-running it -- it fails immediately (AttributeError: module 'app.portfolio.exits' does not have the attribute 'ema', since the old exits.py never imported ema/macd_components at module level), proving a regression back to independent recomputation would be caught.",
+        "file": "backend/tests/unit/test_portfolio_exits.py",
+        "line": 525
+      },
+      {
+        "summary": "verify-elder-signal against docs/Analyse.md #2/#3/#7 passes: this PR is a pure computation-sharing refactor with no methodology change -- the 2%/6% rules, protective-stop formula (swing low minus volatility buffer, still not a fixed-percentage stop), the five existing-position exit conditions, and their independence from the fresh-entry HOLD/BUY/SELL signal are all unchanged. Both recorded decisions entries are well-reasoned and match the code; no undocumented judgment calls found.",
+        "file": "docs/Analyse.md",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: gh pr checkout 29 (already checked out); backend/.venv/bin/pytest -q -> 330/330 passing, no regression; pytest --cov=app --cov-report=term-missing -> 99.36% repo-wide (gate 90%), exits.py/risk.py/autoenvelope.py/impulse.py/triple_screen.py all 100% line/branch, matching the PR's own claims. No ruff/mypy config exists in backend/pyproject.toml, so no lint step was invented. code-review skill (high effort) dispatched against the diff in the background in addition to a manual line-by-line pass; the manual pass surfaced the blocking KeyError/ValueError contract regression above. verify-elder-signal run against docs/Analyse.md #2/#3/#7 -- no methodology drift, pure refactor. No API route/schema touched -- no OpenAPI snapshot check applies. No new module/dependency/layer -- architecture-review not triggered. No UI surface (pure backend refactor) -- browser walkthrough explicitly not applicable, not silently skipped. Verdict: needs_work due to the one blocking finding; everything else (tests, coverage, backward-compatibility of the four functions' default-None paths, the causal-slicing math, the regression-guard test's genuineness, methodology conformance) checks out. Posted as a COMMENTED-type gh pr review (not approve/request-changes) on PR #29."
   }
 }
