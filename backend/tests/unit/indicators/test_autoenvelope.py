@@ -142,3 +142,26 @@ class TestAutoenvelope:
 
         with pytest.raises(TypeError):
             autoenvelope(CLOSES, ema_period=13.5, deviation_lookback=3)
+
+    def test_precomputed_mid_matches_default_computation(self) -> None:
+        """Passing `mid` (e.g. a caller-shared EMA(13) series -- see the
+        portfolio-exit-rules-followups task's `decisions` entry) must produce identical
+        bands to letting autoenvelope compute EMA internally, given the true EMA."""
+        from app.indicators.ema import ema
+
+        precomputed_mid = ema(CLOSES, 3)
+
+        result_default = autoenvelope(CLOSES, ema_period=3, deviation_lookback=3)
+        result_shared = autoenvelope(CLOSES, ema_period=3, deviation_lookback=3, mid=precomputed_mid)
+
+        pd.testing.assert_frame_equal(result_default, result_shared)
+
+    def test_precomputed_mid_is_actually_used_not_ignored(self) -> None:
+        """A deliberately wrong `mid` must change the result -- confirms the parameter is
+        actually wired in, not silently ignored in favor of always recomputing EMA."""
+        wrong_mid = pd.Series([1.0] * len(CLOSES))
+
+        result_default = autoenvelope(CLOSES, ema_period=3, deviation_lookback=3)
+        result_wrong_mid = autoenvelope(CLOSES, ema_period=3, deviation_lookback=3, mid=wrong_mid)
+
+        assert not result_wrong_mid["mid"].equals(result_default["mid"])

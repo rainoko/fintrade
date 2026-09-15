@@ -22,7 +22,7 @@ def _direction(series: pd.Series) -> str:
     return "rising" if latest > previous else "falling"
 
 
-def evaluate_impulse(daily_ohlcv: pd.DataFrame) -> str:
+def evaluate_impulse(daily_ohlcv: pd.DataFrame, *, ema_13: pd.Series | None = None) -> str:
     """'GREEN' | 'RED' | 'BLUE', from EMA(13) direction + MACD-Histogram direction together (docs/Analyse.md §3).
 
     Acts as a gate: GREEN blocks fresh SELL signals, RED blocks fresh BUY signals.
@@ -38,12 +38,21 @@ def evaluate_impulse(daily_ohlcv: pd.DataFrame) -> str:
     gate (blocking a fresh BUY under RED, a fresh SELL under GREEN) is signal-engine.py's
     job (docs/architecture/Backend.md §5), not this module's; see this task's `decisions`
     entry for why that's out of scope here.
+
+    ``ema_13``, if given, is used as the already-computed ``ema(daily_ohlcv['close'], 13)``
+    instead of recomputing it here (must be index-aligned with ``daily_ohlcv``). Lets a
+    caller who needs that same EMA(13) elsewhere too (e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which also feeds it to
+    ``protective_stop``/``autoenvelope``) share one computation -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry.
     """
     if len(daily_ohlcv) < 2:
         return "BLUE"
 
     daily_close = daily_ohlcv["close"]
-    ema_direction = _direction(ema(daily_close, 13))
+    if ema_13 is None:
+        ema_13 = ema(daily_close, 13)
+    ema_direction = _direction(ema_13)
     histogram_direction = _direction(macd_histogram(daily_close))
 
     if ema_direction == "rising" and histogram_direction == "rising":

@@ -15,7 +15,29 @@ _SWING_LOW_WINDOW_DAYS = 10
 _VOLATILITY_EMA_PERIOD = 13
 
 
-def protective_stop(position: Position, daily_ohlcv: pd.DataFrame) -> float:
+def validate_daily_ohlcv_columns(daily_ohlcv: pd.DataFrame) -> None:
+    """Raise if ``daily_ohlcv`` lacks the ``low``/``close`` columns ``protective_stop`` requires.
+
+    Factored out of ``protective_stop`` so a caller that needs to touch ``daily_ohlcv`` columns
+    of its own *before* calling ``protective_stop`` (e.g. ``app.portfolio.exits
+    .evaluate_exit_flags``, which shares a precomputed EMA(13) of ``daily_ohlcv['close']`` across
+    several collaborators) can validate first and preserve the same fail-fast ``ValueError``
+    contract, instead of raising a bare ``KeyError`` from its own premature column access -- see
+    the ``portfolio-exit-rules-followups`` task's `decisions` entry.
+
+    Raises:
+        ValueError: if ``daily_ohlcv`` is empty or missing a required column.
+    """
+    if daily_ohlcv.empty:
+        raise ValueError("daily_ohlcv must contain at least one row to compute a protective stop")
+    missing = {"low", "close"} - set(daily_ohlcv.columns)
+    if missing:
+        raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
+
+
+def protective_stop(
+    position: Position, daily_ohlcv: pd.DataFrame, *, short_ema: pd.Series | None = None
+) -> float:
     """Swing low minus a volatility buffer (docs/Analyse.md §7, SafeZone concept).
 
     Long-only: this is the stop-loss for a long position.
@@ -36,19 +58,27 @@ def protective_stop(position: Position, daily_ohlcv: pd.DataFrame) -> float:
     ``daily_ohlcv`` must have ``low`` and ``close`` columns (lowercase, matching
     ``app.db.models.OHLCVCacheORM``), most recent row last.
 
+    ``short_ema``, if given, is used as the already-computed EMA(13) of
+    ``daily_ohlcv['close']`` instead of recomputing it here -- it must be
+    index-aligned with ``daily_ohlcv`` (same length, same row order). This lets a
+    caller that already needs EMA(13) of this same close series for another
+    purpose (e.g. ``app.portfolio.exits.evaluate_exit_flags``, which also feeds
+    it to ``autoenvelope``/``evaluate_impulse``) compute it once and share it,
+    instead of every caller independently re-deriving an identical EMA pass --
+    see the ``portfolio-exit-rules-followups`` task's `decisions` entry. Omit it
+    (the default) to have this function compute EMA(13) itself, unchanged from
+    before this parameter existed.
+
     Raises:
         ValueError: if ``daily_ohlcv`` is empty or missing a required column.
     """
-    if daily_ohlcv.empty:
-        raise ValueError("daily_ohlcv must contain at least one row to compute a protective stop")
-    missing = {"low", "close"} - set(daily_ohlcv.columns)
-    if missing:
-        raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
+    validate_daily_ohlcv_columns(daily_ohlcv)
 
     window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
     swing_low = float(window["low"].min())
 
-    short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
+    if short_ema is None:
+        short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
     downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
     volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())
 

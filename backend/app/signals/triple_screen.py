@@ -74,7 +74,38 @@ def macd_histogram_slope(histogram: pd.Series, latest_close: float) -> str:
     return "flat"
 
 
-def evaluate_tide(weekly_ohlcv: pd.DataFrame) -> TideResult:
+def validate_weekly_ohlcv_columns(weekly_ohlcv: pd.DataFrame) -> None:
+    """Raise if ``weekly_ohlcv`` lacks the ``close`` column ``evaluate_tide`` requires.
+
+    Factored out (mirroring ``app.portfolio.risk.validate_daily_ohlcv_columns``'s equivalent
+    role for ``protective_stop``/daily OHLCV) so a caller that needs to touch
+    ``weekly_ohlcv``'s columns of its own *before* calling ``evaluate_tide`` (e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which shares a precomputed MACD/EMA(13) of
+    ``weekly_ohlcv['close']`` across two ``evaluate_tide`` calls) can validate first and get
+    the same fail-fast ``ValueError`` contract, instead of raising a bare ``KeyError`` from its
+    own premature column access -- see the ``portfolio-exit-rules-followups`` task's
+    `decisions` entry.
+
+    Unlike the daily-side validator, a ``weekly_ohlcv`` with fewer than 2 rows is *not* treated
+    as an error here: ``evaluate_tide`` itself degrades gracefully to NEUTRAL for that case
+    (see its docstring) without ever touching ``'close'``, so this only guards the
+    missing-column case that would otherwise raise a bare ``KeyError`` once there's enough
+    history to reach the column access.
+
+    Raises:
+        ValueError: if ``weekly_ohlcv`` is missing the ``close`` column.
+    """
+    if "close" not in weekly_ohlcv.columns:
+        raise ValueError("weekly_ohlcv is missing required column(s): ['close']")
+
+
+def evaluate_tide(
+    weekly_ohlcv: pd.DataFrame,
+    *,
+    histogram: pd.Series | None = None,
+    ema_13: pd.Series | None = None,
+    ema_26: pd.Series | None = None,
+) -> TideResult:
     """Screen 1: trend + the MACD-Histogram slope classification behind it.
 
     From weekly MACD-Histogram slope + 13/26-week EMA relationship (docs/Analyse.md §2).
@@ -99,22 +130,57 @@ def evaluate_tide(weekly_ohlcv: pd.DataFrame) -> TideResult:
 
     Too little history (<2 weekly bars) to compute a slope at all returns
     NEUTRAL/'flat' without calling either indicator.
+
+    ``histogram``/``ema_13``/``ema_26``, if given, are used as the
+    already-computed ``macd_components(weekly_ohlcv['close']).histogram`` /
+    ``ema(weekly_ohlcv['close'], 13)`` / ``macd_components(...).ema_slow``
+    instead of recomputing them here (each must be index-aligned with
+    ``weekly_ohlcv``, i.e. the exact output of calling those functions on
+    ``weekly_ohlcv['close']``). All three are independent (a caller may supply
+    any subset); anything omitted is computed internally exactly as before this
+    parameter existed. This lets a caller who evaluates the tide over more than
+    one slice of the same underlying weekly series -- e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which calls this twice
+    (``weekly_ohlcv`` and ``weekly_ohlcv[:-1]``) to detect a bullish-to-bearish
+    flip -- compute the MACD/EMA series once over the full series and slice it
+    per call (EMA/MACD are causal: a value at index *t* depends only on data up
+    to *t*, so slicing a full-series computation gives identical values to
+    recomputing over the truncated series) instead of each call independently
+    re-deriving its own MACD/EMA pass -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry.
+
+    Raises:
+        ValueError: if ``weekly_ohlcv`` has 2 or more rows but is missing the ``close``
+            column -- validated via ``validate_weekly_ohlcv_columns`` so this doesn't instead
+            raise a bare ``KeyError`` from the access below. A ``weekly_ohlcv`` with fewer
+            than 2 rows never raises, regardless of its columns -- see the "too little
+            history" behavior above.
     """
     if len(weekly_ohlcv) < 2:
         return TideResult(trend="NEUTRAL", weekly_macd_histogram_slope="flat")
 
+    validate_weekly_ohlcv_columns(weekly_ohlcv)
+
     weekly_close = weekly_ohlcv["close"]
     latest_close = weekly_close.iloc[-1]
 
-    components = macd_components(weekly_close)
-    slope = macd_histogram_slope(components.histogram, latest_close)
+    if histogram is None or ema_26 is None:
+        components = macd_components(weekly_close)
+        if histogram is None:
+            histogram = components.histogram
+        if ema_26 is None:
+            ema_26 = components.ema_slow
+    slope = macd_histogram_slope(histogram, latest_close)
 
-    ema_13 = ema(weekly_close, 13).iloc[-1]
-    ema_26 = components.ema_slow.iloc[-1]
+    if ema_13 is None:
+        ema_13 = ema(weekly_close, 13)
 
-    if slope == "rising" and ema_13 > ema_26:
+    ema_13_latest = ema_13.iloc[-1]
+    ema_26_latest = ema_26.iloc[-1]
+
+    if slope == "rising" and ema_13_latest > ema_26_latest:
         trend = "BULLISH"
-    elif slope == "falling" and ema_13 < ema_26:
+    elif slope == "falling" and ema_13_latest < ema_26_latest:
         trend = "BEARISH"
     else:
         trend = "NEUTRAL"

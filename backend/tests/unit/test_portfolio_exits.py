@@ -92,7 +92,11 @@ def _patched(
     tests/unit/signals/test_engine.py's TestWaveShowedState mocks distinguish slices by len().
     """
 
-    def tide_side_effect(weekly_ohlcv: pd.DataFrame) -> TideResult:
+    def tide_side_effect(weekly_ohlcv: pd.DataFrame, **_shared_series_kwargs) -> TideResult:
+        # evaluate_exit_flags now passes the shared histogram/ema_13/ema_26 series it
+        # precomputed once (see the portfolio-exit-rules-followups task's `decisions`
+        # entry) -- irrelevant to this isolated-flag test, which only cares about which
+        # weekly_ohlcv slice was passed, so they're accepted and ignored here.
         trend = tide_by_len[len(weekly_ohlcv)]
         return TideResult(trend=trend, weekly_macd_histogram_slope="flat")
 
@@ -400,3 +404,95 @@ class TestEvaluateExitFlagsEndToEnd:
 
         with pytest.raises(ValueError, match="at least one row"):
             evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
+    def test_real_malformed_daily_ohlcv_missing_close_raises_value_error_not_key_error(
+        self,
+    ) -> None:
+        # Regression test for the PR #29 review finding: evaluate_exit_flags() must raise the
+        # documented ValueError (matching protective_stop's own "missing required column(s)"
+        # message) for a daily_ohlcv missing "close", not a bare KeyError('close') from its own
+        # premature daily_ohlcv["close"] access (used to share EMA(13) across collaborators)
+        # happening before protective_stop's validation runs -- see this task's `decisions`
+        # entry.
+        daily = pd.DataFrame({"open": [1.0, 2.0], "high": [1.0, 2.0], "low": [1.0, 2.0]})
+        weekly = _weekly_ohlcv([100.0] * 5)
+        position = _position()
+        account = _account(positions=[position])
+
+        with pytest.raises(ValueError, match="missing required column"):
+            evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
+    def test_real_malformed_weekly_ohlcv_missing_close_raises_value_error_not_key_error(
+        self,
+    ) -> None:
+        # Regression test for the PR #29 re-review finding: evaluate_exit_flags() must raise
+        # the documented ValueError (matching validate_weekly_ohlcv_columns' own "missing
+        # required column(s)" message) for a weekly_ohlcv missing "close", not a bare
+        # KeyError('close') from its own premature weekly_ohlcv["close"] access (used to
+        # share the weekly MACD/EMA(13) across both evaluate_tide calls) happening before any
+        # column validation runs -- see this task's `decisions` entry. Uses a daily_ohlcv with
+        # enough rows that the daily side never raises first, isolating this to the weekly
+        # column-validation gap alone.
+        daily = _daily_ohlcv([100.0] * 10)
+        weekly = pd.DataFrame(
+            {"open": [1.0, 2.0], "high": [1.0, 2.0], "low": [1.0, 2.0], "volume": [1_000_000] * 2}
+        )
+        position = _position()
+        account = _account(positions=[position])
+
+        with pytest.raises(ValueError, match="missing required column"):
+            evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
+
+class TestSharedIndicatorComputation:
+    """Regression coverage for the portfolio-exit-rules-followups task: evaluate_exit_flags
+    must compute the daily EMA(13) and the weekly MACD-Histogram/EMA(13)/EMA(26) each exactly
+    once and share them (via protective_stop/autoenvelope/evaluate_impulse/evaluate_tide's
+    optional precomputed-series parameters) instead of each collaborator independently
+    recomputing an identical pass -- see this task's `decisions` entry. Uses real (unmocked)
+    collaborators wrapped in call-counting spies, not mocked return values, so a regression
+    back to each function computing its own series would actually be caught here."""
+
+    def test_daily_and_weekly_series_computed_once_and_shared(self, mocker) -> None:
+        # 30+ daily/weekly bars of mild, non-degenerate growth -- enough history for every
+        # collaborator (protective_stop's 10-day window, autoenvelope's rolling deviation,
+        # evaluate_tide's slope) to run its real math without hitting an insufficient-data
+        # short-circuit that would skip calling ema()/macd_components() at all.
+        daily_closes = [100.0 + i * 0.3 for i in range(40)]
+        daily_lows = [c - 1.0 for c in daily_closes]
+        daily = _daily_ohlcv(daily_closes, daily_lows)
+        weekly = _weekly_ohlcv([100.0 + i * 0.5 for i in range(30)])
+        position = _position(current_price=daily_closes[-1])
+        account = _account(total_equity=1_000_000.0, positions=[position])
+
+        from app.indicators.ema import ema as real_ema
+        from app.indicators.macd import macd_components as real_macd_components
+
+        exits_ema_spy = mocker.patch("app.portfolio.exits.ema", wraps=real_ema)
+        exits_macd_spy = mocker.patch("app.portfolio.exits.macd_components", wraps=real_macd_components)
+        risk_ema_spy = mocker.patch("app.portfolio.risk.ema", wraps=real_ema)
+        autoenvelope_ema_spy = mocker.patch("app.indicators.autoenvelope.ema", wraps=real_ema)
+        impulse_ema_spy = mocker.patch("app.signals.impulse.ema", wraps=real_ema)
+        tide_ema_spy = mocker.patch("app.signals.triple_screen.ema", wraps=real_ema)
+        tide_macd_spy = mocker.patch(
+            "app.signals.triple_screen.macd_components", wraps=real_macd_components
+        )
+
+        evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
+        # exits.py itself calls the shared `ema` function exactly twice total -- once for
+        # the daily EMA(13) (shared, via the sliced/unsliced series passed to
+        # short_ema=/mid=/ema_13=, with protective_stop/autoenvelope/evaluate_impulse) and
+        # once for the weekly EMA(13) (shared, via ema_13=, with both evaluate_tide calls)
+        # -- rather than each collaborator calling ema() itself.
+        assert exits_ema_spy.call_count == 2
+        assert risk_ema_spy.call_count == 0
+        assert autoenvelope_ema_spy.call_count == 0
+        assert impulse_ema_spy.call_count == 0
+
+        # The weekly MACD-Histogram/EMA(26) and EMA(13) are likewise each computed exactly
+        # once in exits.py and shared across both evaluate_tide calls (current bar, then
+        # the prior-bar slice).
+        assert exits_macd_spy.call_count == 1
+        assert tide_macd_spy.call_count == 0
+        assert tide_ema_spy.call_count == 0

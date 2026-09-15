@@ -141,6 +141,42 @@ class TestProtectiveStop:
         with pytest.raises(ValueError, match="missing required column"):
             protective_stop(_position(), pd.DataFrame({"close": [100.0]}))
 
+    def test_precomputed_short_ema_matches_internal_computation(self) -> None:
+        """Passing `short_ema` (e.g. a caller-shared EMA(13) series -- see the
+        portfolio-exit-rules-followups task's `decisions` entry) must produce the exact same
+        stop as letting protective_stop compute it internally, given the true EMA(13) of the
+        same close series."""
+        from app.indicators.ema import ema
+
+        daily_ohlcv = pd.DataFrame(
+            {
+                "close": [100.0, 102.0, 101.0, 103.0, 104.0],
+                "low": [99.0, 100.0, 99.0, 101.0, 102.0],
+            }
+        )
+        precomputed = ema(daily_ohlcv["close"], 13)
+
+        stop_default = protective_stop(_position(), daily_ohlcv)
+        stop_shared = protective_stop(_position(), daily_ohlcv, short_ema=precomputed)
+
+        assert stop_shared == pytest.approx(stop_default)
+
+    def test_precomputed_short_ema_is_actually_used_not_ignored(self) -> None:
+        """A deliberately wrong `short_ema` must change the result -- confirms the parameter
+        is actually wired in, not silently ignored in favor of always recomputing."""
+        daily_ohlcv = pd.DataFrame(
+            {
+                "close": [100.0, 102.0, 101.0, 103.0, 104.0],
+                "low": [99.0, 100.0, 99.0, 101.0, 102.0],
+            }
+        )
+        wrong_ema = pd.Series([1000.0] * len(daily_ohlcv))
+
+        stop_default = protective_stop(_position(), daily_ohlcv)
+        stop_with_wrong_ema = protective_stop(_position(), daily_ohlcv, short_ema=wrong_ema)
+
+        assert stop_with_wrong_ema != pytest.approx(stop_default)
+
 
 class TestPositionRiskPct:
     def test_reference_value(self) -> None:

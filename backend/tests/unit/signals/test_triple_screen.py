@@ -51,6 +51,7 @@ from app.signals.triple_screen import (
     evaluate_tide,
     evaluate_wave,
     macd_histogram_slope,
+    validate_weekly_ohlcv_columns,
 )
 
 
@@ -313,6 +314,167 @@ class TestEvaluateTideEndToEnd:
         assert evaluate_tide(weekly_ohlcv) == TideResult(
             trend="NEUTRAL", weekly_macd_histogram_slope="rising"
         )
+
+    def test_malformed_weekly_ohlcv_missing_close_raises_value_error_not_key_error(self) -> None:
+        # Regression test for the PR #29 re-review finding: evaluate_tide() raised a bare
+        # KeyError('close') for a >=2-row weekly_ohlcv missing the 'close' column, instead of
+        # the documented ValueError, because weekly_ohlcv['close'] was accessed with no
+        # column validation -- see the portfolio-exit-rules-followups task's `decisions`
+        # entry. Reproduced against pre-fix code first (confirmed it raised
+        # KeyError('close')) before adding the validate_weekly_ohlcv_columns() call this
+        # asserts on.
+        weekly_ohlcv = pd.DataFrame(
+            {"open": [1.0, 2.0], "high": [1.0, 2.0], "low": [1.0, 2.0], "volume": [1_000_000] * 2}
+        )
+
+        with pytest.raises(ValueError, match="missing required column"):
+            evaluate_tide(weekly_ohlcv)
+
+    def test_short_weekly_ohlcv_missing_close_does_not_raise(self) -> None:
+        # A <2-row weekly_ohlcv degrades gracefully to NEUTRAL without ever touching
+        # 'close' -- validate_weekly_ohlcv_columns must not turn that pre-existing,
+        # documented graceful-degradation path into a new error.
+        weekly_ohlcv = pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0], "volume": [1_000_000]})
+
+        assert evaluate_tide(weekly_ohlcv) == TideResult(
+            trend="NEUTRAL", weekly_macd_histogram_slope="flat"
+        )
+
+
+class TestValidateWeeklyOhlcvColumns:
+    def test_raises_on_missing_close_column(self) -> None:
+        weekly_ohlcv = pd.DataFrame({"open": [1.0], "high": [1.0], "low": [1.0]})
+
+        with pytest.raises(ValueError, match="missing required column"):
+            validate_weekly_ohlcv_columns(weekly_ohlcv)
+
+    def test_does_not_raise_when_close_present(self) -> None:
+        weekly_ohlcv = pd.DataFrame({"close": [1.0]})
+
+        validate_weekly_ohlcv_columns(weekly_ohlcv)  # no raise
+
+    def test_does_not_raise_on_empty_frame_with_close_column(self) -> None:
+        # Row-count emptiness is not this validator's concern -- only column presence.
+        weekly_ohlcv = pd.DataFrame({"close": pd.Series([], dtype=float)})
+
+        validate_weekly_ohlcv_columns(weekly_ohlcv)  # no raise
+
+
+class TestEvaluateTidePrecomputedSeries:
+    """Covers the `histogram`/`ema_13`/`ema_26` parameters (see the
+    portfolio-exit-rules-followups task's `decisions` entry) that let a caller share an
+    already-computed MACD-Histogram/EMA(13)/EMA(26) of the same weekly close series
+    instead of evaluate_tide recomputing them internally -- used by
+    app.portfolio.exits.evaluate_exit_flags to avoid two independent MACD/EMA passes when
+    it calls evaluate_tide twice (full series, then the prior-bar slice)."""
+
+    def test_precomputed_series_matches_default_computation(self) -> None:
+        from app.indicators.ema import ema as real_ema
+        from app.indicators.macd import macd_components as real_macd_components
+
+        closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = _weekly_ohlcv(closes)
+        components = real_macd_components(closes)
+        precomputed_ema_13 = real_ema(closes, 13)
+
+        result_default = evaluate_tide(weekly_ohlcv)
+        result_shared = evaluate_tide(
+            weekly_ohlcv,
+            histogram=components.histogram,
+            ema_13=precomputed_ema_13,
+            ema_26=components.ema_slow,
+        )
+
+        assert result_shared == result_default
+
+    def test_precomputed_series_causal_slice_matches_recomputing_on_truncated_series(
+        self,
+    ) -> None:
+        """The whole point of sharing: a full-series MACD/EMA computation, sliced to
+        exclude the latest bar, must equal recomputing from scratch on that shorter
+        series -- since EMA/MACD are causal (a value at index t depends only on data up
+        to t). This is exactly what evaluate_exit_flags relies on for its "previous tide"
+        call."""
+        from app.indicators.ema import ema as real_ema
+        from app.indicators.macd import macd_components as real_macd_components
+
+        closes = pd.Series([100 * (1.03**i) for i in range(20)], dtype=float)
+        full_ohlcv = _weekly_ohlcv(closes)
+        truncated_ohlcv = _weekly_ohlcv(closes.iloc[:-1])
+
+        full_components = real_macd_components(closes)
+        full_ema_13 = real_ema(closes, 13)
+
+        result_from_shared_slice = evaluate_tide(
+            truncated_ohlcv,
+            histogram=full_components.histogram.iloc[:-1],
+            ema_13=full_ema_13.iloc[:-1],
+            ema_26=full_components.ema_slow.iloc[:-1],
+        )
+        result_from_fresh_recomputation = evaluate_tide(truncated_ohlcv)
+
+        assert result_from_shared_slice == result_from_fresh_recomputation
+
+    def test_precomputed_series_is_actually_used_not_ignored(self, mocker) -> None:
+        """A deliberately wrong precomputed series must change the result -- confirms the
+        parameters are wired in, not silently ignored in favor of always recomputing."""
+        components_mock = mocker.patch("app.signals.triple_screen.macd_components")
+        ema_mock = mocker.patch("app.signals.triple_screen.ema")
+        weekly_ohlcv = _weekly_ohlcv(pd.Series([100.0, 101.0]))
+
+        result = evaluate_tide(
+            weekly_ohlcv,
+            histogram=pd.Series([-5.0, 5.0]),  # rising
+            ema_13=pd.Series([110.0]),
+            ema_26=pd.Series([100.0]),
+        )
+
+        assert result == TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        components_mock.assert_not_called()
+        ema_mock.assert_not_called()
+
+    def test_each_precomputed_series_can_be_supplied_independently(self, mocker) -> None:
+        """Supplying only `ema_13` (leaving histogram/ema_26 to be computed internally)
+        must still work -- the three parameters are independent, not all-or-nothing."""
+        from app.indicators.ema import ema as real_ema
+
+        closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = _weekly_ohlcv(closes)
+        precomputed_ema_13 = real_ema(closes, 13)
+
+        result_default = evaluate_tide(weekly_ohlcv)
+        result_partial = evaluate_tide(weekly_ohlcv, ema_13=precomputed_ema_13)
+
+        assert result_partial == result_default
+
+    def test_only_histogram_supplied_still_derives_ema_26_from_macd_components(self) -> None:
+        """Supplying `histogram` alone (leaving `ema_26` unsupplied) must still call
+        macd_components internally to get `ema_26` -- the two aren't both skipped just
+        because one of them was provided."""
+        from app.indicators.macd import macd_components as real_macd_components
+
+        closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = _weekly_ohlcv(closes)
+        components = real_macd_components(closes)
+
+        result_default = evaluate_tide(weekly_ohlcv)
+        result_partial = evaluate_tide(weekly_ohlcv, histogram=components.histogram)
+
+        assert result_partial == result_default
+
+    def test_only_ema_26_supplied_still_derives_histogram_from_macd_components(self) -> None:
+        """Supplying `ema_26` alone (leaving `histogram` unsupplied) must still call
+        macd_components internally to get `histogram`."""
+        from app.indicators.macd import macd_components as real_macd_components
+
+        closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = _weekly_ohlcv(closes)
+        components = real_macd_components(closes)
+
+        result_default = evaluate_tide(weekly_ohlcv)
+        result_partial = evaluate_tide(weekly_ohlcv, ema_26=components.ema_slow)
+
+        assert result_partial == result_default
 
 
 class TestIsForceIndexSpike:

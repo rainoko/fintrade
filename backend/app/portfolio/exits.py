@@ -1,10 +1,12 @@
 import pandas as pd
 
 from app.indicators.autoenvelope import autoenvelope
+from app.indicators.ema import ema
+from app.indicators.macd import macd_components
 from app.portfolio.models import Account, Position
-from app.portfolio.risk import position_risk_pct, protective_stop
+from app.portfolio.risk import position_risk_pct, protective_stop, validate_daily_ohlcv_columns
 from app.signals.impulse import evaluate_impulse
-from app.signals.triple_screen import evaluate_tide
+from app.signals.triple_screen import evaluate_tide, validate_weekly_ohlcv_columns
 
 # 2% rule threshold: a position's *own* current risk exceeding this is flagged
 # (docs/Analyse.md §7). Matches the strict ">" used by risk.py's own tests
@@ -81,18 +83,61 @@ def evaluate_exit_flags(
     'tide_flipped_bearish' flag on short history, mirroring ``evaluate_tide``'s own <2-row
     NEUTRAL fallback.
 
+    Precondition -- ``daily_ohlcv`` and ``position.current_price`` must be as-of the *same*
+    trading day (i.e. ``position.current_price`` reflects the same close ``daily_ohlcv['close']
+    .iloc[-1]`` represents, not a stale/differently-timed price): this function takes them as
+    two independent parameters and does *not* validate that they agree. When they do agree,
+    'stop_hit' and 'six_percent_rule_contributor' can't both fire for the same position in the
+    same call -- 'stop_hit' means today's close is below the stop, which floors this position's
+    ``position_risk_pct`` (and so 'six_percent_rule_contributor', which requires nonzero risk)
+    at 0, since both are evaluated against that same today's-close-derived stop and
+    ``position.current_price``. If a caller ever passes a ``daily_ohlcv`` whose latest bar and
+    ``position.current_price`` are out of sync (e.g. a stale cached price alongside a fresher
+    OHLCV bar), that guarantee no longer holds and both flags could fire together -- this
+    function has no way to detect that from its inputs alone, so keeping them in sync is the
+    caller's responsibility. See the ``portfolio-exit-rules-followups`` task's `decisions` entry
+    for why this is documented rather than enforced.
+
     Raises:
-        ValueError: propagated from ``protective_stop`` (``daily_ohlcv`` with fewer than 2
-            rows, or malformed) or ``position_risk_pct`` (``position.current_price`` unset,
-            non-positive account equity) -- this function adds no additional validation of its
-            own beyond what those two already enforce.
+        ValueError: for a malformed ``daily_ohlcv`` (empty, or missing a required column) --
+            validated up front via ``risk.validate_daily_ohlcv_columns``, the same check
+            ``protective_stop`` itself enforces, run here first so this function's own
+            ``daily_ohlcv['close']`` access (needed before ``protective_stop`` is called, to
+            share EMA(13) across collaborators -- see above) can't raise a bare ``KeyError``
+            instead; ``daily_ohlcv`` with fewer than 2 rows still raises from
+            ``protective_stop`` on its ``.iloc[:-1]`` slice; for a ``weekly_ohlcv`` missing the
+            ``close`` column (regardless of row count) -- validated via ``triple_screen
+            .validate_weekly_ohlcv_columns`` before this function's own
+            ``weekly_ohlcv['close']`` access, for the same reason as the daily-side check
+            (``evaluate_tide`` runs the identical validation itself, but only once there are
+            already >= 2 rows -- see its docstring -- so this function's own earlier, row-
+            count-independent access needs its own guard too); or propagated from
+            ``position_risk_pct`` (``position.current_price`` unset, non-positive account
+            equity).
     """
     flags: list[str] = []
 
+    # Validate daily_ohlcv's columns *before* this function's own daily_close = daily_ohlcv
+    # ["close"] access below -- otherwise a malformed daily_ohlcv missing "close" would raise a
+    # bare KeyError here instead of the documented ValueError that protective_stop (called
+    # further down) would otherwise have raised first. See the portfolio-exit-rules-followups
+    # task's `decisions` entry.
+    validate_daily_ohlcv_columns(daily_ohlcv)
+
+    # EMA(13) of the daily close, computed once over the full (today-inclusive) series and
+    # shared -- via each function's optional precomputed-series parameter -- across
+    # protective_stop (sliced to exclude today, below), autoenvelope, and evaluate_impulse,
+    # which would otherwise each independently recompute an identical EMA(13) pass. Valid
+    # because EMA is causal (a value at index t depends only on data up to t), so slicing this
+    # full-series computation gives the same values as recomputing over a truncated series --
+    # see the portfolio-exit-rules-followups task's `decisions` entry.
+    daily_close = daily_ohlcv["close"]
+    daily_ema_13 = ema(daily_close, 13)
+
     # Stop "in force" as of today: history strictly before today's bar (see the 'stop_hit'
     # bullet above for why today's own bar must be excluded here).
-    stop = protective_stop(position, daily_ohlcv.iloc[:-1])
-    latest_close = float(daily_ohlcv["close"].iloc[-1])
+    stop = protective_stop(position, daily_ohlcv.iloc[:-1], short_ema=daily_ema_13.iloc[:-1])
+    latest_close = float(daily_close.iloc[-1])
     if latest_close < stop:
         flags.append("stop_hit")
 
@@ -102,12 +147,43 @@ def evaluate_exit_flags(
     if portfolio_open_risk_pct > _SIX_PERCENT_RULE_THRESHOLD and risk_pct > 0.0:
         flags.append("six_percent_rule_contributor")
 
-    upper_band = autoenvelope(daily_ohlcv["close"])["upper"].iloc[-1]
-    if not pd.isna(upper_band) and latest_close >= upper_band and evaluate_impulse(daily_ohlcv) == "RED":
+    upper_band = autoenvelope(daily_close, mid=daily_ema_13)["upper"].iloc[-1]
+    if (
+        not pd.isna(upper_band)
+        and latest_close >= upper_band
+        and evaluate_impulse(daily_ohlcv, ema_13=daily_ema_13) == "RED"
+    ):
         flags.append("profit_zone_impulse_red")
 
-    current_tide = evaluate_tide(weekly_ohlcv).trend
-    previous_tide = evaluate_tide(weekly_ohlcv.iloc[:-1]).trend
+    # Validate weekly_ohlcv's columns *before* this function's own weekly_close =
+    # weekly_ohlcv["close"] access below -- same rationale as the daily-side
+    # validate_daily_ohlcv_columns call above: this function's own direct access runs
+    # regardless of row count (unlike evaluate_tide's internal access, which is only
+    # reached once there are >= 2 rows), so a malformed weekly_ohlcv missing "close" would
+    # otherwise raise a bare KeyError here before evaluate_tide ever gets a chance to run
+    # its own (equivalent) validation. See the portfolio-exit-rules-followups task's
+    # `decisions` entry.
+    validate_weekly_ohlcv_columns(weekly_ohlcv)
+
+    # Weekly MACD-Histogram + EMA(13)/EMA(26), likewise computed once over the full weekly
+    # series and shared across both evaluate_tide calls below (current bar, then the
+    # prior-bar slice) instead of each call independently recomputing its own MACD/EMA pass.
+    weekly_close = weekly_ohlcv["close"]
+    weekly_macd = macd_components(weekly_close)
+    weekly_ema_13 = ema(weekly_close, 13)
+
+    current_tide = evaluate_tide(
+        weekly_ohlcv,
+        histogram=weekly_macd.histogram,
+        ema_13=weekly_ema_13,
+        ema_26=weekly_macd.ema_slow,
+    ).trend
+    previous_tide = evaluate_tide(
+        weekly_ohlcv.iloc[:-1],
+        histogram=weekly_macd.histogram.iloc[:-1],
+        ema_13=weekly_ema_13.iloc[:-1],
+        ema_26=weekly_macd.ema_slow.iloc[:-1],
+    ).trend
     if previous_tide == "BULLISH" and current_tide == "BEARISH":
         flags.append("tide_flipped_bearish")
 
