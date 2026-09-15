@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 from app.indicators.ema import ema
-from app.indicators.macd import macd_histogram
+from app.indicators.macd import macd_components, macd_histogram
 
 
 class TestMacdHistogram:
@@ -122,3 +122,51 @@ class TestMacdHistogram:
         result = macd_histogram(closes, fast=12, slow=26, signal=9)
 
         assert result.iloc[0] == pytest.approx(0.0)
+
+
+class TestMacdComponents:
+    """macd_components() exposes the intermediate EMAs alongside the histogram
+    (app.signals.triple_screen.evaluate_tide needs EMA(slow) too, and would
+    otherwise have to compute ema(close, 26) a second time -- see the
+    screen1-tide task's `decisions` entry).
+    """
+
+    def test_histogram_matches_macd_histogram(self) -> None:
+        """macd_histogram() is a thin wrapper over macd_components() -- both
+        must agree exactly, not just approximately.
+        """
+        closes = pd.Series([10, 12, 15, 14, 13, 16, 18, 17, 19, 20], dtype=float)
+
+        components = macd_components(closes, fast=2, slow=4, signal=3)
+        standalone = macd_histogram(closes, fast=2, slow=4, signal=3)
+
+        pd.testing.assert_series_equal(
+            components.histogram, standalone, check_names=False
+        )
+
+    def test_exposes_fast_and_slow_ema(self) -> None:
+        """ema_fast/ema_slow are exactly ema(close, fast)/ema(close, slow) --
+        an independent path from the implementation under test.
+        """
+        closes = pd.Series([10, 12, 15, 14, 13, 16, 18, 17, 19, 20], dtype=float)
+
+        components = macd_components(closes, fast=2, slow=4, signal=3)
+
+        pd.testing.assert_series_equal(
+            components.ema_fast, ema(closes, 2), check_names=False
+        )
+        pd.testing.assert_series_equal(
+            components.ema_slow, ema(closes, 4), check_names=False
+        )
+
+    def test_macd_line_and_signal_line_reference_values(self) -> None:
+        """Reuses TestMacdHistogram.test_reference_values_custom_periods'
+        hand-computed macd_1/sig_1 values to check the intermediate series,
+        not just the final histogram.
+        """
+        closes = pd.Series([10, 12, 15, 14], dtype=float)
+
+        components = macd_components(closes, fast=2, slow=4, signal=3)
+
+        assert components.macd_line.iloc[1] == pytest.approx(0.533333, abs=1e-6)
+        assert components.signal_line.iloc[1] == pytest.approx(0.266667, abs=1e-6)

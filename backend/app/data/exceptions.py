@@ -7,10 +7,9 @@ standard (every documented error case declared in a route's ``responses={}``):
 - ``InsufficientHistoryError``     -> 422
 - ``DataProviderUnavailableError`` -> 503
 
-See the `decisions` entry on docs/tasks/data-provider-stooq.json for why this
-module exists here rather than only in the (at the time, not-yet-merged)
-data-provider-yfinance task — the two should be identical, and whichever PR
-merges second should simply drop its own copy in favor of the other's.
+See the `decisions` entry on docs/tasks/data-provider-yfinance.json for why
+this hierarchy has this shape (no exception module existed for `app/data`
+before this task).
 """
 
 

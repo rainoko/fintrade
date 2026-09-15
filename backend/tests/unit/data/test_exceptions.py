@@ -1,6 +1,6 @@
 """Tests for app.data.exceptions — the typed hierarchy the API layer maps to
 404/422/503 (see this task's `decisions` entry on
-docs/tasks/data-provider-stooq.json).
+docs/tasks/data-provider-yfinance.json).
 """
 
 import pytest
@@ -43,5 +43,5 @@ class TestDataProviderUnavailableError:
         assert issubclass(DataProviderUnavailableError, DataProviderError)
 
     def test_is_raisable_with_a_plain_message(self) -> None:
-        with pytest.raises(DataProviderUnavailableError, match="unreachable"):
-            raise DataProviderUnavailableError("unreachable")
+        with pytest.raises(DataProviderUnavailableError, match="rate-limited"):
+            raise DataProviderUnavailableError("rate-limited")
