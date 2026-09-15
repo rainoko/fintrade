@@ -225,6 +225,50 @@ class TestGetPortfolio:
         assert position["current_price"] is None
         assert position["unrealized_pnl_pct"] is None
 
+    def test_nan_latest_close_yields_null_price_not_nan_poisoned_total(self, db_session: Session) -> None:
+        """Regression test for pr-reviewer's PR #30 finding: neither provider's daily
+        series is guaranteed NaN-free (only the derived weekly series gets `.dropna()`),
+        so a real, non-empty, non-erroring fetch whose latest close is NaN must be treated
+        as a failed fetch by `_latest_close` (current_price=None, excluded from
+        positions_value) rather than flowing float('nan') into the running positions_value
+        total via `+=` and NaN-poisoning the WHOLE response (equity.positions_value/total
+        going to null even for other, perfectly good positions)."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_2", ticker="MSFT", quantity=5, avg_cost_basis=200.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(prices={"AAPL": [float("nan")], "MSFT": [250.0]})
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        body = response.json()
+        by_ticker = {p["ticker"]: p for p in body["positions"]}
+
+        # The NaN-close position degrades exactly like a failed/empty fetch: null price,
+        # null pnl, and it must not appear as NaN (which the JSON encoder would otherwise
+        # -- via pydantic/FastAPI's float(nan) -> None coercion -- also render as null, but
+        # for the wrong reason: today's bug is that the NaN propagates into the *sum*, not
+        # just this field).
+        assert by_ticker["AAPL"]["current_price"] is None
+        assert by_ticker["AAPL"]["unrealized_pnl_pct"] is None
+
+        # The good MSFT position, and equity as a whole, must NOT be null/NaN-poisoned by
+        # AAPL's bad close.
+        assert by_ticker["MSFT"]["current_price"] == pytest.approx(250.0)
+        assert by_ticker["MSFT"]["unrealized_pnl_pct"] == pytest.approx((250.0 - 200.0) / 200.0 * 100.0)
+        assert body["equity"]["positions_value"] == pytest.approx(5 * 250.0)
+        assert body["equity"]["total"] == pytest.approx(1000.0 + 5 * 250.0)
+
     def test_mixed_success_and_failure_only_excludes_the_failed_position(self, db_session: Session) -> None:
         db_session.add(AccountORM(id=1, cash=0.0))
         db_session.add(

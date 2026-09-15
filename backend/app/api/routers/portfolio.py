@@ -2,6 +2,7 @@ import math
 import uuid
 from decimal import Decimal
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -80,15 +81,21 @@ def get_portfolio(
 def _latest_close(provider: DataProvider, ticker: str) -> float | None:
     """Most recent daily close for `ticker`, or None if the fetch failed for any
     reason a `DataProvider` can raise (unknown ticker, insufficient history, or
-    the provider being unavailable) -- GET /api/portfolio degrades a single bad
-    ticker to a null price rather than failing the whole response, since a
-    portfolio commonly holds several positions and one bad price shouldn't hide
-    the rest (see this task's `decisions` entry)."""
+    the provider being unavailable), the frame came back empty, or the latest
+    close itself is NaN -- GET /api/portfolio degrades a single bad ticker to a
+    null price rather than failing the whole response, since a portfolio
+    commonly holds several positions and one bad price shouldn't hide the rest
+    (see this task's `decisions` entry). Neither provider's daily series is
+    guaranteed NaN-free (only the derived weekly series gets `.dropna()`), and a
+    NaN current_price is `is not None` -- it would otherwise flow into the
+    running `positions_value` float total via `+=` and silently NaN-poison the
+    whole response (NaN is contagious under float addition), not just the one
+    position."""
     try:
         frame = provider.get_daily_ohlcv(ticker)
     except DataProviderError:
         return None
-    if frame.empty:
+    if frame.empty or pd.isna(frame.iloc[-1]["close"]):
         return None
     return float(frame.iloc[-1]["close"])
 
