@@ -3,16 +3,130 @@
   "title": "OHLCV cache layer",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
-  "depends_on": ["data-provider-yfinance", "data-provider-stooq", "db-models"],
-  "references": ["docs/architecture/Backend.md#7-persistence", "docs/Architecture.md#3-cross-cutting-decisions"],
+  "state": "done",
+  "depends_on": [
+    "data-provider-yfinance",
+    "data-provider-stooq",
+    "db-models"
+  ],
+  "references": [
+    "docs/architecture/Backend.md#7-persistence",
+    "docs/Architecture.md#3-cross-cutting-decisions"
+  ],
   "description": "Implement CachedDataProvider (app/data/cache.py) wrapping a source DataProvider with the SQLite-backed OHLCVCacheORM table, so unchanged history isn't re-fetched on every request.",
   "checklist": [
-    { "step": "Read cached rows from OHLCVCacheORM for the requested ticker/interval/date range before hitting the source provider", "done": false },
-    { "step": "Fetch only the missing/stale date range from the source provider and upsert it into OHLCVCacheORM (fetched_at timestamp)", "done": false },
-    { "step": "Fall back from YFinanceProvider to StooqProvider on failure, per docs/Analyse.md §9 recommendation", "done": false },
-    { "step": "Write unit tests covering: fully cached, partially cached, empty cache, and both-providers-failed (-> 503) scenarios", "done": false },
-    { "step": "Confirm no test in this suite makes a live network call (mocks only)", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    {
+      "step": "Read cached rows from OHLCVCacheORM for the requested ticker/interval/date range before hitting the source provider",
+      "done": true
+    },
+    {
+      "step": "Fetch only the missing/stale date range from the source provider and upsert it into OHLCVCacheORM (fetched_at timestamp)",
+      "done": true
+    },
+    {
+      "step": "Fall back from YFinanceProvider to StooqProvider on failure, per docs/Analyse.md \u00a79 recommendation",
+      "done": true
+    },
+    {
+      "step": "Write unit tests covering: fully cached, partially cached, empty cache, and both-providers-failed (-> 503) scenarios",
+      "done": true
+    },
+    {
+      "step": "Confirm no test in this suite makes a live network call (mocks only)",
+      "done": true
+    },
+    {
+      "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "This task's branch (task/data-cache) merges in origin/task/data-provider-yfinance and origin/task/data-provider-stooq wholesale (via `git merge`) rather than reimplementing either provider, since CachedDataProvider genuinely needs both real, working adapters to build the fallback logic against. Both provider PRs (#18, #19) are accepted (state: done) but not yet merged to main as of this task, so this branch's diff against main includes their commits until they land first. The only merge conflicts were the duplicate app/data/exceptions.py module and its test (both tasks independently created an identical copy) and docs/tasks/index.json's per-task `state` fields -- resolved by keeping one copy of exceptions.py (yfinance's, since it merged first in this branch) and marking both data-provider-yfinance and data-provider-stooq as \"done\" in index.json, matching each task's own file.",
+      "rationale": "Reimplementing a third copy of two ~100-line provider adapters (with recorded CSV fixtures) purely to keep this branch's diff 'clean' would waste review effort and risk silently diverging from the already-accepted implementations. The exceptions.py duplication was anticipated by data-provider-stooq's own decisions entry, which explicitly says whichever PR merges second should drop its own copy in favor of the other's -- this merge does exactly that. Rejected: cherry-picking only app/data/exceptions.py and stubbing the two providers, which would still leave this task depending on interfaces (get_daily_ohlcv/get_weekly_ohlcv exact behavior, exception timing) that only the real implementations pin down, defeating the point of testing the fallback path against real logic."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "CachedDataProvider's cache-freshness policy is a flat 24-hour TTL keyed on OHLCVCacheORM.fetched_at (the most recent fetched_at among a ticker/interval's cached rows), not a trading-calendar-aware 'do we already have the latest session's bar' check. 'Fully cached' means cached rows exist and the most recent fetch is within the last 24h (served straight from SQLite, no source call); 'partially cached' (stale) means cached rows exist but the most recent fetch is older than that (triggers a refresh). Because the DataProvider protocol (app/data/base.py) takes no date-range argument -- get_daily_ohlcv/get_weekly_ohlcv always return the full available history -- 'read cached rows for the requested date range' is read as 'read whatever date range is already cached for this ticker/interval', and 'fetch only the missing/stale range' is satisfied at the point of deciding *whether* to call the source at all (only on a miss or staleness) rather than by requesting a narrower window from yfinance/Stooq, which their APIs don't support. The actual upsert, when it does run, is one full pass over the freshly fetched frame (insert-or-update per ticker+date+interval row), which is idempotent and correctly limited to rows that changed or are new.",
+      "rationale": "A market-calendar-aware freshness check (accounting for weekends/holidays/pre-market) would need logic and data this MVP-scope cache doesn't otherwise have any use for, and the DataProvider protocol's lack of a date-range parameter is a pre-existing, already-merged contract (app/data/base.py, used identically by both real providers and their tests) that this task shouldn't change just to support a windowed fetch -- doing so would ripple into both provider implementations and their already-accepted tests. A flat TTL is simple, testable, and correct in spirit: it avoids re-fetching on every single request (the documented goal, docs/Architecture.md \u00a73) while still refreshing within a bounded staleness window. Rejected: (a) extending DataProvider with a start/end-date parameter, out of scope for this task and breaking an already-accepted interface; (b) a per-row/per-date freshness check instead of a whole-ticker/interval one, which would require partial-range source requests the providers don't support anyway; (c) treating 'partially cached' as literally 'some but not all expected dates present', which isn't observable without a market calendar."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The yfinance->Stooq fallback in CachedDataProvider only triggers on DataProviderUnavailableError from the primary provider. TickerNotFoundError and InsufficientHistoryError propagate immediately without attempting the fallback provider.",
+      "rationale": "docs/Analyse.md \u00a79 recommends Stooq specifically 'if Yahoo endpoints fail or rate-limit' -- an availability problem, not a statement about a given ticker's existence or history depth, which the fallback provider isn't guaranteed to resolve differently anyway (and silently trying a second network call on every not-found ticker would double request volume against both free-tier providers for no expected benefit). Rejected: falling back on every DataProviderError subtype including not-found/insufficient-history, which would mask a real 404/422 outcome behind an extra network round-trip and could return a misleadingly different not-found/insufficient-history error from the fallback (different history depth, different ticker coverage) instead of the primary's authoritative one."
+    },
+    {
+      "timestamp": "2026-09-13T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "When both the primary and fallback providers fail (both raise DataProviderUnavailableError), CachedDataProvider re-raises DataProviderUnavailableError (wrapping the fallback's exception, with a message naming both providers) rather than introducing a new exception type. This applies uniformly whether the cache was empty or merely stale for that ticker/interval -- CachedDataProvider does not fall back to silently serving stale cached data when a refresh is attempted and both providers fail.",
+      "rationale": "app/data/exceptions.py already documents DataProviderUnavailableError as mapping to HTTP 503 for exactly this case ('the upstream provider itself is unreachable or refusing requests... as opposed to a per-ticker problem'), which is precisely the both-providers-failed condition -- a new exception type would be a distinction without a difference for the API layer. Not falling back to stale data was the closer call: silently serving out-of-date bars as if they were current, for a tool whose whole purpose is signaling BUY/SELL off recent price action, risks misleading a signal computed from data staler than the caller (and the 503 response) implies. Surfacing the failure explicitly is safer and matches the checklist's own framing ('both-providers-failed (-> 503) scenario') without conditioning it on cache state. Rejected: serving stale cached data as a graceful-degradation fallback, which would be a reasonable choice for a less safety-sensitive read path but trades correctness for uptime in a context (trading signals) where that's the wrong trade; introducing a distinct 'stale data served under outage' exception/flag, which is unneeded complexity with no consumer yet defined for it."
+    },
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved the merge conflicts pr-decision flagged (branch cut before data-provider-yfinance #18 and data-provider-stooq #19 merged to main) by merging origin/main into task/data-cache and taking main's already-merged version verbatim for backend/app/data/exceptions.py, docs/tasks/data-provider-stooq.json, and docs/tasks/data-provider-yfinance.json. For docs/tasks/index.json, took main's file wholesale (which now correctly lists data-provider-yfinance, data-provider-stooq, and the other tasks main had since flipped to done) but corrected only the data-cache entry's own state from main's stale \"planned\" to \"implementing\", matching this task file's actual current state -- neither branch's copy of that one field was right after a straight take-theirs. All other files in the merge (indicator/signal/portfolio modules and their task JSONs, the new data-provider-stooq-followups.json and pr-merger.md) applied cleanly with no conflict since they were untouched by this branch. Re-ran the full backend suite after resolving (see below) to confirm nothing broke.",
+      "rationale": "This is exactly the scenario this task's own first `decisions` entry anticipated and the scenario PR #19 already hit and fixed the same way -- taking main's copy of a module/doc that landed via another PR's own conflict resolution avoids re-litigating a resolution that's already been reviewed and merged, and reimplementing or hand-merging exceptions.py's docstring wording again would just risk reintroducing the same add/add conflict on the next rebase. The index.json per-task `state` field needed manual reconciliation rather than a blind take-theirs because index.json is documented as a mirror of each task's own file's state (CLAUDE.md's decision-memory section) and only this task's own worker (not main, which never saw this branch's progress) knows data-cache is currently \"implementing\". Rejected: keeping this branch's own (now-stale) copies of the three docs/tasks/*.json files, which would silently regress main's already-accepted task-state updates for two unrelated tasks; hand-splicing exceptions.py's two docstring versions together, which isn't necessary since #19's version is the one already reviewed and living on main."
+    }
+  ],
+  "git": {
+    "branch": "task/data-cache",
+    "pr_number": 20,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/20",
+    "pushed_at": "2026-09-13T10:48:20Z"
+  },
+  "review": {
+    "verdict": "accepted",
+    "reviewed_at": "2026-09-15T17:06:26Z",
+    "reviewed_by": "pr-reviewer",
+    "pr_number": 20,
+    "comments": [
+      {
+        "summary": "OVERRIDE (pr-decision, blocking): the accept is stale -- this branch was cut before data-provider-yfinance (#18) and data-provider-stooq (#19) both merged to main, and #19 itself needed a rebase-and-fix round for exactly this reason. `gh pr view 20 --json mergeable,mergeStateStatus` reports CONFLICTING/DIRTY. Reproduced locally via a real trial merge (`git merge-tree --write-tree HEAD origin/main`): add/add conflict in backend/app/data/exceptions.py:12-15 (this branch's docstring differs from the version that actually landed on main through #19's own resolution), plus content conflicts in docs/tasks/index.json (main has since flipped indicator-stochastic, indicator-elder-ray, indicator-autoenvelope, screen1-tide, screen2-wave, confidence-scoring, portfolio-risk-rules to done and added data-provider-stooq-followups, none reflected on this branch), docs/tasks/data-provider-stooq.json, and docs/tasks/data-provider-yfinance.json (this branch carries stale pre-rebase snapshots of both). None of this touches the cache logic's own correctness -- re-ran pytest --cov=app --cov-report=term-missing myself: 100/100 pass, app/data/cache.py 100% coverage, matching pr-reviewer's numbers exactly, and cache.py's read-through/TTL/fallback logic reads correctly against the task's decisions entries. Needs a rebase of task/data-cache onto current main (taking main's copy of exceptions.py and the three docs/tasks/*.json files verbatim, per this task's own decisions entry anticipating exactly this) before it can go back to pr-reviewer.",
+        "file": "backend/app/data/exceptions.py",
+        "line": 12
+      },
+      {
+        "summary": "Perf (non-blocking): _upsert does one self._db.get() per row in a loop instead of reusing rows _read_cache() already loaded, so a cold/stale refresh does O(n) individual SELECTs. Correct, just wasteful for long-history tickers -- worth a follow-up (bulk PK lookup or upsert statement).",
+        "file": "backend/app/data/cache.py",
+        "line": 122
+      },
+      {
+        "summary": "Design fragility in _is_fresh (assessed non-blocking): freshness is derived from max(fetched_at) across all cached rows for a ticker/interval, so if a source's returned history window ever shrank between calls, orphaned older rows would never be individually revalidated yet would still read as fresh because newer sibling rows dominate the max. Traced end-to-end: doesn't manifest under this PR's actual behavior, because both YFinanceProvider and StooqProvider always fetch full, un-windowed history on every call, so _upsert re-stamps the entire cached set together each refresh -- no cached row is ever dropped from the table either. Real latent gap if that provider assumption ever changes (e.g. a future windowed-fetch DataProvider). Recommend a follow-up: track a single per-(ticker,interval) cache_refreshed_at instead of max() over row timestamps, and/or evict rows that drop out of a fresh fetch.",
+        "file": "backend/app/data/cache.py",
+        "line": 93
+      },
+      {
+        "summary": "Concurrency (non-blocking): two concurrent first-time-population calls for the same (ticker, date, interval) would both see self._db.get(...) is None, both add() a new row, and the second commit() would raise IntegrityError on the composite primary key -- no try/except around it. Low urgency: CachedDataProvider isn't wired into any router yet (verified -- no other reference in app/ besides its own tests), so no live concurrent caller exists today. Flag before wiring into the API layer under real concurrency.",
+        "file": "backend/app/data/cache.py",
+        "line": 133
+      },
+      {
+        "summary": "Dtype inconsistency (assessed non-blocking): reproduced directly -- cache-miss path returns volume as int64 (straight from the provider frame), cache-hit path returns float64 (ORM Float column via _rows_to_frame). Not externally observable today since app/api/schemas.py declares volume: float and Pydantic coerces either dtype at the response boundary; CachedDataProvider also isn't wired into that boundary yet. Worth a cleanup for internal consistency (cast to float on the read path) in case downstream code ever branches on dtype.",
+        "file": "backend/app/data/cache.py",
+        "line": 70
+      },
+      {
+        "summary": "Test coverage gap (confirmed non-blocking): no test exercises the fallback or both-providers-failed path specifically for get_weekly_ohlcv (only get_daily_ohlcv is covered by TestFallback/TestBothProvidersFailed), and no test explicitly asserts InsufficientHistoryError propagates without triggering the fallback (only inferable from shared code with the tested TickerNotFoundError case). 100% line/branch coverage is still achieved because the daily/weekly split in _call happens to be exercised by other, unrelated tests. Worth closing given how central the fallback behavior is to this task's purpose.",
+        "file": "backend/tests/unit/data/test_cache.py"
+      },
+      {
+        "summary": "Silently-discarded primary failure (confirmed non-blocking, found by the backgrounded code-review skill run after the initial review was posted; verified independently and added as a PR addendum comment): _fetch_from_source's `except DataProviderUnavailableError: pass` on the primary call discards the primary's failure with no logging. If the fallback then succeeds, there's no record anywhere that the primary failed at all; if the fallback also fails, only the fallback's exception survives as the raised error's __cause__, losing the primary's actual failure reason from the traceback. Checked: no logging framework exists anywhere in this backend yet (greenfield), so this isn't a deviation from an established convention -- a real observability gap worth a follow-up (log the primary's exception before falling back), not a correctness bug.",
+        "file": "backend/app/data/cache.py",
+        "line": 106
+      },
+      {
+        "summary": "Re-review after task-worker resolved the pr-decision-flagged merge conflicts: verified backend/app/data/exceptions.py, docs/tasks/data-provider-stooq.json, and docs/tasks/data-provider-yfinance.json are now byte-identical to origin/main (git diff origin/main -- <file> empty for all three); docs/tasks/index.json differs from main only in data-cache's own state line (planned -> implementing at merge time, now corrected to done here), exactly as claimed. Confirmed backend/app/data/cache.py and backend/tests/unit/data/test_cache.py are byte-identical to the originally-reviewed commit 44a8d1d (git diff 44a8d1d HEAD -- both paths is empty) -- no substantive code changed during conflict resolution. Re-ran pytest --cov=app --cov-report=term-missing myself: 250 passed, 97.18% total coverage, app/data/cache.py and app/data/exceptions.py both 100%, matching task-worker's reported numbers exactly and confirming no regression. gh pr view 20 now reports mergeable=MERGEABLE, mergeStateStatus=CLEAN. No ruff/mypy configured in backend/pyproject.toml, so no separate lint step (unchanged from original review). No API/schema change, so openapi.json correctly untouched. No new UI surface -- browser walkthrough not applicable. All 6 non-blocking findings from the original review/addendum are now also tracked as checklist items on docs/tasks/data-cache-followups.json (created in this same commit; a prior attempt at this file existed only on the still-open, unrelated PR #23 branch and covered just 1 of the 6 findings, so it was not reused verbatim). Verdict: accepted."
+      }
+    ],
+    "notes": "Full review: gh pr checkout 20; pytest --cov=app --cov-report=term-missing -> 100/100 pass, app/data/cache.py at 100% line/branch coverage. Repo-wide coverage is 87.76% (below the 90% gate) but confirmed via a throwaway worktree at f6b9b94 (this branch's state immediately before this task's own commits) that the shortfall is entirely pre-existing (83.54% baseline, from other tasks' scaffolded stub modules already on main) -- this PR improves coverage, no regression, matching the same reasoning already applied in PR #19's review. No ruff/mypy configured in backend/pyproject.toml -> no separate lint step. No API/schema change -> openapi.json correctly untouched. No UI surface (CachedDataProvider isn't wired into any router yet) -> browser walkthrough explicitly not applicable. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal's trigger wasn't met, but docs/architecture/Backend.md \u00a77 / docs/Architecture.md \u00a73 conformance was checked directly per the caching-design instruction and matches (cache keyed to avoid re-fetching unchanged history, TTL-gated source calls). All 5 findings from a prior backgrounded code-review skill run were independently reproduced (direct code reading, a standalone dtype repro script, and tracing the actual upsert/freshness logic against both real provider implementations) rather than transcribed -- none reached blocking severity under the code's actual as-shipped behavior. A second, self-dispatched backgrounded code-review run (--target 44a8d1d --effort high) completed after the initial review/commit had already been posted/pushed; it corroborated findings #1/#2 from a different angle and surfaced one new confirmed-real, non-blocking finding (silently-discarded primary exception), posted as a PR addendum comment and folded in here rather than left unreconciled. All 4 decisions entries are genuine (what + rejected alternatives + why) and cover every judgment call the checklist implied; no undecided 'decide X' items. Posted as gh pr review --comment (COMMENTED) since --approve fails on this account's own PR as expected.\n\npr-decision override (2026-09-15): re-verified per standard process before authorizing merge. Re-ran the backend suite myself (100/100 pass, 87.76% coverage, app/data/cache.py 100% -- matches pr-reviewer's numbers exactly, not stale) and skimmed backend/app/data/cache.py directly -- the code-quality findings above all still hold and none are underweighted. But `gh pr view 20 --json mergeable,mergeStateStatus` now reports mergeable=CONFLICTING, mergeStateStatus=DIRTY, and a real local trial merge (`git merge-tree --write-tree HEAD origin/main`) confirms genuine conflicts: an add/add conflict in backend/app/data/exceptions.py (this branch's docstring vs. the version #19's own resolution actually put on main) plus content conflicts in docs/tasks/index.json, docs/tasks/data-provider-stooq.json, and docs/tasks/data-provider-yfinance.json (this branch predates main's #18/#19 merges and those tasks' own post-review rebase fixes). This is the same failure mode #19 already hit and fixed once (see that task's file) -- the accept doesn't hold up against current mergeability, so this needs a rebase/conflict-resolution pass (take main's copy of exceptions.py and the three docs/tasks/*.json files) before going back to pr-reviewer. Flipping to needs_work rather than reporting merge. Posted as a plain gh pr comment, not a formal review.\n\nRe-review (2026-09-15, pr-reviewer): confirmed conflict resolution is correct and complete, tests pass with matching numbers, filed docs/tasks/data-cache-followups.json for the previously-recorded non-blocking findings. Flipping verdict to accepted and task state to done."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T17:07:41Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified the fresh accept. git diff origin/main for backend/app/data/exceptions.py, docs/tasks/data-provider-stooq.json, and docs/tasks/data-provider-yfinance.json is empty (byte-identical to main); docs/tasks/index.json differs from main only in the data-cache own-state line (planned -> done) and the new data-cache-followups entry, exactly as claimed. `gh pr view 20 --json mergeable,mergeStateStatus` reports MERGEABLE/CLEAN, and a local `git merge-tree --write-tree HEAD origin/main` trial merge produced a tree with no conflict markers. Re-ran `pytest --cov=app --cov-report=term-missing` myself: 250 passed, 97.18% total coverage, app/data/cache.py and app/data/exceptions.py both 100% -- matches pr-reviewer's re-review numbers exactly. Read backend/app/data/cache.py directly and confirmed the fallback-only-on-DataProviderUnavailableError logic, the flat 24h TTL, and the discarded-primary-exception `except DataProviderUnavailableError: pass` all match the review's description; also confirmed via test_cache.py's test names that the weekly-fallback/InsufficientHistoryError coverage gap is real but genuinely non-blocking (100% coverage is incidental via shared code paths) and is correctly tracked in docs/tasks/data-cache-followups.json (all 6 findings present as checklist items, depends_on data-cache). Diff against main is scoped to backend/app/data/cache.py, its test, and the task JSONs -- no scope creep. Verdict holds; reporting merge."
+  }
 }
