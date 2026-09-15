@@ -1,0 +1,23 @@
+{
+  "id": "portfolio-exit-rules-followups",
+  "title": "Existing-position exit rules — non-blocking review follow-ups",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["portfolio-exit-rules"],
+  "references": [
+    "docs/tasks/portfolio-exit-rules.json#review",
+    "https://github.com/rainoko/fintrade/pull/28"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #28 (portfolio-exit-rules), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "evaluate_exit_flags() recomputes several indicators from scratch on overlapping windows within a single call: protective_stop(position, daily_ohlcv[:-1]) computes EMA(13) over the pre-today slice, autoenvelope(daily_ohlcv['close']) separately computes EMA(13) over the full (today-inclusive) series, and evaluate_impulse(daily_ohlcv) recomputes EMA(13) + the MACD-Histogram yet again over that same full series -- three independent EMA(13) passes plus a MACD pass per call. evaluate_tide() is also called twice (full weekly_ohlcv, then weekly_ohlcv[:-1]), each independently recomputing MACD-Histogram + EMA(13)/EMA(26) over its own slice. None of this is a correctness issue (mirrors the already-tracked, analogous finding in signal-engine-orchestration-followups for engine.py/impulse.py) and isn't a hot path yet at current per-position, on-demand evaluation call volumes, but worth revisiting -- e.g. sharing the EMA/MACD series across protective_stop/autoenvelope/evaluate_impulse, or a slice-aware cache -- next time exits.py, risk.py, autoenvelope.py, or impulse.py is touched, especially once this feeds a portfolio-wide endpoint evaluating every held position on each request.",
+      "done": false
+    },
+    {
+      "step": "The 'six_percent_rule_contributor' decision recorded in docs/tasks/portfolio-exit-rules.json claims 'stop_hit and six_percent_rule_contributor are mutually exclusive by construction' -- but this only holds if position.current_price and daily_ohlcv's latest close represent the same 'today'. evaluate_exit_flags() takes both as independent parameters with no validation or documented precondition tying them together: stop_hit is tested against daily_ohlcv['close'].iloc[-1], while position_risk_pct (feeding both two_percent_rule_breached and six_percent_rule_contributor) is computed against position.current_price via risk.py's pre-existing contract (from the portfolio-risk-rules task, not introduced here). If a future caller (the still-stubbed GET /api/portfolio/risk endpoint, per api-portfolio-risk) ever populates these from data that isn't perfectly in sync (e.g. a stale current_price from a failed/cached price fetch while daily_ohlcv reflects a fresher bar), stop_hit and six_percent_rule_contributor could both fire together despite the decision's claim. Not a live bug today (no wired caller exists yet to violate this), and not a docs/Analyse.md violation (§7 doesn't require these flags be mutually exclusive -- that was only the task-worker's own rationale for the design, not a spec requirement), but worth either (a) adding an explicit documented precondition to evaluate_exit_flags() that daily_ohlcv's latest bar and position.current_price must be as-of the same day, or (b) softening/removing the 'by construction' claim in the decisions entry so a future reader doesn't rely on a guarantee the code doesn't actually enforce. Surface this when api-portfolio-risk (the real caller) is implemented.",
+      "done": false
+    }
+  ]
+}

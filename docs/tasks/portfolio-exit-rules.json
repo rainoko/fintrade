@@ -3,7 +3,7 @@
   "title": "Existing-position exit rules",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["portfolio-risk-rules", "signal-engine-orchestration", "indicator-autoenvelope"],
   "references": ["docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay"],
   "description": "evaluate_exit_flags() in app/portfolio/exits.py: flags a held position for SELL/reduce independently of the fresh-entry signal logic (stop hit, 2%/6% rule breach, profit-zone + Impulse Red, tide flip to bearish).",
@@ -41,5 +41,33 @@
     "pr_number": 28,
     "pr_url": "https://github.com/rainoko/fintrade/pull/28",
     "pushed_at": "2026-09-15T18:00:10Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-15T18:30:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/28",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the PR's headline correctness claim: protective_stop()'s swing_low = min(low) over its window and stop = swing_low - buffer (buffer >= 0) means stop <= swing_low always; since a bar's close can never be below its own low, including today's bar in that window forces stop <= today's low <= today's close on every call, making 'stop_hit' mathematically unreachable by construction. Confirmed the fix (protective_stop(position, daily_ohlcv.iloc[:-1]), tested against today's close) is correctly implemented, that position_risk_pct() consistently uses the same as-of-today stop, and hand-traced test_real_stop_hit's numbers (10 quiet days -> swing_low=99, buffer=1.0 -> stop=98; gap-down close=80 < 98 -> stop_hit fires) to confirm the end-to-end test genuinely exercises the fixed path rather than relying only on the mocked-stop unit tests (which separately assert protective_stop is called with the today-excluded 2-row slice via test_stop_computed_excluding_todays_bar).",
+        "file": "backend/app/portfolio/exits.py",
+        "line": 94
+      },
+      {
+        "summary": "verify-elder-signal checklist against docs/Analyse.md §7 passes: 2%/6% rules use current equity/current position risk (never entry-time values), exit flags are evaluated independently of the fresh-entry signal (evaluate_exit_flags takes no signal parameter at all, confirmed by both a dedicated contract test and by construction), and the protective stop is swing-low-minus-volatility-buffer (not a fixed-percentage stop). All three recorded `decisions` entries (today-excluded stop, portfolio_open_risk_pct as a required caller-supplied parameter, profit_zone_impulse_red as current-state vs. tide_flipped_bearish as an explicit transition) are well-reasoned and consistent with both the code and Analyse.md's differing wording for those two flags.",
+        "file": "docs/tasks/portfolio-exit-rules.json",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: evaluate_exit_flags() recomputes EMA(13)/MACD-Histogram from scratch multiple times per call (protective_stop, autoenvelope, evaluate_impulse each independently derive EMA(13) over overlapping windows; evaluate_tide is called twice, each recomputing its own MACD/EMA pass). Not a correctness issue and not yet a hot path, but the same class of redundancy already tracked for signal-engine-orchestration. Filed as a checklist item on docs/tasks/portfolio-exit-rules-followups.json rather than blocking this PR.",
+        "file": "backend/app/portfolio/exits.py",
+        "line": 105
+      },
+      {
+        "summary": "Non-blocking (raised by the code-review skill's automated pass, independently verified): the decisions entry's claim that 'stop_hit and six_percent_rule_contributor are mutually exclusive by construction' only holds if daily_ohlcv's latest close and position.current_price represent the same 'today' -- evaluate_exit_flags() takes both as independent parameters with no validation or documented precondition tying them together. Not a live bug (no wired caller exists yet -- GET /api/portfolio/risk is still a 501 stub) and not a docs/Analyse.md violation (§7 doesn't require these flags be mutually exclusive), but worth an explicit documented precondition or a softened decisions claim once api-portfolio-risk actually wires a caller. Filed as a checklist item on docs/tasks/portfolio-exit-rules-followups.json.",
+        "file": "docs/tasks/portfolio-exit-rules.json",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: gh pr checkout 28; backend/.venv/bin/pytest -q -> 317/317 passing, no regression; pytest --cov=app --cov-report=term-missing -> app/portfolio/exits.py 100% line/branch, repo-wide 99.33% (gate is 90%). No ruff/mypy config exists in backend/pyproject.toml, so no lint step was invented/run per CLAUDE.md guidance. code-review skill (medium effort) dispatched against the diff in addition to a manual line-by-line pass; it surfaced one additional non-blocking finding (the current_price/daily_ohlcv same-day precondition underlying the six_percent_rule_contributor decision's mutual-exclusivity claim, above) plus the already-noted indicator-recomputation efficiency note -- no correctness issue was found that would change the accepted verdict. verify-elder-signal run against docs/Analyse.md §7 (Portfolio Risk Overlay) -- no divergence found. This PR only fills in a pre-existing exits.py stub within the existing module layout (no new module/dependency/layer), so architecture-review wasn't triggered. No API route or schema touched, so no OpenAPI snapshot check applies. No UI surface (pure backend module, not yet wired to an API router or frontend) -- browser walkthrough explicitly skipped as not applicable rather than silently omitted. Cross-checked all three `decisions` entries against the checklist items they resolve; no undocumented judgment calls found."
   }
 }
