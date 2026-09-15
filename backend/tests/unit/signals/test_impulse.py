@@ -177,3 +177,30 @@ class TestEvaluateImpulseEndToEnd:
         daily_ohlcv = _daily_ohlcv(pd.Series([100.0]))
 
         assert evaluate_impulse(daily_ohlcv) == "BLUE"
+
+
+class TestEvaluateImpulsePrecomputedEma13:
+    """Covers the `ema_13` parameter (see the portfolio-exit-rules-followups task's
+    `decisions` entry) that lets a caller share an already-computed EMA(13) of the same
+    close series instead of evaluate_impulse recomputing it internally."""
+
+    def test_precomputed_ema_13_matches_default_computation(self) -> None:
+        from app.indicators.ema import ema as real_ema
+
+        closes = pd.Series([100 * (1.05**i) for i in range(30)], dtype=float)
+        daily_ohlcv = _daily_ohlcv(closes)
+        precomputed = real_ema(closes, 13)
+
+        assert evaluate_impulse(daily_ohlcv, ema_13=precomputed) == evaluate_impulse(daily_ohlcv)
+
+    def test_precomputed_ema_13_is_actually_used_not_ignored(self, mocker) -> None:
+        """A deliberately wrong `ema_13` must change the direction the function reads --
+        confirms the parameter is wired in, not silently ignored in favor of recomputing."""
+        mocker.patch("app.signals.impulse.macd_histogram", return_value=pd.Series([1.0, 2.0]))
+        daily_ohlcv = _daily_ohlcv(pd.Series([100.0, 101.0]))
+
+        # A wrong, sharply falling ema_13 flips the impulse direction away from what the
+        # real (rising) EMA(13) of this series would produce.
+        wrong_falling_ema_13 = pd.Series([100.0, 1.0])
+
+        assert evaluate_impulse(daily_ohlcv, ema_13=wrong_falling_ema_13) == "BLUE"

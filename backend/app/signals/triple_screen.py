@@ -74,7 +74,13 @@ def macd_histogram_slope(histogram: pd.Series, latest_close: float) -> str:
     return "flat"
 
 
-def evaluate_tide(weekly_ohlcv: pd.DataFrame) -> TideResult:
+def evaluate_tide(
+    weekly_ohlcv: pd.DataFrame,
+    *,
+    histogram: pd.Series | None = None,
+    ema_13: pd.Series | None = None,
+    ema_26: pd.Series | None = None,
+) -> TideResult:
     """Screen 1: trend + the MACD-Histogram slope classification behind it.
 
     From weekly MACD-Histogram slope + 13/26-week EMA relationship (docs/Analyse.md §2).
@@ -99,6 +105,24 @@ def evaluate_tide(weekly_ohlcv: pd.DataFrame) -> TideResult:
 
     Too little history (<2 weekly bars) to compute a slope at all returns
     NEUTRAL/'flat' without calling either indicator.
+
+    ``histogram``/``ema_13``/``ema_26``, if given, are used as the
+    already-computed ``macd_components(weekly_ohlcv['close']).histogram`` /
+    ``ema(weekly_ohlcv['close'], 13)`` / ``macd_components(...).ema_slow``
+    instead of recomputing them here (each must be index-aligned with
+    ``weekly_ohlcv``, i.e. the exact output of calling those functions on
+    ``weekly_ohlcv['close']``). All three are independent (a caller may supply
+    any subset); anything omitted is computed internally exactly as before this
+    parameter existed. This lets a caller who evaluates the tide over more than
+    one slice of the same underlying weekly series -- e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which calls this twice
+    (``weekly_ohlcv`` and ``weekly_ohlcv[:-1]``) to detect a bullish-to-bearish
+    flip -- compute the MACD/EMA series once over the full series and slice it
+    per call (EMA/MACD are causal: a value at index *t* depends only on data up
+    to *t*, so slicing a full-series computation gives identical values to
+    recomputing over the truncated series) instead of each call independently
+    re-deriving its own MACD/EMA pass -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry.
     """
     if len(weekly_ohlcv) < 2:
         return TideResult(trend="NEUTRAL", weekly_macd_histogram_slope="flat")
@@ -106,15 +130,23 @@ def evaluate_tide(weekly_ohlcv: pd.DataFrame) -> TideResult:
     weekly_close = weekly_ohlcv["close"]
     latest_close = weekly_close.iloc[-1]
 
-    components = macd_components(weekly_close)
-    slope = macd_histogram_slope(components.histogram, latest_close)
+    if histogram is None or ema_26 is None:
+        components = macd_components(weekly_close)
+        if histogram is None:
+            histogram = components.histogram
+        if ema_26 is None:
+            ema_26 = components.ema_slow
+    slope = macd_histogram_slope(histogram, latest_close)
 
-    ema_13 = ema(weekly_close, 13).iloc[-1]
-    ema_26 = components.ema_slow.iloc[-1]
+    if ema_13 is None:
+        ema_13 = ema(weekly_close, 13)
 
-    if slope == "rising" and ema_13 > ema_26:
+    ema_13_latest = ema_13.iloc[-1]
+    ema_26_latest = ema_26.iloc[-1]
+
+    if slope == "rising" and ema_13_latest > ema_26_latest:
         trend = "BULLISH"
-    elif slope == "falling" and ema_13 < ema_26:
+    elif slope == "falling" and ema_13_latest < ema_26_latest:
         trend = "BEARISH"
     else:
         trend = "NEUTRAL"

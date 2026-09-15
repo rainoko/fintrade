@@ -4,7 +4,11 @@ from app.indicators.ema import ema
 
 
 def autoenvelope(
-    close: pd.Series, ema_period: int = 13, deviation_lookback: int = 100
+    close: pd.Series,
+    ema_period: int = 13,
+    deviation_lookback: int = 100,
+    *,
+    mid: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Moving-average envelope (upper/lower bands) around EMA(13), used for
     profit-target zones and overextension detection (docs/Analyse.md §4: "EMA
@@ -12,9 +16,18 @@ def autoenvelope(
 
     ``mid`` is ``EMA(close, ema_period)`` (delegates to ``app.indicators.ema``,
     which validates ``ema_period`` and applies the app-wide first-value-seed
-    recursive EMA convention). The channel half-width at each bar is the
-    trailing rolling average, over the last ``deviation_lookback`` bars, of
-    that bar's absolute percentage deviation from ``mid``:
+    recursive EMA convention) -- or, if the caller already computed that exact
+    EMA for another purpose, it can be passed in directly via the ``mid``
+    keyword instead of being recomputed here (must be index-aligned with
+    ``close``, i.e. ``ema(close, ema_period)``'s own output). This lets a
+    caller who needs the same EMA(13) elsewhere too (e.g.
+    ``app.portfolio.exits.evaluate_exit_flags``, which also feeds it to
+    ``protective_stop``/``evaluate_impulse``) share one computation instead of
+    each call independently re-deriving an identical EMA pass -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry. The channel
+    half-width at each bar is the trailing rolling average, over the last
+    ``deviation_lookback`` bars, of that bar's absolute percentage deviation
+    from ``mid``:
     ``avg_pct_t = mean(|close_i - mid_i| / mid_i for i in [t - lookback + 1, t])``.
     Bands are then a multiplicative envelope: ``upper = mid * (1 + avg_pct)``,
     ``lower = mid * (1 - avg_pct)``. See the decision recorded on
@@ -39,7 +52,8 @@ def autoenvelope(
     if deviation_lookback < 1:
         raise ValueError("deviation_lookback must be >= 1")
 
-    mid = ema(close, ema_period)
+    if mid is None:
+        mid = ema(close, ema_period)
     pct_deviation = (close - mid).abs() / mid
     avg_pct_deviation = pct_deviation.rolling(
         window=deviation_lookback, min_periods=deviation_lookback
