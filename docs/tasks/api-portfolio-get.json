@@ -3,9 +3,32 @@
   "title": "API: GET /api/portfolio",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#get-apiportfolio"],
+  "review": {
+    "reviewed_at": "2026-09-15T21:40:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/30",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Mark-to-market enrichment logic (fetch current_price, compute unrealized_pnl_pct, sum positions_value, drop a position whose price fetch failed) is embedded in the get_portfolio route handler rather than as a reusable function on the existing app.portfolio.models domain shapes. The still-stubbed GET /api/portfolio/risk endpoint will need position.current_price populated too and will likely duplicate this loop as currently structured. Non-blocking; tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 37
+      },
+      {
+        "summary": "docs/architecture/Backend.md's module layout diagram doesn't list the new app/api/dependencies.py file. Doesn't violate any documented principle, but the diagram should be updated for accuracy. Non-blocking; tracked as a follow-up.",
+        "file": "docs/architecture/Backend.md",
+        "line": 11
+      },
+      {
+        "summary": "db.query(PositionORM).all() has no explicit order_by, so response position ordering isn't guaranteed/deterministic. Low impact for a single-user MVP. Non-blocking; tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 52
+      }
+    ],
+    "notes": "Verified: pytest --cov=app --cov-report=term-missing -> 370 passed, 99.43% coverage (gate 90%, no regression). No ruff/mypy configured in backend/pyproject.toml, so no lint step applies. backend/openapi.json confirmed byte-identical to a fresh `python scripts/export_openapi.py` regeneration; operation_id (get_portfolio), response_model (PortfolioResponse), and summary/docstring are all present; no undeclared error responses (the handler never raises -- it degrades per-position instead, matching the route's actual behavior). Both recorded decisions checked: the get_data_provider composition in app/api/dependencies.py matches the described rationale and mirrors the existing get_db override pattern; the null-price/excluded-from-positions_value behavior on price-fetch failure is implemented exactly as decided (app/api/routers/portfolio.py's _latest_close catches the DataProviderError base class, covering all three subclasses), doesn't conflict with docs/Analyse.md or docs/architecture/API.md (both are silent on this specific question), and is exercised by a genuine mixed-success/failure integration test (test_mixed_success_and_failure_only_excludes_the_failed_position) rather than only isolated single-position cases. Architecture review against docs/architecture/Backend.md's module layout found no blocking layering violation -- the new app/api/dependencies.py module fits the existing api/ layer and Depends()-override testing pattern already used for get_db. No checklist item was phrased as 'decide X' requiring a decisions entry beyond the two already recorded. No frontend exists yet (per CLAUDE.md, frontend/ not yet scaffolded) and this PR has no UI surface, so the browser walkthrough step was skipped as explicitly out of scope. Three non-blocking findings filed as docs/tasks/api-portfolio-get-followups.json."
+  },
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (PortfolioResponse) are already wired.",
   "checklist": [
     { "step": "Route signature + PortfolioResponse schema already defined", "done": true },
