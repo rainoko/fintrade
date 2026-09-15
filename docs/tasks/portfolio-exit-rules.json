@@ -43,7 +43,7 @@
     "pushed_at": "2026-09-15T18:00:10Z"
   },
   "review": {
-    "reviewed_at": "2026-09-15T18:30:00Z",
+    "reviewed_at": "2026-09-15T18:06:23Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/28",
     "verdict": "accepted",
     "comments": [
@@ -69,5 +69,10 @@
       }
     ],
     "notes": "Full review: gh pr checkout 28; backend/.venv/bin/pytest -q -> 317/317 passing, no regression; pytest --cov=app --cov-report=term-missing -> app/portfolio/exits.py 100% line/branch, repo-wide 99.33% (gate is 90%). No ruff/mypy config exists in backend/pyproject.toml, so no lint step was invented/run per CLAUDE.md guidance. code-review skill (medium effort) dispatched against the diff in addition to a manual line-by-line pass; it surfaced one additional non-blocking finding (the current_price/daily_ohlcv same-day precondition underlying the six_percent_rule_contributor decision's mutual-exclusivity claim, above) plus the already-noted indicator-recomputation efficiency note -- no correctness issue was found that would change the accepted verdict. verify-elder-signal run against docs/Analyse.md §7 (Portfolio Risk Overlay) -- no divergence found. This PR only fills in a pre-existing exits.py stub within the existing module layout (no new module/dependency/layer), so architecture-review wasn't triggered. No API route or schema touched, so no OpenAPI snapshot check applies. No UI surface (pure backend module, not yet wired to an API router or frontend) -- browser walkthrough explicitly skipped as not applicable rather than silently omitted. Cross-checked all three `decisions` entries against the checklist items they resolve; no undocumented judgment calls found."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T18:07:35Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest -q (317/317 passing) and --cov=app --cov-report=term-missing (app/portfolio/exits.py 100% line/branch, repo-wide 99.33%), matching pr-reviewer's reported numbers exactly. Read exits.py in full and confirmed line 94 calls protective_stop(position, daily_ohlcv.iloc[:-1]) (today's bar excluded); hand-verified the mathematical claim against risk.py's protective_stop (swing_low = min(low) over its window, buffer >= 0, so stop <= swing_low always) and traced test_real_stop_hit's real (unmocked) scenario -- even with the gap-down bar's low=78 folded into a today-inclusive window, swing_low would be <=78 and stop <= swing_low <= today's low < today's close(80), so a regression to the today-inclusive form would make this specific unmocked test's `assert 'stop_hit' in flags` fail, confirming it's a genuine regression guard. Skimmed the full diff (exits.py, test_portfolio_exits.py, the two follow-up decisions) and gh pr view 28 shows mergeable=MERGEABLE, mergeStateStatus=CLEAN against current main, no human PR comments overriding the accept. Corrected review.reviewed_at (was 2026-09-15T18:30:00Z, a fabricated time after the actual review comment) to the real gh pr view submitted_at of the accept comment, 2026-09-15T18:06:23Z."
   }
 }
