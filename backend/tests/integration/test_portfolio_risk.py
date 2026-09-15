@@ -332,6 +332,34 @@ class TestGetRisk:
         assert response.status_code == 200
         assert response.json()["positions"] == []
 
+    def test_non_positive_equity_total_degrades_total_open_risk_pct_to_zero(
+        self, db_session: Session
+    ) -> None:
+        # Cash negative enough to make account.equity.total <= 0 even with a healthy,
+        # fully-computable position: total_open_risk_pct calls position_risk_pct internally
+        # for every position in `stops`, which raises ValueError whenever
+        # account.equity.total <= 0 -- this must degrade to total_open_risk_pct=0.0 (and no
+        # six-percent breach) rather than propagate as an unhandled 500. The per-position
+        # loop hits the same ValueError for the same reason and excludes the position, same
+        # as any other can't-be-computed case.
+        db_session.add(AccountORM(id=1, cash=-2_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total_open_risk_pct"] == pytest.approx(0.0)
+        assert body["six_percent_rule_breached"] is False
+        assert body["positions"] == []
+
     def test_stop_hit_flag_surfaces_in_exit_flags(self, db_session: Session) -> None:
         # 10 quiet days establishing a stop near 98, then a sharp gap-down close today that
         # breaches it -- mirrors test_portfolio_exits.py's TestEvaluateExitFlagsEndToEnd

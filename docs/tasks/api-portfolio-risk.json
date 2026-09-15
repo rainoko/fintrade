@@ -3,7 +3,7 @@
   "title": "API: GET /api/portfolio/risk",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["portfolio-risk-rules", "portfolio-exit-rules"],
   "references": ["docs/architecture/API.md#get-apiportfoliorisk"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (RiskResponse) are already wired.",
@@ -11,7 +11,8 @@
     { "step": "Route signature + RiskResponse schema already defined", "done": true },
     { "step": "Implement handler: compute per-position protective_stop/position_risk_pct plus portfolio total_open_risk_pct and exit_flags", "done": true },
     { "step": "Write integration test covering a clean portfolio, a 2%-breaching position, and a 6%-breaching portfolio", "done": true },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true },
+    { "step": "PR review fix: guard get_risk()'s total_open_risk_pct(account, stops) call against ValueError (non-positive account.equity.total) the same way the per-position loop guards its own calls, with a covering test", "done": true }
   ],
   "decisions": [
     {
@@ -37,6 +38,12 @@
       "recorded_by": "task-worker",
       "decision": "The 2%/6% rule threshold constants (2.0/6.0) used for the response's `two_percent_rule_breached`/`six_percent_rule_breached` fields are re-declared as local constants in app/api/routers/portfolio.py rather than imported from app.portfolio.exits's identical (but module-private, underscore-prefixed) `_TWO_PERCENT_RULE_THRESHOLD`/`_SIX_PERCENT_RULE_THRESHOLD`.",
       "rationale": "exits.py's own thresholds are themselves not imported from app.portfolio.risk (which doesn't define them at all) -- there was no existing public/shared home for these two float constants to import from without also promoting exits.py's private constants to public, a change to an already-reviewed module out of scope for this task. Duplicating two named float constants with a comment cross-referencing the module they must stay in sync with was judged lower-risk than that wider change; both mirror docs/Analyse.md §7 and are exercised by tests on both sides (tests/unit/test_portfolio_exits.py, tests/integration/test_portfolio_risk.py) that would catch a drift."
+    },
+    {
+      "timestamp": "2026-09-15T23:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the pr-reviewer needs_work finding: wrapped get_risk()'s total_open_risk_pct(account, stops) call in try/except ValueError, defaulting total_risk to 0.0 (and so six_percent_rule_breached to False) whenever it raises, instead of letting the ValueError propagate as an unhandled 500. Added test_non_positive_equity_total_degrades_total_open_risk_pct_to_zero (tests/integration/test_portfolio_risk.py) covering negative cash driving account.equity.total <= 0 with an otherwise fully-computable position in `stops`.",
+      "rationale": "total_open_risk_pct calls position_risk_pct internally for every position in `stops`, and position_risk_pct raises ValueError whenever account.equity.total <= 0 regardless of which position triggered it -- this is not a per-position data problem, it's an account-wide precondition failure, so 0.0 (meaning 'no known open risk') is the correct degrade-gracefully value, consistent with decision entry #2's 'silently excluded whenever risk can't be computed' contract and with every other can't-be-computed case this endpoint already handles (failed price fetch, insufficient history, malformed frame). Rejected alternative: exclude any position whose current_price is non-positive from `stops` up front (the review comment's second suggested fix) -- rejected because that only handles the zero/negative-current-price trigger, not the negative-cash trigger (a position can have a perfectly valid positive price while cash is negative enough to make account.equity.total <= 0 on its own), so it would have left the underlying precondition unguarded and the bug only partially fixed. Note the per-position loop below already independently hits and catches the same ValueError for the same reason once account.equity.total <= 0, so `positions` also correctly ends up empty in this scenario without any additional change there."
     }
   ],
   "git": {

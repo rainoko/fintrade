@@ -261,7 +261,17 @@ def get_risk(
         stops[e.position.id] = stop
         weekly_by_id[e.position.id] = weekly_ohlcv
 
-    total_risk = total_open_risk_pct(account, stops)
+    # account.equity.total <= 0 (e.g. cash deep enough negative to outweigh positions_value)
+    # makes position_risk_pct -- called internally by total_open_risk_pct for every position
+    # in `stops` -- raise ValueError, the same precondition failure the per-position loop
+    # below already guards against for each position individually. Guard this call the same
+    # way: an unknown total open risk degrades to 0.0 (and so never breaches the 6% rule)
+    # rather than propagating as an unhandled 500, consistent with every other
+    # can't-be-computed case this endpoint documents as a silent exclusion.
+    try:
+        total_risk = total_open_risk_pct(account, stops)
+    except ValueError:
+        total_risk = 0.0
     six_percent_rule_breached = total_risk > _SIX_PERCENT_RULE_THRESHOLD
 
     risk_positions: list[RiskPosition] = []
