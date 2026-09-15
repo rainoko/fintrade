@@ -3,21 +3,15 @@
 Uses an isolated in-memory SQLite session (via a get_db dependency override), matching the
 pattern in tests/unit/test_db_models.py, so these tests never touch the real fintrade.db file
 and don't depend on the db-migrations task's Alembic setup having run.
+
+The `db_session`/`client` fixtures live in tests/integration/conftest.py.
 """
 
 import json
-from datetime import date
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.db.models import Base
-from app.db.session import get_db
-from app.main import app
 
 
 def post_position_allowing_non_finite_floats(client: TestClient, payload: dict[str, Any]):
@@ -35,36 +29,6 @@ def post_position_allowing_non_finite_floats(client: TestClient, payload: dict[s
         content=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-
-
-@pytest.fixture
-def db_session():
-    # StaticPool keeps a single connection alive for the whole engine, which is required for
-    # an in-memory SQLite database to be visible across threads — TestClient runs requests on
-    # a separate thread from the one that created the tables below.
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    session: Session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-        engine.dispose()
-
-
-@pytest.fixture
-def client(db_session: Session) -> TestClient:
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.pop(get_db, None)
 
 
 class TestAddPosition:

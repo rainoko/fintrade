@@ -4,6 +4,9 @@ Uses an isolated in-memory SQLite session (via a get_db dependency override) and
 DataProvider (via a get_data_provider dependency override), matching the pattern in
 tests/integration/test_portfolio_positions.py and tests/unit/data/test_cache.py, so these
 tests never touch the real fintrade.db file or a live market data provider.
+
+The `db_session` fixture lives in tests/integration/conftest.py; this module keeps its own
+`client` fixture because it additionally needs the get_data_provider override below.
 """
 
 from datetime import date
@@ -11,13 +14,11 @@ from datetime import date
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import TickerNotFoundError
-from app.db.models import AccountORM, Base, PositionORM
+from app.db.models import AccountORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 
@@ -51,24 +52,6 @@ class _StubProvider:
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused by GET /api/portfolio
         raise NotImplementedError
-
-
-@pytest.fixture
-def db_session():
-    # StaticPool keeps a single connection alive for the whole engine, which is required for
-    # an in-memory SQLite database to be visible across threads — TestClient runs requests on
-    # a separate thread from the one that created the tables below.
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    session: Session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-        engine.dispose()
 
 
 def _make_client(db_session: Session, provider) -> TestClient:

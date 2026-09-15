@@ -3,7 +3,7 @@
   "title": "DELETE /api/portfolio/positions/{id} — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-portfolio-delete-position"],
   "references": [
     "docs/tasks/api-portfolio-delete-position.json#review",
@@ -13,7 +13,33 @@
   "checklist": [
     {
       "step": "tests/integration/test_portfolio_delete_position.py re-pastes the same db_session/client (in-memory SQLite + StaticPool + get_db override) fixture pair already duplicated verbatim in tests/integration/test_portfolio_positions.py and tests/integration/test_portfolio_get.py -- this is now the third copy. Extract into a shared fixture in a tests/integration/conftest.py so future DB-touching route tests don't paste a fourth copy.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-15T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted db_session and client into backend/tests/integration/conftest.py, moving both test_portfolio_positions.py and test_portfolio_delete_position.py (whose db_session/client pair was byte-for-byte identical) onto the shared fixtures unmodified. test_portfolio_get.py keeps its own local `client` fixture (renamed nothing, just no longer redefines db_session) because it additionally overrides get_data_provider with a stub DataProvider, which the other two files don't need -- forcing that into the shared fixture would either leak a market-data stub into unrelated tests or require a parametrized/conditional shared fixture that's harder to read than just keeping one small override local to the file that needs it.",
+      "rationale": "Matches the checklist's own framing (extract the *duplicated* pair, not force every DB-touching test onto one universal fixture) and keeps the shared conftest.py fixture minimal and easy to reason about; test_health.py (also in tests/integration/) picks up the new `client` fixture transparently since it doesn't touch the database and was previously using the plain TestClient(app) fixture from the parent tests/conftest.py -- verified via the full integration suite still passing."
+    }
+  ],
+  "git": {
+    "branch": "task/api-portfolio-delete-position-followups",
+    "pr_number": 32,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/32",
+    "pushed_at": "2026-09-15T21:33:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-15T21:45:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/32",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure mechanical test-fixture deduplication (db_session/client extracted verbatim into tests/integration/conftest.py); no application code touched. Full backend suite: 376 passed, 99.52% line/branch coverage (gate 90%) -- no regression. Integration subset re-verified standalone: 39 passed, matching the PR's own test-plan claim. No ruff/mypy configured in backend/pyproject.toml (confirmed via grep), so no lint/type step applies beyond pytest. code-review skill (medium effort) independently reviewed the diff and found zero issues. area is backend/api but this is a pure test-infra refactor with no signal/portfolio logic touched, so verify-elder-signal doesn't apply; no new app module/dependency/layer was added (conftest.py is a standard pytest test-support file, not an architectural addition), so architecture-review doesn't apply; no API route/schema changed, so the openapi.json snapshot check doesn't apply -- confirmed via `git diff main...HEAD` touching only tests/integration/*.py, tests/integration/conftest.py (new), and docs/tasks/*.json. No UI-facing surface (backend test-only change), so the browser walkthrough was skipped, per instructions, rather than silently omitted. One incidental side effect was assessed and is not an actionable finding: tests/integration/test_health.py now resolves its `client` fixture from the new closer-scoped tests/integration/conftest.py (DB-backed) instead of the plain TestClient(app) fixture in the parent tests/conftest.py, due to ordinary pytest conftest shadowing rules. This was already anticipated and recorded in the task's own decisions entry, verified passing, and carries no behavioral risk for a route that doesn't touch the DB. No non-blocking findings were identified, so no follow-up task was filed for this PR. The task's own checklist item (extract the duplicated fixture pair) is fully addressed, and the scope decision (why test_portfolio_get.py keeps its own local client fixture) is properly recorded in decisions per CLAUDE.md's decision-memory rule -- no undecided 'decide X' checklist items exist on this task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-15T22:05:00Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 376 passed, 99.52% coverage, matching pr-reviewer exactly; re-ran tests/integration standalone: 39 passed, also matching. Skimmed the full diff (git diff main...HEAD) -- confirmed it's a pure mechanical extraction of the db_session/client fixture pair into tests/integration/conftest.py with no application code touched, verified the test_health.py fixture-shadowing side effect is real (parent tests/conftest.py's plain client vs. the new DB-backed one) and harmless since /health doesn't touch the DB, and confirmed no ruff/mypy config exists in backend/pyproject.toml. skill is null, so no add-indicator reference-value spot-check applies."
+  }
 }
