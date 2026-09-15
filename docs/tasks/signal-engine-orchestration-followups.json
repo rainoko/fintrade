@@ -1,0 +1,23 @@
+{
+  "id": "signal-engine-orchestration-followups",
+  "title": "Signal engine orchestration — non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["signal-engine-orchestration"],
+  "references": [
+    "docs/tasks/signal-engine-orchestration.json#review",
+    "https://github.com/rainoko/fintrade/pull/27"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #27 (signal-engine-orchestration), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "analyse() calls evaluate_wave(daily_ohlcv, tide) once directly for today's `wave`, then _wave_showed_state() calls evaluate_wave() again up to 5 times per target state (once for OVERSOLD_PULLBACK, once for OVERBOUGHT_RALLY) -- up to 11 total evaluate_wave() calls per analyse() invocation, each re-deriving the full Stochastic Oscillator/Force Index/rolling-std computations from scratch over its slice. Confirmed via code-review (medium effort) on this PR's diff: evaluate_wave's result never depends on target_state, and since evaluate_wave can only ever produce OVERSOLD_PULLBACK when tide==BULLISH or OVERBOUGHT_RALLY when tide==BEARISH (never both for a given tide), one of the two _wave_showed_state calls is guaranteed to do 5 fully wasted evaluate_wave invocations on every single analyse() call, and the direct `wave` computation duplicates the lookback loop's final (full-length) iteration again on top of that. Not a correctness issue on current single-ticker, on-demand-analysis data sizes (~2-3x cost multiplier on analyse(), which runs once per held/watched ticker), but worth refactoring to compute each lookback bar's wave state once (cache per slice-length, or skip the loop whose target_state can never match the current tide) and check against a single pass instead of two independent loops.",
+      "done": false
+    },
+    {
+      "step": "evaluate_impulse(daily_ohlcv) (app/signals/impulse.py, pre-existing) internally computes ema(daily_close, 13) and macd_histogram(daily_close) but only returns the derived GREEN/RED/BLUE color, discarding the series. analyse() then separately recomputes ema(daily_close, 13) and macd_components(daily_close).histogram on the same daily_close for the `indicators` dict this PR added. Both computations produce identical values (same inputs, same functions) but run twice with no sharing -- correctness is unaffected (indicators is independent of evaluate_impulse's return value) but it's real duplicated work introduced by this PR now that analyse() needs those series for a second purpose. Consider having evaluate_impulse optionally accept/return the underlying EMA(13)/MACD-Histogram series (or restructure so engine.py computes them once and passes them to both evaluate_impulse and the indicators dict) next time impulse.py or engine.py is touched.",
+      "done": false
+    }
+  ]
+}
