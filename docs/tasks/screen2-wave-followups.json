@@ -1,0 +1,27 @@
+{
+  "id": "screen2-wave-followups",
+  "title": "Screen 2: Wave — non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["screen2-wave"],
+  "references": [
+    "docs/tasks/screen2-wave.json#review",
+    "https://github.com/rainoko/fintrade/pull/21"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #21 (screen2-wave), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. None are blocking; pick up if this area is touched again or as standalone cleanup.",
+  "checklist": [
+    {
+      "step": "_is_force_index_spike's `negative: bool` parameter forces double-negative reasoning (`if negative and latest >= 0`, `if not negative and latest <= 0`); both branches are correct and tested, but a signed-multiplier form would read more directly for a future editor.",
+      "done": false
+    },
+    {
+      "step": "Fix the self-contradictory docstring on evaluate_wave's new len-guard: it says it mirrors evaluate_impulse's `len(daily_ohlcv) < 2` guard 'in this same module (app/signals/impulse.py)', but evaluate_wave lives in triple_screen.py, a different module, and the condition actually implemented is `== 0`, not `< 2`.",
+      "done": false
+    },
+    {
+      "step": "Add a regression test pinning the 1-row daily_ohlcv boundary case — only 0 rows is currently covered (test_empty_daily_ohlcv_degrades_to_no_wave_instead_of_raising); the 0-row-vs-<2 guard asymmetry vs. evaluate_impulse means a future stricter single-row check elsewhere wouldn't be caught here.",
+      "done": false
+    }
+  ]
+}

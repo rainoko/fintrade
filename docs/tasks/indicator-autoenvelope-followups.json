@@ -1,0 +1,19 @@
+{
+  "id": "indicator-autoenvelope-followups",
+  "title": "Indicator: Autoenvelope — non-blocking review follow-ups",
+  "area": "backend/indicators",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["indicator-autoenvelope"],
+  "references": [
+    "docs/tasks/indicator-autoenvelope.json#review",
+    "https://github.com/rainoko/fintrade/pull/14"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #14 (indicator-autoenvelope), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`pct_deviation = (close - mid).abs() / mid` is an unguarded division by `mid`. A zero/near-zero EMA value (e.g. a data-provider gap filling close with 0.0) would silently produce inf/NaN that propagates through the rolling mean into upper/lower for the following deviation_lookback bars rather than raising. Low likelihood for real equity data and no consumer exists yet, but worth a guard (e.g. treat near-zero mid as NaN/undefined, matching other indicators' NaN-propagation conventions) before this feeds a real signal.",
+      "done": false
+    }
+  ]
+}

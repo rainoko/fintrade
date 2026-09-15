@@ -26,7 +26,10 @@
     "branch": "task/indicator-autoenvelope",
     "pr_number": 14,
     "pr_url": "https://github.com/rainoko/fintrade/pull/14",
-    "pushed_at": "2026-09-12T18:54:34Z"
+    "pushed_at": "2026-09-12T18:54:34Z",
+    "merged_at": "2026-09-13T21:15:53Z",
+    "merge_commit": "b57118d",
+    "merge_note": "PR #14 itself was closed unmerged (2026-09-14) because its entire diff already reached main via PR #15's squash-merge, which was accidentally cut from task/indicator-autoenvelope instead of main. merge_commit/merged_at here point to that squash commit, not a merge of PR #14 directly."
   },
   "review": {
     "reviewed_at": "2026-09-12T19:00:18Z",
