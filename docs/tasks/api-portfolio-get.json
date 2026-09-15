@@ -3,31 +3,51 @@
   "title": "API: GET /api/portfolio",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "done",
+  "state": "implementing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#get-apiportfolio"],
   "review": {
-    "reviewed_at": "2026-09-15T21:40:00Z",
+    "reviewed_at": "2026-09-15T21:55:00Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/30",
-    "verdict": "accepted",
+    "verdict": "needs_work",
     "comments": [
       {
-        "summary": "Mark-to-market enrichment logic (fetch current_price, compute unrealized_pnl_pct, sum positions_value, drop a position whose price fetch failed) is embedded in the get_portfolio route handler rather than as a reusable function on the existing app.portfolio.models domain shapes. The still-stubbed GET /api/portfolio/risk endpoint will need position.current_price populated too and will likely duplicate this loop as currently structured. Non-blocking; tracked as a follow-up.",
+        "summary": "BLOCKING (correction to this reviewer's earlier accepted verdict, superseded by this entry): a NaN daily close silently corrupts equity.positions_value/equity.total for the WHOLE portfolio, not just the affected position. Neither YFinanceProvider._normalize nor StooqProvider._fetch_daily filters NaN out of the daily close series (only the derived weekly series gets .dropna()). _latest_close only null-outs on DataProviderError/empty-frame, so a real (non-empty, non-erroring) fetch whose latest close happens to be NaN passes through as current_price=float('nan'), which is `is not None` so it (a) is fed into `unrealized_pnl_pct` (nan) and (b) added into the running `positions_value` float total via `+=`, and NaN is contagious under float addition -- verified live: a 2-position portfolio (AAPL NaN close, MSFT good $250 close) returns `equity.positions_value: null, equity.total: null` for the ENTIRE response, wiping out MSFT's perfectly good $1250 contribution and the known $1000 cash too, even though only AAPL's data was bad. (Separately: FastAPI/pydantic's response-model JSON serialization silently converts the NaN float to `null` in the wire format -- confirmed via model_dump_json -- so this does NOT crash with a 500 as initially suspected, but the null positions_value/total for the whole portfolio directly contradicts this task's own recorded decision ('contributes 0 to equity.positions_value... rather than failing the whole request') and the PR's stated design goal ('one bad price shouldn't hide the rest'). Fix: treat a NaN close the same as a failed fetch in _latest_close (e.g. `if frame.empty or pd.isna(frame.iloc[-1][\"close\"]): return None`), and add a test with a NaN close mixed among good positions.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 93
+      },
+      {
+        "summary": "Non-blocking: get_portfolio's db session and get_data_provider's CachedDataProvider share the same request-scoped SQLAlchemy Session (default expire_on_commit=True, app/db/session.py's sessionmaker doesn't override it). A cache-miss/stale price fetch mid-loop commits (CachedDataProvider._upsert) on that same session, expiring every already-loaded PositionORM object, so each subsequent row.ticker/quantity/avg_cost_basis/entry_date access re-issues a SELECT -- an N+1 query pattern for a portfolio with a cold cache. Not a correctness bug (values are still consistent), just wasteful. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 51
+      },
+      {
+        "summary": "Non-blocking: the account=None -> cash=0.0 fallback (no AccountORM row exists for a fresh DB, since nothing seeds account id=1) is a real judgment call not pinned down by docs/architecture/API.md, but wasn't recorded in this task's decisions array per CLAUDE.md's decision-memory section. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 47
+      },
+      {
+        "summary": "Non-blocking: mark-to-market enrichment logic (fetch current_price, compute unrealized_pnl_pct, sum positions_value, drop a position whose price fetch failed) is embedded in the get_portfolio route handler rather than as a reusable function on the existing app.portfolio.models domain shapes. The still-stubbed GET /api/portfolio/risk endpoint will need position.current_price populated too and will likely duplicate this loop as currently structured. Tracked as a follow-up.",
         "file": "backend/app/api/routers/portfolio.py",
         "line": 37
       },
       {
-        "summary": "docs/architecture/Backend.md's module layout diagram doesn't list the new app/api/dependencies.py file. Doesn't violate any documented principle, but the diagram should be updated for accuracy. Non-blocking; tracked as a follow-up.",
+        "summary": "Non-blocking: per-position price fetches run strictly sequentially in a synchronous handler, so total request latency scales linearly with position count on any cache miss. Worth naming as portfolios grow, though the DataProvider protocol has no batch method today. Tracked as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 52
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's module layout diagram doesn't list the new app/api/dependencies.py file. Doesn't violate any documented principle, but the diagram should be updated for accuracy. Tracked as a follow-up.",
         "file": "docs/architecture/Backend.md",
         "line": 11
       },
       {
-        "summary": "db.query(PositionORM).all() has no explicit order_by, so response position ordering isn't guaranteed/deterministic. Low impact for a single-user MVP. Non-blocking; tracked as a follow-up.",
+        "summary": "Non-blocking: db.query(PositionORM).all() has no explicit order_by, so response position ordering isn't guaranteed/deterministic. Low impact for a single-user MVP. Tracked as a follow-up.",
         "file": "backend/app/api/routers/portfolio.py",
         "line": 52
       }
     ],
-    "notes": "Verified: pytest --cov=app --cov-report=term-missing -> 370 passed, 99.43% coverage (gate 90%, no regression). No ruff/mypy configured in backend/pyproject.toml, so no lint step applies. backend/openapi.json confirmed byte-identical to a fresh `python scripts/export_openapi.py` regeneration; operation_id (get_portfolio), response_model (PortfolioResponse), and summary/docstring are all present; no undeclared error responses (the handler never raises -- it degrades per-position instead, matching the route's actual behavior). Both recorded decisions checked: the get_data_provider composition in app/api/dependencies.py matches the described rationale and mirrors the existing get_db override pattern; the null-price/excluded-from-positions_value behavior on price-fetch failure is implemented exactly as decided (app/api/routers/portfolio.py's _latest_close catches the DataProviderError base class, covering all three subclasses), doesn't conflict with docs/Analyse.md or docs/architecture/API.md (both are silent on this specific question), and is exercised by a genuine mixed-success/failure integration test (test_mixed_success_and_failure_only_excludes_the_failed_position) rather than only isolated single-position cases. Architecture review against docs/architecture/Backend.md's module layout found no blocking layering violation -- the new app/api/dependencies.py module fits the existing api/ layer and Depends()-override testing pattern already used for get_db. No checklist item was phrased as 'decide X' requiring a decisions entry beyond the two already recorded. No frontend exists yet (per CLAUDE.md, frontend/ not yet scaffolded) and this PR has no UI surface, so the browser walkthrough step was skipped as explicitly out of scope. Three non-blocking findings filed as docs/tasks/api-portfolio-get-followups.json."
+    "notes": "CORRECTION: this reviewer initially posted an 'accepted' verdict (PR review at commit 9c9fb2a) after running the test suite (370 passed, 99.43% coverage), confirming openapi.json was regenerated byte-identical, and manually checking both recorded decisions against docs/Analyse.md/docs/architecture/API.md -- all of which still hold. A backgrounded code-review skill pass (launched during that same review, effort medium) then returned after the accept was posted and surfaced a genuine, verified correctness bug (the NaN-close/positions_value-corruption issue above) that the manual pass missed, since none of the hand-written or existing tests exercise a NaN close value. Reproduced live against the actual endpoint (see the blocking comment) to confirm both the corruption and that it does NOT crash with a 500 (pydantic's response serialization nulls the NaN rather than raising) before downgrading the verdict. Verdict corrected to needs_work; task state reverted from done to implementing. The three previously-filed non-blocking findings (reuse/domain-model duplication, stale Backend.md diagram, unordered positions list) still stand and are joined by three more (N+1 session-expiry pattern, undocumented account-fallback decision, sequential per-position fetches) in docs/tasks/api-portfolio-get-followups.json. No lint/type step applies (no ruff/mypy configured in backend/pyproject.toml). Browser walkthrough not applicable -- no frontend exists yet and this PR has no UI surface."
   },
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and response_model (PortfolioResponse) are already wired.",
   "checklist": [

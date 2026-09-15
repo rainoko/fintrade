@@ -22,6 +22,18 @@
     {
       "step": "get_portfolio's db.query(PositionORM).all() has no explicit order_by, so the order of `positions` in the response isn't deterministic/guaranteed -- it currently relies on incidental SQLite behavior. Low impact for a single-user MVP but worth an explicit stable ordering (e.g. by entry_date or id) for a deterministic API response.",
       "done": false
+    },
+    {
+      "step": "get_portfolio's db session and get_data_provider's CachedDataProvider share the same request-scoped SQLAlchemy Session (default expire_on_commit=True, app/db/session.py's sessionmaker doesn't override it). A cache-miss/stale price fetch mid-loop commits (CachedDataProvider._upsert) on that same session, expiring every already-loaded PositionORM object, so each subsequent row attribute access re-issues a SELECT -- an N+1 query pattern for a portfolio with a cold cache. Not a correctness bug, just wasteful; consider passing expire_on_commit=False for this session or loading all needed row attributes before the fetch loop.",
+      "done": false
+    },
+    {
+      "step": "The account=None -> cash=0.0 fallback in get_portfolio (no AccountORM row exists for a fresh DB, since nothing seeds account id=1) is a real judgment call not pinned down by docs/architecture/API.md, but wasn't recorded in api-portfolio-get's decisions array per CLAUDE.md's decision-memory section. Record it (or revisit whether a missing account row should instead be treated as a seed-data bug / 500).",
+      "done": false
+    },
+    {
+      "step": "get_portfolio's per-position price fetches (_latest_close in the for-loop) run strictly sequentially in a synchronous handler, so total request latency scales linearly with position count on any cache miss -- a single slow/rate-limited upstream call stalls every position behind it. The DataProvider protocol has no batch method today, so this would need a protocol change or a concurrency wrapper to fix.",
+      "done": false
     }
   ]
 }
