@@ -170,6 +170,22 @@ class TestAddPosition:
 
         assert response.status_code == 422
 
+    def test_schema_validation_422_detail_is_a_list_not_a_string(self, client: TestClient) -> None:
+        """Regression test (PR #17 fourth review round): the route's responses={422: ...}
+        override must document ordinary schema-validation failures accurately. This is
+        FastAPI's default HTTPValidationError shape (`detail` is a list of per-field error
+        objects), not the single-string ErrorDetail shape used by the merge-overflow guard —
+        see test_merge_overflow_422_detail_is_a_string_not_a_list for the other shape."""
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100},  # missing avg_cost_basis/entry_date
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], list)
+        assert all("loc" in error and "msg" in error and "type" in error for error in body["detail"])
+
     def test_zero_quantity_returns_422(self, client: TestClient) -> None:
         response = client.post(
             "/api/portfolio/positions",
@@ -345,6 +361,27 @@ class TestAddPosition:
 
         assert second.status_code == 422
         assert "detail" in second.json()
+
+    def test_merge_overflow_422_detail_is_a_string_not_a_list(self, client: TestClient) -> None:
+        """Regression test (PR #17 fourth review round): the merge-overflow guard raises
+        HTTPException(422, detail="...") directly, which FastAPI renders as ErrorDetail's
+        single-string `detail` shape — distinct from the list-shaped `detail` that ordinary
+        schema validation returns for the same status code on this route (see
+        test_schema_validation_422_detail_is_a_list_not_a_string). Both shapes are documented
+        via anyOf in the route's responses={422: ...} declaration and backend/openapi.json."""
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1e308, "avg_cost_basis": 1e308, "entry_date": "2026-01-02"},
+        )
+
+        assert second.status_code == 422
+        assert isinstance(second.json()["detail"], str)
 
     def test_duplicate_ticker_merge_of_two_large_finite_values_does_not_corrupt_existing_row(
         self, client: TestClient

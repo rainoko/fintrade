@@ -39,9 +39,21 @@ def get_portfolio() -> PortfolioResponse:
     summary="Add or update a position",
     responses={
         422: {
-            "model": ErrorDetail,
-            "description": "Request body failed validation, or merging with an existing "
-            "position would produce a quantity/avg_cost_basis too large to represent",
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary "
+            "request-body validation failure (FastAPI's standard HTTPValidationError — "
+            "`detail` is a list of per-field errors), or merging with an existing position "
+            "would produce a quantity/avg_cost_basis too large to represent (`detail` is a "
+            "single string, ErrorDetail).",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                        ],
+                    },
+                },
+            },
         },
     },
 )

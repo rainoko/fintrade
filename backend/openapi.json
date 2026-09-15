@@ -636,11 +636,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Request body failed validation, or merging with an existing position would produce a quantity/avg_cost_basis too large to represent"
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary request-body validation failure (FastAPI's standard HTTPValidationError \u2014 `detail` is a list of per-field errors), or merging with an existing position would produce a quantity/avg_cost_basis too large to represent (`detail` is a single string, ErrorDetail)."
           }
         },
         "summary": "Add or update a position",
