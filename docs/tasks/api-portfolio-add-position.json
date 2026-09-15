@@ -3,7 +3,7 @@
   "title": "API: POST /api/portfolio/positions",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["portfolio-domain-models", "db-models"],
   "references": ["docs/architecture/API.md#post-apiportfoliopositions"],
   "description": "Implement the route body in app/api/routers/portfolio.py (currently a 501 stub). Route signature and schemas (PositionIn/PositionOut) are already wired.",
@@ -79,17 +79,35 @@
     "pushed_at": "2026-09-15T20:21:54Z"
   },
   "review": {
-    "reviewed_at": "2026-09-13T10:05:28Z",
+    "reviewed_at": "2026-09-15T20:35:00Z",
     "recorded_by": "pr-reviewer",
     "pr_number": 17,
     "method": ["unit_tests", "coverage", "static_analysis", "code_review_skill"],
     "verdict": "needs_work",
     "comments": [
       {
-        "summary": "Blocking (round 3, new): Field(gt=0, allow_inf_nan=False) on PositionIn.quantity/avg_cost_basis rejects a directly-submitted non-positive/non-finite value, but places no upper bound on magnitude. Two individually-valid finite floats can still overflow during the merge arithmetic in add_position (existing.quantity + position.quantity, and the weighted-average division) -- Python float arithmetic overflows silently to inf/nan rather than raising. Reproduced live: POST {ticker: AAPL, quantity: 1e308, avg_cost_basis: 1e308, entry_date: ...} -> 201 (both fields individually finite/positive, pass validation cleanly). A second identical POST for the same ticker (merge path) -> unhandled 500: merged_quantity overflows to inf, avg_cost_basis computes to nan, and db.commit() raises sqlalchemy.exc.IntegrityError: NOT NULL constraint failed: positions.avg_cost_basis (sqlite3 binds the NaN parameter as NULL, tripping the NOT NULL column). Neither round-2 fix (schema-level allow_inf_nan=False, or the RequestValidationError sanitizing handler in app/main.py) covers this path -- no RequestValidationError is ever raised here since both inputs pass validation individually; the non-finite value is produced after validation, inside the router's own merge arithmetic, and nothing re-validates the computed merged_quantity/avg_cost_basis before they're assigned to the row and committed. Fix suggestion: add a realistic upper bound (le=...) to quantity/avg_cost_basis in the schema, and/or validate the computed merged values are finite before assigning/committing (422, not a raw 500), plus a regression test posting two large-but-individually-valid finite floats for the same ticker.",
+        "summary": "Blocking (round 4, new): the responses={422: {\"model\": ErrorDetail, ...}} declaration added to add_position replaces (rather than supplements) the previously-accurate auto-generated 422 documentation. Ordinary Pydantic body-validation failures (gt=0, allow_inf_nan=False, blank-ticker, etc. -- all still exercised by existing tests) continue to return FastAPI's default HTTPValidationError shape ({\"detail\": [{\"loc\":...,\"msg\":...,\"type\":...,\"input\":...}]}), not the single-string ErrorDetail ({\"detail\": \"string\"}) now documented for every 422 on this route. Verified live: POST {quantity: -1, ...} and POST {quantity: \"not-a-number\", ...} both still return the list-shaped body; only the new merge-overflow guard actually returns ErrorDetail. Before this round there was no responses={422:...} override and FastAPI's auto-doc was accurate for the only 422 source that existed then; this round added a second 422 source but documented it by overwriting the schema for the whole status code instead of composing both. backend/openapi.json is explicitly 'the single source of truth the frontend builds against' per CLAUDE.md, so this is a real contract-accuracy regression: a frontend client generated from this schema would type the 422 body as {detail: string} and mishandle the (far more common) validation-error case where detail is an array. Independently reproduced by a fresh code-review skill pass over this round's diff (same finding, same file/line). Fix suggestion: hand-write the 422 content/schema block as anyOf: [HTTPValidationError, ErrorDetail] instead of model=ErrorDetail (FastAPI's responses dict accepts a raw content schema, not just a single model=), or otherwise document both 422 causes rather than one replacing the other.",
         "file": "backend/app/api/routers/portfolio.py",
-        "line": 66,
+        "line": 40,
         "severity": "blocker"
+      },
+      {
+        "summary": "RESOLVED (round-3 finding, re-verified independently this round): two individually-valid finite floats (quantity=avg_cost_basis=1e308 posted twice for the same ticker) no longer overflow the merge arithmetic to inf/nan and crash db.commit(). The merge now runs on decimal.Decimal (default context Emax=999999, vastly more exponent headroom than any float64-bounded product/sum could reach -- confirmed even squaring two float-max operands stays ~1e616), and the float()-converted result is explicitly checked with math.isfinite() before ever being assigned to the row or committed, raising a clean 422 instead. Live-reproduced the exact round-3 repro against this branch: second POST now returns 422, not 500. Also confirmed float() silently saturates an out-of-range Decimal to inf rather than raising (float(Decimal(10)**400) == inf, no exception), so the isfinite() check -- not Decimal alone -- is what makes this a clean 422; confirmed the guard runs before existing.quantity/avg_cost_basis are mutated, so a rejected merge can't partially corrupt the existing row.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 87,
+        "severity": "resolved"
+      },
+      {
+        "summary": "Checked and confirmed sound (no new bug): Decimal(existing.quantity)/Decimal(position.quantity) construct the exact binary value of the input float rather than a rounded string repr. Verified this introduces no precision loss for this use case -- individual float<->Decimal round-trips are exact both ways, and the extra binary-exact digits are far below Decimal's 28-significant-digit default precision, so they can't perturb the final float64 result; verified at the sys.float_info.max boundary too, matching native float arithmetic exactly for in-range values.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 87,
+        "severity": "resolved"
+      },
+      {
+        "summary": "Non-blocking: test_duplicate_ticker_merge_of_two_large_finite_values_does_not_corrupt_existing_row's final assertion quantity == pytest.approx(1e308 + 1) is close to tautological at this magnitude -- any float near 1e308 satisfies the default relative tolerance regardless of whether the +1 was actually applied. The assertion doing the real regression-protection work is small_merge.status_code == 201 (the existing row wasn't left in a broken non-finite state by the earlier rejected merge).",
+        "file": "backend/tests/integration/test_portfolio_positions.py",
+        "line": 367,
+        "severity": "minor"
       },
       {
         "summary": "Re-confirmed clean (no further gaps in the same family, per the dispatched adversarial re-hunt): direct NaN (not just Infinity) for both quantity and avg_cost_basis is already tested (test_nan_quantity_returns_422, test_nan_avg_cost_basis_returns_422) and reconfirmed passing; negative infinity is confirmed rejected (gt=0 alone already excludes it, and allow_inf_nan=False would reject it independently either way); no other numeric field in schemas.py has the same gap -- PositionIn.quantity/avg_cost_basis are the only client-supplied numeric inputs anywhere in the schema module, every other float field (OHLCVBar, TideScreen/WaveScreen/Indicators, Equity, RiskPosition/RiskResponse, PositionOut) belongs to a response-only model never parsed from a request body.",
@@ -98,54 +116,18 @@
         "severity": "resolved"
       },
       {
-        "summary": "Non-blocking, re-surfaced by the code-review skill this round (not new, already flagged non-blocking in round 2 and covered by this task's create_all stopgap decision record): unique=True on PositionORM.ticker is only applied by create_all to a table it creates from scratch -- against a pre-existing SQLite file whose positions table predates this PR, create_all won't retroactively ALTER it to add the constraint, so the TOCTOU-closing unique index silently doesn't take effect there. Worth folding into docs/architecture/Backend.md's existing interim-state note (currently only discusses CREATE TABLE failing on re-run, not a missed ALTER on an already-existing table) when db-migrations picks this up.",
+        "summary": "Non-blocking, unaddressed carryover from prior review passes (rounds 2-3), still true: unique=True on PositionORM.ticker is only applied by create_all to freshly created tables -- a database created before this PR won't retroactively gain the unique index. Already covered by this task's create_all stopgap decision record; worth folding into docs/architecture/Backend.md's existing interim-state note when db-migrations picks this up.",
         "file": "backend/app/db/models.py",
         "line": 16,
         "severity": "minor"
       },
       {
-        "summary": "Blocking (new in this fix round): Field(gt=0) on PositionIn.quantity/avg_cost_basis rejects zero/negative but not Infinity (float('inf') > 0 is True in Python/Pydantic), so the merge arithmetic can still crash with an unhandled 500 -- the same failure class the fix round set out to eliminate, just reached via a different input than the exact-cancellation case that's now fixed. Reproduced independently: POST quantity=Infinity is accepted (201, and the response silently serializes quantity back as null -- data loss), then a second same-ticker POST with a finite quantity computes merged_quantity=inf and avg_cost_basis=(inf*a+b*c)/inf=nan; SQLite rejects binding NaN into the NOT NULL avg_cost_basis column, raising an unhandled sqlalchemy.exc.IntegrityError out of db.commit() with no rollback and no ErrorDetail body. Fix suggestion: Field(gt=0, lt=float('inf')) (or a finite-float validator) plus a regression test for an Infinity/NaN quantity or cost basis.",
-        "file": "backend/app/api/schemas.py",
-        "line": 117,
-        "severity": "blocker"
-      },
-      {
-        "summary": "RESOLVED (was blocker in the prior review pass): the originally-reported ZeroDivisionError from an exact-cancellation duplicate-ticker merge is confirmed closed. Reproduced directly: create AAPL qty=100, then POST AAPL qty=-100 now returns 422 (Field(gt=0) rejects it before the merge division runs), never reaching the crash path. Since both merge operands are now schema-constrained > 0, their sum can't be <= 0 for finite inputs.",
+        "summary": "Non-blocking, unaddressed carryover from prior review passes, still true: merge-averaging arithmetic (weighted avg cost, min(entry_date), and now the Decimal-based overflow guard) is still inlined in the router handler rather than a small pure function in app/portfolio/ (where risk.py/exits.py already live per Backend.md's module layout). Fine to leave for a follow-up.",
         "file": "backend/app/api/routers/portfolio.py",
-        "line": 62,
-        "severity": "resolved"
-      },
-      {
-        "summary": "RESOLVED (was minor in the prior review pass): the TOCTOU race on the duplicate-ticker check is confirmed closed. Verified independently at the DB layer (bypassing the API entirely): two direct PositionORM inserts with the same ticker against the same engine raise sqlite3.IntegrityError: UNIQUE constraint failed: positions.ticker on the second commit. The resulting rare concurrent-insert 500 is explicitly decided as deferred, with rationale, in this task's decisions array.",
-        "file": "backend/app/db/models.py",
-        "line": 15,
-        "severity": "resolved"
-      },
-      {
-        "summary": "RESOLVED (was minor in the prior review pass): the create_all lifespan stopgap is now documented as an interim state in docs/architecture/Backend.md §7, and db-migrations.json has a new checklist item + description note about needing `alembic stamp head` instead of a blind `upgrade head` against a pre-existing create_all'd database.",
-        "file": "backend/app/main.py",
-        "line": null,
-        "severity": "resolved"
-      },
-      {
-        "summary": "Non-blocking: PositionIn.ticker has no length/strip validation -- an empty string (\"\") is accepted and creates a position with that ticker, and a leading/trailing-whitespace ticker (e.g. \" AAPL\") is normalized only via .upper(), not .strip(), so it's treated as a different ticker from \"AAPL\" and creates a second row instead of merging. Both reproduced directly. Undermines the documented same-ticker-merges invariant for malformed-but-technically-valid input. Worth min_length=1 plus .strip() in the normalization step.",
-        "file": "backend/app/api/schemas.py",
-        "line": 116,
-        "severity": "minor"
-      },
-      {
-        "summary": "Non-blocking: unique=True on PositionORM.ticker is only applied by create_all to freshly created tables -- a database created before this PR won't retroactively gain the unique index. Already implicit in the documented create_all stopgap limitation, not new scope for this PR, but worth calling out alongside the existing stamp-head note once db-migrations picks this up.",
-        "file": "backend/app/db/models.py",
-        "line": 15,
-        "severity": "minor"
-      },
-      {
-        "summary": "Non-blocking, unaddressed carryover from the prior review pass: merge-averaging arithmetic (weighted avg cost, min(entry_date)) is still inlined in the router handler rather than a small pure function in app/portfolio/ (where risk.py/exits.py already live per Backend.md's module layout). Fine to leave for a follow-up.",
-        "file": "backend/app/api/routers/portfolio.py",
-        "line": 62,
+        "line": 87,
         "severity": "minor"
       }
     ],
-    "notes": "Independent re-verification (not just trusting the fix-round report): reproduced the ZeroDivisionError-is-closed claim directly against a live TestClient (create AAPL qty=100, then POST AAPL qty=-100 -> 422 not 500); reproduced the unique-constraint claim directly at the DB layer bypassing the API (two direct PositionORM inserts for the same ticker -> IntegrityError on the second commit); regenerated backend/openapi.json locally via scripts/export_openapi.py and diffed byte-identical against the committed snapshot, and confirmed exclusiveMinimum: 0.0 is present on both quantity and avg_cost_basis in the committed schema. All three previously-flagged issues (ZeroDivisionError, TOCTOU race, undocumented create_all stopgap) are genuinely fixed. However the code-review skill (medium), run fresh against this fix round's diff, surfaced a new blocking gap in the same fix (Infinity bypasses gt=0 and produces a NaN avg_cost_basis that crashes db.commit() with an unhandled IntegrityError) which I independently reproduced -- see the blocking comment above. Backend coverage: 68 passed (up from 63 in the prior review pass -- the fix round's own regression tests), whole-repo 74.26% vs 72.44% pre-PR baseline on main (confirmed via a clean worktree) -- net improvement, not a regression; shortfall is pre-existing unimplemented stub modules unrelated to this PR. No ruff/mypy/lint config exists yet in backend/pyproject.toml -- nothing to run beyond pytest. No frontend exists yet, so the browser walkthrough step doesn't apply; noted explicitly rather than silently skipped. Findings posted as inline PR comment (schemas.py:117-118 / portfolio.py:70) and a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR, same as --approve).\n\nRound 3 (this review): dispatched explicitly to hunt adversarially for another edge case in the same non-finite-float failure family rather than re-checking what rounds 1-2 already fixed. Found one: Field(gt=0, allow_inf_nan=False) has no upper bound, so two individually-valid finite floats (each passing validation on its own) can still overflow Python's float arithmetic to inf/nan inside the merge path in add_position -- reproduced live (POST quantity=avg_cost_basis=1e308 twice for the same ticker -> second call 500s with sqlalchemy.exc.IntegrityError: NOT NULL constraint failed: positions.avg_cost_basis, nan bound as NULL by sqlite3). This is the same crash signature as the round-2 finding but reached via a path neither round-2 fix (schema allow_inf_nan=False, or the RequestValidationError sanitizer) covers, since no RequestValidationError is ever raised here -- confirmed blocking. Also explicitly re-checked and confirmed clean: direct NaN (already tested), negative infinity (rejected), and every other numeric field in schemas.py (all response-only, no other client-supplied numeric input exists). Ran the full backend suite (77 passed, 0 regressions), confirmed backend/openapi.json is still byte-identical to a fresh `python scripts/export_openapi.py` regeneration, confirmed no ruff/mypy/eslint config exists anywhere in the repo (nothing beyond pytest to run), and confirmed no UI surface exists for this backend-only PR (browser walkthrough doesn't apply). Also ran the code-review skill (medium) in the background in parallel with a full manual line-by-line pass over the diff; its one finding (unique=True on PositionORM.ticker not retroactively applied by create_all to a pre-existing table) duplicates a limitation already flagged non-blocking in round 2 and covered by this task's create_all stopgap decision record, so it's recorded as a non-blocking carryover, not a new blocker. Findings posted as an inline PR comment (portfolio.py:66), a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR), and a follow-up PR comment for the code-review skill's non-blocking addendum."
+    "notes": "Round 4 (this review): rounds 1-3's failure family (ZeroDivisionError on exact-cancellation, Infinity/NaN bypassing gt=0, and two individually-valid finite floats overflowing the merge arithmetic) is now genuinely fixed via the Decimal-based guard -- independently re-verified rather than trusting the fix-round report: hand-computed and live-reproduced the round-3 repro (quantity=avg_cost_basis=1e308 posted twice for the same ticker) against this branch, confirmed 422 not 500; verified Decimal's exponent headroom, the float()-conversion saturate-to-inf behavior, and the exact-binary-value (no precision loss) semantics of Decimal(existing.quantity) by direct Python execution, including at the sys.float_info.max boundary; confirmed the guard runs before any mutation so a rejected merge can't corrupt the existing row. Ran the full backend suite on the branch alone (79 passed, 0 regressions) and also merged this branch locally with current main (18 commits ahead -- this PR is stale relative to several other tasks that landed since it was opened, though it merges cleanly with no conflicts) to get an apples-to-apples coverage read: 360 passed, 99.31% coverage, well above the 90% gate -- the branch-alone figure (77%) is fully explained by other already-landed unrelated modules this stale branch hasn't rebased onto, not a regression caused by this PR. backend/openapi.json regenerates byte-identical to the committed snapshot. Verified the two new decisions entries quote the human's actual PR comment verbatim (checked against the GitHub API directly) and interpret it fairly. No lint/type config exists yet in backend/pyproject.toml; no frontend exists yet so the browser walkthrough doesn't apply (noted explicitly); area is backend/api so verify-elder-signal doesn't apply; no new module/dependency/layer so architecture-review doesn't apply. However, this round's own diff introduced a new blocking regression: the responses={422: {\"model\": ErrorDetail}} declaration added to document the new merge-overflow 422 case replaced (rather than composed with) the previously-accurate auto-generated HTTPValidationError documentation for ordinary schema-validation 422s, which are still the actual response shape returned for e.g. quantity<=0 -- verified live and independently reconfirmed by a fresh code-review skill pass over this round's diff. Findings posted as an inline PR comment (portfolio.py:40) and a summary review (gh pr review --comment, since --request-changes is blocked by GitHub on one's own PR, same as --approve)."
   }
 }
