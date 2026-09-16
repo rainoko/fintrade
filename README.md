@@ -32,6 +32,25 @@ To regenerate the committed OpenAPI contract snapshot (`backend/openapi.json`) a
 python scripts/export_openapi.py
 ```
 
+### Database migrations
+
+Schema changes go through Alembic (`backend/app/db/migrations/`), wired to `app.db.models.Base.metadata` (autogenerate) and `app.config.get_settings().database_url` (target database — same setting the app itself uses, via the `FINTRADE_DATABASE_URL` env var; see `app/db/migrations/env.py`). Run these from `backend/` with the venv active:
+
+```bash
+# Apply all migrations up to the latest (fresh database, or one already tracked by Alembic)
+alembic upgrade head
+
+# After changing app/db/models.py: generate a new migration from the model diff, then
+# review the generated file in app/db/migrations/versions/ before committing it --
+# autogenerate doesn't reliably catch every kind of change (e.g. column renames)
+alembic revision --autogenerate -m "describe the change"
+
+# Point a command at a different database for one invocation (e.g. a throwaway file)
+FINTRADE_DATABASE_URL="sqlite:///./scratch.db" alembic upgrade head
+```
+
+`alembic upgrade head` fails with `table ... already exists` against a database whose tables were created by `app/main.py`'s `Base.metadata.create_all` bootstrap rather than by Alembic (see `docs/architecture/Backend.md` §7) — run `alembic stamp head` instead to mark it as already migrated without re-running the `CREATE TABLE`s.
+
 ## MCP servers
 
 MCP server configuration lives in `.mcp.json` (project-scoped, shared via git) and in each contributor's local Claude Code config (personal, not shared — used for anything involving a secret).

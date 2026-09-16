@@ -3,15 +3,35 @@
   "title": "Alembic migrations setup",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["db-models"],
   "references": ["docs/architecture/Backend.md#7-persistence"],
   "description": "Initialize Alembic in app/db/migrations/ and generate the initial migration for positions, account, and ohlcv_cache tables. Migrations are excluded from the coverage gate (pyproject.toml [tool.coverage.run] omit). Note: app/main.py's lifespan hook already calls Base.metadata.create_all(bind=engine) as an interim stopgap (see docs/architecture/Backend.md §7 and the api-portfolio-add-position task's decisions) — any fresh install before this task lands will already have tables created by create_all, not by a migration.",
   "checklist": [
-    { "step": "Run alembic init against app/db/migrations/, wire env.py to app.db.models.Base.metadata and app.config settings", "done": false },
-    { "step": "Generate the initial autogenerate migration covering PositionORM, AccountORM, OHLCVCacheORM", "done": false },
-    { "step": "Verify `alembic upgrade head` produces the expected schema against a throwaway SQLite file", "done": false },
-    { "step": "Against a database that already has tables from the create_all stopgap (see description), run `alembic stamp head` instead of `alembic upgrade head` — a blind upgrade would try to CREATE TABLE against tables that already exist and fail. Verify this path too, not just the fresh-file case above.", "done": false },
-    { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": false }
+    { "step": "Run alembic init against app/db/migrations/, wire env.py to app.db.models.Base.metadata and app.config settings", "done": true },
+    { "step": "Generate the initial autogenerate migration covering PositionORM, AccountORM, OHLCVCacheORM", "done": true },
+    { "step": "Verify `alembic upgrade head` produces the expected schema against a throwaway SQLite file", "done": true },
+    { "step": "Against a database that already has tables from the create_all stopgap (see description), run `alembic stamp head` instead of `alembic upgrade head` — a blind upgrade would try to CREATE TABLE against tables that already exist and fail. Verify this path too, not just the fresh-file case above.", "done": true },
+    { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired app/db/migrations/env.py to always read the target database URL from app.config.get_settings().database_url (env var FINTRADE_DATABASE_URL / .env), overwriting alembic.ini's static sqlalchemy.url placeholder at runtime via config.set_main_option, rather than keeping a URL hardcoded or duplicated in alembic.ini.",
+      "rationale": "The app itself (app/db/session.py) already reads its database URL from the same settings object, so this keeps one source of truth for 'which database' instead of two config files that can silently drift (e.g. a developer changes .env but forgets alembic.ini, and migrations quietly run against the wrong file). Rejected alternative: leave alembic.ini's sqlalchemy.url as the source of truth and ignore app.config — rejected because it reintroduces exactly the kind of config duplication docs/architecture/Backend.md already steers away from elsewhere in the persistence layer, and because it would make the create_all-stopgap retrofit (stamp head) harder to script consistently against arbitrary throwaway files during verification/tests."
+    },
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the migration workflow primarily in README.md's Backend section (new 'Database migrations' subsection, alongside the existing venv-setup and OpenAPI-regeneration instructions), with docs/architecture/Backend.md §7 updated to describe the current (non-interim) persistence state and cross-reference README.md for the day-to-day commands.",
+      "rationale": "README.md is already the file a developer opens first for 'how do I run this' (it's where the OpenAPI-regen command already lives), so putting the Alembic commands there keeps all day-to-day backend commands in one place; docs/architecture/Backend.md stays focused on *why* the persistence layer is structured this way (source-of-truth for design decisions) rather than duplicating the exact CLI invocations. Rejected alternative: a new standalone doc under docs/architecture/ — rejected as unnecessary indirection for a handful of commands that fit naturally as a README subsection next to the already-established OpenAPI workflow."
+    },
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added backend/tests/integration/test_db_migrations.py, which invokes the real `alembic` CLI as a subprocess against throwaway SQLite files (via python -m alembic, cwd=backend/, FINTRADE_DATABASE_URL override) to regression-test both the fresh-upgrade-head path and the create_all-seeded stamp-head path described in this task's checklist, rather than relying solely on the manual verification performed while implementing this task.",
+      "rationale": "Alembic's own Config/command Python API reads app.config.get_settings() once per process (lru_cached), which the env.py wiring above deliberately always trusts as the single source of truth -- that makes it awkward to point a single in-process test run at multiple throwaway database URLs without monkeypatching the settings cache. Driving the real CLI as a subprocess exactly matches how a developer/operator actually runs these commands and avoids that cache-coupling, at the cost of a few subprocess invocations (~1-3s total, well within the existing suite's runtime). This file lives in tests/integration/ (not tests/unit/) since it does real subprocess + filesystem I/O; app/db/migrations/* itself stays excluded from the coverage gate as configured (pyproject.toml's coverage omit) since it's generated/tool-managed code, but this test still guards the behavior end-to-end."
+    }
   ]
 }
