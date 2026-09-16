@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/risk follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-portfolio-risk-followups"],
   "references": [
     "docs/tasks/api-portfolio-risk-followups.json#review",
@@ -34,5 +34,12 @@
     "pr_number": 36,
     "pr_url": "https://github.com/rainoko/fintrade/pull/36",
     "pushed_at": "2026-09-16T06:13:41Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T06:17:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/36",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Checked out PR #36. Full backend suite: 398 passed, coverage 99.64% (gate 90%), app/api/routers/portfolio.py and app/portfolio/pricing.py both at 100%. No ruff/mypy configured in backend/pyproject.toml so none run. No production code changed (only test + doc + task JSON), so no openapi.json regen applicable. Confirmed the Backend.md fix is accurate: app/portfolio/pricing.py does import DataProviderError from app.data.exceptions and catches it in _latest_close's except clause. Confirmed test_daily_excluded_position_never_triggers_weekly_fetch is genuinely regression-sensitive (not vacuous): the stub's weekly dict only contains 'AAPL', so a wasted weekly fetch for the daily-excluded 'ZZZZ' would KeyError rather than merely produce an equivalent response; also asserts provider.weekly_calls == ['AAPL'] directly. Independently reverted the get_risk() reorder locally and confirmed the new test fails without the fix and passes with it restored, matching the task's own decisions entry. code-review skill (medium effort) found no correctness bugs or reuse/simplification/efficiency issues. No frontend/UI surface touched -- browser walkthrough explicitly skipped as inapplicable. Both checklist items are legitimately resolved; decisions entry is well-recorded with rationale and a rejected alternative. No new non-blocking findings from this pass, so no follow-up task filed."
   }
 }
