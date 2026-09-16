@@ -29,5 +29,11 @@
       "alternatives_considered": "Considered a scoped guard that raises an error for tickers ending in a plausible non-US country-code suffix, but rejected it: distinguishing 'SAP.DE' (country suffix) from 'BRK.B' (class share) by shape alone (both are TICKER.[A-Z]{1,2}) isn't reliable, and the only robust way to do it -- a country-code allowlist -- was already considered and explicitly rejected in data-provider-stooq-followups's decisions entry for this exact ambiguity."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/data-provider-stooq-followups-followups",
+    "pr_number": 54,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/54",
+    "pushed_at": "2026-09-16T00:00:00Z"
+  }
 }
