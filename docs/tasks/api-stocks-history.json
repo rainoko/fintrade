@@ -3,7 +3,7 @@
   "title": "API: GET /api/stocks/{ticker}/history",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickerhistory"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model are already wired.",
@@ -40,5 +40,23 @@
     "pr_number": 40,
     "pr_url": "https://github.com/rainoko/fintrade/pull/40",
     "pushed_at": "2026-09-16T07:06:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:10:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/40",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "An unbounded numeric `range` value (e.g. `range=999999999y`, or an arbitrarily long digit string like `range=99999999999999999999999d`) matches `_RANGE_PATTERN` (`^(max|\\d+[dwmy])$`, no digit-count bound) but crashes `_trim_to_range`'s `pd.DateOffset` arithmetic with an unhandled `ValueError`/`OverflowError`, which FastAPI turns into a generic `500` instead of the `422` the endpoint's own contract promises for a bad `range`. Verified directly with `TestClient`: `range=999999999y` returns `500`. Non-blocking (pathological input, not on any realistic client path) — filed as a follow-up rather than blocking.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 100
+      },
+      {
+        "summary": "The 404 (unknown ticker) integration test only exercises `interval=daily`; no test exercises `interval=weekly` hitting the identical `TickerNotFoundError` -> 404 mapping through `get_weekly_ohlcv`. Low risk (shared exception-handling code), non-blocking.",
+        "file": "backend/tests/integration/test_stocks_history.py",
+        "line": 195
+      }
+    ],
+    "notes": "Checked out PR #40 (branch task/api-stocks-history, already the checked-out branch). Ran `pytest --cov=app --cov-report=term-missing`: 420 passed, 99.83% line/branch coverage (gate 90%), no regression. No ruff/mypy configured in backend/pyproject.toml's dev extras, so no separate lint step applies. Ran `python scripts/export_openapi.py` and diffed against the committed backend/openapi.json: no diff -- snapshot is current. Confirmed operationId (`get_stock_history`) is unique across the schema, the dual-shape 422 (`anyOf` of HTTPValidationError and ErrorDetail) is correctly declared and mirrors POST /api/portfolio/positions's existing precedent, and docs/architecture/API.md's range grammar/anchor description and the new insufficient-history/malformed-range error-case bullets match the implementation exactly. Ran the code-review skill (medium effort) against main..task/api-stocks-history: reported no blocking findings; independently found and verified (via TestClient) one additional correctness issue beyond what code-review flagged -- an unbounded-digit `range` value crashes with 500 instead of a controlled 422 -- assessed as non-blocking (pathological/adversarial input, not a golden-path or realistic-client scenario) and filed as a follow-up. area is backend/api (not backend/signals or backend/portfolio) and skill is add-api-endpoint (not verify-elder-signal), so verify-elder-signal doesn't apply. No new module/dependency/layer added (route body implemented in the existing stocks.py stub plus a private helper in the same file), so architecture-review doesn't apply. No frontend exists yet (per CLAUDE.md, 'not yet scaffolded') so there is no UI surface for this endpoint to drive -- browser walkthrough explicitly skipped, not silently omitted. All three `decisions` entries (interval-only fetch, range grammar/anchor, dual-shape 422 anyOf) are genuine judgment calls the docs didn't pin down and are properly recorded with rationale and rejected alternatives; no checklist item is phrased as 'decide X' without a corresponding decisions entry. Filed docs/tasks/api-stocks-history-followups.json for both non-blocking findings (no pre-existing follow-up task for this task id). No stale pr_decision existed on this task to clear (first review pass)."
   }
 }
