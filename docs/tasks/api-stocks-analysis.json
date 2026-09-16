@@ -3,15 +3,53 @@
   "title": "API: GET /api/stocks/{ticker}/analysis",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["signal-engine-orchestration", "data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickeranalysis"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model (AnalysisResponse) are already wired.",
   "checklist": [
     { "step": "Route signature + AnalysisResponse schema already defined — confirm no shape changes needed once signal-engine-orchestration lands", "done": true },
-    { "step": "Implement handler: fetch OHLCV via cache, call signals.engine.analyse(), map SignalResult to AnalysisResponse", "done": false },
-    { "step": "Handle unknown ticker -> 404, insufficient history (<26 weeks) -> 422 per docs/architecture/API.md", "done": false },
-    { "step": "Write integration test covering 200 (BUY/SELL/HOLD cases), 404, 422", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement handler: fetch OHLCV via cache, call signals.engine.analyse(), map SignalResult to AnalysisResponse", "done": true },
+    { "step": "Handle unknown ticker -> 404, insufficient history (<26 weeks) -> 422 per docs/architecture/API.md", "done": true },
+    { "step": "Write integration test covering 200 (BUY/SELL/HOLD cases), 404, 422", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T06:35:44Z",
+      "recorded_by": "task-worker",
+      "decision": "Fetch daily OHLCV first, then weekly, both via the injected DataProvider (get_data_provider), and map their DataProviderError subclasses directly to HTTP status codes (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) in the route handler, the same try/except pattern already used in app/api/routers/portfolio.py. No separate minimum-history check was added in the handler itself: YFinanceProvider/StooqProvider's get_weekly_ohlcv already raises InsufficientHistoryError below 26 weekly bars (the <26-week rule API.md documents), and app.signals.engine.analyse already documents degrading gracefully to HOLD for a short/empty daily series rather than raising -- duplicating either check in the router would just be a second, possibly-drifting copy of a rule that already lives in one place.",
+      "rationale": "Considered and rejected: (a) adding an explicit len(weekly_ohlcv) < 26 check in the router itself -- redundant with YFinanceProvider/StooqProvider's own enforcement and risks the two thresholds silently diverging if one is changed without the other; (b) fetching weekly before daily -- no behavioral difference for the documented error cases (an unknown ticker fails identically either way; the 422 case is weekly-only, so daily's own lack of a minimum-history check means calling it first never masks the 422), so daily-first was kept purely to match the call order already used by app/api/routers/portfolio.py's get_risk handler."
+    },
+    {
+      "timestamp": "2026-09-16T06:35:44Z",
+      "recorded_by": "task-worker",
+      "decision": "Uppercase the `ticker` path parameter (both for the provider calls and the `ticker` field echoed back in AnalysisResponse), and derive `as_of` from the latest daily OHLCV bar's date (falling back to the latest weekly bar's date in the practically-unreachable case of an empty daily frame, since get_weekly_ohlcv already guarantees at least 26 non-empty weekly bars by the time analyse() runs).",
+      "rationale": "Uppercasing mirrors POST /api/portfolio/positions's existing handling of the same field (docs/architecture/API.md), keeping ticker casing consistent across the API rather than leaving GET /api/stocks/{ticker}/analysis as a case-sensitive outlier. `as_of` isn't produced by app.signals.engine.analyse (which returns signal/confidence/screens/indicators only, no date) or documented beyond the single example '2026-09-11' in API.md, so the router derives it itself from the freshest input data actually driving the analysis (the daily bar, since Screens 2/3 and the indicators are daily-resolution) rather than using wall-clock 'today' -- which could disagree with the cache's last-fetched date on a stale/cached response and would misrepresent what date the signal actually reflects."
+    }
+  ],
+  "git": {
+    "branch": "task/api-stocks-analysis",
+    "pr_number": 37,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/37",
+    "pushed_at": "2026-09-16T06:36:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T06:47:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/37",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: the first `decisions` entry's rationale claims the router's per-exception-subtype -> HTTP-status mapping (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) is 'the same try/except pattern already used in app/api/routers/portfolio.py'. That's not quite accurate: portfolio.py's get_risk only has a broad `except DataProviderError` that silently skips a position, and its only direct HTTPException(404/422) calls are for unrelated domain logic (position-not-found, merge-overflow) -- there's no existing precedent elsewhere in the codebase for this specific granular subtype-to-status mapping. The mapping itself is correct and matches API.md/app/data/exceptions.py faithfully; only the decision record's stated precedent is imprecise, which could mislead a future reader into assuming this pattern already existed elsewhere.",
+        "file": "docs/tasks/api-stocks-analysis.json",
+        "line": 21
+      }
+    ],
+    "notes": "Re-review superseding the prior pass (whose review.reviewed_at was mis-estimated later than pr_decision.confirmed_at, failing pr-merger's ordering check). Confirmed via `git diff main...HEAD -- . ':!docs/tasks'` that no application code has changed since the original review (only docs/tasks/*.json commits happened afterward: 58d2ba8/518a035/991155f) -- backend/app/api/routers/stocks.py, backend/openapi.json, and backend/tests/integration/test_stocks_analysis.py are byte-identical to what was originally reviewed. Re-ran `pytest --cov=app --cov-report=term-missing` on the checked-out branch: 406 passed, 99.73% line/branch coverage (gate 90%) -- matches the original review exactly, no regression. No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Re-ran `python scripts/export_openapi.py` and diffed against the committed backend/openapi.json -- no diff, snapshot still current. Re-read the router diff directly: `get_analysis` fetches daily+weekly OHLCV via the injected DataProvider, maps TickerNotFoundError/InsufficientHistoryError/DataProviderUnavailableError to 404/422/503 respectively, calls `app.signals.engine.analyse()`, and maps SignalResult fields (signal/confidence/confidence_band/screens/confidence_breakdown/indicators) straight through to AnalysisResponse with no re-derivation -- consistent with docs/Analyse.md and matching what the original verify-elder-signal pass found. No new module/dependency/layer added, so architecture-review does not apply. No frontend exists yet (frontend/ not yet scaffolded) so this PR has no UI surface -- browser walkthrough explicitly skipped, not silently omitted. Checklist has no 'decide X' phrased items without a corresponding `decisions` entry. The one non-blocking finding above was already filed as a checklist item on docs/tasks/api-stocks-analysis-followups.json (still `state: planned`) by the original review pass -- confirmed it's still there and not duplicated. Verdict unchanged: accepted. Timestamp captured via `date -u +%Y-%m-%dT%H:%M:%SZ` per CLAUDE.md, not estimated."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T06:49:16Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `pytest --cov=app --cov-report=term-missing` on the checked-out branch: 406 passed, 99.73% line/branch coverage, matching pr-reviewer's reported numbers exactly. Re-ran `python scripts/export_openapi.py`; `git status` showed no diff against the committed backend/openapi.json, confirming the snapshot is current. Read `git diff main...HEAD` in full for all 6 changed files: `get_analysis` in backend/app/api/routers/stocks.py fetches daily+weekly OHLCV via the injected DataProvider, maps TickerNotFoundError/InsufficientHistoryError/DataProviderUnavailableError to 404/422/503, calls `app.signals.engine.analyse()`, and passes SignalResult fields straight through to AnalysisResponse with no re-derivation. Verified the 5-component confidence_breakdown asserted in backend/tests/integration/test_stocks_analysis.py (test_buy_signal_response_shape etc.) against docs/Analyse.md §6's weighting table (Tide 30% / Impulse gate 20% / Oscillator extremity 25% / Elder-Ray 15% / Volume 10%) and app/signals/confidence.py's WEIGHTS dict -- both match exactly, five named components, no more no fewer. Confirmed docs/tasks/api-stocks-analysis-followups.json exists with the non-blocking decisions-record-precedent finding tracked as a checklist item, state planned, depends_on this task. Accept holds."
+  }
 }

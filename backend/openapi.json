@@ -726,7 +726,7 @@
     },
     "/api/stocks/{ticker}/analysis": {
       "get": {
-        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.",
+        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.\n\n`ticker` is normalized to uppercase (mirrors `POST /api/portfolio/positions`'s handling\nof the same field) before being passed to the data provider and echoed back in the\nresponse. Daily and weekly OHLCV are fetched via the SQLite-backed cache\n(`app.data.cache.CachedDataProvider`, docs/architecture/Backend.md \u00a77); the weekly fetch\nis what actually enforces the <26-week-history -> 422 rule\n(`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no\nseparate minimum-history check of its own, matching `app.signals.engine.analyse`'s own\ndocumented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this\ntask's `decisions` entry).",
         "operationId": "get_stock_analysis",
         "parameters": [
           {
