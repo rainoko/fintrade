@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/risk — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-portfolio-risk"],
   "references": [
     "docs/tasks/api-portfolio-risk.json#review",
@@ -25,5 +25,23 @@
     "pr_number": 34,
     "pr_url": "https://github.com/rainoko/fintrade/pull/34",
     "pushed_at": "2026-09-16T05:57:15Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T00:00:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/34",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "docs/architecture/Backend.md's new portfolio/pricing.py paragraph says it depends only on data/base.py's DataProvider protocol and db/models.py/portfolio/models.py, but pricing.py also imports DataProviderError from app.data.exceptions (used in _latest_close's except clause). Minor inaccuracy, non-blocking. Tracked as a checklist item on docs/tasks/api-portfolio-risk-followups-followups.json.",
+        "file": "docs/architecture/Backend.md",
+        "line": 83
+      },
+      {
+        "summary": "The get_risk() reorder (protective_stop() before provider.get_weekly_ohlcv()) is behavior-preserving and verified correct by inspection and by the full test suite, but no test pins down the intended effect itself -- that the weekly fetch is now skipped for a position excluded on the daily side. Existing integration tests all supply valid weekly data even for daily-excluded positions, so they'd pass identically with or without the reorder. Non-blocking; tracked as a checklist item on docs/tasks/api-portfolio-risk-followups-followups.json.",
+        "file": "backend/tests/integration/test_portfolio_risk.py",
+        "line": 293
+      }
+    ],
+    "notes": "Verified: checked out PR #34 (task/api-portfolio-risk-followups). Full backend suite: 397 passed, coverage 99.64% (gate 90%), app/api/routers/portfolio.py and app/portfolio/pricing.py both at 100%. No ruff/mypy configured in backend/pyproject.toml so none run (matches project config). No route/schema signature change so no openapi.json regen required. No frontend/UI surface touched by this PR (docs + internal loop-ordering only) -- browser walkthrough explicitly skipped as inapplicable. code-review skill (medium effort) found no correctness bugs or reuse/simplification/efficiency issues. Manually traced the get_risk() reorder: protective_stop() has no side effects and both try/except blocks independently gate inclusion in `stops`/`weekly_by_id`, so swapping their order changes only which I/O is skipped when the daily side excludes a position, not the final set of included positions -- confirmed behavior-preserving. Confirmed the Backend.md addition is accurate: pricing.py is imported only from app/api/routers/portfolio.py (plus its own unit test), matching the 'imported only from the api/ layer' claim; flagged one minor omission (data/exceptions.py) in the dependency list, non-blocking. Two non-blocking findings recorded above and filed as checklist items on docs/tasks/api-portfolio-risk-followups-followups.json (new follow-up task, since none existed yet for this task id)."
   }
 }
