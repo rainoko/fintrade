@@ -31,7 +31,13 @@
       "timestamp": "2026-09-16T00:00:00Z",
       "recorded_by": "task-worker",
       "decision": "Gave app.signals.impulse.evaluate_impulse a new optional `histogram: pd.Series | None = None` keyword parameter (mirroring the existing `ema_13` parameter added by portfolio-exit-rules-followups), used in place of an internal macd_histogram(daily_close) call when supplied. app/signals/engine.py's analyse() now computes daily_close's ema_13/ema_26/histogram series once, up front, and passes ema_13/histogram into evaluate_impulse as well as reusing them for the `indicators` dict and (for ema_13) the Elder-Ray Bull/Bear Power calls -- rather than evaluate_impulse recomputing its own ema(13)/macd_histogram internally and analyse() separately recomputing the same series a second time for `indicators`. Rejected restructuring evaluate_impulse to return the series instead of just the GREEN/RED/BLUE color: that would change its return type/contract for every existing caller (including app.portfolio.exits.evaluate_exit_flags, which only wants the color), whereas an additional optional input parameter is purely additive and backward-compatible -- every other call site (evaluate_exit_flags's `evaluate_impulse(daily_ohlcv, ema_13=daily_ema_13)`) is unaffected.",
-      "rationale": "Matches the checklist's own suggested fix ('have evaluate_impulse optionally accept/return the underlying EMA(13)/MACD-Histogram series') and the precedent already set by the ema_13 parameter from portfolio-exit-rules-followups, keeping the sharing mechanism consistent across both signal-engine callers. Verified the two computations are provably identical (same fast/slow/signal params, same daily_close input -- app.indicators.macd.macd_histogram is a thin wrapper over macd_components(...).histogram) so no output value changes, only call count; confirmed via the full backend suite (451 tests, 99.83% coverage) and this task's own dedicated TestEvaluateImpulsePrecomputedEma13-style coverage for the new histogram parameter path."
+      "rationale": "Matches the checklist's own suggested fix ('have evaluate_impulse optionally accept/return the underlying EMA(13)/MACD-Histogram series') and the precedent already set by the ema_13 parameter from portfolio-exit-rules-followups, keeping the sharing mechanism consistent across both signal-engine callers. Verified the two computations are provably identical (same fast/slow/signal params, same daily_close input -- app.indicators.macd.macd_histogram is a thin wrapper over macd_components(...).histogram) so no output value changes, only call count; confirmed via the full backend suite (454 tests, 99.83% coverage) and a dedicated TestEvaluateImpulsePrecomputedHistogram class (mirroring the existing TestEvaluateImpulsePrecomputedEma13) added in tests/unit/signals/test_impulse.py for the new histogram parameter path."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/signal-engine-orchestration-followups",
+    "pr_number": 52,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/52",
+    "pushed_at": "2026-09-16T09:45:56Z"
+  }
 }
