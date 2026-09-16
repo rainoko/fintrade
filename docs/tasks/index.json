@@ -350,6 +350,76 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/api-portfolio-risk-followups-followups.json"
+    },
+    {
+      "id": "frontend-scaffold",
+      "area": "frontend/scaffold",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-scaffold.json"
+    },
+    {
+      "id": "frontend-api-client",
+      "area": "frontend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-api-client.json"
+    },
+    {
+      "id": "frontend-common-components",
+      "area": "frontend/components/common",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-common-components.json"
+    },
+    {
+      "id": "frontend-app-shell-navigation",
+      "area": "frontend/layout",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-app-shell-navigation.json"
+    },
+    {
+      "id": "frontend-portfolio-page",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-portfolio-page.json"
+    },
+    {
+      "id": "frontend-portfolio-risk-panel",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-portfolio-risk-panel.json"
+    },
+    {
+      "id": "frontend-stock-analysis-page",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-analysis-page.json"
+    },
+    {
+      "id": "frontend-stock-history-chart",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-history-chart.json"
+    },
+    {
+      "id": "frontend-dashboard-page",
+      "area": "frontend/pages/dashboard",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-dashboard-page.json"
+    },
+    {
+      "id": "frontend-test-90",
+      "area": "frontend/testing",
+      "skill": "test-90",
+      "state": "planned",
+      "path": "docs/tasks/frontend-test-90.json"
     }
   ]
 }

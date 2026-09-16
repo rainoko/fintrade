@@ -1,0 +1,48 @@
+{
+  "id": "frontend-portfolio-page",
+  "title": "Frontend: Portfolio page (positions, add, delete)",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "frontend-api-client",
+    "frontend-common-components",
+    "frontend-app-shell-navigation"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apiportfolio",
+    "docs/architecture/API.md#post-apiportfoliopositions",
+    "docs/architecture/API.md#delete-apiportfoliopositionsid"
+  ],
+  "description": "Full UI for GET /api/portfolio, POST /api/portfolio/positions, and DELETE /api/portfolio/positions/{id} \u2014 the first of the two portfolio-area feature tasks (frontend-portfolio-risk-panel covers GET /api/portfolio/risk separately, since it's visually and conceptually a distinct panel).",
+  "checklist": [
+    {
+      "step": "features/portfolio/hooks/usePortfolio.ts \u2014 useQuery wrapping api/portfolio.ts#getPortfolio.",
+      "done": false
+    },
+    {
+      "step": "features/portfolio/hooks/useAddPosition.ts / useDeletePosition.ts \u2014 useMutation, invalidating the portfolio (and risk) query on success.",
+      "done": false
+    },
+    {
+      "step": "features/portfolio/components/PositionsTable.tsx built on common/DataTable \u2014 ticker, quantity, avg_cost_basis, entry_date, current_price, unrealized_pnl_pct (via common/PercentChange). Handle current_price/unrealized_pnl_pct being null gracefully (API.md notes these are null right after a write, before read-time enrichment).",
+      "done": false
+    },
+    {
+      "step": "features/portfolio/components/AddPositionDialog.tsx \u2014 form (ticker, quantity, avg_cost_basis, entry_date) with client-side validation, wired to useAddPosition; surface the merge-on-duplicate-ticker behavior (API.md) as an informational message after submit rather than letting it look like a silent no-op.",
+      "done": false
+    },
+    {
+      "step": "Delete action on each row opens common/ConfirmDialog before calling useDeletePosition.",
+      "done": false
+    },
+    {
+      "step": "pages/PortfolioPage.tsx composes StatCard(s) for equity.cash/positions_value/total, PositionsTable, and the Add Position entry point \u2014 stays thin per Frontend.md's page rules.",
+      "done": false
+    },
+    {
+      "step": "Component tests (MSW-mocked) for: populated table, empty portfolio (no positions yet), add-position happy path, add-position validation errors, delete-position confirm flow, and each ApiError case from API.md surfaced via common/ErrorState.",
+      "done": false
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "frontend-stock-history-chart",
+  "title": "Frontend: stock price history chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "frontend-stock-analysis-page"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apistocksstickerhistory",
+    "docs/architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports"
+  ],
+  "description": "UI for GET /api/stocks/{ticker}/history \u2014 a candlestick price chart on the Stock Detail page, built on TradingView Lightweight Charts. Per Frontend.md \u00a75, this renders raw OHLCV only (no indicator overlay) since the backend doesn't expose a historical indicator series.",
+  "checklist": [
+    {
+      "step": "features/stocks/hooks/useStockHistory.ts \u2014 useQuery wrapping api/stocks.ts#getStockHistory(ticker, { range, interval }), keyed so changing range/interval refetches rather than reusing stale cached data across different query params.",
+      "done": false
+    },
+    {
+      "step": "features/stocks/components/PriceChart.tsx: lightweight-charts candlestick series from bars; handle empty/short history gracefully (don't render a broken chart for a low-bar-count response).",
+      "done": false
+    },
+    {
+      "step": "A range selector (mapping to the API's <N>d|w|m|y|max grammar, e.g. 1m/3m/6m/1y/max) and a daily/weekly interval toggle, wired to useStockHistory's params.",
+      "done": false
+    },
+    {
+      "step": "Wire PriceChart + its controls into StockDetailPage.tsx, below or beside SignalSummary/ScreensPanel/IndicatorsPanel.",
+      "done": false
+    },
+    {
+      "step": "Component tests (MSW-mocked): populated chart renders, range/interval changes trigger a refetch with the right query params, the unrecognized-range 422 and the interval=weekly insufficient-history 422 (API.md's two distinct 422 cases for this endpoint) are both surfaced distinctly via common/ErrorState.",
+      "done": false
+    }
+  ]
+}

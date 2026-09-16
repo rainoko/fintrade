@@ -59,7 +59,9 @@ flowchart LR
 | Market data | yfinance (primary), Stooq (fallback) | Both free, no API key; see [Analyse.md §9](Analyse.md#9-data-sources-free) |
 | Frontend language | TypeScript (required) | Type safety across API boundary, catches indicator/shape mismatches at compile time |
 | Frontend framework | React + Vite | Dashboard is stateful/interactive, not content-driven — Astro's static-first model doesn't fit |
-| Charting | TradingView Lightweight Charts | Purpose-built for candlestick + indicator-pane charts, free |
+| Frontend components | Material UI (MUI) | Material Design baseline for forms/tables/dialogs/nav; no second component library or hand-rolled CSS framework alongside it |
+| Frontend server state | TanStack Query only — no Redux/MobX | See [Frontend.md §2](architecture/Frontend.md#2-state-management-server-state-only-no-client-state-library) |
+| Charting | TradingView Lightweight Charts | Candlestick chart over raw OHLCV; no indicator overlay — see [Frontend.md §5](architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports) for why |
 | API style | REST/JSON | Simple contract, easy to test and mock on both sides |
 | Test coverage gate | 90% lines, both frontend and backend | See [Testing.md](architecture/Testing.md) |
 

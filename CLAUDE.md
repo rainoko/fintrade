@@ -68,7 +68,7 @@ Each feature is one JSON file, plus `docs/tasks/index.json` as the summary index
 
 Whoever works a task — human or agent — makes judgment calls that aren't fully pinned down by `docs/Analyse.md` or `docs/architecture/*.md`: which of several valid technical approaches to use, how to interpret an ambiguous parameter, how to resolve a checklist item phrased as "decide X" (e.g. the duplicate-ticker behavior flagged in `api-portfolio-add-position`). **Record these in the task's own `decisions` array as they're made** — not only in a code comment or a chat reply, both of which are invisible to the next session or agent that picks the task back up. A decision entry needs `decision` (what) and `rationale` (why, including what you rejected and why) to be useful; a bare "changed X" isn't a decision record.
 
-This is enforced by the `add-indicator`, `add-api-endpoint`, and `verify-elder-signal` skills (which write entries), and checked by `next-task` (which surfaces existing entries when resuming in-progress work) and `task-qa-reviewer` (which flags an undocumented decision as a gap).
+This is enforced by the `add-indicator`, `add-api-endpoint`, `add-frontend-feature`, and `verify-elder-signal` skills (which write entries), and checked by `next-task` (which surfaces existing entries when resuming in-progress work) and `task-qa-reviewer` (which flags an undocumented decision as a gap).
 
 **`docs/tasks/index.json`'s per-task `state` is a mirror, not a separate source of truth.** Whenever a task file's `state` changes, update `index.json`'s entry for that task in the same change — don't let them drift. The same applies to `path`: whenever a task's file moves (into or out of `docs/tasks/done/`, per the rule above), update `index.json`'s `path` for that task in the same commit as the `git mv` — a `state` of `"done"` whose `path` still points at `docs/tasks/<id>.json` (or vice versa) is exactly the kind of drift this mirror rule exists to prevent.
 
@@ -96,6 +96,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 
 - `add-indicator` — add/change a technical indicator, with hand-computed reference-value tests.
 - `add-api-endpoint` — add/change a FastAPI endpoint, keeping schema, OpenAPI snapshot, and frontend types in sync.
+- `add-frontend-feature` — add/change a frontend page, component, or hook, with an explicit common/-vs-feature-specific placement decision and Storybook/test coverage for anything reusable.
 - `check-coverage` — run backend + frontend coverage together and report against the 90% gate.
 - `test-90` — actively close coverage gaps (the write-tests counterpart to `check-coverage`).
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
