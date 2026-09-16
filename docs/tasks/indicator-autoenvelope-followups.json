@@ -3,7 +3,7 @@
   "title": "Indicator: Autoenvelope — non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["indicator-autoenvelope"],
   "references": [
     "docs/tasks/indicator-autoenvelope.json#review",
@@ -13,7 +13,18 @@
   "checklist": [
     {
       "step": "`pct_deviation = (close - mid).abs() / mid` is an unguarded division by `mid`. A zero/near-zero EMA value (e.g. a data-provider gap filling close with 0.0) would silently produce inf/NaN that propagates through the rolling mean into upper/lower for the following deviation_lookback bars rather than raising. Low likelihood for real equity data and no consumer exists yet, but worth a guard (e.g. treat near-zero mid as NaN/undefined, matching other indicators' NaN-propagation conventions) before this feeds a real signal.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Guarded the division by introducing a module-level `_MID_ZERO_EPSILON = 1e-9` threshold: `mid_for_deviation = mid.where(mid.abs() > _MID_ZERO_EPSILON)` before computing `pct_deviation = (close - mid).abs() / mid_for_deviation`. A bar whose `mid` falls at or below that magnitude gets `pct_deviation = NaN` for that bar instead of +/-inf. Because `avg_pct_deviation`'s rolling window uses `min_periods == window size` (every bar in the window must be non-NaN), that one NaN bar propagates into NaN `upper`/`lower` for exactly the following `deviation_lookback` bars, then the band recovers -- the same bounded, already-documented NaN warm-up shape this function produces at the start of any series, not an unbounded inf/-inf leak. `mid` itself (the returned column) is left untouched, degenerate value and all -- only the internal deviation quotient is guarded, since the finding was specifically about the division, not about EMA's own output.",
+      "rationale": "Checked how sibling indicators in backend/app/indicators/ handle degenerate divisions before picking an approach: app.indicators.stochastic.stochastic_oscillator's fast %K is `100 * (close - LL) / (HH - LL)`, and when the trailing range is flat (HH == LL), it deliberately lets the 0/0 case flow straight into pandas/numpy's own NaN result rather than special-casing it, because HH == LL also forces the numerator to 0 (close is always within [LL, HH]), so 0/0 -> NaN happens naturally with no guard needed. Autoenvelope's case is different: mid == 0 does NOT force the numerator (close - mid) to 0 too (close can be nonzero while mid, from a data-gap-filled close feeding EMA, is 0 or near it), so the unguarded expression would hit inf, not stochastic's clean 0/0-NaN, and needed an explicit guard to reach the same NaN convention. Considered raising instead (e.g. a ValueError on non-positive mid) but rejected it: no sibling indicator in this codebase raises on a degenerate *input value* (ema.py/macd.py/force_index.py/elder_ray.py only raise on bad *parameters* like a non-int period or misaligned index, never on a data value being zero or negative), and degrading to NaN keeps this consistent with every other indicator's warm-up-NaN convention that downstream consumers (portfolio-exit-rules) already have to handle, rather than introducing a new failure mode a caller would need a try/except for. Considered guarding `mid` itself (replacing the degenerate value in the *output* column) but rejected it: the finding was specifically about the division, `mid` is documented as 'exactly EMA(close, ema_period)' with no NaN-substitution caveat, and a caller-supplied `mid` (via the `mid` kwarg) should be returned as given, not silently rewritten. Picked `1e-9` as the epsilon over comparing to exact `0.0` only: floating-point EMA recursion (k * close + (1-k) * prev) from a near-zero-but-not-exactly-zero close sequence could land at e.g. 1e-15 instead of literal 0.0 and still blow up the division into an enormous (not infinite, but still absurd and misleading) ratio; 1e-9 is far below any real equity price (which trades in dollars/cents) so it can never misfire on legitimate data, while still catching float noise around zero."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-autoenvelope-followups"
+  }
 }
