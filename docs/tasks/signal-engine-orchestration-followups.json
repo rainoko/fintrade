@@ -3,7 +3,7 @@
   "title": "Signal engine orchestration — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["signal-engine-orchestration"],
   "references": [
     "docs/tasks/signal-engine-orchestration.json#review",
@@ -39,5 +39,12 @@
     "pr_number": 52,
     "pr_url": "https://github.com/rainoko/fintrade/pull/52",
     "pushed_at": "2026-09-16T09:45:56Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T09:51:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/52",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite: 454 passed, 99.83% coverage (90% gate met); app/signals/engine.py and app/signals/impulse.py both at 100% line/branch coverage, matching the PR description's own numbers. No lint/type checker configured in backend/pyproject.toml, so none invented/run. No frontend exists yet and no API route/schema changed, so no OpenAPI/browser-walkthrough concerns -- this PR has no UI surface. Traced _wave_lookback's 'skip the direction the tide can never produce' optimization against evaluate_wave's own source (app/signals/triple_screen.py: OVERSOLD_PULLBACK only ever gated on tide=='BULLISH', OVERBOUGHT_RALLY only ever gated on tide=='BEARISH', with tide held fixed across the whole call, same as the old _wave_showed_state pair) and against docs/Analyse.md Sec.2's tide-conditioned Wave definition -- confirmed genuinely unreachable, not just empirically unobserved. Independently verified equivalence by reimplementing the old _wave_showed_state verbatim and running it head-to-head against the new _wave_lookback over 2000 randomized daily_ohlcv frames x 3 tide values (6000 checks, including n=0 and NEUTRAL-tide edges): zero mismatches on both the showed-pullback/showed-rally booleans and the full wave dict (NaN-aware). Confirmed app.indicators.macd.macd_histogram is a thin wrapper returning the exact same macd_components(...).histogram engine.py now computes directly (same defaults), so no float-precision/ordering risk between evaluate_impulse's gate use and the indicators dict; confirmed the one other evaluate_impulse caller (app/portfolio/exits.py:165) is untouched and still omits the new histogram param. Ran the code-review skill (medium effort) independently against the diff: no findings. decisions entries present and substantive for both changes. No non-blocking findings this pass -- no follow-up task filed."
   }
 }
