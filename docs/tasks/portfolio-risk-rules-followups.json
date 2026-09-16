@@ -3,7 +3,7 @@
   "title": "Portfolio risk rules — non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["portfolio-risk-rules"],
   "references": [
     "docs/tasks/portfolio-risk-rules.json#review",
@@ -21,5 +21,12 @@
     "pr_number": 48,
     "pr_url": "https://github.com/rainoko/fintrade/pull/48",
     "pushed_at": "2026-09-16T08:56:10Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T08:58:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/48",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docstring-only change: DataProvider.get_daily_ohlcv's docstring in backend/app/data/base.py now states the oldest-first (most recent row last) ordering contract that app.portfolio.risk.protective_stop relies on via .tail(). Verified: (1) StooqProvider._normalize calls .sort_index() ascending, (2) YFinanceProvider._fetch relies on yfinance's native ascending-date return order, (3) CachedDataProvider._read_cache orders by OHLCVCacheORM.date ascending and CachedDataProvider._rows_to_frame preserves that order -- all three real implementations match the new docstring's claim. No application logic changed (Protocol method body is still `...`). backend/pytest -q --cov=app: 447 passed, 99.83% coverage (gate 90%), no regression. No ruff/mypy configured in backend/pyproject.toml, so none run (none invented). code-review skill (background pass): zero findings. verify-elder-signal skill: no drift from docs/Analyse.md §7 (protective stop = swing low - volatility buffer) since risk.py's own computation is untouched. No API route/schema touched, so backend/openapi.json correctly left alone. No new module/dependency/layer, so architecture-review not triggered. No frontend exists yet and this is a backend-docstring-only change with no UI surface, so the browser walkthrough step is explicitly skipped (not applicable). Checklist item's single entry is correctly marked done and matches the diff. No 'decide X' phrased checklist items requiring a decisions entry. No stale pr_decision was present to clear. No non-blocking findings, so no followup task filed."
   }
 }
