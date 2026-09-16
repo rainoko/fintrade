@@ -3,7 +3,7 @@
   "title": "Frontend: app shell and navigation",
   "area": "frontend/layout",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -14,23 +14,46 @@
   "checklist": [
     {
       "step": "AppShell.tsx: MUI AppBar + persistent NavDrawer (or equivalent responsive nav) wrapping all routed pages.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire real routes in App.tsx for Dashboard ('/'), Portfolio ('/portfolio'), and Stock Detail ('/stocks/:ticker'), replacing the scaffold's placeholders.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a 404/not-found route and page.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a top-level error boundary (React error boundary, not just TanStack Query's per-query error state) so a render-time crash in one page doesn't blank the whole app.",
-      "done": false
+      "done": true
     },
     {
-      "step": "Component tests for AppShell/NavDrawer: nav links present, active-route highlighting, responsive behavior at narrow width (per Frontend.md's phone-width expectations carried over from the artifact-design conventions used elsewhere in this project, if applicable \u2014 otherwise decide and record a reasonable minimum-width target).",
-      "done": false
+      "step": "Component tests for AppShell/NavDrawer: nav links present, active-route highlighting, responsive behavior at narrow width (per Frontend.md's phone-width expectations carried over from the artifact-design conventions used elsewhere in this project, if applicable — otherwise decide and record a reasonable minimum-width target).",
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "Use MUI's own `sm` breakpoint (600px, via `theme.breakpoints.down('sm')`) as the threshold where AppShell's persistent side drawer collapses into a hamburger-triggered temporary drawer.",
+      "rationale": "Neither Frontend.md nor Analyse.md names a project-specific mobile breakpoint, and no artifact-design convention applies here (this is a real React app, not a canvas artifact). Reusing MUI's own `sm` threshold keeps AppShell consistent with whatever other MUI responsive primitives get added later, instead of inventing and maintaining a bespoke pixel value with no other reference point in the docs."
+    },
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the new top-level error boundary at components/layout/AppErrorBoundary.tsx (no Storybook story), not components/common/.",
+      "rationale": "AppErrorBoundary is technically domain-agnostic (it doesn't know about a position/ticker/signal), which would normally point at components/common/ per Frontend.md §3's placement rule. But it's used exactly once, wrapping the whole app in main.tsx, the same usage pattern as AppShell — and Frontend.md explicitly scopes the common/-needs-a-story rule to 'the reusable, domain-agnostic layer' that's meant to be composed into multiple features. Building out components/common/ itself (with its full test+story requirement for 9 named components) is the separate frontend-common-components task; adding one more common/ component here, without that task's Storybook scaffolding context, risked inconsistent precedent for that task. Rejected alternative: components/common/AppErrorBoundary with a story that deliberately throws — reasonable, but deferred to avoid pre-empting frontend-common-components' own component list and conventions."
+    },
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "NavDrawer lists only Dashboard and Portfolio as static nav destinations; Stock Detail ('/stocks/:ticker') has no entry.",
+      "rationale": "Stock Detail is a ticker-parameterized route with no meaningful default target — it's reached by navigating from a position row or a search/lookup action (future frontend-portfolio-page/frontend-stock-analysis-page work), not by clicking a fixed nav link. This matches Frontend.md §3's page list, which doesn't suggest a static nav entry for it either."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-app-shell-navigation"
+  }
 }
