@@ -3,7 +3,7 @@
   "title": "Frontend: common component library (Storybook-tracked)",
   "area": "frontend/components/common",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -94,5 +94,11 @@
       "decision": "Used `sx={{ alignItems: ..., justifyContent: ... }}` instead of MUI Stack's top-level `alignItems`/`justifyContent` props in StatCard and ConfidenceGauge.",
       "rationale": "The pinned @mui/material@9.4.0 in this repo's package.json ships a Stack.d.ts whose StackOwnProps type doesn't include alignItems/justifyContent as direct props (only as CSS system props via `sx`), causing a `tsc -b` type error when passed directly. Routing the same values through `sx` compiles cleanly and renders identically; not a stylistic preference, but a workaround for this pinned version's actual type surface — worth revisiting if a future @mui/material upgrade restores those as direct props."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-common-components",
+    "pr_number": 64,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/64",
+    "pushed_at": "2026-09-16T22:25:00Z"
+  }
 }
