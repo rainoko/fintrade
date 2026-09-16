@@ -1,0 +1,21 @@
+{
+  "id": "api-portfolio-get-followups-followups",
+  "title": "GET /api/portfolio follow-ups — further non-blocking review follow-up",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-portfolio-get-followups"],
+  "references": [
+    "docs/tasks/api-portfolio-get-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/43"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #43 (api-portfolio-get-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "The N+1 fix's regression tests (backend/tests/integration/test_portfolio_pricing_session.py, backend/tests/unit/test_db_session.py) prove that expire_on_commit=False avoids the re-SELECT and that app.db.session.SessionLocal carries the flag, but neither goes through the actual FastAPI get_db dependency-injection path: backend/tests/integration/conftest.py's shared db_session fixture builds its own sessionmaker(...) without expire_on_commit=False (pre-existing, not touched by PR #43), so no test exercises GET /api/portfolio or GET /api/portfolio/risk end-to-end via TestClient to prove production wiring (get_db -> SessionLocal) actually benefits from the fix. Not a correctness risk today -- SQLAlchemy session behavior is fully determined by the flag passed to sessionmaker regardless of how the session is constructed or wired, and the flag itself is directly asserted against the real SessionLocal object -- but a future refactor of get_db/SessionLocal construction (e.g. accidentally dropping the kwarg, or introducing a second sessionmaker) could silently regress the fix with nothing failing. Worth either updating conftest.py's db_session fixture to set expire_on_commit=False (matching production) or adding one true end-to-end TestClient-driven regression test that counts SQL selects the way test_portfolio_pricing_session.py does.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

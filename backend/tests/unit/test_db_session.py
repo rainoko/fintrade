@@ -18,6 +18,18 @@ def test_session_local_produces_sqlalchemy_sessions() -> None:
         session.close()
 
 
+def test_session_local_does_not_expire_objects_on_commit() -> None:
+    """expire_on_commit=False -- see this module's `SessionLocal` comment and the
+    api-portfolio-get-followups task's `decisions` entry: a request-scoped session is shared
+    with CachedDataProvider (app/data/cache.py), whose per-ticker cache-miss upsert commits
+    mid-loop while a route handler is still iterating over already-loaded ORM rows from an
+    earlier query on the same session. The SQLAlchemy default (True) would expire every
+    loaded row on that commit, turning each subsequent attribute access into its own
+    re-SELECT (an N+1 query pattern) -- see
+    tests/integration/test_portfolio_pricing_session.py for a behavioral reproduction."""
+    assert SessionLocal.kw["expire_on_commit"] is False
+
+
 def test_get_db_yields_a_session_and_closes_it_afterward() -> None:
     generator = get_db()
     db = next(generator)

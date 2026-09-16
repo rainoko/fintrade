@@ -36,6 +36,15 @@ _SIX_PERCENT_RULE_THRESHOLD = 6.0
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
+
+def _ordered_positions(db: Session) -> list[PositionORM]:
+    """All held positions in a deterministic order (`entry_date`, then `id` as a tiebreaker
+    for same-day entries), used by both GET /api/portfolio and GET /api/portfolio/risk so
+    neither relies on incidental SQLite row-return order -- see this task's `decisions`
+    entry."""
+    return db.query(PositionORM).order_by(PositionORM.entry_date, PositionORM.id).all()
+
+
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
 # response_models, and error responses below are real and drive the OpenAPI
 # schema the frontend generates its types from (docs/architecture/API.md).
@@ -64,7 +73,7 @@ def get_portfolio(
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 
-    enriched = enrich_positions_with_price(db.query(PositionORM).all(), provider)
+    enriched = enrich_positions_with_price(_ordered_positions(db), provider)
     value = positions_value(enriched)
 
     positions_out = [
@@ -234,7 +243,7 @@ def get_risk(
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
-    enriched = enrich_positions_with_price(db.query(PositionORM).all(), provider)
+    enriched = enrich_positions_with_price(_ordered_positions(db), provider)
     value = positions_value(enriched)
     account = Account(
         equity=DomainEquity(cash=cash, positions_value=value, total=cash + value),

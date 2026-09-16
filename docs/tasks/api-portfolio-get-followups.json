@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-portfolio-get"],
   "references": [
     "docs/tasks/api-portfolio-get.json#review",
@@ -13,27 +13,83 @@
   "checklist": [
     {
       "step": "The mark-to-market enrichment logic (fetch current_price per position via the DataProvider, compute unrealized_pnl_pct, sum positions_value, exclude a position whose price fetch failed) is embedded directly in app/api/routers/portfolio.py's get_portfolio handler using the API schema types, rather than as a reusable function in app/portfolio/ built on the existing app.portfolio.models.Position/Equity/Account domain models (which already have the exact shape for this). The still-stubbed GET /api/portfolio/risk endpoint (api-portfolio-risk task) needs position.current_price populated too (per app/portfolio/risk.py's precondition), so as currently structured it will have to duplicate this same fetch-and-degrade-gracefully loop instead of reusing it. Extract into a portfolio-domain function both routes can call.",
-      "done": false
+      "done": true
     },
     {
       "step": "docs/architecture/Backend.md §2's module layout diagram doesn't list the new app/api/dependencies.py file added by this PR. Not a violation of any documented principle (it fits the existing api/ layer and the get_db dependency-override testing pattern), but the diagram should be updated for accuracy.",
-      "done": false
+      "done": true
     },
     {
       "step": "get_portfolio's db.query(PositionORM).all() has no explicit order_by, so the order of `positions` in the response isn't deterministic/guaranteed -- it currently relies on incidental SQLite behavior. Low impact for a single-user MVP but worth an explicit stable ordering (e.g. by entry_date or id) for a deterministic API response.",
-      "done": false
+      "done": true
     },
     {
       "step": "get_portfolio's db session and get_data_provider's CachedDataProvider share the same request-scoped SQLAlchemy Session (default expire_on_commit=True, app/db/session.py's sessionmaker doesn't override it). A cache-miss/stale price fetch mid-loop commits (CachedDataProvider._upsert) on that same session, expiring every already-loaded PositionORM object, so each subsequent row attribute access re-issues a SELECT -- an N+1 query pattern for a portfolio with a cold cache. Not a correctness bug, just wasteful; consider passing expire_on_commit=False for this session or loading all needed row attributes before the fetch loop.",
-      "done": false
+      "done": true
     },
     {
       "step": "The account=None -> cash=0.0 fallback in get_portfolio (no AccountORM row exists for a fresh DB, since nothing seeds account id=1) is a real judgment call not pinned down by docs/architecture/API.md, but wasn't recorded in api-portfolio-get's decisions array per CLAUDE.md's decision-memory section. Record it (or revisit whether a missing account row should instead be treated as a seed-data bug / 500).",
-      "done": false
+      "done": true
     },
     {
       "step": "get_portfolio's per-position price fetches (_latest_close in the for-loop) run strictly sequentially in a synchronous handler, so total request latency scales linearly with position count on any cache miss -- a single slow/rate-limited upstream call stalls every position behind it. The DataProvider protocol has no batch method today, so this would need a protocol change or a concurrency wrapper to fix.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (extract the mark-to-market enrichment loop into a reusable app/portfolio/ function) is already satisfied -- no code change made for it in this task. The api-portfolio-risk task (PR #33, merged ahead of this task being picked up) performed exactly this extraction, creating app/portfolio/pricing.py (EnrichedPosition/enrich_positions_with_price/positions_value) and refactoring GET /api/portfolio's handler to use it alongside GET /api/portfolio/risk, per that task's own decisions entry.",
+      "rationale": "Verified directly against the current codebase (not just the other task's decisions entry) before marking this done: app/portfolio/pricing.py exists, both get_portfolio and get_risk in app/api/routers/portfolio.py call enrich_positions_with_price/positions_value from it, and docs/architecture/Backend.md §6 already documents the module. Redoing the extraction here would either be a no-op or, worse, risk diverging from the already-reviewed and merged implementation in pricing.py. This task's instructions explicitly anticipated this ordering (api-portfolio-risk could land first) and called for checking before acting rather than blindly redoing the work."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Ordered both get_portfolio's and get_risk's position query by (entry_date, id) via a new shared `_ordered_positions(db)` helper in app/api/routers/portfolio.py, rather than by id alone.",
+      "rationale": "The checklist item's own suggestion ('e.g. by entry_date or id') left the choice open. entry_date matches how a user conceptually thinks of their portfolio (positions listed in the order they were established), which id -- an opaque `pos_<uuid hex>` string with no chronological meaning (see api-portfolio-add-position's id-generation) -- doesn't provide; ordering by id alone would produce a stable but semantically arbitrary sequence. id is kept as the tiebreaker for two positions sharing the same entry_date, since entry_date alone isn't unique and SQL ORDER BY needs a fully deterministic key to guarantee stability across engines/executions. Applied the same helper to GET /api/portfolio/risk's equivalent query too (not explicitly named in this checklist item, but sharing the identical `db.query(PositionORM).all()` pattern) for consistency -- leaving one endpoint deterministic and the other not would be a strange half-fix for what is the same underlying gap. Covered by a new integration test in both tests/integration/test_portfolio_get.py and tests/integration/test_portfolio_risk.py that inserts positions out of both entry_date and id order and asserts the response reflects the expected sort, not insertion order."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the N+1 query pattern by setting expire_on_commit=False on app/db/session.py's production `SessionLocal`, rather than the checklist item's other suggested option (loading all needed row attributes before the fetch loop).",
+      "rationale": "expire_on_commit=False is a one-line, request-session-wide fix that addresses the root cause (CachedDataProvider._upsert's mid-loop commit expiring every loaded object on the shared session) rather than a narrower workaround scoped to just the portfolio-positions loop; it also covers any future caller that shares a session with CachedDataProvider the same way, not just today's two routes. The alternative -- eagerly reading every row's needed attributes into plain values before the fetch loop begins -- was rejected as more invasive (it would mean enrich_positions_with_price/pricing.py working over detached plain data instead of live PositionORM rows, or the router pre-extracting fields itself) for a problem this session-level fix already solves cleanly. Confirmed safe for the codebase's other session users: the only other `db.commit()` call sites (add_position, delete_position in app/api/routers/portfolio.py) either explicitly call db.refresh(row) afterward (which always re-fetches regardless of expire_on_commit, per SQLAlchemy's docs) or don't touch the committed row's attributes again in the same request, so expire_on_commit=False changes no other route's observed behavior. Added tests/unit/test_db_session.py::test_session_local_does_not_expire_objects_on_commit (asserts the config directly) and tests/integration/test_portfolio_pricing_session.py (a behavioral regression test: counts SQL SELECTs issued against the positions table across a two-position enrichment loop with a real mid-loop cache commit, asserting zero re-selects with the fix's config and a companion test confirming the same technique reproduces >0 re-selects under the old expire_on_commit=True default, so the fix is verified to actually change the outcome, not just the config value in isolation)."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Recorded the account=None -> cash=0.0 fallback as a decisions entry directly on docs/tasks/api-portfolio-get.json (the task the checklist item pointed at), rather than revisiting it as a seed-data bug / 500 in this task.",
+      "rationale": "See the new entry on that task for the full rationale: in short, no AccountORM(id=1) row existing is a seed-data gap that db-migrations is expected to close (an always-present seeded account row), not a per-request error condition worth a 404/422/500 today, and the existing empty-portfolio test fixture already relies on 'no account row' and 'a genuinely empty portfolio' being indistinguishable at this layer -- changing that now would be a behavior change out of this followups task's non-blocking scope, not just a documentation gap."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Left the sequential per-position price-fetch latency as a documented known limitation (this entry) rather than a code fix.",
+      "rationale": "The DataProvider protocol (app/data/base.py) has no batch method, and neither YFinanceProvider nor StooqProvider's underlying libraries (yfinance's per-ticker Ticker API as used here, Stooq's per-ticker CSV endpoint) are wrapped in this codebase in a way that supports a genuine batched fetch today -- adding one would be a protocol change touching every DataProvider implementation and CachedDataProvider's cache-key granularity (per-ticker rows), well beyond a non-blocking follow-up's scope. A concurrency wrapper (e.g. a thread pool around the existing per-ticker calls in enrich_positions_with_price) was considered and rejected for now: CachedDataProvider shares a single SQLAlchemy Session (app/db/session.py) across all its cache reads/writes, and SQLAlchemy Sessions are not thread-safe for concurrent use from multiple threads at once -- parallelizing the fetch loop as it's currently structured would introduce a real correctness bug (concurrent session access) to fix a performance one, which is a worse trade for a single-user MVP where portfolios are expected to be small. This is genuinely a scale limitation worth revisiting if/when either the DataProvider protocol grows batch support or the session-per-request pattern changes (e.g. a session-per-fetch design), not something with a straightforward fix available today."
+    }
+  ],
+  "git": {
+    "branch": "task/api-portfolio-get-followups",
+    "pr_number": 43,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/43",
+    "pushed_at": "2026-09-16T07:41:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:47:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/43",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The N+1 fix's regression tests (test_portfolio_pricing_session.py, test_db_session.py) prove expire_on_commit=False avoids the re-SELECT and that SessionLocal carries the flag, but neither goes through the actual FastAPI get_db dependency-injection path -- tests/integration/conftest.py's shared db_session fixture builds its own sessionmaker() without expire_on_commit=False (pre-existing, not touched by this PR), so no test exercises GET /api/portfolio/GET /api/portfolio/risk end-to-end via TestClient to prove the production wiring benefits. Not a correctness risk (the flag's effect is fully determined by sessionmaker construction, verified directly against the real SessionLocal), but worth closing so a future get_db/SessionLocal refactor can't silently regress it. Filed as docs/tasks/api-portfolio-get-followups-followups.json.",
+        "file": "backend/tests/integration/conftest.py",
+        "line": 32
+      }
+    ],
+    "notes": "Checked out PR #43, ran the full backend suite: 429 passed, 99.83% coverage (gate 90%, backend/pyproject.toml), app/db/session.py and app/api/routers/portfolio.py both at 100%. No ruff/mypy configured in backend/pyproject.toml, so none run (matches project config; matches PR's own claim). Re-ran scripts/export_openapi.py -- output byte-identical to the committed backend/openapi.json, correctly unchanged since no route/schema signature changed. Traced item 4 (expire_on_commit=False on app/db/session.py's SessionLocal, a global session-behavior change) against every db.commit() call site in the app: CachedDataProvider._upsert (app/data/cache.py) never re-reads a committed row afterward (returns the freshly-fetched source frame, not a re-query); add_position (app/api/routers/portfolio.py) calls db.refresh(row) after commit, which always re-fetches regardless of expire_on_commit per SQLAlchemy docs; delete_position doesn't touch the row after commit (204 No Content). No server_default/DB-generated columns in app/db/models.py that would need post-commit expiry to pick up a DB-computed value. Confirmed no other sessionmaker in the app shares this change inappropriately (only backend/tests/integration/conftest.py builds a separate one, pre-existing, not part of this PR). test_portfolio_pricing_session.py's SQL-select-counting technique is a genuine behavioral proof, not incidental: it constructs a real mid-loop CachedDataProvider cache-miss commit against a shared session and includes a companion test confirming the same technique reproduces >0 re-selects under the old expire_on_commit=True default, so the select_count==0 assertion isn't vacuously true. Position-ordering change (_ordered_positions()) verified applied consistently to both GET /api/portfolio and GET /api/portfolio/risk, with regression tests that insert positions out of both entry_date and id order so a pass can only be explained by the explicit ORDER BY. Decisions entries present and adequate for every judgment call in this task's checklist (items 1, 3, 4, 5, 6); item 2 (docs diagram) and item 3 (ordering) are direct, non-judgment-call fixes. Cross-checked docs/tasks/api-portfolio-get.json's new decisions entry (item 5, account=None->cash=0.0 fallback) -- present and reasoned. area is backend/api and skill is null (not backend/signals or backend/portfolio, not verify-elder-signal), so verify-elder-signal doesn't apply. No new module/dependency/layer added (existing files edited plus new/extended test files and one doc line), so architecture-review doesn't apply. No UI surface -- no frontend exists yet and no API contract change, so the browser walkthrough is explicitly skipped as not applicable. Also ran the code-review skill (medium effort) independently against the diff: found zero correctness bugs or reuse/simplification/efficiency issues, and independently surfaced the same conftest.py test-architecture gap noted above. One non-blocking finding total, filed as a checklist entry on docs/tasks/api-portfolio-get-followups-followups.json (new task, depends_on this one)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:49:04Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the backend suite myself: 429 passed, 99.83% coverage, matching pr-reviewer's reported numbers exactly. Independently traced all three db.commit() call sites in app/ (grep-verified, not just the two the reviewer named): CachedDataProvider._upsert (app/data/cache.py:143) returns the freshly-fetched frame, never re-reads the committed row; add_position (app/api/routers/portfolio.py:186) calls db.refresh(row) right after, which always re-fetches regardless of expire_on_commit; delete_position (line 215) never touches the row post-commit. Confirmed get_data_provider (app/api/dependencies.py) depends on get_db, so CachedDataProvider genuinely shares the same request-scoped session as the route handler's positions query -- the premise the N+1 fix depends on. Read test_portfolio_pricing_session.py in full: its before_cursor_execute select-counting technique correctly targets the 'positions' table (matches PositionORM.__tablename__), exercises a real mid-loop cache-miss commit via enrich_positions_with_price, and the companion expire_on_commit=True test proves the technique isn't vacuously passing. Skimmed the full diff (git diff origin/main...HEAD, 11 files) including _ordered_positions(), the two new ordering regression tests, the SessionLocal comment, Backend.md, and both task JSONs -- nothing understated or missed. skill is null so no add-indicator reference-value check applies."
+  }
 }
