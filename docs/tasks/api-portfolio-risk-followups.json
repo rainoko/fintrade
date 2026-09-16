@@ -19,5 +19,11 @@
       "step": "In get_risk()'s first pass loop (app/api/routers/portfolio.py), provider.get_weekly_ohlcv(ticker) is fetched before protective_stop() is attempted. A position whose daily frame fails protective_stop's validation (missing column, too short) still pays for a weekly fetch (a network/cache round trip) that gets thrown away once the daily side excludes it. Swap the order -- attempt protective_stop() first, only fetch weekly on success -- to avoid the wasted I/O for positions that are ultimately excluded on the daily side.",
       "done": true
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-risk-followups",
+    "pr_number": 34,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/34",
+    "pushed_at": "2026-09-16T05:57:15Z"
+  }
 }
