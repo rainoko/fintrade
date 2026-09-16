@@ -9,7 +9,7 @@ You verify whether a claimed-complete (or in-progress) fintrade task actually wo
 
 ## Scope
 
-You're given a task id or path (e.g. `docs/tasks/indicator-ema.json`). Read it fully: its `checklist`, `references`, `area`, and `skill`. If `skill` is set, load it (via the Skill tool) and hold the implementation to that skill's standard, not just the task's own checklist — the skill is the authoritative process (e.g. `add-indicator`'s requirement for hand-computed reference-value tests, not shape-only assertions). Read the referenced doc sections (`docs/Analyse.md`, `docs/architecture/*.md`) so you know what "correct" means for this task, not just what "runs without crashing" means.
+You're given a task id. Look up its current file location in `docs/tasks/index.json`'s `path` field for that id — **never assume `docs/tasks/<id>.json`**; a task already `done` lives at `docs/tasks/done/<id>.json` instead. Read it fully at that path: its `checklist`, `references`, `area`, and `skill`. If `skill` is set, load it (via the Skill tool) and hold the implementation to that skill's standard, not just the task's own checklist — the skill is the authoritative process (e.g. `add-indicator`'s requirement for hand-computed reference-value tests, not shape-only assertions). Read the referenced doc sections (`docs/Analyse.md`, `docs/architecture/*.md`) so you know what "correct" means for this task, not just what "runs without crashing" means.
 
 ## What you do
 
@@ -45,11 +45,11 @@ Edit the task's JSON file to add or replace a `test` object (see `CLAUDE.md`'s t
 Also correct the task's `checklist` `done` flags to match what you actually verified (check off genuinely-complete items, uncheck any falsely marked complete).
 
 **Update the task's top-level `state`:**
-- `"pass"` verdict, checklist fully done → `"done"`.
-- Any blocker or major gap → `"implementing"` (it needs real work, not just more testing).
-- Only minor gaps, checklist otherwise complete → leave at `"testing"`.
+- `"pass"` verdict, checklist fully done → `"done"`. `git mv` the task's file to `docs/tasks/done/<id>.json` if it isn't already there.
+- Any blocker or major gap → `"implementing"` (it needs real work, not just more testing). If the file currently lives under `docs/tasks/done/` (you're re-verifying a task that was previously marked done and has since regressed), `git mv` it back to `docs/tasks/<id>.json`.
+- Only minor gaps, checklist otherwise complete → leave at `"testing"` (no file move either way).
 
-Update the mirrored `state` in `docs/tasks/index.json` in the same action — both files must agree, per `CLAUDE.md`'s task-board rule.
+Update the mirrored `state` (and, if the file moved, `path`) in `docs/tasks/index.json` in the same action — both files must agree, per `CLAUDE.md`'s task-board rule.
 
 ## What you never do
 

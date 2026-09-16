@@ -1,55 +1,355 @@
 {
-  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file in this folder. State values: planned | implementing | testing | waiting_input | done. skill (nullable) names the .claude/skills/ workflow that governs the task, if any. See CLAUDE.md's 'Autonomous pipeline' section for how orchestrate-tasks drives this board via the task-worker and pr-reviewer agents.",
-  "states": ["planned", "implementing", "testing", "waiting_input", "done"],
+  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file: docs/tasks/<id>.json while active (planned/implementing/testing/waiting_input), moved to docs/tasks/done/<id>.json once state becomes done (and moved back if a later override reverts state away from done). This index is the summary AND the authoritative map from task id to its current file path via the per-task \"path\" field \u2014 always resolve a task's location through this file rather than assuming docs/tasks/<id>.json; that assumption breaks for any done task. skill (nullable) names the .claude/skills/ workflow that governs the task, if any. See CLAUDE.md's \"Autonomous pipeline\" section for how orchestrate-tasks drives this board via the task-worker and pr-reviewer agents.",
+  "states": [
+    "planned",
+    "implementing",
+    "testing",
+    "waiting_input",
+    "done"
+  ],
   "tasks": [
-    { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-provider-stooq-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-provider-stooq-followups-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-cache", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-cache-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-cache-followups-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-cache-followups-followups-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
-    { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "done" },
-    { "id": "db-migrations-followups", "area": "backend/db", "skill": null, "state": "done" },
-    { "id": "indicator-ema", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-macd-histogram", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-force-index", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-stochastic", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-stochastic-followups", "area": "backend/indicators", "skill": null, "state": "planned" },
-    { "id": "indicator-elder-ray", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-autoenvelope", "area": "backend/indicators", "skill": "add-indicator", "state": "done" },
-    { "id": "indicator-autoenvelope-followups", "area": "backend/indicators", "skill": null, "state": "done" },
-    { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "screen2-wave-followups", "area": "backend/signals", "skill": null, "state": "done" },
-    { "id": "screen3-trigger", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "signal-engine-orchestration", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "signal-engine-orchestration-followups", "area": "backend/signals", "skill": null, "state": "done" },
-    { "id": "portfolio-domain-models", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "portfolio-risk-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "portfolio-risk-rules-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "portfolio-exit-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "portfolio-exit-rules-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "portfolio-exit-rules-followups-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "portfolio-exit-rules-followups-followups-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-stocks-history-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-stocks-history-followups-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-stocks-analysis", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-stocks-analysis-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-portfolio-get-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-get-followups-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-get-followups-followups-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-portfolio-delete-position-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-risk", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-portfolio-risk-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-risk-followups-followups", "area": "backend/api", "skill": null, "state": "done" }
+    {
+      "id": "data-provider-yfinance",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-provider-yfinance.json"
+    },
+    {
+      "id": "data-provider-stooq",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-provider-stooq.json"
+    },
+    {
+      "id": "data-provider-stooq-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-provider-stooq-followups.json"
+    },
+    {
+      "id": "data-provider-stooq-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-provider-stooq-followups-followups.json"
+    },
+    {
+      "id": "data-cache",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-cache.json"
+    },
+    {
+      "id": "data-cache-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-cache-followups.json"
+    },
+    {
+      "id": "data-cache-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-cache-followups-followups.json"
+    },
+    {
+      "id": "data-cache-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/data-cache-followups-followups-followups.json"
+    },
+    {
+      "id": "db-models",
+      "area": "backend/db",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/db-models.json"
+    },
+    {
+      "id": "db-migrations",
+      "area": "backend/db",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/db-migrations.json"
+    },
+    {
+      "id": "db-migrations-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/db-migrations-followups.json"
+    },
+    {
+      "id": "indicator-ema",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-ema.json"
+    },
+    {
+      "id": "indicator-macd-histogram",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-macd-histogram.json"
+    },
+    {
+      "id": "indicator-force-index",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-force-index.json"
+    },
+    {
+      "id": "indicator-stochastic",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-stochastic.json"
+    },
+    {
+      "id": "indicator-stochastic-followups",
+      "area": "backend/indicators",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/indicator-stochastic-followups.json"
+    },
+    {
+      "id": "indicator-elder-ray",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-elder-ray.json"
+    },
+    {
+      "id": "indicator-autoenvelope",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/indicator-autoenvelope.json"
+    },
+    {
+      "id": "indicator-autoenvelope-followups",
+      "area": "backend/indicators",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/indicator-autoenvelope-followups.json"
+    },
+    {
+      "id": "screen1-tide",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/screen1-tide.json"
+    },
+    {
+      "id": "screen2-wave",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/screen2-wave.json"
+    },
+    {
+      "id": "screen2-wave-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/screen2-wave-followups.json"
+    },
+    {
+      "id": "screen3-trigger",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/screen3-trigger.json"
+    },
+    {
+      "id": "impulse-system",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/impulse-system.json"
+    },
+    {
+      "id": "confidence-scoring",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/confidence-scoring.json"
+    },
+    {
+      "id": "signal-engine-orchestration",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/signal-engine-orchestration.json"
+    },
+    {
+      "id": "signal-engine-orchestration-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/signal-engine-orchestration-followups.json"
+    },
+    {
+      "id": "portfolio-domain-models",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-domain-models.json"
+    },
+    {
+      "id": "portfolio-risk-rules",
+      "area": "backend/portfolio",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-risk-rules.json"
+    },
+    {
+      "id": "portfolio-risk-rules-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-risk-rules-followups.json"
+    },
+    {
+      "id": "portfolio-exit-rules",
+      "area": "backend/portfolio",
+      "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-exit-rules.json"
+    },
+    {
+      "id": "portfolio-exit-rules-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-exit-rules-followups.json"
+    },
+    {
+      "id": "portfolio-exit-rules-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-exit-rules-followups-followups.json"
+    },
+    {
+      "id": "portfolio-exit-rules-followups-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/portfolio-exit-rules-followups-followups-followups.json"
+    },
+    {
+      "id": "api-stocks-history",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-history.json"
+    },
+    {
+      "id": "api-stocks-history-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-history-followups.json"
+    },
+    {
+      "id": "api-stocks-history-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-history-followups-followups.json"
+    },
+    {
+      "id": "api-stocks-analysis",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-analysis.json"
+    },
+    {
+      "id": "api-stocks-analysis-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-analysis-followups.json"
+    },
+    {
+      "id": "api-portfolio-get",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-get.json"
+    },
+    {
+      "id": "api-portfolio-get-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-get-followups.json"
+    },
+    {
+      "id": "api-portfolio-get-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-get-followups-followups.json"
+    },
+    {
+      "id": "api-portfolio-get-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-get-followups-followups-followups.json"
+    },
+    {
+      "id": "api-portfolio-add-position",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-add-position.json"
+    },
+    {
+      "id": "api-portfolio-delete-position",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-delete-position.json"
+    },
+    {
+      "id": "api-portfolio-delete-position-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-delete-position-followups.json"
+    },
+    {
+      "id": "api-portfolio-risk",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-risk.json"
+    },
+    {
+      "id": "api-portfolio-risk-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-risk-followups.json"
+    },
+    {
+      "id": "api-portfolio-risk-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-risk-followups-followups.json"
+    }
   ]
 }

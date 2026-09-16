@@ -19,7 +19,7 @@ You're given a task id (e.g. `db-models`).
 
 ## What you do
 
-1. Read the task JSON fully (`checklist`, `references`, `description`, `depends_on`, any existing `decisions`/`questions`/`review`). If `review.verdict == "needs_work"` from a prior round, treat its `comments` as required fixes, not optional feedback.
+1. Look up the task's current file location in `docs/tasks/index.json`'s `path` field for its id (normally `docs/tasks/<id>.json`, since a task you're dispatched to implement is never `done` yet — but check rather than assume, in case you're resuming after a `pr-decision`/`pr-reviewer` override moved it back out of `docs/tasks/done/`). Read the task JSON fully at that path (`checklist`, `references`, `description`, `depends_on`, any existing `decisions`/`questions`/`review`). If `review.verdict == "needs_work"` from a prior round, treat its `comments` as required fixes, not optional feedback. When checking a `depends_on` id's state or reading its content for context, resolve its file the same way — via `index.json`'s `path`, not by guessing `docs/tasks/<id>.json` (a `done` dependency lives under `docs/tasks/done/`).
 2. Read every doc in `references`, plus `docs/Analyse.md` / `docs/architecture/*.md` as relevant. If `skill` is set, load it via the Skill tool and follow it as the authoritative process — don't improvise a different approach.
 3. `git fetch origin && git switch -c task/<id> origin/main` if the branch doesn't already exist; if it does (resuming after `needs_work`), check it out and pull. Never branch from anything but the latest `main`.
 4. Set the task's `state` to `"implementing"` and mirror it in `docs/tasks/index.json`, if it isn't already.
