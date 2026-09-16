@@ -14,9 +14,11 @@ from app.db.session import engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Stopgap until the db-migrations task wires up Alembic (docs/tasks/db-migrations.json):
-    # create_all is idempotent (no-op against tables that already exist) so it's safe to run
-    # on every startup and won't conflict with a later `alembic upgrade head`.
+    # Alembic (app/db/migrations/, see README.md's "Database migrations" section) is now the
+    # source of truth for schema changes -- this call is a convenience bootstrap only, so a
+    # brand-new dev/test database works immediately without requiring `alembic upgrade head`
+    # first. create_all is idempotent (no-op against tables that already exist), so it never
+    # conflicts with a database Alembic has already migrated.
     Base.metadata.create_all(bind=engine)
     yield
 

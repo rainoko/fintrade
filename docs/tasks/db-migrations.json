@@ -3,15 +3,64 @@
   "title": "Alembic migrations setup",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["db-models"],
   "references": ["docs/architecture/Backend.md#7-persistence"],
   "description": "Initialize Alembic in app/db/migrations/ and generate the initial migration for positions, account, and ohlcv_cache tables. Migrations are excluded from the coverage gate (pyproject.toml [tool.coverage.run] omit). Note: app/main.py's lifespan hook already calls Base.metadata.create_all(bind=engine) as an interim stopgap (see docs/architecture/Backend.md §7 and the api-portfolio-add-position task's decisions) — any fresh install before this task lands will already have tables created by create_all, not by a migration.",
   "checklist": [
-    { "step": "Run alembic init against app/db/migrations/, wire env.py to app.db.models.Base.metadata and app.config settings", "done": false },
-    { "step": "Generate the initial autogenerate migration covering PositionORM, AccountORM, OHLCVCacheORM", "done": false },
-    { "step": "Verify `alembic upgrade head` produces the expected schema against a throwaway SQLite file", "done": false },
-    { "step": "Against a database that already has tables from the create_all stopgap (see description), run `alembic stamp head` instead of `alembic upgrade head` — a blind upgrade would try to CREATE TABLE against tables that already exist and fail. Verify this path too, not just the fresh-file case above.", "done": false },
-    { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": false }
-  ]
+    { "step": "Run alembic init against app/db/migrations/, wire env.py to app.db.models.Base.metadata and app.config settings", "done": true },
+    { "step": "Generate the initial autogenerate migration covering PositionORM, AccountORM, OHLCVCacheORM", "done": true },
+    { "step": "Verify `alembic upgrade head` produces the expected schema against a throwaway SQLite file", "done": true },
+    { "step": "Against a database that already has tables from the create_all stopgap (see description), run `alembic stamp head` instead of `alembic upgrade head` — a blind upgrade would try to CREATE TABLE against tables that already exist and fail. Verify this path too, not just the fresh-file case above.", "done": true },
+    { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": true }
+  ],
+  "git": {
+    "branch": "task/db-migrations",
+    "pr_number": 46,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/46",
+    "pushed_at": "2026-09-16T08:24:08Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired app/db/migrations/env.py to always read the target database URL from app.config.get_settings().database_url (env var FINTRADE_DATABASE_URL / .env), overwriting alembic.ini's static sqlalchemy.url placeholder at runtime via config.set_main_option, rather than keeping a URL hardcoded or duplicated in alembic.ini.",
+      "rationale": "The app itself (app/db/session.py) already reads its database URL from the same settings object, so this keeps one source of truth for 'which database' instead of two config files that can silently drift (e.g. a developer changes .env but forgets alembic.ini, and migrations quietly run against the wrong file). Rejected alternative: leave alembic.ini's sqlalchemy.url as the source of truth and ignore app.config — rejected because it reintroduces exactly the kind of config duplication docs/architecture/Backend.md already steers away from elsewhere in the persistence layer, and because it would make the create_all-stopgap retrofit (stamp head) harder to script consistently against arbitrary throwaway files during verification/tests."
+    },
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the migration workflow primarily in README.md's Backend section (new 'Database migrations' subsection, alongside the existing venv-setup and OpenAPI-regeneration instructions), with docs/architecture/Backend.md §7 updated to describe the current (non-interim) persistence state and cross-reference README.md for the day-to-day commands.",
+      "rationale": "README.md is already the file a developer opens first for 'how do I run this' (it's where the OpenAPI-regen command already lives), so putting the Alembic commands there keeps all day-to-day backend commands in one place; docs/architecture/Backend.md stays focused on *why* the persistence layer is structured this way (source-of-truth for design decisions) rather than duplicating the exact CLI invocations. Rejected alternative: a new standalone doc under docs/architecture/ — rejected as unnecessary indirection for a handful of commands that fit naturally as a README subsection next to the already-established OpenAPI workflow."
+    },
+    {
+      "timestamp": "2026-09-16T08:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added backend/tests/integration/test_db_migrations.py, which invokes the real `alembic` CLI as a subprocess against throwaway SQLite files (via python -m alembic, cwd=backend/, FINTRADE_DATABASE_URL override) to regression-test both the fresh-upgrade-head path and the create_all-seeded stamp-head path described in this task's checklist, rather than relying solely on the manual verification performed while implementing this task.",
+      "rationale": "Alembic's own Config/command Python API reads app.config.get_settings() once per process (lru_cached), which the env.py wiring above deliberately always trusts as the single source of truth -- that makes it awkward to point a single in-process test run at multiple throwaway database URLs without monkeypatching the settings cache. Driving the real CLI as a subprocess exactly matches how a developer/operator actually runs these commands and avoids that cache-coupling, at the cost of a few subprocess invocations (~1-3s total, well within the existing suite's runtime). This file lives in tests/integration/ (not tests/unit/) since it does real subprocess + filesystem I/O; app/db/migrations/* itself stays excluded from the coverage gate as configured (pyproject.toml's coverage omit) since it's generated/tool-managed code, but this test still guards the behavior end-to-end."
+    }
+  ],
+  "review": {
+    "reviewed_at": "2026-09-16T08:29:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/46",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md §7 correctly documents that `alembic stamp head` against a create_all-seeded database only produces a correct schema if the live tables already match what the initial migration would create, and specifically flags that a `positions` table predating `unique=True` on `PositionORM.ticker` (api-portfolio-add-position's decisions) would get silently stamped as head without gaining that index. The documentation is accurate and clear, but nothing in tooling actually detects or self-heals that specific known drift at stamp time -- worth a follow-up (idempotent fix-up migration, or a pre-stamp schema check) rather than relying on an operator having read the doc. Tracked as docs/tasks/db-migrations-followups.json since real-world likelihood is low (no production deployment exists yet for this single-developer MVP).",
+        "file": "docs/architecture/Backend.md",
+        "line": 92
+      },
+      {
+        "summary": "code-review skill flagged backend/app/db/migrations/.gitkeep as dead weight in a now-non-empty directory. Verified this is inaccurate: `git diff main...HEAD --diff-filter=D -- backend/app/db/migrations/.gitkeep` shows it was deleted by this PR (it existed as a placeholder before Alembic was set up, from the initial task-definitions commit), not added -- the directory now correctly has no .gitkeep since it holds real tracked files. No action needed; not filed as a follow-up.",
+        "file": "backend/app/db/migrations/.gitkeep",
+        "line": 0
+      }
+    ],
+    "notes": "Full review of PR #46 (task/db-migrations, branch checked out via gh pr checkout). Tests: 437 backend tests pass (source .venv/bin/activate && python -m pytest --cov=app --cov-branch --cov-report=term-missing), overall coverage 99.83% (gate 90%), app/db/migrations/* correctly omitted per the pre-existing pyproject.toml [tool.coverage.run] omit (unchanged by this PR). The new backend/tests/integration/test_db_migrations.py (5 tests) drives the real alembic CLI as a subprocess and passes standalone too, covering both the fresh-upgrade-head path and the create_all-seeded stamp-head path. Manually re-verified beyond the automated suite: ran `alembic upgrade head` against a fresh throwaway sqlite file and `alembic check` afterward -- 'No new upgrade operations detected', confirming the committed migration is not stale against app/db/models.py (including the positions.ticker unique index). No lint/type-check tool is configured in backend/pyproject.toml (no ruff/mypy section) and no frontend exists yet, so nothing else to run there. Ran architecture-review: app/db/migrations/ placement, the alembic.ini script_location, and the alembic+sqlalchemy dependency were already documented in docs/architecture/Backend.md's directory layout and dependency table before this PR (i.e. anticipated, not newly introduced) -- this PR fulfills what was already specified, no doc drift. env.py's coupling to app.config.get_settings().database_url mirrors app/db/session.py's existing pattern (single source of truth for the DB URL), matching the task's own decisions entry and rationale. app/main.py's lifespan comment and docs/architecture/Backend.md §7 were both updated in the same change to retire the 'interim stopgap' framing now that Alembic is the schema source of truth, with create_all kept only as an idempotent dev/test convenience bootstrap. verify-elder-signal not applicable (area is backend/db, no signals/portfolio logic touched). Not an API/schema change, so backend/openapi.json correctly untouched. No UI surface exists (no frontend scaffolded yet) so the browser walkthrough is explicitly skipped, not silently omitted. No checklist item is phrased as 'decide X' without a corresponding decisions entry -- all three judgment calls (DB URL source, doc placement, subprocess-driven test strategy) are recorded with decision+rationale. Ran the code-review skill (medium) against the diff; its one finding (.gitkeep) was checked and found inaccurate (file was deleted by this PR, not added) -- see comments. Investigated this review's specific ask re: the pre-existing positions.ticker unique-index schema-drift caveat (task decisions / api-portfolio-add-position followups) -- docs/architecture/Backend.md §7 documents it accurately and explicitly warns that stamp head alone won't fix a genuinely drifted database, which is adequate given no production database exists yet, but nothing enforces or self-heals it in tooling, so filed as a non-blocking follow-up rather than blocking this PR. index.json state mirror kept in sync (testing -> done). No pr_decision was present on this task prior to this review, so nothing to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T08:31:52Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the backend suite (437 passed, 99.83% coverage, matching pr-reviewer's numbers exactly). Re-verified both migration paths myself against fresh throwaway SQLite files: `alembic upgrade head` then `alembic check` reported 'No new upgrade operations detected' (migration not stale, includes positions.ticker unique index), and separately seeded a DB via Base.metadata.create_all then ran `alembic stamp head` followed by `alembic check`, which also reported no drift. Skimmed the full diff (13 files) including env.py, main.py, Backend.md §7, README.md, and the initial migration file itself; confirmed the .gitkeep file was genuinely deleted (not added) per `git diff --name-status`, matching the reviewer's dismissed finding. Confirmed db-migrations-followups.json exists with the schema-drift fix-up item tracked and depends_on db-migrations, and index.json mirrors both states correctly. No lint/type-check config found anywhere in the repo (no ruff/mypy/flake8 config files), consistent with the reviewer's claim. Accept holds."
+  }
 }
