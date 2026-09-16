@@ -30,5 +30,11 @@
       "rationale": "Engine is the lower-level, more general object (a Session is always bound to one via .get_bind()), so standardizing on Engine keeps the helper usable from both a raw-engine caller and a session-based caller without needing two variants or an isinstance check inside the helper. The alternative -- standardizing on Session and doing `.get_bind()` inside the helper -- would have forced the Engine-only caller in test_portfolio_get_db_wiring.py (which deliberately has no Session, only monkeypatched SessionLocal/engine module attributes -- see that file's own module docstring) to fabricate one solely to satisfy the helper's signature, which is more awkward than the one-line `.get_bind()` call added to the other file."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-get-followups-followups-followups",
+    "pr_number": 51,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/51",
+    "pushed_at": "2026-09-16T09:29:05Z"
+  }
 }
