@@ -2,7 +2,7 @@
   "id": "frontend-stock-analysis-page",
   "title": "Frontend: Stock analysis page (signal, confidence, screens)",
   "area": "frontend/pages/stocks",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-api-client",

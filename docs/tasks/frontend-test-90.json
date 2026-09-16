@@ -2,7 +2,7 @@
   "id": "frontend-test-90",
   "title": "Frontend: close coverage to 90% gate, verify Storybook + no-network invariants",
   "area": "frontend/testing",
-  "skill": null,
+  "skill": "test-90",
   "state": "planned",
   "depends_on": [
     "frontend-dashboard-page",

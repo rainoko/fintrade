@@ -2,7 +2,7 @@
   "id": "frontend-dashboard-page",
   "title": "Frontend: Dashboard page (portfolio + risk summary, ticker lookup)",
   "area": "frontend/pages/dashboard",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-portfolio-page",

@@ -2,7 +2,7 @@
   "id": "frontend-portfolio-risk-panel",
   "title": "Frontend: Portfolio risk panel (2%/6% rules)",
   "area": "frontend/pages/portfolio",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-portfolio-page"

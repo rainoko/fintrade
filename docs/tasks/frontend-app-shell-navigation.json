@@ -2,7 +2,7 @@
   "id": "frontend-app-shell-navigation",
   "title": "Frontend: app shell and navigation",
   "area": "frontend/layout",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-scaffold"

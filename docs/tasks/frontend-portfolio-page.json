@@ -2,7 +2,7 @@
   "id": "frontend-portfolio-page",
   "title": "Frontend: Portfolio page (positions, add, delete)",
   "area": "frontend/pages/portfolio",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-api-client",

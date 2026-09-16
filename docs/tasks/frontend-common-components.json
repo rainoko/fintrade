@@ -2,7 +2,7 @@
   "id": "frontend-common-components",
   "title": "Frontend: common component library (Storybook-tracked)",
   "area": "frontend/components/common",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-scaffold"

@@ -2,7 +2,7 @@
   "id": "frontend-stock-history-chart",
   "title": "Frontend: stock price history chart",
   "area": "frontend/pages/stocks",
-  "skill": null,
+  "skill": "add-frontend-feature",
   "state": "planned",
   "depends_on": [
     "frontend-stock-analysis-page"
