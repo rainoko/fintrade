@@ -3,7 +3,7 @@
   "title": "Existing-position exit rules follow-ups — further non-blocking review follow-up",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["portfolio-exit-rules-followups"],
   "references": [
     "docs/tasks/portfolio-exit-rules-followups.json#review",
@@ -13,13 +13,26 @@
   "checklist": [
     {
       "step": "In evaluate_exit_flags() (backend/app/portfolio/exits.py), the weekly MACD-Histogram/EMA(13)/EMA(26) (`weekly_macd = macd_components(weekly_close)`, `weekly_ema_13 = ema(weekly_close, 13)`) are computed unconditionally, before either evaluate_tide() call, even when weekly_ohlcv has fewer than 2 rows. In that case evaluate_tide() short-circuits internally (its own `if len(weekly_ohlcv) < 2:` check) and returns NEUTRAL/'flat' without ever touching the histogram/ema_13/ema_26 passed in, so this work is computed and discarded on every call with short weekly history. Not a correctness issue (matches the non-hot-path caveat already noted for the original redundant-computation finding this PR fixed) -- worth a short-circuit guard (e.g. only compute weekly_macd/weekly_ema_13 when len(weekly_ohlcv) >= 2) next time exits.py is touched, since it's exactly the kind of wasted computation this PR's own fix set out to eliminate on the daily side.",
-      "done": false
+      "done": true
     },
     {
       "step": "Surfaced by the code-review skill during pr-reviewer's re-review of PR #29's commit 3089cb7 (the daily-side KeyError/ValueError fix): protective_stop() (backend/app/portfolio/risk.py) re-validates daily_ohlcv's columns a second time via validate_daily_ohlcv_columns(), even though evaluate_exit_flags() (the only caller that pre-validates) already validated the identical column set moments earlier at the top of the function. Not a bug -- the duplicate {'low', 'close'} - set(columns) check is cheap -- but it's avoidable duplicate work on what will eventually be a per-position, per-request hot path once a portfolio-wide endpoint is wired up. Worth trimming next time risk.py or exits.py is touched, e.g. by having protective_stop() only check daily_ohlcv.empty directly (the one thing evaluate_exit_flags's up-front validation doesn't guarantee stays true after its own .iloc[:-1] slicing) rather than re-deriving the full column-membership check.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "For item 1, evaluate_exit_flags() now skips computing weekly_macd/weekly_ema_13 (and both evaluate_tide calls) entirely when len(weekly_ohlcv) < 2, instead of computing-and-discarding them. Since evaluate_tide short-circuits to NEUTRAL/'flat' internally on <2 rows regardless of the histogram/ema_13/ema_26 passed in, and 'tide_flipped_bearish' requires previous_tide == 'BULLISH' (never true once both calls resolve to NEUTRAL), skipping the whole block on short history is behavior-preserving, not just cheaper -- confirmed by the existing test_no_flag_on_short_weekly_history unit test still passing unchanged (its evaluate_tide mock is simply never invoked in that case) and by 100% branch coverage on both the new guard's True/False paths.",
+      "rationale": "A narrower fix that still called evaluate_tide (with dummy/empty histogram-EMA args) on short history would avoid the MACD/EMA(13)/EMA(26) computation but still pay for two evaluate_tide calls that are already known to return NEUTRAL -- skipping the whole block is strictly more of the 'wasted computation' this item flags, with no correctness cost since the flag can never fire from that branch."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "For item 2, rather than literally changing protective_stop() to check only daily_ohlcv.empty (as the checklist step's own suggested wording put it), added an opt-in keyword-only `columns_validated: bool = False` parameter. evaluate_exit_flags() now passes `columns_validated=True` (it already validated the identical {'low', 'close'} column set on the same frame moments earlier, and slicing rows via .iloc[:-1] can't change which columns exist -- only whether the frame is empty, which protective_stop still always checks). The default (False) preserves protective_stop()'s original full-validation contract for every other caller.",
+      "rationale": "protective_stop() is also called directly by app.api.routers.portfolio.get_risk() (backend/app/api/routers/portfolio.py) on a daily_ohlcv slice it has *not* pre-validated itself, inside a `try/except ValueError: continue` that relies on protective_stop() raising ValueError -- not KeyError -- for a malformed frame missing 'low'/'close', per that endpoint's own documented silent-exclusion behavior. Implementing the checklist item's literal suggestion (drop the column check unconditionally) would have broken that caller: a malformed frame would raise a bare KeyError instead of being caught and excluded, regressing GET /api/portfolio/risk from a documented graceful degradation to an unhandled 500. The opt-in parameter gets the checklist item's actual goal (no duplicate column-membership work on evaluate_exit_flags's call path) without weakening protective_stop()'s contract for its other direct caller and existing unit tests (test_empty_dataframe_raises, test_missing_column_raises), which call protective_stop() without the new parameter and still get full validation."
+    }
+  ],
   "questions": []
 }

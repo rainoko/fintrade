@@ -135,8 +135,19 @@ def evaluate_exit_flags(
     daily_ema_13 = ema(daily_close, 13)
 
     # Stop "in force" as of today: history strictly before today's bar (see the 'stop_hit'
-    # bullet above for why today's own bar must be excluded here).
-    stop = protective_stop(position, daily_ohlcv.iloc[:-1], short_ema=daily_ema_13.iloc[:-1])
+    # bullet above for why today's own bar must be excluded here). columns_validated=True
+    # because validate_daily_ohlcv_columns(daily_ohlcv) above already checked the identical
+    # {'low', 'close'} column set on this same frame -- slicing rows via .iloc[:-1] can't
+    # change which columns exist, so protective_stop's own column-membership re-check would
+    # just repeat that work; it still checks .empty itself, since that's the one thing this
+    # function's up-front validation (run before the slice) doesn't guarantee stays true after
+    # it. See the portfolio-exit-rules-followups-followups task's `decisions` entry.
+    stop = protective_stop(
+        position,
+        daily_ohlcv.iloc[:-1],
+        short_ema=daily_ema_13.iloc[:-1],
+        columns_validated=True,
+    )
     latest_close = float(daily_close.iloc[-1])
     if latest_close < stop:
         flags.append("stop_hit")
@@ -156,35 +167,43 @@ def evaluate_exit_flags(
         flags.append("profit_zone_impulse_red")
 
     # Validate weekly_ohlcv's columns *before* this function's own weekly_close =
-    # weekly_ohlcv["close"] access below -- same rationale as the daily-side
-    # validate_daily_ohlcv_columns call above: this function's own direct access runs
-    # regardless of row count (unlike evaluate_tide's internal access, which is only
-    # reached once there are >= 2 rows), so a malformed weekly_ohlcv missing "close" would
-    # otherwise raise a bare KeyError here before evaluate_tide ever gets a chance to run
-    # its own (equivalent) validation. See the portfolio-exit-rules-followups task's
-    # `decisions` entry.
+    # weekly_ohlcv["close"] access below (guarded by the row-count check further down, but
+    # this validation itself must run regardless of row count) -- same rationale as the
+    # daily-side validate_daily_ohlcv_columns call above: a malformed weekly_ohlcv missing
+    # "close" must raise the documented ValueError rather than a bare KeyError, even when
+    # there are fewer than 2 rows (evaluate_tide's own internal validation is only reached
+    # once len(weekly_ohlcv) >= 2 -- see its docstring). See the
+    # portfolio-exit-rules-followups task's `decisions` entry.
     validate_weekly_ohlcv_columns(weekly_ohlcv)
 
-    # Weekly MACD-Histogram + EMA(13)/EMA(26), likewise computed once over the full weekly
-    # series and shared across both evaluate_tide calls below (current bar, then the
-    # prior-bar slice) instead of each call independently recomputing its own MACD/EMA pass.
-    weekly_close = weekly_ohlcv["close"]
-    weekly_macd = macd_components(weekly_close)
-    weekly_ema_13 = ema(weekly_close, 13)
+    # Weekly MACD-Histogram + EMA(13)/EMA(26), and both evaluate_tide calls that consume them,
+    # are only computed when weekly_ohlcv has at least 2 rows: with fewer than 2, evaluate_tide
+    # short-circuits internally to NEUTRAL/'flat' without ever touching the
+    # histogram/ema_13/ema_26 passed in (see its own `if len(weekly_ohlcv) < 2:` check) --
+    # which in turn makes 'tide_flipped_bearish' unreachable below (it requires
+    # previous_tide == "BULLISH", never true once both calls resolve to NEUTRAL) -- so this
+    # guard skips computing and discarding that MACD/EMA(13)/EMA(26) work on every call with
+    # short weekly history, mirroring evaluate_tide's own graceful degradation (see this
+    # function's own docstring). See the portfolio-exit-rules-followups-followups task's
+    # `decisions` entry.
+    if len(weekly_ohlcv) >= 2:
+        weekly_close = weekly_ohlcv["close"]
+        weekly_macd = macd_components(weekly_close)
+        weekly_ema_13 = ema(weekly_close, 13)
 
-    current_tide = evaluate_tide(
-        weekly_ohlcv,
-        histogram=weekly_macd.histogram,
-        ema_13=weekly_ema_13,
-        ema_26=weekly_macd.ema_slow,
-    ).trend
-    previous_tide = evaluate_tide(
-        weekly_ohlcv.iloc[:-1],
-        histogram=weekly_macd.histogram.iloc[:-1],
-        ema_13=weekly_ema_13.iloc[:-1],
-        ema_26=weekly_macd.ema_slow.iloc[:-1],
-    ).trend
-    if previous_tide == "BULLISH" and current_tide == "BEARISH":
-        flags.append("tide_flipped_bearish")
+        current_tide = evaluate_tide(
+            weekly_ohlcv,
+            histogram=weekly_macd.histogram,
+            ema_13=weekly_ema_13,
+            ema_26=weekly_macd.ema_slow,
+        ).trend
+        previous_tide = evaluate_tide(
+            weekly_ohlcv.iloc[:-1],
+            histogram=weekly_macd.histogram.iloc[:-1],
+            ema_13=weekly_ema_13.iloc[:-1],
+            ema_26=weekly_macd.ema_slow.iloc[:-1],
+        ).trend
+        if previous_tide == "BULLISH" and current_tide == "BEARISH":
+            flags.append("tide_flipped_bearish")
 
     return flags
