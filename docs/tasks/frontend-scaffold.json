@@ -3,7 +3,7 @@
   "title": "Frontend: scaffold Vite + React + TypeScript + MUI project",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -84,5 +84,11 @@
       "decision": "Added a minimal but real baseline test suite (src/App.test.tsx covering the route table, src/theme/theme.test.ts covering the semantic palette) instead of leaving the scaffold with zero tests.",
       "rationale": "vitest exits non-zero ('No test files found') when no test file exists, which would make `npm run test:coverage` fail — directly contradicting the checklist's 'confirm test:coverage ... succeed on the empty scaffold' requirement. Testing the route table and theme palette is legitimate coverage of the actual scaffold code (App.tsx, pages/*, theme.ts) rather than a throwaway assertion, and reaches 100% on all four coverage dimensions without pulling forward any frontend-* feature work."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-scaffold",
+    "pr_number": 61,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/61",
+    "pushed_at": "2026-09-16T20:50:20Z"
+  }
 }
