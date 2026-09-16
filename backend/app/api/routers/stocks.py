@@ -38,6 +38,15 @@ _RANGE_PATTERN = r"^(max|\d{1,4}[dwmy])$"
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
+
+class _RangeOutOfBoundsError(ValueError):
+    """Raised by `_trim_to_range` when a `range` value that passed `_RANGE_PATTERN` still
+    can't be turned into a valid cutoff date -- e.g. '9999y', which is within the pattern's
+    4-digit cap but still overflows `pd.Timestamp`'s ~1677-2262 bounds when subtracted from
+    the anchor. Caught in `get_history` and mapped to the same 422 path as a
+    pattern-rejected `range`, per docs/tasks/api-stocks-history-followups.json."""
+
+
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
 # response_models, and error responses below are real and drive the OpenAPI
 # schema the frontend generates its types from (docs/architecture/API.md).
@@ -125,14 +134,6 @@ def get_history(
         for idx, row in ohlcv.iterrows()
     ]
     return HistoryResponse(ticker=ticker, interval=interval, bars=bars)
-
-
-class _RangeOutOfBoundsError(ValueError):
-    """Raised by `_trim_to_range` when a `range` value that passed `_RANGE_PATTERN` still
-    can't be turned into a valid cutoff date -- e.g. '9999y', which is within the pattern's
-    4-digit cap but still overflows `pd.Timestamp`'s ~1677-2262 bounds when subtracted from
-    the anchor. Caught in `get_history` and mapped to the same 422 path as a
-    pattern-rejected `range`, per docs/tasks/api-stocks-history-followups.json."""
 
 
 def _trim_to_range(ohlcv: pd.DataFrame, range_param: str) -> pd.DataFrame:
