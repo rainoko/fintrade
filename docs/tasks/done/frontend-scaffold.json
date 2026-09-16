@@ -3,7 +3,7 @@
   "title": "Frontend: scaffold Vite + React + TypeScript + MUI project",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -98,21 +98,26 @@
     "pushed_at": "2026-09-16T20:50:20Z"
   },
   "review": {
-    "reviewed_at": "2026-09-16T20:58:06Z",
+    "reviewed_at": "2026-09-16T21:07:40Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/61",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "frontend/vite.config.ts's vitest v8 coverage config has no `all: true` / `include`, so any source file a test never imports is silently excluded from both the numerator and denominator of the coverage report rather than counting as 0% — verified empirically by adding an untested src/scratch-untested.ts (an if/else branch) and rerunning `npm run test:coverage`: the report stayed unchanged at 100% (5/5 statements) and the new file never appeared. This defeats the 90% 'hard gate... enforced in CI, not just warns' language in Testing.md/CLAUDE.md for exactly the files that most need it, and doesn't match the backend's equivalent `source = [\"app\"]` config (counts every file under app/ regardless of import). Blocking because the ~9 dependent frontend-* feature tasks are about to build real components/hooks on top of this scaffold, and as configured the gate won't catch an entirely untested new file. Fix: add `all: true` with `include: ['src/**/*.{ts,tsx}']` mirroring the existing exclude list.",
+        "summary": "Re-review of the fix for the previously blocking coverage-gap finding. task-worker added `coverage.include: ['src/**/*.{ts,tsx}']` to frontend/vite.config.ts, citing the installed vitest 5.0.1 `CoverageOptions` type definitions as having no `all` field, only `include`/`exclude`. Independently confirmed this by reading node_modules/vitest/dist/chunks/plugin.d.CN87HSxv.d.ts myself (interface CoverageOptions has no `all` member; `include`'s doc comment reads 'By default only files covered by tests are included'). Reproduced the original empirical test myself from scratch: added a throwaway frontend/src/scratch-untested.ts with an untested if/else branch, ran `npm run test:coverage` — it now appeared in the report and coverage correctly dropped to 62.5%/0% branches, failing the 90% threshold with a non-zero exit (ERROR: Coverage for lines/functions/statements/branches does not meet global threshold). Removed the throwaway file and reran: back to a clean 100% on all four dimensions. The fix is empirically sound, not just plausible from the type defs. Not blocking.",
         "file": "frontend/vite.config.ts",
-        "line": 15
+        "line": 33
       },
       {
-        "summary": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face) — every page silently falls through to the next stack entry (system font) instead of Inter. Cosmetic, non-blocking; tracked in frontend-scaffold-followups.",
+        "summary": "docs/architecture/Testing.md's frontend coverage example (the vite.config.ts code block under §Frontend) still omits `include`, so the documented source of truth — which the original frontend-scaffold checklist named as the config vite.config.ts must match — doesn't show the mechanism that makes the 90% gate actually count untested files, unlike the backend example's `source = [\"app\"]` which already documents the equivalent behavior. A future task copying this doc's snippet verbatim would reintroduce the exact bug just fixed. Non-blocking (the shipped vite.config.ts itself is correct); filed as a follow-up on frontend-scaffold-followups. Raised by the code-review skill's pass over this fix commit.",
+        "file": "docs/architecture/Testing.md",
+        "line": 30
+      },
+      {
+        "summary": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face) — every page silently falls through to the next stack entry (system font) instead of Inter. Cosmetic, non-blocking; tracked in frontend-scaffold-followups (carried over from the prior review round, unchanged by this fix).",
         "file": "frontend/src/theme/theme.ts",
         "line": 68
       }
     ],
-    "notes": "Checked out the PR and ran npm run build, npm run test:coverage, npm run lint, npm run format:check, and npm run build-storybook myself; all passed. Ran the backend suite as a regression check (untouched by this PR: 472 passed, 99.84% coverage). Ran architecture-review against Architecture.md/Frontend.md/Testing.md and code-review against the diff. Did a lightweight headless-Playwright pass over all three placeholder routes (/, /portfolio, /stocks/:ticker) — no console errors, no page errors; a full walkthrough isn't warranted yet since there's no real feature UI. All five recorded decisions are reasonable with real rationale; CLAUDE.md's repo-layout line was updated correctly; coverage thresholds numerically match Testing.md's 90/90/90/90 v8-provider config. One blocking finding (coverage all/include gap, undermines the enforceability of the 90% gate for untested new files) sends this back to implementing; one non-blocking finding (Inter font never loaded) filed as a follow-up task."
+    "notes": "Re-review of PR #61 after task-worker's fix commit (4bb0676) for the previously blocking coverage include/all gap. Verified the fix soundly rather than trusting the claim: read the installed vitest 5.0.1 CoverageOptions type definitions myself to confirm no `all` field exists and `include` is the documented replacement, then independently reproduced the empirical before/after test (throwaway untested file with an untested branch correctly drags coverage down and fails the gate; removing it restores a clean 100% pass). Re-ran the full verification pass: npm run test:coverage, npm run lint, npm run format:check, npm run build, and npm run build-storybook all pass on the fixed branch; backend suite re-run as a regression check (472 passed, 99.84% coverage, unaffected — this PR touches no backend code). Ran the code-review skill against the fix commit's diff (frontend/vite.config.ts + task-board bookkeeping); it independently traced vitest's config-resolution code to confirm test files/setup files stay excluded from coverage even with the new `include`, and surfaced one new non-blocking finding (Testing.md's frontend example still lacks `include`), now filed as a follow-up. No UI-facing change in this fix commit (pure test-config + task-board bookkeeping), so no fresh browser walkthrough was warranted this round — the prior review's lightweight Playwright pass over the three placeholder routes already covers the only UI surface that exists, and nothing about it changed here. The new `decisions` entry recording task-worker's fix rationale is a genuine decision record (what was tried, why, and how it was verified), matching CLAUDE.md's decision-memory standard. No blocking findings remain; moving to done."
   }
 }

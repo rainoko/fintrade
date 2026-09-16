@@ -355,8 +355,8 @@
       "id": "frontend-scaffold",
       "area": "frontend/scaffold",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-scaffold.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-scaffold.json"
     },
     {
       "id": "frontend-scaffold-followups",
