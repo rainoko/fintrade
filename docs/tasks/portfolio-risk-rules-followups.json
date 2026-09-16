@@ -3,7 +3,7 @@
   "title": "Portfolio risk rules — non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["portfolio-risk-rules"],
   "references": [
     "docs/tasks/portfolio-risk-rules.json#review",
@@ -13,7 +13,7 @@
   "checklist": [
     {
       "step": "The 'daily_ohlcv must be ordered oldest-first (most recent row last)' contract that protective_stop() relies on (via .tail()) is only documented in risk.py's own docstring. app/data/base.py's DataProvider.get_daily_ohlcv docstring says 'indexed by date' but doesn't state sort order explicitly — state it there too so a future data-provider implementation can't silently violate the contract this function depends on.",
-      "done": false
+      "done": true
     }
   ]
 }
