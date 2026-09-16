@@ -25,7 +25,16 @@ from app.signals.engine import analyse
 # #get-apistocksstickerhistory) without accepting yfinance's other period spellings
 # ('ytd', '5d' with no unit, etc.) that this endpoint doesn't document. See this task's
 # `decisions` entry.
-_RANGE_PATTERN = r"^(max|\d+[dwmy])$"
+#
+# The digit run is capped at 4 characters (max 9999) rather than left unbounded: an
+# unbounded `\d+` still matches things like '999999999y' or a 20+ digit count, which
+# `_trim_to_range`'s `pd.DateOffset` arithmetic can't handle (Timestamp under/overflow) --
+# see docs/tasks/api-stocks-history-followups.json. Capping the digit count here means
+# FastAPI's own pattern validation rejects those with the standard 422
+# HTTPValidationError shape before `_trim_to_range` ever runs. `_trim_to_range` still
+# guards its own arithmetic (a 4-digit count can still overflow for 'm'/'y' units, e.g.
+# '9999y') so that path is never a bare 500 either.
+_RANGE_PATTERN = r"^(max|\d{1,4}[dwmy])$"
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -99,7 +108,10 @@ def get_history(
     except DataProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    ohlcv = _trim_to_range(ohlcv, range)
+    try:
+        ohlcv = _trim_to_range(ohlcv, range)
+    except _RangeOutOfBoundsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     bars = [
         OHLCVBar(
@@ -115,6 +127,14 @@ def get_history(
     return HistoryResponse(ticker=ticker, interval=interval, bars=bars)
 
 
+class _RangeOutOfBoundsError(ValueError):
+    """Raised by `_trim_to_range` when a `range` value that passed `_RANGE_PATTERN` still
+    can't be turned into a valid cutoff date -- e.g. '9999y', which is within the pattern's
+    4-digit cap but still overflows `pd.Timestamp`'s ~1677-2262 bounds when subtracted from
+    the anchor. Caught in `get_history` and mapped to the same 422 path as a
+    pattern-rejected `range`, per docs/tasks/api-stocks-history-followups.json."""
+
+
 def _trim_to_range(ohlcv: pd.DataFrame, range_param: str) -> pd.DataFrame:
     """Trim `ohlcv` (already the provider's full cached/fetched history -- the `DataProvider`
     protocol itself takes no date-range argument, see app/data/cache.py's module docstring) to
@@ -124,24 +144,35 @@ def _trim_to_range(ohlcv: pd.DataFrame, range_param: str) -> pd.DataFrame:
     date: the cache can be up to 24h stale (app/data/cache.py's `_CACHE_TTL`), and a
     delisted/thinly-traded ticker's history may not extend to the present at all -- anchoring
     on "today" in either case would silently return fewer bars than the requested range implies.
+
+    Raises `_RangeOutOfBoundsError` (never a bare `ValueError`/`OverflowError`) if `count` is
+    large enough that the `pd.DateOffset` arithmetic below can't produce a valid cutoff --
+    `_RANGE_PATTERN`'s 4-digit cap keeps this to the 'm'/'y' units only in practice, but the
+    guard is unconditional so it's not relying on that cap alone.
     """
     if range_param == "max" or ohlcv.empty:
         return ohlcv
     count = int(range_param[:-1])
     unit = range_param[-1]
     anchor = ohlcv.index[-1]
-    if unit == "d":
-        # `pd.DateOffset`, not `pd.Timedelta`, for every unit here -- `pd.Timedelta(days=...)`
-        # / `pd.Timedelta(weeks=...)` alone (no other kwarg) trip a spurious NumPy
-        # "'generic' unit" DeprecationWarning on this pandas/NumPy pairing even though the
-        # arithmetic itself is correct; `DateOffset` sidesteps it and reads the same.
-        cutoff = anchor - pd.DateOffset(days=count)
-    elif unit == "w":
-        cutoff = anchor - pd.DateOffset(weeks=count)
-    elif unit == "m":
-        cutoff = anchor - pd.DateOffset(months=count)
-    else:  # "y"
-        cutoff = anchor - pd.DateOffset(years=count)
+    try:
+        if unit == "d":
+            # `pd.DateOffset`, not `pd.Timedelta`, for every unit here --
+            # `pd.Timedelta(days=...)` / `pd.Timedelta(weeks=...)` alone (no other kwarg)
+            # trip a spurious NumPy "'generic' unit" DeprecationWarning on this
+            # pandas/NumPy pairing even though the arithmetic itself is correct;
+            # `DateOffset` sidesteps it and reads the same.
+            cutoff = anchor - pd.DateOffset(days=count)
+        elif unit == "w":
+            cutoff = anchor - pd.DateOffset(weeks=count)
+        elif unit == "m":
+            cutoff = anchor - pd.DateOffset(months=count)
+        else:  # "y"
+            cutoff = anchor - pd.DateOffset(years=count)
+    except (ValueError, OverflowError) as exc:
+        raise _RangeOutOfBoundsError(
+            f"range '{range_param}' is out of bounds"
+        ) from exc
     return ohlcv[ohlcv.index > cutoff]
 
 

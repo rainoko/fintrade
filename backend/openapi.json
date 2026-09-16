@@ -809,7 +809,7 @@
             "schema": {
               "default": "1y",
               "description": "Lookback window: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date.",
-              "pattern": "^(max|\\d+[dwmy])$",
+              "pattern": "^(max|\\d{1,4}[dwmy])$",
               "title": "Range",
               "type": "string"
             }

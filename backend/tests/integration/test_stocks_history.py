@@ -184,6 +184,34 @@ class TestGetHistory:
 
         assert response.status_code == 422
 
+    def test_unbounded_numeric_range_returns_422_not_500(self) -> None:
+        # Regression test for docs/tasks/api-stocks-history-followups.json: a range value
+        # with an absurd digit count (or one that's numerically small enough to match
+        # _RANGE_PATTERN's 4-digit cap but still overflows pd.Timestamp bounds, like
+        # '9999y') must surface as this endpoint's contracted 422, never an unhandled 500.
+        provider = _StubProvider(daily={"AAPL": _daily_ohlcv(n=10)})
+
+        response = _get_history(provider, range="999999999y")
+
+        assert response.status_code == 422
+
+    def test_long_digit_string_range_returns_422_not_500(self) -> None:
+        provider = _StubProvider(daily={"AAPL": _daily_ohlcv(n=10)})
+
+        response = _get_history(provider, range="99999999999999999999999d")
+
+        assert response.status_code == 422
+
+    def test_range_within_digit_cap_but_out_of_timestamp_bounds_returns_422(self) -> None:
+        # '9999y' has only 4 digits, so it passes _RANGE_PATTERN's cap -- but subtracting
+        # it from any real anchor date still overflows pd.Timestamp's ~1677-2262 range, so
+        # _trim_to_range's own guard (not the pattern) is what has to catch this one.
+        provider = _StubProvider(daily={"AAPL": _daily_ohlcv(n=10)})
+
+        response = _get_history(provider, range="9999y")
+
+        assert response.status_code == 422
+
     def test_ticker_is_uppercased(self) -> None:
         provider = _StubProvider(daily={"AAPL": _daily_ohlcv(n=10)})
 
@@ -196,6 +224,17 @@ class TestGetHistory:
         provider = _StubProvider(failing_daily={"ZZZZ": TickerNotFoundError("ZZZZ")})
 
         response = _get_history(provider, ticker="ZZZZ")
+
+        assert response.status_code == 404
+        assert "ZZZZ" in response.json()["detail"]
+
+    def test_unknown_ticker_weekly_interval_returns_404(self) -> None:
+        # Same TickerNotFoundError -> 404 mapping as test_unknown_ticker_returns_404, but
+        # through get_weekly_ohlcv (interval=weekly) rather than get_daily_ohlcv, since
+        # that's the only path that hits the weekly branch's own exception handling.
+        provider = _StubProvider(failing_weekly={"ZZZZ": TickerNotFoundError("ZZZZ")})
+
+        response = _get_history(provider, ticker="ZZZZ", interval="weekly")
 
         assert response.status_code == 404
         assert "ZZZZ" in response.json()["detail"]
