@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/analysis — review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-stocks-analysis"],
   "references": [
     "docs/tasks/api-stocks-analysis.json",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "Correct the first `decisions` entry on docs/tasks/api-stocks-analysis.json: it claims the router's per-exception-subtype -> HTTP-status mapping (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) is 'the same try/except pattern already used in app/api/routers/portfolio.py'. That's inaccurate -- portfolio.py's get_risk only has a broad `except DataProviderError` that silently skips a position (no per-subtype mapping), and its only direct HTTPException(404/422) calls are for unrelated domain logic (position-not-found, merge-overflow). The mapping implemented in stocks.py is itself correct and faithful to API.md/app/data/exceptions.py; only the decision record's stated precedent is wrong. Fix by amending the decision text (or adding a follow-up decisions entry) to accurately describe this as a new pattern rather than a reused one, so a future reader doesn't assume equivalent precedent exists elsewhere in the codebase.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T06:52:08Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the first `decisions` entry on docs/tasks/api-stocks-analysis.json by removing the inaccurate claim that the router's per-exception-subtype -> HTTP-status mapping reused 'the same try/except pattern already used in app/api/routers/portfolio.py', and appended a dated correction note to the entry's `rationale` explaining why (portfolio.py's get_risk only has a broad `except DataProviderError` with no per-subtype mapping) rather than deleting or silently rewriting the original text.",
+      "rationale": "Preserving the original wording with an appended correction (instead of silently editing it in place) keeps the record of what was actually believed and decided at the time, consistent with CLAUDE.md's decision-memory rule that decisions should be recorded, not just fixed in code/docs with no trace. The underlying technical reasoning in that entry (no separate minimum-history check in the router; daily fetched before weekly) was sound and is unaffected by this correction, so only the inaccurate precedent claim was addressed, not the substance of the decision."
     }
   ]
 }
