@@ -3,7 +3,7 @@
   "title": "API: GET /api/stocks/{ticker}/analysis",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["signal-engine-orchestration", "data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickeranalysis"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model (AnalysisResponse) are already wired.",
@@ -33,5 +33,18 @@
     "pr_number": 37,
     "pr_url": "https://github.com/rainoko/fintrade/pull/37",
     "pushed_at": "2026-09-16T06:36:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T06:45:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/37",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: the first `decisions` entry's rationale claims the router's per-exception-subtype -> HTTP-status mapping (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) is 'the same try/except pattern already used in app/api/routers/portfolio.py'. That's not quite accurate: portfolio.py's get_risk only has a broad `except DataProviderError` that silently skips a position, and its only direct HTTPException(404/422) calls are for unrelated domain logic (position-not-found, merge-overflow) -- there's no existing precedent elsewhere in the codebase for this specific granular subtype-to-status mapping. The mapping itself is correct and matches API.md/app/data/exceptions.py faithfully; only the decision record's stated precedent is imprecise, which could mislead a future reader into assuming this pattern already existed elsewhere.",
+        "file": "docs/tasks/api-stocks-analysis.json",
+        "line": 21
+      }
+    ],
+    "notes": "Full review: checked out PR #37, ran `pytest --cov=app --cov-report=term-missing` (406 passed, 99.73% line/branch coverage, gate 90%) -- no regression. No ruff/mypy configured in backend/pyproject.toml, so no separate lint step beyond pytest. Regenerated `python scripts/export_openapi.py` and diffed against the committed backend/openapi.json -- no diff, snapshot is current; operation_id (`get_stock_analysis`), summary, docstring description, and all three declared error responses (404/422/503) with descriptions are present per CLAUDE.md's API documentation standard. docs/architecture/API.md's existing `/analysis` example already matches the implemented response shape exactly, so no doc update was needed. Ran the `verify-elder-signal` skill against the router's SignalResult -> AnalysisResponse mapping: ticker/as_of/signal/confidence/confidence_band/screens/confidence_breakdown/indicators are all passed through faithfully with no re-derivation or value transformation beyond the two new fields (uppercased ticker, derived as_of) that are both recorded as `decisions` entries with clear rationale; engine.py itself (weights, band boundaries, gating) was already verified in the signal-engine-orchestration task and this PR introduces no drift from it. Ran the `code-review` skill (medium effort) against the diff -- no correctness, reuse, simplification, efficiency, or convention findings. No new module/dependency/layer added, so architecture-review was not run per CLAUDE.md's trigger condition. No frontend exists yet (frontend/ not yet scaffolded) so this PR has no UI surface -- browser walkthrough explicitly skipped, not silently omitted. Checklist has no 'decide X' phrased items without a corresponding `decisions` entry -- both judgment calls made (error-mapping/fetch-order, ticker-uppercasing/as_of-derivation) are recorded with decision + rationale. One non-blocking finding (a decision record's precedent claim being slightly inaccurate) filed to docs/tasks/api-stocks-analysis-followups.json."
   }
 }
