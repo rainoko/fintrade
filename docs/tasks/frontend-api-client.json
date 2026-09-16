@@ -64,5 +64,11 @@
       "decision": "The mock POST /api/portfolio/positions handler stores only the always-known PositionOut fields (id, ticker, quantity, avg_cost_basis, entry_date) and computes current_price/unrealized_pnl_pct at GET-time from a small mockPrices lookup, rather than storing/mutating those two fields directly on the position.",
       "rationale": "API.md is explicit that current_price/unrealized_pnl_pct are always null in the POST response itself but are enriched on a later read \u2014 storing them directly on the position object made the POST-response-is-always-null rule and the GET-is-enriched rule fight over the same field, so the mock's initial implementation left a freshly-merged position permanently null-priced even after a subsequent GET, which is a smaller-but-still-real deviation from the documented contract this task's mock layer exists to encode correctly for every later feature test. Rejected alternative: leaving current_price null forever after any merge, which was simpler but wrong per API.md."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-api-client",
+    "pr_number": 63,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/63",
+    "pushed_at": "2026-09-16T21:42:19Z"
+  }
 }
