@@ -109,5 +109,10 @@
       }
     ],
     "notes": "code-review skill (medium effort) found no correctness bugs or reuse/simplification issues after tracing hooks/components against their callers and API.md/openapi types. No backend/schema changes in this PR, so no openapi.json regeneration was needed. area is frontend/pages/portfolio and skill is add-frontend-feature, so verify-elder-signal doesn't apply; no new module/dependency/layer was introduced, so a full architecture-review pass wasn't triggered beyond the mandatory 7a placement check (done above). No checklist item was phrased as 'decide X' needing a decisions entry beyond the four already recorded, all of which have real rationale and rejected alternatives. One non-blocking finding filed as docs/tasks/frontend-portfolio-page-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T23:09:23Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (120/120 tests, 22 files, 99.53% lines/99.36% branches), lint, build, and build-storybook, all clean, and the backend suite (472/472, 99.84% coverage) unaffected by this frontend-only diff (confirmed via git diff --stat origin/main...HEAD) — all numbers match review.comments exactly. Traced useAddPosition/useDeletePosition myself: both invalidate portfolioKeys.all=['portfolio'], which usePortfolio's query key matches exactly, and TanStack Query's default prefix-matching invalidation correctly extends this to a future ['portfolio','risk'] query; PortfolioPage.test.tsx's end-to-end add/delete tests exercise the real refetch through MSW, corroborating this beyond just reading the code. Spot-checked AddPositionDialog.test.tsx/PositionsTable.test.tsx/PortfolioPage.test.tsx against tests/mocks/handlers.ts: merge-on-duplicate-ticker, 422 per-field, 422 overflow, DELETE 404, network error, and empty-portfolio cases are all genuinely exercised against realistic mock response shapes. PositionsTable/AddPositionDialog placement under features/portfolio/components/ built on common/ primitives confirmed correct."
   }
 }
