@@ -3,7 +3,7 @@
   "title": "Existing-position exit rules follow-ups — further-further non-blocking review follow-up",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["portfolio-exit-rules-followups-followups"],
   "references": [
     "docs/tasks/portfolio-exit-rules-followups-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "protective_stop()'s new `columns_validated: bool = False` parameter (backend/app/portfolio/risk.py) is only exercised indirectly: no test in backend/tests/unit/test_portfolio_risk.py calls protective_stop() directly with columns_validated=True to confirm, in isolation, that it genuinely skips the {'low', 'close'} column-membership check (as opposed to that skip only ever being safe in practice because evaluate_exit_flags -- the sole caller that passes it -- always hands it an already-column-valid frame). Coverage on risk.py is 100% branch, satisfied entirely via evaluate_exit_flags's own end-to-end tests (e.g. test_real_too_short_daily_history_raises exercises the columns_validated=True + empty-frame branch). Worth adding a direct unit test next time risk.py is touched -- e.g. protective_stop(position, a frame missing 'low' but non-empty, columns_validated=True) either raises a KeyError (documenting the parameter's real contract: it trusts the caller, it doesn't re-check) or is asserted not to raise the 'missing required column(s)' ValueError -- so the parameter's own skip-semantics has regression coverage independent of any particular caller's usage pattern.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added two direct unit tests to TestProtectiveStop in backend/tests/unit/test_portfolio_risk.py: test_columns_validated_true_skips_column_check (a non-empty frame missing 'low', called with columns_validated=True, raises a bare KeyError -- not the 'missing required column(s)' ValueError -- and the same frame with columns_validated=False, the default, does raise that ValueError, contrasting both branches directly) and test_columns_validated_true_still_checks_empty (an empty frame with columns_validated=True still raises the 'at least one row' ValueError, confirming the .empty check is never skipped). No production code change -- risk.py was already correct and already at 100% branch coverage via evaluate_exit_flags's end-to-end tests; this only adds regression coverage that isolates the parameter's own skip-semantics contract independent of that one caller's usage pattern, per the checklist item's own suggested approach.",
+      "rationale": "The checklist item's suggested reference-value shape (missing 'low', non-empty, columns_validated=True -> KeyError) was the most direct way to prove the column check is genuinely skipped rather than merely never hit in practice; asserting the KeyError specifically (via pytest.raises(KeyError) with no column check ValueError raised first) rather than a looser 'does not raise the ValueError' check makes the parameter's real contract (trusts the caller, doesn't re-check) explicit and would fail loudly if a future refactor silently re-added the column check inside the columns_validated=True branch. Kept the empty-frame case as a second, separate test rather than folding it into the first, since it exercises a different code path (the .empty check that columns_validated=True does NOT skip) and conflating the two would blur which specific behavior each assertion is pinned to."
+    }
+  ],
   "questions": []
 }

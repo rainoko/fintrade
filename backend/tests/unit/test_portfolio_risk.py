@@ -161,6 +161,38 @@ class TestProtectiveStop:
 
         assert stop_shared == pytest.approx(stop_default)
 
+    def test_columns_validated_true_skips_column_check(self) -> None:
+        """Isolates `columns_validated`'s own contract directly (not just as exercised
+        indirectly by evaluate_exit_flags's end-to-end tests, which always hand it an
+        already-column-valid frame -- see the portfolio-exit-rules-followups-followups
+        task's `decisions` entry): with `columns_validated=True`, a non-empty frame
+        missing the 'low' column is *not* caught by protective_stop's own
+        `{'low', 'close'} - set(columns)` check -- it's trusted instead, and fails later
+        with a bare KeyError from the first `daily_ohlcv["low"]` access, not the
+        'missing required column(s)' ValueError that `columns_validated=False` (the
+        default) raises for the identical frame."""
+        daily_ohlcv = pd.DataFrame({"close": [100.0, 102.0, 101.0, 103.0, 104.0]})
+
+        with pytest.raises(KeyError):
+            protective_stop(_position(), daily_ohlcv, columns_validated=True)
+
+        # Confirms the KeyError is specifically due to the skipped column check --
+        # the same frame with columns_validated=False (default) raises the
+        # column-membership ValueError instead, never reaching the KeyError.
+        with pytest.raises(ValueError, match="missing required column"):
+            protective_stop(_position(), daily_ohlcv)
+
+    def test_columns_validated_true_still_checks_empty(self) -> None:
+        """`columns_validated=True` skips only the column-membership check, not the
+        `.empty` check -- an empty frame still raises the same ValueError as the
+        default path, since slicing (protective_stop's real-world callers pass a
+        row-sliced view) can turn a validated frame empty even though it can't change
+        which columns exist."""
+        with pytest.raises(ValueError, match="at least one row"):
+            protective_stop(
+                _position(), pd.DataFrame(columns=["close", "low"]), columns_validated=True
+            )
+
     def test_precomputed_short_ema_is_actually_used_not_ignored(self) -> None:
         """A deliberately wrong `short_ema` must change the result -- confirms the parameter
         is actually wired in, not silently ignored in favor of always recomputing."""
