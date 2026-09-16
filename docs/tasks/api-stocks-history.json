@@ -3,16 +3,65 @@
   "title": "API: GET /api/stocks/{ticker}/history",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "done",
   "depends_on": ["data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickerhistory"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model are already wired.",
   "checklist": [
     { "step": "Route signature + HistoryResponse schema already defined — confirm no shape changes needed", "done": true },
-    { "step": "Implement handler: fetch via the cached data provider, map to HistoryResponse", "done": false },
-    { "step": "Handle unknown ticker -> 404 per docs/architecture/API.md error cases", "done": false },
-    { "step": "Handle both providers unavailable -> 503", "done": false },
-    { "step": "Write integration test (FastAPI TestClient, mocked data provider) covering 200, 404, 503", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
-  ]
+    { "step": "Implement handler: fetch via the cached data provider, map to HistoryResponse", "done": true },
+    { "step": "Handle unknown ticker -> 404 per docs/architecture/API.md error cases", "done": true },
+    { "step": "Handle both providers unavailable -> 503", "done": true },
+    { "step": "Write integration test (FastAPI TestClient, mocked data provider) covering 200, 404, 503", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Only fetch the interval actually requested: `provider.get_daily_ohlcv()` for `interval=daily`, `provider.get_weekly_ohlcv()` for `interval=weekly` — not both, unlike `/analysis` which always needs both for Screen 1/2. A `weekly`-interval request is therefore the only way this endpoint can raise `InsufficientHistoryError` (the shared `YFinanceProvider._MIN_WEEKLY_BARS = 26` floor baked into `get_weekly_ohlcv` itself, per the `DataProvider` protocol), mapped to `422` the same way `/analysis` does. Rejected: unconditionally calling both methods regardless of `interval` (matches `/analysis`'s pattern but wastes a fetch/cache-read the caller didn't ask for, and would force a daily-interval history request to fail on thin weekly history it never needed).",
+      "rationale": "The `DataProvider` protocol has two separate single-interval methods with no way to ask for 'just daily, don't touch weekly' short of not calling the weekly method — so which method(s) to call per `interval` is a real branch point the docs don't spell out. Fetching only what's needed is the minimal-surprise reading of `interval` as a real filter, and keeps a `daily`-interval chart usable for a very recently listed ticker that a `weekly`-interval request to the same endpoint would legitimately reject."
+    },
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "`range` accepts `<N>d` | `<N>w` | `<N>m` | `<N>y` (e.g. `1y`, `6m`, `90d`) or the literal `max`, validated via FastAPI's `Query(pattern=...)` (so a malformed value is a standard `422` HTTPValidationError, no custom code needed). The window is trimmed server-side after fetching the provider's full history (the `DataProvider` protocol takes no date-range argument — see `app/data/cache.py`'s module docstring), anchored on the most recent bar actually present in the fetched frame rather than on today's wall-clock date. Rejected: yfinance's own broader period vocabulary (`ytd`, `5d` with no unit letter, etc.) — API.md's only documented example is `1y`, and accepting yfinance-specific spellings the doc doesn't mention would leak an implementation detail into the public contract; also rejected anchoring the trim on `datetime.now()`, since the SQLite cache can be up to 24h stale (`_CACHE_TTL`) and a delisted/thinly-traded ticker's history may not reach the present at all — either case would silently return fewer bars than the requested range implies.",
+      "rationale": "API.md documented the `range` query param's existence and one example value but not its accepted grammar or what a bad value should do, and the `DataProvider` protocol/cache explicitly punt date-range trimming to the caller (per their own docstrings) without saying where an anchor date should come from — both were real gaps this change had to close to have a testable contract."
+    },
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Declared the route's `422` response as an `anyOf` of `HTTPValidationError` (malformed `range`) and `ErrorDetail` (insufficient weekly history), mirroring the exact pattern already used by `POST /api/portfolio/positions` for its own dual-shape `422`, rather than inventing a new documentation convention.",
+      "rationale": "Two structurally different failure modes both legitimately return `422` on this route (FastAPI's own query-validation error vs. this handler's `InsufficientHistoryError` mapping); reusing the existing `anyOf` precedent keeps the OpenAPI snapshot honest about both possible bodies instead of only documenting whichever one was declared last."
+    }
+  ],
+  "git": {
+    "branch": "task/api-stocks-history",
+    "pr_number": 40,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/40",
+    "pushed_at": "2026-09-16T07:06:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:10:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/40",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "An unbounded numeric `range` value (e.g. `range=999999999y`, or an arbitrarily long digit string like `range=99999999999999999999999d`) matches `_RANGE_PATTERN` (`^(max|\\d+[dwmy])$`, no digit-count bound) but crashes `_trim_to_range`'s `pd.DateOffset` arithmetic with an unhandled `ValueError`/`OverflowError`, which FastAPI turns into a generic `500` instead of the `422` the endpoint's own contract promises for a bad `range`. Verified directly with `TestClient`: `range=999999999y` returns `500`. Non-blocking (pathological input, not on any realistic client path) — filed as a follow-up rather than blocking.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 100
+      },
+      {
+        "summary": "The 404 (unknown ticker) integration test only exercises `interval=daily`; no test exercises `interval=weekly` hitting the identical `TickerNotFoundError` -> 404 mapping through `get_weekly_ohlcv`. Low risk (shared exception-handling code), non-blocking.",
+        "file": "backend/tests/integration/test_stocks_history.py",
+        "line": 195
+      }
+    ],
+    "notes": "Checked out PR #40 (branch task/api-stocks-history, already the checked-out branch). Ran `pytest --cov=app --cov-report=term-missing`: 420 passed, 99.83% line/branch coverage (gate 90%), no regression. No ruff/mypy configured in backend/pyproject.toml's dev extras, so no separate lint step applies. Ran `python scripts/export_openapi.py` and diffed against the committed backend/openapi.json: no diff -- snapshot is current. Confirmed operationId (`get_stock_history`) is unique across the schema, the dual-shape 422 (`anyOf` of HTTPValidationError and ErrorDetail) is correctly declared and mirrors POST /api/portfolio/positions's existing precedent, and docs/architecture/API.md's range grammar/anchor description and the new insufficient-history/malformed-range error-case bullets match the implementation exactly. Ran the code-review skill (medium effort) against main..task/api-stocks-history: reported no blocking findings; independently found and verified (via TestClient) one additional correctness issue beyond what code-review flagged -- an unbounded-digit `range` value crashes with 500 instead of a controlled 422 -- assessed as non-blocking (pathological/adversarial input, not a golden-path or realistic-client scenario) and filed as a follow-up. area is backend/api (not backend/signals or backend/portfolio) and skill is add-api-endpoint (not verify-elder-signal), so verify-elder-signal doesn't apply. No new module/dependency/layer added (route body implemented in the existing stocks.py stub plus a private helper in the same file), so architecture-review doesn't apply. No frontend exists yet (per CLAUDE.md, 'not yet scaffolded') so there is no UI surface for this endpoint to drive -- browser walkthrough explicitly skipped, not silently omitted. All three `decisions` entries (interval-only fetch, range grammar/anchor, dual-shape 422 anyOf) are genuine judgment calls the docs didn't pin down and are properly recorded with rationale and rejected alternatives; no checklist item is phrased as 'decide X' without a corresponding decisions entry. Filed docs/tasks/api-stocks-history-followups.json for both non-blocking findings (no pre-existing follow-up task for this task id). No stale pr_decision existed on this task to clear (first review pass)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:12:22Z",
+    "verdict": "merge",
+    "notes": "Re-ran `pytest --cov=app --cov-report=term-missing` myself: 420 passed, 99.83% coverage, matches pr-reviewer's numbers exactly. Re-exported openapi.json via scripts/export_openapi.py and diffed against the committed file: no diff, snapshot is current. Read the full diff (stocks.py, test_stocks_history.py, API.md, task JSONs) directly: _RANGE_PATTERN/_trim_to_range grammar and anchor-on-last-bar logic match docs/architecture/API.md and the recorded decisions entries exactly; dual-shape 422 anyOf declaration mirrors POST /api/portfolio/positions as claimed. Independently reproduced both non-blocking findings: range=999999999y raises an unhandled pandas ValueError in _trim_to_range (would surface as 500 under a real server) confirming the unbounded-digit-count gap in _RANGE_PATTERN, and confirmed test_unknown_ticker_returns_404 only exercises interval=daily (default) with no weekly-interval 404 test present -- both correctly non-blocking and already filed on docs/tasks/api-stocks-history-followups.json."
+  }
 }

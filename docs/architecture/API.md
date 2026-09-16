@@ -15,7 +15,7 @@ REST/JSON, served by the FastAPI backend (see [Backend.md](Backend.md)), consume
 
 Daily OHLCV history for charting.
 
-Query params: `range` (e.g. `1y`, default `1y`), `interval` (`daily` | `weekly`, default `daily`).
+Query params: `range` (`<N>d` | `<N>w` | `<N>m` | `<N>y` | `max`, e.g. `1y`, `6m`, `90d`; default `1y`), `interval` (`daily` | `weekly`, default `daily`). `range` is a trailing window measured back from the most recent bar actually returned (not from today's date, since the cache can be stale and a delisted/thinly-traded ticker's history may not reach the present) — an unrecognized `range` value is a `422`.
 
 ```json
 {
@@ -134,7 +134,8 @@ A position whose risk can't be computed at all (its current price couldn't be fe
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
 - Market data provider unavailable (both yfinance and Stooq fail) → `503` with a clear `detail`, not a raw stack trace.
-- Insufficient history to compute weekly indicators (e.g. newly listed stock, <26 weeks of data) → `422` with `detail` explaining which indicator couldn't be computed, rather than silently returning partial/wrong signals.
+- Insufficient history to compute weekly indicators (e.g. newly listed stock, <26 weeks of data) → `422` with `detail` explaining which indicator couldn't be computed, rather than silently returning partial/wrong signals. `GET /api/stocks/{ticker}/history?interval=weekly` enforces this same <26-week floor on the raw weekly series (not just on computed indicators) since it shares the same provider method as `/analysis` — a `daily`-interval request is unaffected.
+- An unrecognized `range` value on `GET /api/stocks/{ticker}/history` → `422` (FastAPI's standard per-field validation error shape, distinct from the insufficient-history `422` above).
 - Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
 
 ## Contract Snapshot & Parallel Development

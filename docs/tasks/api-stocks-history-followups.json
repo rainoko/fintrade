@@ -1,0 +1,25 @@
+{
+  "id": "api-stocks-history-followups",
+  "title": "GET /api/stocks/{ticker}/history — review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-stocks-history"],
+  "references": [
+    "docs/tasks/api-stocks-history.json",
+    "https://github.com/rainoko/fintrade/pull/40"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #40 (api-stocks-history), tracked here so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "An unbounded numeric `range` value (e.g. `range=999999999y`, or an arbitrarily long digit string like `range=99999999999999999999999d`) matches the route's own `_RANGE_PATTERN` (`^(max|\\d+[dwmy])$`, no upper bound on digit count) but crashes `_trim_to_range`'s `pd.DateOffset` arithmetic in `backend/app/api/routers/stocks.py` with an unhandled `ValueError`/`OverflowError`, which FastAPI turns into a generic `500 Internal Server Error` instead of the `422` the endpoint's own contract promises for a bad `range`. Verified directly: `TestClient(app).get('/api/stocks/AAPL/history', params={'range': '999999999y'})` returns `500`. Fix by either bounding the pattern's digit count (e.g. `\\d{1,4}`) or catching the overflow in `_trim_to_range` and mapping it to the same `422` path as a malformed `range`.",
+      "done": false
+    },
+    {
+      "step": "The 404 (unknown ticker) integration test only exercises the `interval=daily` path (`failing_daily`); no test exercises `interval=weekly` hitting the same `TickerNotFoundError` -> 404 mapping through `get_weekly_ohlcv`. Low risk since both branches share identical exception handling, but worth a one-line test for completeness.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

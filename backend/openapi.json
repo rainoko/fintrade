@@ -789,7 +789,7 @@
     },
     "/api/stocks/{ticker}/history": {
       "get": {
-        "description": "Raw OHLCV bars for charting, served from the SQLite cache (docs/architecture/Backend.md \u00a77)\nand backfilled from yfinance/Stooq on a cache miss. Weekly bars are yfinance's native\nweekly interval, not a manual resample of daily bars, per docs/Analyse.md \u00a79.",
+        "description": "Raw OHLCV bars for charting, served from the SQLite cache (docs/architecture/Backend.md \u00a77)\nand backfilled from yfinance/Stooq on a cache miss. Weekly bars are yfinance's native\nweekly interval, not a manual resample of daily bars, per docs/Analyse.md \u00a79.\n\n`ticker` is normalized to uppercase, matching `GET /api/stocks/{ticker}/analysis` and\n`POST /api/portfolio/positions`. Only the interval actually requested is fetched (unlike\n`/analysis`, which always needs both) -- so a `weekly`-interval request is the only way\nthis endpoint can itself raise the same <26-week `InsufficientHistoryError` -> 422 that\n`/analysis`'s weekly fetch enforces (`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`);\nsee this task's `decisions` entry for why that's surfaced here too rather than only for\ncomputed indicators.",
         "operationId": "get_stock_history",
         "parameters": [
           {
@@ -802,13 +802,14 @@
             }
           },
           {
-            "description": "Lookback window, e.g. '1y'",
+            "description": "Lookback window: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date.",
             "in": "query",
             "name": "range",
             "required": false,
             "schema": {
               "default": "1y",
-              "description": "Lookback window, e.g. '1y'",
+              "description": "Lookback window: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date.",
+              "pattern": "^(max|\\d+[dwmy])$",
               "title": "Range",
               "type": "string"
             }
@@ -853,11 +854,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Either of two distinct shapes, both under HTTP 422: `range` doesn't match the accepted pattern (FastAPI's standard HTTPValidationError \u2014 `detail` is a list of per-field errors), or the requested weekly interval has fewer than 26 weeks of history (`detail` is a single string, ErrorDetail) \u2014 same dual-shape pattern as `POST /api/portfolio/positions`."
           },
           "503": {
             "content": {
