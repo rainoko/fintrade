@@ -1,0 +1,20 @@
+{
+  "id": "db-migrations-followups",
+  "title": "Alembic migrations setup — non-blocking review follow-up",
+  "area": "backend/db",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["db-migrations"],
+  "references": [
+    "docs/tasks/db-migrations.json#review",
+    "https://github.com/rainoko/fintrade/pull/46",
+    "docs/architecture/Backend.md#7-persistence"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #46 (db-migrations), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md §7 now correctly documents that `alembic stamp head` against a create_all-seeded database only produces a correct schema if that database's tables already match what the initial migration would create -- and flags that a database whose `positions` table predates `unique=True` being added to `PositionORM.ticker` (see api-portfolio-add-position's decisions) would get silently stamped as head without actually gaining that unique index, needing a manual fix-up migration instead. That caveat is documented but not defended against in tooling: nothing actually detects or fixes a drifted database at stamp time. Consider either (a) a small follow-up migration/script that idempotently ensures the unique index exists (e.g. `CREATE UNIQUE INDEX IF NOT EXISTS`) so `stamp head` self-heals this specific known drift, or (b) a lightweight check (in the stamp-head docs workflow or a script) that compares the live schema against what the initial migration expects before stamping, so a drifted database fails loudly instead of silently passing. Low real-world likelihood in this single-developer MVP (no production deployment yet), which is why this is non-blocking rather than blocking the PR.",
+      "done": false
+    }
+  ]
+}
