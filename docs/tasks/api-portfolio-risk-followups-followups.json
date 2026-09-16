@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/risk follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-portfolio-risk-followups"],
   "references": [
     "docs/tasks/api-portfolio-risk-followups.json#review",
@@ -13,13 +13,38 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md §6's new portfolio/pricing.py paragraph says it 'depends only on data/base.py's DataProvider protocol and db/models.py/portfolio/models.py', but app/portfolio/pricing.py also imports DataProviderError from app.data.exceptions (used in _latest_close's except clause). Minor inaccuracy in an otherwise-correct description -- worth folding data/exceptions.py into that dependency list next time this paragraph is touched.",
-      "done": false
+      "done": true
     },
     {
       "step": "The get_risk() reorder in backend/app/api/routers/portfolio.py (protective_stop() before provider.get_weekly_ohlcv()) has no test asserting the intended effect -- that the weekly fetch is actually skipped/not attempted for a position excluded on the daily side. tests/integration/test_portfolio_risk.py's existing cases (e.g. test_position_with_daily_frame_missing_low_column_is_excluded) all supply valid weekly data too, so they pass identically whether or not the reorder happened and don't guard against a future regression that re-introduces the wasted fetch. Worth adding a case with a provider whose get_weekly_ohlcv raises/is unset for that ticker (or a call-count spy) to pin the ordering down as behavior, not just as a code comment.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned the protective_stop()-before-get_weekly_ohlcv() ordering down with a call-count spy (_StubProvider.weekly_calls, a plain list appended to on every get_weekly_ohlcv call) rather than a raising/unset weekly entry for the excluded ticker.",
+      "rationale": "A raising-or-unset weekly fixture for the daily-excluded ticker would make the test pass whether or not the ordering was correct, since that position is already excluded via a daily-side ValueError/None before either implementation would reach the weekly fetch -- it can't distinguish 'skipped' from 'attempted and would have failed anyway'. A call-count spy observes the actual number/set of tickers get_weekly_ohlcv was invoked for, which is the only way to positively assert the wasted fetch didn't happen; confirmed by manually reverting the reorder locally (weekly fetch before protective_stop()) and observing the new test fail with a KeyError from the stub being asked for a ticker it was never given weekly data for, then restoring the reorder and confirming it passes again."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-risk-followups-followups",
+    "pr_number": 36,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/36",
+    "pushed_at": "2026-09-16T06:13:41Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T06:23:35Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/36",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Fresh re-review superseding the prior accepted pass, triggered by pr-merger flagging that the previous pr_decision.confirmed_at (2026-09-16T00:00:00Z, a placeholder-looking timestamp) predated this task's own review.reviewed_at (2026-09-16T06:17:20Z), failing the ordering check that proves independent re-verification happened after the review it confirms. No code has changed on the PR branch since the prior review -- re-verified the same content from scratch rather than trusting the earlier pass. Checked out PR #36 (already on task/api-portfolio-risk-followups-followups, tree clean, gh pr view confirms headRefName matches). Full backend suite: 398 passed, coverage 99.64% (gate 90%), app/api/routers/portfolio.py and app/portfolio/pricing.py both at 100% -- identical to the prior review's numbers. No ruff/mypy configured in backend/pyproject.toml so none run. Diff scope confirmed unchanged: only backend/tests/integration/test_portfolio_risk.py, docs/architecture/Backend.md, and task/index.json bookkeeping -- no production code, so no openapi.json regen applicable. Re-confirmed the Backend.md fix is accurate: app/portfolio/pricing.py:17 imports DataProviderError from app.data.exceptions and catches it at line 102 in _latest_close's except clause. Independently re-verified the regression test is genuinely sensitive (not vacuous) by actually executing the revert, not just reading it: reverted the protective_stop()/get_weekly_ohlcv() ordering in app/api/routers/portfolio.py locally, re-ran test_daily_excluded_position_never_triggers_weekly_fetch alone and watched it fail with KeyError: 'ZZZZ' exactly as the task's decisions entry predicts, then restored the original ordering (git diff shows no residual change) and re-ran the full suite to confirm 398 passed again. code-review skill (medium effort) re-run against git diff origin/main...HEAD found no correctness bugs or reuse/simplification/efficiency issues -- consistent with the prior pass. No frontend/UI surface touched -- browser walkthrough explicitly skipped as inapplicable. Both checklist items remain legitimately resolved; decisions entry remains well-recorded with rationale and a rejected alternative. No new non-blocking findings from this pass, so no new follow-up task filed. Clearing the stale pr_decision per CLAUDE.md step 12 so pr-decision can independently re-verify this fresh review."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T06:28:08Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite myself: 398 passed, 99.64% coverage (app/api/routers/portfolio.py and app/portfolio/pricing.py both 100%), matching pr-reviewer's reported numbers exactly. Skimmed the full diff (test_portfolio_risk.py, Backend.md, task JSON/index.json bookkeeping only -- no production code touched). Confirmed the Backend.md fix by reading app/portfolio/pricing.py directly: line 17 imports DataProviderError from app.data.exceptions, caught at line 102 in _latest_close. Verified test_daily_excluded_position_never_triggers_weekly_fetch is genuinely regression-sensitive via static trace rather than re-running pr-reviewer's revert experiment (sandboxed from editing app/api/routers/portfolio.py directly): protective_stop() (app/portfolio/risk.py:38) calls validate_daily_ohlcv_columns, which raises ValueError for the malformed ZZZZ daily frame (missing 'low'), caught at portfolio.py:258 before get_weekly_ohlcv is ever called; the stub's weekly dict only holds 'AAPL' and get_weekly_ohlcv does a bare `self._weekly[ticker]` lookup, so a reordered implementation that called it for ZZZZ would raise an uncaught KeyError (only DataProviderError is caught at portfolio.py:262) -- confirms the test would fail under the regression pr-reviewer already reproduced by executing the revert. No human PR comments found (gh api issues/36/comments empty). Accept holds."
+  }
 }

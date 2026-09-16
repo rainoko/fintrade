@@ -73,7 +73,13 @@ def _weekly_frame(closes: list[float]) -> pd.DataFrame:
 
 class _StubProvider:
     """A DataProvider stand-in serving fixed daily/weekly frames per ticker, or raising a
-    fixed exception for tickers listed in `failing_daily`/`failing_weekly`."""
+    fixed exception for tickers listed in `failing_daily`/`failing_weekly`.
+
+    `weekly_calls` records every ticker `get_weekly_ohlcv` was actually invoked for, in call
+    order -- used to pin down that get_risk()'s protective_stop()-before-weekly-fetch
+    reordering (app/api/routers/portfolio.py) really does skip the weekly round trip for a
+    position already excluded on the daily side, not just that the response happens to come
+    out the same either way."""
 
     def __init__(
         self,
@@ -87,6 +93,7 @@ class _StubProvider:
         self._weekly = weekly or {}
         self._failing_daily = failing_daily or set()
         self._failing_weekly = failing_weekly or set()
+        self.weekly_calls: list[str] = []
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing_daily:
@@ -94,6 +101,7 @@ class _StubProvider:
         return self._daily[ticker]
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        self.weekly_calls.append(ticker)
         if ticker in self._failing_weekly:
             raise TickerNotFoundError(ticker)
         return self._weekly[ticker]
@@ -312,6 +320,37 @@ class TestGetRisk:
 
         assert response.status_code == 200
         assert response.json()["positions"] == []
+
+    def test_daily_excluded_position_never_triggers_weekly_fetch(self, db_session: Session) -> None:
+        # Two positions: pos_1 is excluded on the daily side (missing "low" column, same
+        # shape as test_position_with_daily_frame_missing_low_column_is_excluded above), pos_2
+        # is fully healthy. protective_stop() runs before the weekly fetch precisely so a
+        # daily-side exclusion never pays for a weekly round trip that would just be thrown
+        # away -- assert that ordering as behavior (via the stub's recorded weekly_calls)
+        # rather than only via the response shape, which would pass identically even if the
+        # weekly fetch were wastefully attempted for ZZZZ too.
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="ZZZZ", quantity=10.0, avg_cost_basis=50.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_2", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        malformed_daily = pd.DataFrame({"close": [100.0, 101.0], "open": [100.0, 101.0], "high": [101.0, 102.0], "volume": [1000.0, 1000.0]})
+        healthy_daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(
+            daily={"ZZZZ": malformed_daily, "AAPL": healthy_daily}, weekly={"AAPL": weekly}
+        )
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["ticker"] == "AAPL"
+        assert provider.weekly_calls == ["AAPL"]
 
     def test_position_with_weekly_frame_missing_close_column_is_excluded(self, db_session: Session) -> None:
         # protective_stop succeeds (the daily frame is well-formed), but evaluate_exit_flags's
