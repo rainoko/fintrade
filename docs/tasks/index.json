@@ -369,8 +369,15 @@
       "id": "frontend-api-client",
       "area": "frontend/api",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-api-client.json"
+    },
+    {
+      "id": "frontend-api-client-followups",
+      "area": "frontend/api",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-api-client.json"
+      "path": "docs/tasks/frontend-api-client-followups.json"
     },
     {
       "id": "frontend-common-components",
