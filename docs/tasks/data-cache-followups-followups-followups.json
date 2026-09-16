@@ -1,0 +1,25 @@
+{
+  "id": "data-cache-followups-followups-followups",
+  "title": "OHLCV cache layer — non-blocking findings from PR #56's review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["data-cache-followups-followups"],
+  "references": [
+    "docs/tasks/data-cache-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/56"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #56 (data-cache-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. Both concern app/data/cache.py's `_upsert`.",
+  "checklist": [
+    {
+      "step": "_upsert's commit-time except clause was broadened from `except IntegrityError` to `except (IntegrityError, OperationalError)` to also catch SQLite's 'database is locked' outcome of the same concurrent first-time-population race. Unlike IntegrityError, whose scope is verified in an inline comment against the current schema (only the composite PK constraint on OHLCVCacheORM can raise it today), nothing verifies or documents that OperationalError can currently only arise here from SQLite lock contention on this specific commit. A different OperationalError cause (e.g. a missing table from a skipped/failed migration, a corrupted database file, a disk-full condition) would now also be silently logged-and-swallowed as though it were the benign concurrent-population race, rather than surfaced as the distinct bug it'd actually be. Not a live bug today (this code path only ever writes to an already-migrated OHLCVCacheORM table in the app's normal lifecycle), but worth the same kind of scope note the IntegrityError branch already has, or narrowing by inspecting the exception's message/args for the specific SQLite 'database is locked' text before treating it as the benign race.",
+      "done": false
+    },
+    {
+      "step": "The regression test added for the duplicate-date-within-frame fix (TestUpsertDuplicateDateWithinFrame.test_two_rows_for_the_same_date_in_one_frame_are_deduped_not_raised) exercises exactly 2 duplicate rows sharing one date. The underlying fix (`existing_by_date[bar_date] = existing` updated in-loop) generalizes to N duplicates by construction, and this was manually verified during PR #56's review with a 4-row frame (3 rows sharing one date, a 4th on a distinct date): exactly 2 persisted rows, the shared-date row holding the last occurrence's values, 0 IntegrityError -- so this is not a live bug, only a test-coverage completeness gap on the exact area the fix was meant to harden. Worth extending the existing test (or adding a sibling one) with 3+ duplicate dates in a single frame to pin the stronger behavior the fix's own docstring already describes generally, rather than relying on a reviewer's manual, unrecorded reproduction.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

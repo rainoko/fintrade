@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer — non-blocking findings from PR #55's review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["data-cache-followups"],
   "references": [
     "docs/tasks/data-cache-followups.json#review",
@@ -64,5 +64,28 @@
     "pr_number": 56,
     "pr_url": "https://github.com/rainoko/fintrade/pull/56",
     "pushed_at": "2026-09-16T10:44:46Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T10:47:31Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/56",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Item (c) verified directly, not just read from the diff: reproduced with a 4-row stub frame where 3 rows share one date and a 4th has a distinct date. Result: exactly 2 persisted rows (one per distinct date), the shared-date row holding the last occurrence's values (30.0, the 3rd of the 3 duplicates), 0 IntegrityError. Confirms 'last occurrence wins' holds for 3+ duplicates in one frame, not just the 2-row case the PR's own new test (TestUpsertDuplicateDateWithinFrame) exercises -- the in-loop `existing_by_date[bar_date] = existing` update makes each subsequent duplicate see the previous one's already-updated row, so the fix generalizes correctly by construction.",
+        "file": "backend/app/data/cache.py",
+        "line": 208
+      },
+      {
+        "summary": "Non-blocking: broadening the commit-time except clause to `(IntegrityError, OperationalError)` also broadens the swallowed-error surface for OperationalError specifically -- unlike IntegrityError, whose scope the inline comment verifies against the current schema (only the composite PK constraint), nothing here verifies that OperationalError can currently only arise from SQLite lock contention on this commit. A different OperationalError cause (e.g. a missing table from a skipped migration, a corrupted db file, a disk-full condition) would now also be silently logged-and-swallowed as though it were the benign concurrent-population race. Not a live bug today (this commit only writes to an already-migrated OHLCVCacheORM table), but worth the same kind of scope note item #2 gives IntegrityError, or narrowing by inspecting the exception message for the specific SQLite 'database is locked' text. Filed as a follow-up rather than blocking, since it mirrors the same accepted trade-off already made (and reviewed) for IntegrityError's broad scope on this same except clause.",
+        "file": "backend/app/data/cache.py",
+        "line": 217
+      },
+      {
+        "summary": "Non-blocking, test-completeness only: the new regression test (TestUpsertDuplicateDateWithinFrame) exercises exactly 2 duplicate rows for one date; the underlying fix generalizes to N duplicates (verified manually with 3), but the test suite doesn't pin that stronger claim. Worth extending the existing test (or adding a second one) with 3+ duplicate dates to lock in the behavior the fix's own docstring already describes generally.",
+        "file": "backend/tests/unit/data/test_cache.py",
+        "line": 425
+      }
+    ],
+    "notes": "Full review: checked out PR #56, ran the backend suite (470 passed, 99.84% line/branch coverage against the 90% gate, cache.py itself at 100%) and manually reproduced item (c)'s claim with a 3+-duplicate-date frame (not just the PR's own 2-row test) to directly verify the data-loss regression fix is correct, not just plausible from the diff -- confirmed last-occurrence-wins with exactly 1 persisted row per distinct date and 0 IntegrityError. No frontend exists yet and this PR touches no API route/schema, so no OpenAPI regeneration was required and no browser walkthrough applies (stated explicitly per review process, not silently skipped). No ruff/mypy config exists in backend/pyproject.toml to run. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply. All four checklist items have corresponding decisions entries recorded by task-worker. Two non-blocking findings (OperationalError catch scope, test coverage of only 2 vs 3+ duplicates) filed as a new checklist entries on docs/tasks/data-cache-followups-followups-followups.json rather than left only in this PR comment."
   }
 }
