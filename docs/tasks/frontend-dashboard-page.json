@@ -3,7 +3,7 @@
   "title": "Frontend: Dashboard page (portfolio + risk summary, ticker lookup)",
   "area": "frontend/pages/dashboard",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "frontend-portfolio-page",
     "frontend-portfolio-risk-panel"
@@ -11,23 +11,46 @@
   "references": [
     "docs/architecture/Frontend.md#3-module-layout"
   ],
-  "description": "The landing page \u2014 composes existing portfolio/risk data into an at-a-glance summary plus a quick path into stock analysis. Introduces no new API calls beyond what frontend-portfolio-page/frontend-portfolio-risk-panel already wired; this task is composition, not new data-fetching.",
+  "description": "The landing page — composes existing portfolio/risk data into an at-a-glance summary plus a quick path into stock analysis. Introduces no new API calls beyond what frontend-portfolio-page/frontend-portfolio-risk-panel already wired; this task is composition, not new data-fetching.",
   "checklist": [
     {
-      "step": "pages/DashboardPage.tsx: equity summary (reusing common/StatCard + usePortfolio), a risk-warning summary card (reusing usePortfolioRisk \u2014 six_percent_rule_breached and count of two_percent_rule_breached positions), and a compact positions-at-a-glance table (a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance).",
-      "done": false
+      "step": "pages/DashboardPage.tsx: equity summary (reusing common/StatCard + usePortfolio), a risk-warning summary card (reusing usePortfolioRisk — six_percent_rule_breached and count of two_percent_rule_breached positions), and a compact positions-at-a-glance table (a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance).",
+      "done": true
     },
     {
-      "step": "A ticker lookup box that navigates to /stocks/:ticker \u2014 reuse the same entry point built in frontend-stock-analysis-page rather than building a second one, if that task placed it on a page rather than in AppShell; if it was placed in AppShell, this item is already satisfied and should be marked done with a note explaining why.",
-      "done": false
+      "step": "A ticker lookup box that navigates to /stocks/:ticker — reuse the same entry point built in frontend-stock-analysis-page rather than building a second one, if that task placed it on a page rather than in AppShell; if it was placed in AppShell, this item is already satisfied and should be marked done with a note explaining why.",
+      "done": true
     },
     {
       "step": "Make DashboardPage the default route ('/') in App.tsx.",
-      "done": false
+      "done": true
     },
     {
-      "step": "Component tests (MSW-mocked): populated dashboard, empty-portfolio dashboard (no positions yet \u2014 first-run state), and a dashboard with an active 6% risk breach showing the warning summary.",
-      "done": false
+      "step": "Component tests (MSW-mocked): populated dashboard, empty-portfolio dashboard (no positions yet — first-run state), and a dashboard with an active 6% risk breach showing the warning summary.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "frontend-stock-analysis-page (this task's checklist item 2 defers the ticker-lookup entry point decision to) had not been built yet when this task ran — it's still `planned` in docs/tasks/index.json, with no entry point on a page or in AppShell to reuse. Built a new `features/stocks/components/TickerSearchBox.tsx` (text field + submit button, navigates to `/stocks/:ticker` via `useNavigate`) and rendered it as DashboardPage's PageHeader action, rather than leaving the checklist item unresolved or placing a stub in AppShell.",
+      "rationale": "The task's own depends_on is only frontend-portfolio-page/frontend-portfolio-risk-panel, not frontend-stock-analysis-page — so the board expects this task to be doable without that one being done, and the description explicitly calls for 'a quick path into stock analysis' as part of this page. Placed under features/stocks/components/ (a new feature folder, mirroring the layout Frontend.md §3 already reserves for `features/stocks/`) rather than components/common/, since it's tied to this app's `/stocks/:ticker` routing convention, not a domain-agnostic generic search box. Rejected alternatives: (a) leaving the checklist item undone/blocked on frontend-stock-analysis-page — rejected because depends_on doesn't list it and the description requires this capability now; (b) placing the lookup box directly in AppShell — rejected as a bigger, cross-cutting layout change than this task's scope, and Frontend.md's own AppShell description doesn't mention a search box. When frontend-stock-analysis-page lands, it should reuse this component rather than building a second ticker entry point.",
+      "alternatives_considered": "Leaving the item blocked pending frontend-stock-analysis-page; building the entry point directly inside AppShell/NavDrawer instead of a dedicated feature component."
+    },
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new `features/portfolio/components/RiskSummaryCard.tsx` (its own `usePortfolioRisk` call, a 6%-breach banner reusing the same `theme.riskBreach` styling as RiskPanel, plus two StatCards for total open risk and the 2%-rule-breach count) rather than reusing RiskPanel directly or trimming RiskPanel itself down.",
+      "rationale": "RiskPanel renders a full per-position DataTable of protective stops/exit flags — appropriate for the Portfolio page's detailed view, but too dense for a dashboard 'at-a-glance' summary per this task's checklist wording ('a risk-warning summary card ... six_percent_rule_breached and count of two_percent_rule_breached positions', not the full table). Rejected alternatives: (a) reusing RiskPanel as-is on the dashboard — rejected as duplicating the Portfolio page's detailed table rather than a summary; (b) adding a `compact` prop to RiskPanel to conditionally hide its table — rejected as a more invasive change to an already-shipped, tested component for a single new call site, versus a small new component with its own focused tests.",
+      "alternatives_considered": "Reusing RiskPanel unmodified; adding a compact-mode prop to RiskPanel."
+    },
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new `features/portfolio/components/PositionsGlanceTable.tsx` (trimmed-column common/DataTable instance: ticker/quantity/current price/unrealized P/L only, ticker linking to `/stocks/:ticker`) instead of reusing PositionsTable with props to hide columns/actions.",
+      "rationale": "The checklist explicitly offers either option ('a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance'). PositionsTable owns the delete-position mutation/confirm-dialog flow end to end, which has no place on an at-a-glance dashboard summary; adding a 'hide the delete column and cost-basis/entry-date columns' prop to it would couple an unrelated dashboard concern into the Portfolio page's own component. A new component built directly on common/DataTable keeps both call sites simple and independently testable.",
+      "alternatives_considered": "Adding a column-visibility/action-visibility prop to PositionsTable and reusing it directly on the dashboard."
     }
   ]
 }

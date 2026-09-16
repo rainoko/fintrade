@@ -43,5 +43,13 @@
       "step": "Component tests (MSW-mocked) for: BUY/SELL/HOLD happy paths, and every documented error case for this endpoint from API.md (404 unknown ticker, 422 insufficient history, 503 provider unavailable) surfaced via common/ErrorState with the right message per case.",
       "done": false
     }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker (frontend-dashboard-page)",
+      "decision": "Note for whoever works this task: the checklist's first item (a ticker entry point) already has an implementation to reuse — `frontend/src/features/stocks/components/TickerSearchBox.tsx`, built by frontend-dashboard-page (which needed a ticker lookup and couldn't wait on this task). It navigates to `/stocks/:ticker` via `useNavigate` and is currently rendered from DashboardPage's PageHeader action.",
+      "rationale": "frontend-dashboard-page's checklist explicitly called for reusing this task's entry point 'if that task placed it on a page rather than in AppShell' — but this task hadn't been started yet when frontend-dashboard-page ran, so there was nothing to reuse and it had to build one itself instead. Recording this here so this task reuses TickerSearchBox (e.g. also rendering it on StockDetailPage, or leaving it dashboard-only if a second entry point isn't wanted) rather than building a second, near-duplicate ticker search box — see Frontend.md §3's near-duplicate consolidation rule and this task's own checklist item 1, which still needs an explicit decision recorded here once resolved."
+    }
   ]
 }

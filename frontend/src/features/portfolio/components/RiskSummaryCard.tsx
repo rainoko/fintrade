@@ -1,0 +1,68 @@
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import Typography from '@mui/material/Typography'
+import { useTheme } from '@mui/material/styles'
+import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import StatCard from '../../../components/common/StatCard/StatCard'
+import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+
+/**
+ * Dashboard-level condensed view of `GET /api/portfolio/risk`
+ * (docs/architecture/API.md#get-apiportfoliorisk, docs/Analyse.md §7): the
+ * total open risk, a count of positions currently breaching the 2% rule, and
+ * the same prominent 6%-rule breach banner as the full RiskPanel (Portfolio
+ * page) — condensed to two stats rather than the full per-position table,
+ * which stays on the Portfolio page. Feature component (not `common/`),
+ * same reasoning as RiskPanel: every field it renders is a portfolio-risk
+ * domain concept, and it owns its own usePortfolioRisk call so DashboardPage
+ * stays a thin composition (Frontend.md §3).
+ */
+export default function RiskSummaryCard() {
+  const theme = useTheme()
+  const riskQuery = usePortfolioRisk()
+
+  if (!riskQuery.data) {
+    if (riskQuery.isError) {
+      return <ErrorState error={riskQuery.error} />
+    }
+    return <LoadingState message="Loading risk summary..." />
+  }
+
+  const { total_open_risk_pct, six_percent_rule_breached, positions } = riskQuery.data
+  const breachedCount = positions.filter(
+    (position) => position.two_percent_rule_breached,
+  ).length
+
+  return (
+    <Stack spacing={2}>
+      {six_percent_rule_breached && (
+        <Box
+          role="alert"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            p: 2,
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: theme.palette.riskBreach.main,
+            backgroundColor: theme.palette.riskBreach.background,
+          }}
+        >
+          <WarningAmberIcon sx={{ color: theme.palette.riskBreach.main }} />
+          <Typography sx={{ color: theme.palette.riskBreach.main, fontWeight: 700 }}>
+            6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
+            equity (limit 6%). See the Portfolio page for details.
+          </Typography>
+        </Box>
+      )}
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+        <StatCard label="Total Open Risk" value={`${total_open_risk_pct.toFixed(2)}%`} />
+        <StatCard label="Positions Breaching 2% Rule" value={String(breachedCount)} />
+      </Stack>
+    </Stack>
+  )
+}

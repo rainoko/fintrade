@@ -446,7 +446,7 @@
       "id": "frontend-dashboard-page",
       "area": "frontend/pages/dashboard",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-dashboard-page.json"
     },
     {
