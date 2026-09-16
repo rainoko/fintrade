@@ -1,0 +1,21 @@
+{
+  "id": "api-portfolio-get-followups-followups-followups",
+  "title": "GET /api/portfolio follow-ups follow-ups — further non-blocking review follow-up",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-portfolio-get-followups-followups"],
+  "references": [
+    "docs/tasks/api-portfolio-get-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/44"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #44 (api-portfolio-get-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "backend/tests/integration/test_portfolio_get_db_wiring.py duplicates `_frame`, a stub market-data provider class (`_StubProvider` here vs `_NetworkStub` in the sibling file), and `_count_position_selects` near-verbatim from backend/tests/integration/test_portfolio_pricing_session.py (same directory). Not a correctness bug -- both copies pass and are independently correct today -- but it's a maintenance cost: a future change to the fixture frame shape (e.g. adding a column) or to the SELECT-counting listener logic now has to be made in two places to stay consistent, and the two `_count_position_selects` copies have already diverged slightly (one takes a SQLAlchemy `Session` and calls `.get_bind()`, the other takes an `Engine` directly). Worth extracting `_frame` and `_count_position_selects` into tests/integration/conftest.py (or a small shared helper module) and having both test files import them, collapsing `_StubProvider`/`_NetworkStub` into one shared stub if their behavior stays identical.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

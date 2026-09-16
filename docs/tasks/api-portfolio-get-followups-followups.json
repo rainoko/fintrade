@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-portfolio-get-followups"],
   "references": [
     "docs/tasks/api-portfolio-get-followups.json#review",
@@ -13,9 +13,40 @@
   "checklist": [
     {
       "step": "The N+1 fix's regression tests (backend/tests/integration/test_portfolio_pricing_session.py, backend/tests/unit/test_db_session.py) prove that expire_on_commit=False avoids the re-SELECT and that app.db.session.SessionLocal carries the flag, but neither goes through the actual FastAPI get_db dependency-injection path: backend/tests/integration/conftest.py's shared db_session fixture builds its own sessionmaker(...) without expire_on_commit=False (pre-existing, not touched by PR #43), so no test exercises GET /api/portfolio or GET /api/portfolio/risk end-to-end via TestClient to prove production wiring (get_db -> SessionLocal) actually benefits from the fix. Not a correctness risk today -- SQLAlchemy session behavior is fully determined by the flag passed to sessionmaker regardless of how the session is constructed or wired, and the flag itself is directly asserted against the real SessionLocal object -- but a future refactor of get_db/SessionLocal construction (e.g. accidentally dropping the kwarg, or introducing a second sessionmaker) could silently regress the fix with nothing failing. Worth either updating conftest.py's db_session fixture to set expire_on_commit=False (matching production) or adding one true end-to-end TestClient-driven regression test that counts SQL selects the way test_portfolio_pricing_session.py does.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T07:50:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed the gap by adding one genuine end-to-end regression test (backend/tests/integration/test_portfolio_get_db_wiring.py) that exercises GET /api/portfolio through the real, unmodified get_db -> SessionLocal production path -- rather than editing tests/integration/conftest.py's shared db_session fixture to pass expire_on_commit=False.",
+      "rationale": "The conftest fixture builds its own, separate sessionmaker(); setting expire_on_commit=False there would only make that fixture's *current* hardcoded value match production's *current* value coincidentally -- it doesn't read production's real SessionLocal.kw, so a future regression that drops the kwarg (or introduces a second, differently-configured sessionmaker) from app/db/session.py would leave the fixture, and every test using it, silently green. It also doesn't run the real get_db dependency at all (both conftest's client fixture and test_portfolio_get.py's own client fixture override get_db outright), so no test would actually be exercising FastAPI's real DI-wired path either way. The new test instead monkeypatches app.db.session.SessionLocal/engine and app/api/dependencies.py's YFinanceProvider/StooqProvider in place -- copying **whatever kwargs the real SessionLocal was actually constructed with** onto a throwaway in-memory engine -- so get_db, get_data_provider, and the GET /api/portfolio route handler all run completely unmodified, production code, with a real per-request session shared with CachedDataProvider exactly as in production. Verified it actually catches the regression it's meant to catch: temporarily flipping app/db/session.py's expire_on_commit back to True (the pre-fix default) makes the new test fail (select_count 4 != 1) before reverting. Limited the select-counting assertion to GET /api/portfolio only (not also GET /api/portfolio/risk): both routes call the exact same app.portfolio.pricing.enrich_positions_with_price function the fix targets, and GET /api/portfolio/risk's extra protective-stop/weekly-history preconditions would add real test complexity without exercising any additional session-expiry behavior beyond what this test already proves. Alternative considered and rejected: editing conftest.py's db_session fixture to add expire_on_commit=False -- it improves test/prod parity as a general hygiene matter but doesn't close the specific gap (a production regression going undetected) the task described."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-get-followups-followups",
+    "pr_number": 44,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/44",
+    "pushed_at": "2026-09-16T07:57:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T08:02:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/44",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "backend/tests/integration/test_portfolio_get_db_wiring.py duplicates _frame, a stub provider class, and _count_position_selects near-verbatim from the sibling test_portfolio_pricing_session.py (same directory) rather than importing/sharing them; the two _count_position_selects copies have already diverged (Session+get_bind() vs Engine directly). Not blocking -- filed as docs/tasks/api-portfolio-get-followups-followups-followups.json.",
+        "file": "backend/tests/integration/test_portfolio_get_db_wiring.py",
+        "line": 33
+      }
+    ],
+    "notes": "Checked out PR #44 (task/api-portfolio-get-followups-followups); working tree was already on this branch and clean. Full backend suite: backend/.venv/bin/pytest --cov=app --cov-report=term-missing -q -> 430 passed, 99.83% coverage (gate 90%), app/db/session.py and app/api/routers/portfolio.py both 100%. No ruff/mypy config in backend/pyproject.toml, so none run (none invented). Diff is additive-only: one new integration test file plus task-board bookkeeping (docs/tasks/api-portfolio-get-followups-followups.json, docs/tasks/index.json) -- no production code touched, so no openapi.json regen applies (confirmed no route/schema changes in git diff main...HEAD). Independently re-verified the PR's central claim rather than trusting it: temporarily flipped app/db/session.py's SessionLocal from expire_on_commit=False back to True (the pre-fix default), ran the new test alone, and watched it fail with the exact reported mismatch (select_count 4 != 1); reverted and confirmed `git diff app/db/session.py` was empty and the full suite was green again (430 passed). Traced the route handler (app/api/routers/portfolio.py's get_portfolio -> _ordered_positions) to confirm exactly one SELECT against `positions` is expected per request, matching the test's assertion and comment. Confirmed the new fixture's monkeypatching approach is sound: app/db/session.py's get_db() does a module-global SessionLocal() lookup at call time (not an imported alias captured earlier), and app/api/dependencies.py's get_data_provider references YFinanceProvider/StooqProvider the same way, so monkeypatch.setattr on the modules genuinely exercises get_db/get_data_provider/the route handler as unmodified production code with no FastAPI dependency_overrides in play. Checked for cross-test pollution from tests/integration/conftest.py's client fixture (which does use dependency_overrides) -- it cleans up in a finally block and is function-scoped, and the full-suite run (which includes both files) stayed green. Ran the code-review skill (medium effort) against the diff; it independently reproduced the same expire_on_commit revert-and-confirm experiment, ruled out a plausible false lead (TestClient not used as a context manager, so app startup lifespan/Base.metadata.create_all never runs against a real db file), and surfaced the same single non-blocking finding I'd already spotted (the _frame/_count_position_selects/_StubProvider duplication vs test_portfolio_pricing_session.py) with no correctness bugs. area is backend/api, not backend/signals or backend/portfolio, and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply. No frontend/UI surface touched by this PR (a new backend integration test only) -- browser walkthrough explicitly skipped as inapplicable, not silently omitted. Checklist item's done:true is backed by a well-recorded decisions entry (what was done, why, and the rejected conftest-fixture alternative), so no undocumented judgment call. No stale pr_decision was present on this task to clear. Filed the one non-blocking finding as docs/tasks/api-portfolio-get-followups-followups-followups.json (state: planned, depends_on this task) since no existing planned follow-up task for this task id was found."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T08:04:45Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing -q: 430 passed, 99.83% coverage, matching pr-reviewer's reported numbers exactly. Re-did the regression check myself rather than trusting the recorded result: flipped app/db/session.py's SessionLocal expire_on_commit back to True, ran test_portfolio_get_db_wiring.py alone, and confirmed it fails with select_count 4 != 1; reverted (git diff on the file empty afterward) and reran the full suite green (430 passed). Skimmed the full diff (git diff origin/main...HEAD) -- new test file, task-board bookkeeping, and the new followups-followups-followups task -- no production code changed, index.json state mirrors correctly (done), and the filed non-blocking duplication finding is accurately reflected as a real follow-up task rather than downplayed. skill is null so no add-indicator reference-value spot-check applies."
+  }
 }
