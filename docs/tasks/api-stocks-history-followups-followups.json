@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/history follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-stocks-history-followups"],
   "references": [
     "docs/tasks/api-stocks-history-followups.json#review",
@@ -13,9 +13,34 @@
   "checklist": [
     {
       "step": "In backend/app/api/routers/stocks.py, the new `_RangeOutOfBoundsError` class is defined between `get_history` (which references it in a `try/except` at line ~113, above the class's own definition) and `_trim_to_range` (which raises it, below the definition). This works correctly at runtime -- both functions only touch the name when called, by which point the whole module (including the class statement) has already executed -- but the physical ordering (used-before-defined, then defined-before-raised) is a minor readability wrinkle compared to the codebase's usual pattern of defining an exception type before its first use. Worth moving `_RangeOutOfBoundsError`'s definition up (e.g. directly above `_trim_to_range`, or near the top of the module alongside `_RANGE_PATTERN`) next time this file is touched, purely for readability -- not a functional issue.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Moved `_RangeOutOfBoundsError`'s definition to directly below the `router = APIRouter(...)` line (alongside `_RANGE_PATTERN`), rather than immediately above `_trim_to_range`.",
+      "rationale": "The finding itself offered both locations as equally valid ('e.g. directly above `_trim_to_range`, or near the top of the module alongside `_RANGE_PATTERN`'). Placing it near the top keeps all of the range-parsing machinery (`_RANGE_PATTERN`, `_RangeOutOfBoundsError`) grouped together above the route handlers that use them, and defines the exception before its first reference in `get_history` too -- not just before its raise site in `_trim_to_range` -- which reads better top-to-bottom than a definition sandwiched between the two functions that use it."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-history-followups-followups",
+    "pr_number": 42,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/42",
+    "pushed_at": "2026-09-16T07:27:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:28:49Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/42",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure code-motion refactor confirmed: git diff shows _RangeOutOfBoundsError's class body moved verbatim from between get_history and _trim_to_range to just below `router = APIRouter(...)`, alongside _RANGE_PATTERN -- no other lines changed. Decision entry properly records the choice of placement (both offered locations were valid per the originating finding). Full backend suite: 424 passed, coverage 99.83% (gate 90%), app/api/routers/stocks.py at 100%. No ruff/mypy configured in backend/pyproject.toml; no frontend exists yet, so no linting to run beyond pytest. code-review skill (medium effort) found zero issues. No route/schema signature changed, so backend/openapi.json correctly untouched. Not backend/signals or backend/portfolio and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No UI surface (backend-only cosmetic reorder, no frontend consumer) -- browser walkthrough explicitly skipped. No checklist item phrased as 'decide X' beyond the one already recorded. No blocking or non-blocking findings; no follow-up task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:32:37Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `git diff origin/main...HEAD -- backend/app/api/routers/stocks.py`: confirms the only change is _RangeOutOfBoundsError's class body moved verbatim from between get_history/_trim_to_range to just below `router = APIRouter(...)` -- byte-identical docstring, no other lines touched, and `git diff --stat` shows no other source files changed (only this file plus the two task-board JSON files). Re-ran the full backend suite myself: 424 passed, coverage 99.83% (gate 90%), app/api/routers/stocks.py at 100% -- matches pr-reviewer's reported numbers exactly. skill is null so no add-indicator reference-value check applies."
+  }
 }
