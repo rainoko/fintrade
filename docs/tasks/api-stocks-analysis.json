@@ -3,15 +3,29 @@
   "title": "API: GET /api/stocks/{ticker}/analysis",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["signal-engine-orchestration", "data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickeranalysis"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model (AnalysisResponse) are already wired.",
   "checklist": [
     { "step": "Route signature + AnalysisResponse schema already defined — confirm no shape changes needed once signal-engine-orchestration lands", "done": true },
-    { "step": "Implement handler: fetch OHLCV via cache, call signals.engine.analyse(), map SignalResult to AnalysisResponse", "done": false },
-    { "step": "Handle unknown ticker -> 404, insufficient history (<26 weeks) -> 422 per docs/architecture/API.md", "done": false },
-    { "step": "Write integration test covering 200 (BUY/SELL/HOLD cases), 404, 422", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Implement handler: fetch OHLCV via cache, call signals.engine.analyse(), map SignalResult to AnalysisResponse", "done": true },
+    { "step": "Handle unknown ticker -> 404, insufficient history (<26 weeks) -> 422 per docs/architecture/API.md", "done": true },
+    { "step": "Write integration test covering 200 (BUY/SELL/HOLD cases), 404, 422", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T06:35:44Z",
+      "recorded_by": "task-worker",
+      "decision": "Fetch daily OHLCV first, then weekly, both via the injected DataProvider (get_data_provider), and map their DataProviderError subclasses directly to HTTP status codes (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) in the route handler, the same try/except pattern already used in app/api/routers/portfolio.py. No separate minimum-history check was added in the handler itself: YFinanceProvider/StooqProvider's get_weekly_ohlcv already raises InsufficientHistoryError below 26 weekly bars (the <26-week rule API.md documents), and app.signals.engine.analyse already documents degrading gracefully to HOLD for a short/empty daily series rather than raising -- duplicating either check in the router would just be a second, possibly-drifting copy of a rule that already lives in one place.",
+      "rationale": "Considered and rejected: (a) adding an explicit len(weekly_ohlcv) < 26 check in the router itself -- redundant with YFinanceProvider/StooqProvider's own enforcement and risks the two thresholds silently diverging if one is changed without the other; (b) fetching weekly before daily -- no behavioral difference for the documented error cases (an unknown ticker fails identically either way; the 422 case is weekly-only, so daily's own lack of a minimum-history check means calling it first never masks the 422), so daily-first was kept purely to match the call order already used by app/api/routers/portfolio.py's get_risk handler."
+    },
+    {
+      "timestamp": "2026-09-16T06:35:44Z",
+      "recorded_by": "task-worker",
+      "decision": "Uppercase the `ticker` path parameter (both for the provider calls and the `ticker` field echoed back in AnalysisResponse), and derive `as_of` from the latest daily OHLCV bar's date (falling back to the latest weekly bar's date in the practically-unreachable case of an empty daily frame, since get_weekly_ohlcv already guarantees at least 26 non-empty weekly bars by the time analyse() runs).",
+      "rationale": "Uppercasing mirrors POST /api/portfolio/positions's existing handling of the same field (docs/architecture/API.md), keeping ticker casing consistent across the API rather than leaving GET /api/stocks/{ticker}/analysis as a case-sensitive outlier. `as_of` isn't produced by app.signals.engine.analyse (which returns signal/confidence/screens/indicators only, no date) or documented beyond the single example '2026-09-11' in API.md, so the router derives it itself from the freshest input data actually driving the analysis (the daily bar, since Screens 2/3 and the indicators are daily-resolution) rather than using wall-clock 'today' -- which could disagree with the cache's last-fetched date on a stale/cached response and would misrepresent what date the signal actually reflects."
+    }
   ]
 }
