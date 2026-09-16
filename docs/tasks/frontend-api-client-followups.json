@@ -1,0 +1,27 @@
+{
+  "id": "frontend-api-client-followups",
+  "title": "Frontend API client — non-blocking review follow-ups",
+  "area": "frontend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-api-client"],
+  "references": [
+    "docs/tasks/frontend-api-client.json#review",
+    "https://github.com/rainoko/fintrade/pull/63"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #63 (frontend-api-client), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "tests/mocks/handlers.ts's POST /api/portfolio/positions OVERFLOW-sentinel check compares `body.ticker.toUpperCase() === 'OVERFLOW'` without trimming, unlike the merge path two lines later (`body.ticker.trim().toUpperCase()`) and unlike PositionIn's own documented whitespace-stripping normalization. A whitespace-padded ' OVERFLOW ' ticker silently skips the intended 422 merge-overflow response and creates a real position instead. Trim before comparing.",
+      "done": false
+    },
+    {
+      "step": "tests/mocks/handlers.ts's per-field validation-error branch (quantity/avg_cost_basis <= 0) only ever reports one invalid field, even when both are simultaneously invalid, unlike real FastAPI/pydantic which lists every failing field in one HTTPValidationError. Report all failing fields so a test exercising the multi-field case doesn't pass against the mock while diverging from the real backend's response shape.",
+      "done": false
+    },
+    {
+      "step": "`vitest run --coverage`'s text reporter prints an empty per-file table (no rows, no 'All files' summary row) even though the underlying v8/lcov data and the 90% threshold gate both work correctly (verified against coverage/lcov.info directly). This predates frontend-api-client (vite.config.ts's coverage config is from frontend-scaffold) but makes the console output impossible to sanity-check by eye when investigating a future coverage regression. Investigate the vitest/coverage-v8 reporter config (e.g. an interaction between the `include` glob and the `text` reporter) and fix so the per-file table actually renders.",
+      "done": false
+    }
+  ]
+}
