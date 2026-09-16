@@ -1,0 +1,31 @@
+{
+  "id": "frontend-portfolio-risk-panel-followups",
+  "title": "Follow-ups: Frontend portfolio risk panel (PR #66)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-portfolio-risk-panel"],
+  "references": [
+    "docs/tasks/done/frontend-portfolio-risk-panel.json",
+    "https://github.com/rainoko/fintrade/pull/66"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #66 (frontend-portfolio-risk-panel), tracked so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "RiskPanel's per-position risk table renders `position_risk_pct` via common/PercentChange, whose green/+ vs. red/- coloring is designed for a gain/loss metric (unrealized_pnl_pct). position_risk_pct is a risk-exposure magnitude that's always >= 0, where higher is worse, not better — confirmed live (browser walkthrough with a mocked 6% breach) that a 2%-rule-breaching row (position_risk_pct=5.00%) still renders its number in green, working against the row's own red breach highlight. Consider a dedicated risk-magnitude display (e.g. red past the 2% threshold, neutral/muted below it) instead of reusing PercentChange for this field.",
+      "done": false
+    },
+    {
+      "step": "RiskPanel.tsx defines its own local `formatCurrency` (`$${value.toFixed(2)}`), a near-duplicate of the identical helper already in PositionsTable.tsx, and a third distinct currency format on the same page (PortfolioPage.tsx's StatCards use `toLocaleString(..., {style:'currency'})`, which adds thousands separators the other two lack). Extract one shared currency formatter (e.g. into common/ or a small format utility) so a future change to currency formatting doesn't need to be applied in three places.",
+      "done": false
+    },
+    {
+      "step": "The silent-exclusion status note's wording doesn't pluralize correctly when more than one held position is missing from the risk response: 'No risk data available for ZZZZINVALID, TSLA — its price or history couldn't be fetched...' should read 'their price' for a joined multi-ticker list. Minor copy fix.",
+      "done": false
+    },
+    {
+      "step": "DataTable's new `getRowStyle` prop got a dedicated Storybook story (`WithFlaggedRow`), but the other new prop, `ariaLabel`, has test coverage only and no story variant. Consider whether it's worth a minimal story (e.g. showing the `aria-label` in the docs/controls panel) to fully match Frontend.md §4's 'every meaningful variant' bar for common/ components, or explicitly note why an accessibility-only prop doesn't need one.",
+      "done": false
+    }
+  ]
+}

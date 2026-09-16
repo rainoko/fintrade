@@ -3,7 +3,7 @@
   "title": "Frontend: Portfolio risk panel (2%/6% rules)",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-portfolio-page"
   ],
@@ -65,5 +65,52 @@
     "pr_number": 66,
     "pr_url": "https://github.com/rainoko/fintrade/pull/66",
     "pushed_at": "2026-09-16T23:28:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T23:36:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/66",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Placement check (step 7a) on the common/DataTable extension: `getRowStyle(row) => CSSProperties | undefined` and `ariaLabel` are both genuinely domain-agnostic (a plain style/string keyed off a caller-supplied predicate, no knowledge of 'risk' or 'positions') — no leakage of risk-panel logic into common/. DataTable's existing stories/tests still pass; getRowStyle got a new story (`WithFlaggedRow`) and both props got dedicated unit tests. `npm run build-storybook` succeeds.",
+        "file": "frontend/src/components/common/DataTable/DataTable.tsx"
+      },
+      {
+        "summary": "exit_flags/2%/6% display verified against docs/Analyse.md §7 and backend app/portfolio/exits.py: RiskPanel's EXIT_FLAG_LABELS map covers all five flag values the backend actually emits (stop_hit, two_percent_rule_breached, six_percent_rule_contributor, profit_zone_impulse_red, tide_flipped_bearish) with a sane humanized fallback for any future flag. Thresholds (2.0/6.0) are computed backend-side only and passed through as booleans, not re-derived client-side.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx"
+      },
+      {
+        "summary": "Silent-exclusion decision (positions prop cross-referenced against risk.positions by ticker, rendered as a non-blocking role=\"status\" note) verified live in the browser against a real backend with an intentionally-invalid ticker (ZZZZINVALID) and, via a mocked 6%-breach response, a second missing ticker (TSLA) simultaneously — both correctly excluded from the risk table/total and both named in the note, with no misleading zero-risk row. Sound UX choice; decisions entry properly documents the rejected alternatives (placeholder row, blocking error).",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx"
+      },
+      {
+        "summary": "Browser walkthrough (dev server + a locally-run FastAPI instance with live market data via the yfinance/Stooq-backed provider; CORS added only for the ad hoc test session, not committed): golden path (no breaches), a naturally-occurring 2%-rule breach on AAPL from live prices, the silent-exclusion note for an invalid ticker, and a Playwright-mocked 6%-rule breach with two flagged rows and multiple exit flags per position all rendered correctly. No console errors and no failed/4xx/5xx network requests observed in any scenario.",
+        "file": null
+      },
+      {
+        "summary": "Full test suite (128 frontend tests, 23 files) passes; frontend coverage 99.58%/99.41%/100%/99.57% (stmts/branch/funcs/lines), well above the 90% gate — the only uncovered branch (PositionsTable.tsx:87) is a pre-existing, already-tracked gap unrelated to this PR. Backend suite (472 tests, unaffected by this frontend-only PR) still passes at 99.84%. eslint and `tsc -b`/`vite build` both clean. No backend/schema changes in this PR, so no openapi.json regeneration was needed.",
+        "file": null
+      },
+      {
+        "summary": "Non-blocking: position_risk_pct is rendered via common/PercentChange, whose green/+ coloring is designed for a gain/loss metric, not a risk-exposure magnitude where higher is worse — confirmed live that a 2%-rule-breaching row (5.00%) still renders green. Tracked as a follow-up rather than blocking, since the row's own red highlight still communicates the breach.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 107
+      },
+      {
+        "summary": "Non-blocking: RiskPanel.tsx's local `formatCurrency` duplicates PositionsTable.tsx's identical helper, and is a third distinct currency format on the same page (PortfolioPage.tsx's StatCards use `toLocaleString` with thousands separators, the other two don't). Tracked as a follow-up to extract one shared formatter.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 50
+      },
+      {
+        "summary": "Non-blocking: the silent-exclusion note's wording doesn't pluralize for more than one missing ticker ('its price' instead of 'their price' when the joined list has 2+ tickers). Tracked as a follow-up copy fix.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 164
+      },
+      {
+        "summary": "Non-blocking: DataTable's new `ariaLabel` prop has test coverage but no dedicated Storybook story variant (only `getRowStyle` got one, via `WithFlaggedRow`) — arguable given it's accessibility-only and produces no visual variant, but tracked as a follow-up per Frontend.md §4's 'every meaningful variant' bar.",
+        "file": "frontend/src/components/common/DataTable/DataTable.stories.tsx"
+      }
+    ],
+    "notes": "code-review skill (medium effort) independently found the same PercentChange color-semantics issue plus the formatCurrency duplication, both folded into the non-blocking comments above. area is frontend/pages/portfolio and skill is add-frontend-feature, so verify-elder-signal doesn't formally apply, but its governing doc (docs/Analyse.md §7) was cross-checked directly against exit_flags/2%/6% display per this review's own instructions, and the display was found faithful. No new module/dependency/layer was introduced (DataTable is extended, not replaced), so a full architecture-review pass wasn't triggered beyond the mandatory 7a placement check (done above). No checklist item was left as an undecided 'decide X' — all three decisions entries have real rationale and rejected alternatives. Four non-blocking findings filed as docs/tasks/frontend-portfolio-risk-panel-followups.json (new, since no pre-existing follow-up task referenced this task id)."
   }
 }
