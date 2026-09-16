@@ -244,19 +244,22 @@ def get_risk(
     # First pass: figure out which positions have enough data to compute a protective stop
     # at all, and fetch each one's weekly history (needed for the tide_flipped_bearish exit
     # flag) up front so the second pass can call evaluate_exit_flags without any further
-    # fetches.
+    # fetches. protective_stop() is attempted before the weekly fetch -- it's a pure
+    # computation over the frame we already have in hand, so a position excluded on the
+    # daily side (missing column, too short) never pays for a weekly network/cache round
+    # trip that would just get thrown away.
     stops: dict[str, float] = {}
     weekly_by_id: dict[str, pd.DataFrame] = {}
     for e in enriched:
         if e.position.current_price is None or e.daily_ohlcv is None or len(e.daily_ohlcv) < 2:
             continue
         try:
-            weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
-        except DataProviderError:
-            continue
-        try:
             stop = protective_stop(e.position, e.daily_ohlcv.iloc[:-1])
         except ValueError:
+            continue
+        try:
+            weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
+        except DataProviderError:
             continue
         stops[e.position.id] = stop
         weekly_by_id[e.position.id] = weekly_ohlcv

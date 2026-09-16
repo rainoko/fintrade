@@ -39,6 +39,6 @@
     { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-portfolio-delete-position-followups", "area": "backend/api", "skill": null, "state": "done" },
     { "id": "api-portfolio-risk", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
-    { "id": "api-portfolio-risk-followups", "area": "backend/api", "skill": null, "state": "planned" }
+    { "id": "api-portfolio-risk-followups", "area": "backend/api", "skill": null, "state": "testing" }
   ]
 }
