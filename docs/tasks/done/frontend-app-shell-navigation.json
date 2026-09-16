@@ -1,0 +1,106 @@
+{
+  "id": "frontend-app-shell-navigation",
+  "title": "Frontend: app shell and navigation",
+  "area": "frontend/layout",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-scaffold"
+  ],
+  "references": [
+    "docs/architecture/Frontend.md#3-module-layout"
+  ],
+  "description": "Builds the persistent app shell (MUI AppBar + nav) and finalizes routing between Dashboard/Portfolio/Stock Detail. Feature pages (frontend-portfolio-page, frontend-stock-analysis-page) depend on this existing so they can be dropped into a real layout rather than a bare route.",
+  "checklist": [
+    {
+      "step": "AppShell.tsx: MUI AppBar + persistent NavDrawer (or equivalent responsive nav) wrapping all routed pages.",
+      "done": true
+    },
+    {
+      "step": "Wire real routes in App.tsx for Dashboard ('/'), Portfolio ('/portfolio'), and Stock Detail ('/stocks/:ticker'), replacing the scaffold's placeholders.",
+      "done": true
+    },
+    {
+      "step": "Add a 404/not-found route and page.",
+      "done": true
+    },
+    {
+      "step": "Add a top-level error boundary (React error boundary, not just TanStack Query's per-query error state) so a render-time crash in one page doesn't blank the whole app.",
+      "done": true
+    },
+    {
+      "step": "Component tests for AppShell/NavDrawer: nav links present, active-route highlighting, responsive behavior at narrow width (per Frontend.md's phone-width expectations carried over from the artifact-design conventions used elsewhere in this project, if applicable — otherwise decide and record a reasonable minimum-width target).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "Use MUI's own `sm` breakpoint (600px, via `theme.breakpoints.down('sm')`) as the threshold where AppShell's persistent side drawer collapses into a hamburger-triggered temporary drawer.",
+      "rationale": "Neither Frontend.md nor Analyse.md names a project-specific mobile breakpoint, and no artifact-design convention applies here (this is a real React app, not a canvas artifact). Reusing MUI's own `sm` threshold keeps AppShell consistent with whatever other MUI responsive primitives get added later, instead of inventing and maintaining a bespoke pixel value with no other reference point in the docs."
+    },
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the new top-level error boundary at components/layout/AppErrorBoundary.tsx (no Storybook story), not components/common/.",
+      "rationale": "AppErrorBoundary is technically domain-agnostic (it doesn't know about a position/ticker/signal), which would normally point at components/common/ per Frontend.md §3's placement rule. But it's used exactly once, wrapping the whole app in main.tsx, the same usage pattern as AppShell — and Frontend.md explicitly scopes the common/-needs-a-story rule to 'the reusable, domain-agnostic layer' that's meant to be composed into multiple features. Building out components/common/ itself (with its full test+story requirement for 9 named components) is the separate frontend-common-components task; adding one more common/ component here, without that task's Storybook scaffolding context, risked inconsistent precedent for that task. Rejected alternative: components/common/AppErrorBoundary with a story that deliberately throws — reasonable, but deferred to avoid pre-empting frontend-common-components' own component list and conventions."
+    },
+    {
+      "timestamp": "2026-09-16T21:21:30Z",
+      "recorded_by": "task-worker",
+      "decision": "NavDrawer lists only Dashboard and Portfolio as static nav destinations; Stock Detail ('/stocks/:ticker') has no entry.",
+      "rationale": "Stock Detail is a ticker-parameterized route with no meaningful default target — it's reached by navigating from a position row or a search/lookup action (future frontend-portfolio-page/frontend-stock-analysis-page work), not by clicking a fixed nav link. This matches Frontend.md §3's page list, which doesn't suggest a static nav entry for it either."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-app-shell-navigation",
+    "pr_number": 62,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/62",
+    "pushed_at": "2026-09-16T21:21:43Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T21:26:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/62",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full frontend suite: 20/20 tests pass, 100% statement/branch/function/line coverage on every touched file (verified against coverage/lcov.info directly, not just the summary line). `npm run lint` (ESLint) clean. `npm run build` (tsc -b + vite build) clean. `npm run build-storybook` succeeds (expected 'no story files found' warning, since components/common/ doesn't exist yet — out of this task's scope). Backend suite unaffected by this frontend-only PR: 472 passed.",
+        "file": "frontend/package.json"
+      },
+      {
+        "summary": "AppShell.tsx/NavDrawer.tsx placement under components/layout/ matches docs/architecture/Frontend.md §3's module layout exactly — that section explicitly lists a components/layout/ folder ('app shell, not reusable outside this app — no stories') naming exactly AppShell.tsx and NavDrawer.tsx. Not a judgment call for these two; correctly followed.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 56
+      },
+      {
+        "summary": "AppErrorBoundary.tsx's placement under components/layout/ (rather than components/common/) is a genuinely arguable call, not a clear-cut misplacement: it does satisfy Frontend.md §3's common/ criterion (fully domain-agnostic, no position/ticker/signal knowledge), and the task's own decisions entry leans partly on 'used once, same pattern as AppShell' — reusability is about whether the pattern could serve other call sites, not current instantiation count, so that part of the rationale is weaker than it reads. But it's also structurally parallel to AppShell as a single top-level wrapper mounted once in main.tsx (not a widget composed into multiple pages/features like the common/ exemplars), and Frontend.md's layout/ folder isn't stated as a closed list restricted to exactly AppShell/NavDrawer. Non-blocking; tracked as a follow-up for reconsideration once frontend-common-components lands and establishes common/'s Storybook conventions.",
+        "file": "frontend/src/components/layout/AppErrorBoundary.tsx"
+      },
+      {
+        "summary": "Responsive breakpoint decision (MUI's own `sm`/600px via theme.breakpoints.down('sm')) is reasonable and properly recorded in decisions with rationale — no project-specific breakpoint is documented elsewhere to conflict with it. Route structure (Dashboard '/', Portfolio '/portfolio', Stock Detail '/stocks/:ticker' nested under AppShell as a layout route, plus a '*' 404 catch-all) matches Frontend.md §3's page list. NavDrawer intentionally omitting a Stock Detail nav entry is also recorded with reasonable rationale (ticker-parameterized route with no static destination).",
+        "file": "frontend/src/components/layout/AppShell.tsx",
+        "line": 27
+      },
+      {
+        "summary": "Browser walkthrough performed (this PR is UI-facing): started the Vite dev server and drove real headless Chromium via the `playwright` package (no Playwright MCP tools were available in this session, so a scripted equivalent was used instead of skipping the walkthrough). Golden path: dashboard loads with nav + AppBar, click Portfolio navigates and highlights the active link. Edge cases: /stocks/AAPL resolves, unmatched route renders the 404 page and 'Back to Dashboard' navigates home, and at a 375px viewport the persistent drawer collapses into a hamburger-triggered temporary drawer that opens/closes correctly and auto-closes after navigating. No console errors/warnings beyond expected Vite HMR/React DevTools noise, and no failed network requests, across the whole walkthrough. Screenshots confirm correct rendering at both desktop and mobile widths.",
+        "file": "frontend/src/components/layout/AppShell.tsx"
+      },
+      {
+        "summary": "code-review skill (medium effort): found two non-blocking issues, both tracked as follow-ups. (1) AppShell.tsx wraps `<Box component=\"nav\">` around NavDrawer's own `<List component=\"nav\">`, producing two nested <nav> landmarks in the DOM on every render — an accessibility nit (ARIA authoring practices discourage nested/duplicate nav landmarks), not a functional break. (2) AppShell.test.tsx's `mockMatchMedia` helper duplicates the default matchMedia mock already installed in tests/setup.ts almost field-for-field — a test-hygiene/duplication nit.",
+        "file": "frontend/src/components/layout/AppShell.tsx",
+        "line": 64
+      },
+      {
+        "summary": "Decisions cross-check: all three judgment calls this task required (responsive breakpoint choice, AppErrorBoundary placement, NavDrawer's Stock Detail omission) have corresponding decisions entries with rationale and, for the placement call, an explicitly considered/rejected alternative. No undocumented judgment call. No API route/schema touched by this PR — backend/openapi.json correctly untouched.",
+        "file": "docs/tasks/frontend-app-shell-navigation.json"
+      }
+    ],
+    "notes": "Accepted. No blocking findings: tests/coverage/lint/build/build-storybook all pass, browser walkthrough confirms the golden path and responsive/404 edge cases work with no console or network errors, and the layout/ placement of AppShell/NavDrawer matches Frontend.md exactly. AppErrorBoundary's layout/ placement is a genuinely arguable (not clear-cut) call and is tracked as a non-blocking follow-up alongside two code-review nits (nested <nav> landmark, duplicated matchMedia test mock) in docs/tasks/frontend-app-shell-navigation-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T21:29:51Z",
+    "verdict": "merge",
+    "notes": "Re-ran frontend suite myself: 20/20 tests pass with 100% stmt/branch/func/line coverage, lint clean, tsc-b+vite build clean, build-storybook succeeds with the expected 'no story files found' warning. Backend suite unaffected: 472 passed, 99.84% coverage. Read the full diff: confirmed the nested <nav> (AppShell.tsx:64 Box component=\"nav\" wrapping NavDrawer.tsx:42 List component=\"nav\") and duplicated matchMedia mock (AppShell.test.tsx:9-23 vs tests/setup.ts:17-29) findings are real but non-blocking, and both are already tracked in docs/tasks/frontend-app-shell-navigation-followups.json. Frontend.md §3 (lines 42-58) confirms layout/ explicitly names AppShell.tsx/NavDrawer.tsx (clear-cut) while AppErrorBoundary's layout/-vs-common/ placement is genuinely arguable, not clear-cut, matching pr-reviewer's read."
+  }
+}

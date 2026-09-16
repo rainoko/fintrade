@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest'
 import App from './App'
 
 // Route-table smoke test: confirms every route in App.tsx resolves to its
-// placeholder page. Real page content/behavior is covered by each page's
-// own tests once it lands (frontend-dashboard-page, frontend-portfolio-page,
-// frontend-stock-analysis-page).
+// placeholder page inside the shared AppShell layout, and that an unmatched
+// path falls through to the 404 page. Real page content/behavior is covered
+// by each page's own tests once it lands (frontend-dashboard-page,
+// frontend-portfolio-page, frontend-stock-analysis-page).
 describe('App', () => {
   it.each([
     ['/', 'Dashboard'],
@@ -20,5 +21,26 @@ describe('App', () => {
     )
 
     expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+  })
+
+  it('renders the 404 page for an unmatched route', () => {
+    render(
+      <MemoryRouter initialEntries={['/does-not-exist']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: /page not found/i })).toBeInTheDocument()
+  })
+
+  it('renders the nav shell around every route', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /portfolio/i })).toBeInTheDocument()
   })
 })

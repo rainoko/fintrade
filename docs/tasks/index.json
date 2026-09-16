@@ -383,8 +383,15 @@
       "id": "frontend-app-shell-navigation",
       "area": "frontend/layout",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-app-shell-navigation.json"
+    },
+    {
+      "id": "frontend-app-shell-navigation-followups",
+      "area": "frontend/layout",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-app-shell-navigation.json"
+      "path": "docs/tasks/frontend-app-shell-navigation-followups.json"
     },
     {
       "id": "frontend-portfolio-page",
