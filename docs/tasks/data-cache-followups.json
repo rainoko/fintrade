@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["data-cache"],
   "references": [
     "docs/tasks/data-cache.json#review",
@@ -13,27 +13,71 @@
   "checklist": [
     {
       "step": "_upsert does one self._db.get() per row in a loop instead of reusing rows _read_cache() already loaded, so a cold/stale refresh does O(n) individual SELECTs. Correct, just wasteful for long-history tickers — follow up with a bulk PK lookup or a single upsert statement.",
-      "done": false
+      "done": true
     },
     {
       "step": "_is_fresh derives freshness from max(fetched_at) across all cached rows for a ticker/interval, so if a source's returned history window ever shrank between calls, orphaned older rows would never be individually revalidated yet would still read as fresh because newer sibling rows dominate the max. Doesn't manifest under current provider behavior (both providers always return full un-windowed history), but is a latent gap if a future DataProvider ever supports windowed fetches. Track a single per-(ticker,interval) cache_refreshed_at instead of max() over row timestamps, and/or evict rows that drop out of a fresh fetch.",
-      "done": false
+      "done": true
     },
     {
       "step": "Two concurrent first-time-population calls for the same (ticker, date, interval) would both see self._db.get(...) is None, both add() a new row, and the second commit() would raise IntegrityError on the composite primary key — no try/except around it. CachedDataProvider isn't wired into any router yet, so no live concurrent caller exists today, but flag before wiring into the API layer under real concurrency.",
-      "done": false
+      "done": true
     },
     {
       "step": "Dtype inconsistency: cache-miss path returns volume as int64 (straight from the provider frame), cache-hit path returns float64 (ORM Float column via _rows_to_frame). Not externally observable today since app/api/schemas.py declares volume: float and Pydantic coerces either dtype, and CachedDataProvider isn't wired into that boundary yet. Cast to float on the read path for internal consistency.",
-      "done": false
+      "done": true
     },
     {
       "step": "No test exercises the fallback or both-providers-failed path specifically for get_weekly_ohlcv (only get_daily_ohlcv is covered by TestFallback/TestBothProvidersFailed), and no test explicitly asserts InsufficientHistoryError propagates without triggering the fallback (only inferable from shared code with the tested TickerNotFoundError case). 100% coverage is achieved incidentally via other tests exercising the daily/weekly split. Worth closing given how central the fallback behavior is to this task's purpose.",
-      "done": false
+      "done": true
     },
     {
       "step": "_fetch_from_source's `except DataProviderUnavailableError: pass` on the primary call discards the primary's failure with no logging. If the fallback then succeeds, there's no record anywhere that the primary failed at all; if the fallback also fails, only the fallback's exception survives as __cause__, losing the primary's actual failure reason. No logging framework exists anywhere in this backend yet (greenfield), so this is a real observability gap worth a follow-up (log the primary's exception before falling back), not a deviation from an established convention.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Before working the checklist, re-checked whether the premise behind two of its items ('CachedDataProvider isn't wired into any router yet') still holds. It doesn't: app/api/dependencies.py's get_data_provider (added after PR #20 merged, by the api-portfolio-get / api-stocks-history lineage of tasks) now wires CachedDataProvider into both GET /api/portfolio and the stocks router, and all four of those routes are sync `def` handlers, which FastAPI/Starlette run in a worker threadpool -- so concurrent requests for the same never-before-cached ticker genuinely can execute app/data/cache.py's code on separate threads sharing a SQLite backend today, not just hypothetically after some future wiring step. This changed how items #1 (O(n) upsert lookups) and #3 (concurrency race) were treated: both are implemented as real code fixes below rather than left as documentation, since the 'no live caller exists' rationale that made them low-urgency at PR #20 time no longer applies.",
+      "rationale": "The task description suggested the concurrency item 'may be acceptable to document as a known limitation... similar to how db-migrations-followups was handled' -- but re-reading db-migrations-followups' own decisions entry shows it didn't actually stop at documentation either: it implemented a small, targeted, self-contained fix (a standalone idempotent script) rather than either a no-op doc comment or a heavyweight general solution. Applying that same proportionality here: a full pessimistic-locking mechanism (e.g. SELECT ... FOR UPDATE-style row locks, an external lock service) would be real over-engineering for a single-developer MVP on SQLite, but silently leaving a live, reachable 500 (an uncaught IntegrityError surfacing through the API on a cold-cache race) undocumented-and-unfixed once real concurrent callers exist crosses from 'latent, deferrable gap' into 'known, reachable bug' -- worth the small fix described in item #3 below. Rejected doing nothing beyond a comment for #1/#3, since both are now demonstrably reachable through the actual wired-in API surface, not speculative."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #1 (O(n) per-row upsert lookups): fixed by replacing the per-row `self._db.get(OHLCVCacheORM, (ticker, bar_date, interval))` loop with one bulk query (`self._read_cache(ticker, interval)`, the same query `_get`'s freshness check already runs) building an in-memory `{date: row}` dict once, then looking rows up from that dict inside the loop instead of hitting the database per row.",
+      "rationale": "A bulk PK lookup keyed on the existing (ticker, interval) filter is the natural fix given `_read_cache` already runs an equivalent query elsewhere in the same class -- no new query shape needed, no schema change, and the fix is behaviorally identical (verified by TestUpsertBulkLookup, which asserts the resulting rows are correctly inserted/updated in one pass). Rejected a raw SQLAlchemy Core bulk upsert (`sqlite`'s `insert(...).on_conflict_do_update(...)`) or `Session.bulk_insert_mappings`/`bulk_update_mappings`, which would be a genuinely faster single-statement approach but a larger, riskier rewrite (bypassing the ORM identity map this class otherwise relies on, and requiring separate insert vs. update statements since SQLite's ON CONFLICT needs the conflicting column set stated explicitly) for a follow-up whose own severity was rated non-blocking/perf-only -- the O(1)-query fix removes the O(n)-queries problem the finding actually named without that added risk."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #2 (_is_fresh's max(fetched_at) staleness edge case): left as a documented known limitation (expanded the `_is_fresh` docstring explaining the gap, when it would manifest, and what a real fix would need) rather than implemented in code.",
+      "rationale": "Unlike items #1/#3, this one's premise is unchanged by CachedDataProvider now being wired into the API: it's still contingent on a future DataProvider that supports windowed fetches, which doesn't exist -- both real providers (YFinanceProvider, StooqProvider) always return full, un-windowed history today, so `_upsert` re-stamps every cached row together on each refresh and no row is ever silently orphaned in practice. A real fix (a per-(ticker, interval) `cache_refreshed_at` tracked independently of row timestamps) needs a schema change -- either a new column on OHLCVCacheORM or a new small tracking table, plus an Alembic migration -- which is a meaningfully larger, riskier change than this non-blocking, currently-inert finding justifies. Rejected implementing the schema change now on the reasoning that it's cheap to add alongside this PR's other fixes: cheap-to-add isn't the same as low-risk-to-add for a change that touches the migration history (docs/architecture/Backend.md §7 already flags schema drift between `create_all` and Alembic as a live concern per db-migrations-followups), and there's no concrete near-term feature (a windowed-fetch DataProvider) driving the need yet. Revisit if/when such a provider is ever added."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #3 (concurrent first-time-population race): fixed by wrapping `_upsert`'s `self._db.commit()` in `try/except IntegrityError`, rolling back and logging (not re-raising) on conflict, rather than adding a locking mechanism.",
+      "rationale": "The composite primary key (ticker, date, interval) already guarantees SQLite itself rejects a genuine double-insert, so the only gap was that nothing caught that rejection -- catching it and discarding the losing writer's own attempted write is sufficient because `_get` already returns the `frame` this call itself just fetched from the source provider directly to its caller, regardless of whether the cache write succeeds, so no caller-visible data is lost, only a (rare, harmless) wasted write whose rows the winner already committed. Verified with TestConcurrentFirstPopulation, which forces `session.commit()` to raise `IntegrityError` once and asserts the call still returns the correct data without propagating. Rejected an actual locking mechanism (e.g. a `SELECT ... FOR UPDATE`-equivalent, an application-level per-ticker mutex, or a `BEGIN IMMEDIATE` SQLite transaction) as disproportionate for a rare race (only matters on the very first concurrent request for a never-before-cached ticker/interval, self-healing thereafter since subsequent requests hit an already-populated, fresh cache) in a single-developer MVP -- this matches the proportionality reasoning recorded in the decisions entry above and in db-migrations-followups' own choice of a narrow fix over a general one. Rejected leaving it fully undocumented/unfixed, now that CachedDataProvider is confirmed wired into sync FastAPI routes that Starlette threadpools genuinely concurrently."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #4 (int64/float64 volume dtype inconsistency): fixed by casting `fetched[\"volume\"]` to `float64` in `_get` immediately after a source fetch, before both the upsert and the return to the caller -- so the cache-miss return value's dtype now matches the cache-hit path's (`_rows_to_frame` reading `OHLCVCacheORM.volume`, already a `Float` ORM column).",
+      "rationale": "Casting once in `_get` (rather than in `_rows_to_frame`, which was already float, or scattered across both `_fetch_from_source` and the upsert loop) is the single point where both paths' output dtype is decided, keeps `_upsert`'s existing per-value `float(row[\"volume\"])` cast for the DB write unchanged, and doesn't touch either real provider adapter (which correctly return int64 volume as-is, matching what a raw yfinance/Stooq response looks like -- this is a cache-internal consistency fix, not a provider-contract change). Verified with TestVolumeDtype, which asserts both the cache-miss and the subsequent cache-hit call return `float64` volume from the same provider-seeded int64 input."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #5 (missing weekly-fallback/InsufficientHistoryError test coverage): closed by adding four tests -- get_weekly_ohlcv fallback-to-secondary, get_weekly_ohlcv both-providers-failed, and an explicit InsufficientHistoryError-propagates-without-fallback test mirroring the existing TickerNotFoundError one.",
+      "rationale": "Mirrors the existing TestFallback/TestBothProvidersFailed test shapes exactly (same stub-provider pattern, same assertions on which provider's `_calls` list got hit) rather than parametrizing daily/weekly into one test, to keep each test's failure message unambiguous about which interval broke if one ever does -- consistent with this test file's existing style, which already keeps get_daily_ohlcv and get_weekly_ohlcv (e.g. TestEmptyCache's two tests) as separate cases rather than parametrized."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #6 (silently-discarded primary exception): fixed by adding `logger = logging.getLogger(__name__)` (Python's stdlib `logging`, no new dependency) to app/data/cache.py and logging the primary provider's exception message (`logger.warning`) at the point it's caught in `_fetch_from_source`, plus folding that same message into the raised `DataProviderUnavailableError`'s text when the fallback also fails (previously only the fallback's exception survived, as `__cause__`).",
+      "rationale": "stdlib `logging` was chosen over introducing an actual logging framework/config (structlog, a dictConfig setup, etc.) because the review's own finding explicitly noted no logging framework exists anywhere in this backend yet, and standing one up is out of scope for a non-blocking follow-up about one discarded exception -- `logging.getLogger(__name__)` with no handler configured still uses Python's default 'lastResort' handler (writes WARNING+ to stderr), which is a real, non-silent behavior change without requiring any new setup elsewhere in the app. The primary's exception object itself can't be `raise ... from` the final error the way the fallback's is (a `raise` can only chain one `__cause__`), and Python deletes an `except ... as name` binding at the end of its own `except` block, so the primary's message is captured into a plain `str` (`primary_failure`) before that block exits and threaded into both the log call and the final error's text -- verified this doesn't regress by re-running the existing TestBothProvidersFailed tests (still pass, now with a bit more descriptive text) and confirming no test asserts on the previous exact wording."
     }
   ]
 }

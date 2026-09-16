@@ -11,10 +11,15 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.data.cache import CachedDataProvider
-from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
+from app.data.exceptions import (
+    DataProviderUnavailableError,
+    InsufficientHistoryError,
+    TickerNotFoundError,
+)
 from app.db.models import Base, OHLCVCacheORM
 
 
@@ -206,6 +211,36 @@ class TestFallback:
         assert fallback.daily_calls == []
         assert session.query(OHLCVCacheORM).count() == 0
 
+    def test_insufficient_history_on_primary_propagates_without_trying_fallback(self, session: Session) -> None:
+        primary = _StubProvider(
+            daily_exc=InsufficientHistoryError("IPO", available=3, required=130)
+        )
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        with pytest.raises(InsufficientHistoryError):
+            provider.get_daily_ohlcv("IPO")
+
+        assert primary.daily_calls == ["IPO"]
+        assert fallback.daily_calls == []
+        assert session.query(OHLCVCacheORM).count() == 0
+
+    def test_falls_back_to_secondary_provider_for_weekly_when_primary_is_unavailable(
+        self, session: Session
+    ) -> None:
+        fresh = _frame(["2026-03-06"], [55.0])
+        primary = _StubProvider(weekly_exc=DataProviderUnavailableError("yfinance rate-limited"))
+        fallback = _StubProvider(weekly=fresh)
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_weekly_ohlcv("TSLA")
+
+        assert primary.weekly_calls == ["TSLA"]
+        assert fallback.weekly_calls == ["TSLA"]
+        assert list(result["close"]) == [55.0]
+        rows = session.query(OHLCVCacheORM).filter_by(ticker="TSLA", interval="weekly").all()
+        assert len(rows) == 1
+
 
 class TestBothProvidersFailed:
     def test_raises_data_provider_unavailable_when_cache_is_empty(self, session: Session) -> None:
@@ -241,3 +276,108 @@ class TestBothProvidersFailed:
         rows = session.query(OHLCVCacheORM).filter_by(ticker="AAPL").all()
         assert len(rows) == 1
         assert rows[0].fetched_at == stale_fetched_at
+
+    def test_raises_data_provider_unavailable_for_weekly_when_cache_is_empty(self, session: Session) -> None:
+        primary = _StubProvider(weekly_exc=DataProviderUnavailableError("yfinance down"))
+        fallback = _StubProvider(weekly_exc=DataProviderUnavailableError("stooq down"))
+        provider = CachedDataProvider(primary, fallback, session)
+
+        with pytest.raises(DataProviderUnavailableError):
+            provider.get_weekly_ohlcv("AAPL")
+
+        assert primary.weekly_calls == ["AAPL"]
+        assert fallback.weekly_calls == ["AAPL"]
+        assert session.query(OHLCVCacheORM).count() == 0
+
+
+class TestVolumeDtype:
+    def test_cache_miss_and_cache_hit_paths_both_return_float_volume(self, session: Session) -> None:
+        """Regression test for the int64 (cache-miss)/float64 (cache-hit) volume
+        dtype inconsistency flagged on this task -- both paths must agree.
+        """
+        fresh = pd.DataFrame(
+            {
+                "open": [99.5],
+                "high": [101.0],
+                "low": [98.0],
+                "close": [100.0],
+                "volume": [1_000],  # int, as a real provider frame would return
+            },
+            index=pd.DatetimeIndex(["2026-04-01"], name="date"),
+        )
+        assert fresh["volume"].dtype == "int64"
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        miss_result = provider.get_daily_ohlcv("AAPL")
+        assert miss_result["volume"].dtype == "float64"
+
+        hit_result = provider.get_daily_ohlcv("AAPL")
+        assert primary.daily_calls == ["AAPL"]  # only the first call hit the source
+        assert hit_result["volume"].dtype == "float64"
+
+
+class TestUpsertBulkLookup:
+    def test_upsert_updates_existing_rows_without_a_per_row_db_get(self, session: Session) -> None:
+        """_upsert should reuse a single bulk query rather than `self._db.get()`
+        per row -- verified behaviorally (correct insert + update in one pass)
+        rather than by mocking internals, since the O(n) fix is an implementation
+        detail the public behavior must still match exactly.
+        """
+        _seed(
+            session,
+            ticker="AAPL",
+            interval="daily",
+            date_=datetime(2026, 5, 1).date(),
+            close=10.0,
+            fetched_at=_now() - timedelta(hours=48),
+        )
+        fresh = _frame(["2026-05-01", "2026-05-02", "2026-05-03"], [11.0, 12.0, 13.0])
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        provider.get_daily_ohlcv("AAPL")
+
+        rows = (
+            session.query(OHLCVCacheORM)
+            .filter_by(ticker="AAPL", interval="daily")
+            .order_by(OHLCVCacheORM.date)
+            .all()
+        )
+        assert [r.close for r in rows] == [11.0, 12.0, 13.0]
+
+
+class TestConcurrentFirstPopulation:
+    def test_integrity_error_on_upsert_commit_is_swallowed_not_raised(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulates the race this task's checklist flags: two concurrent
+        first-time-population calls both see no existing row and both try to
+        insert it, so one commit raises IntegrityError. `_upsert` should roll
+        back and swallow it (logging, not raising) rather than propagate an
+        unhandled 500 -- the caller already has the freshly-fetched `frame` to
+        return regardless of whether the cache write itself lands.
+        """
+        fresh = _frame(["2026-06-01"], [20.0])
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        original_commit = session.commit
+
+        def _commit_raises_once():
+            monkeypatch.setattr(session, "commit", original_commit)
+            session.rollback()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(session, "commit", _commit_raises_once)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        assert list(result["close"]) == [20.0]
+        # the swallowed commit means the row never actually landed in this
+        # session's view of the cache -- that's the accepted trade-off (see
+        # this task's `decisions` entry), the caller-visible result is correct
+        assert session.query(OHLCVCacheORM).filter_by(ticker="AAPL").count() == 0

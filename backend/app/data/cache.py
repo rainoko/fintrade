@@ -14,14 +14,18 @@ range" reading, and the fallback scope, all of which are shaped by the
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.data.base import DataProvider
 from app.data.exceptions import DataProviderUnavailableError
 from app.db.models import OHLCVCacheORM
+
+logger = logging.getLogger(__name__)
 
 _INTERVAL_DAILY = "daily"
 _INTERVAL_WEEKLY = "weekly"
@@ -73,6 +77,15 @@ class CachedDataProvider(DataProvider):
             return self._rows_to_frame(cached_rows)
 
         fetched = self._fetch_from_source(ticker, interval)
+        # Cast volume to float here so the cache-miss return value matches the
+        # cache-hit path's dtype (`_rows_to_frame` reads it back out of
+        # `OHLCVCacheORM.volume`, a `Float` column, as float64) -- the raw
+        # provider frame's volume column is int64. Not externally observable
+        # today (app/api/schemas.py declares `volume: float` and Pydantic
+        # coerces either dtype at the response boundary), but keeps the two
+        # code paths internally consistent for any future caller that
+        # branches on dtype. See this task's `decisions` entry.
+        fetched["volume"] = fetched["volume"].astype("float64")
         self._upsert(ticker, interval, fetched)
         return fetched
 
@@ -90,6 +103,23 @@ class CachedDataProvider(DataProvider):
 
     @staticmethod
     def _is_fresh(rows: list[OHLCVCacheORM]) -> bool:
+        """Whether `rows` (all cached rows for one ticker/interval) are still within
+        `_CACHE_TTL`, judged by the most recent `fetched_at` among them.
+
+        Known latent gap (documented, not fixed -- see this task's `decisions`
+        entry): this derives freshness from `max(fetched_at)` across every cached
+        row, so if a source's returned history window ever *shrank* between calls
+        (dropping some previously-cached dates), the rows that fell out of the new
+        window would never be individually revalidated or evicted, yet would still
+        read as fresh forever because newer sibling rows dominate the max. Doesn't
+        manifest under either real `DataProvider` today (`YFinanceProvider` and
+        `StooqProvider` both always return full, un-windowed history, so `_upsert`
+        re-stamps every cached row together on each refresh -- none is ever left
+        behind). Would need a per-(ticker, interval) `cache_refreshed_at` tracked
+        independently of individual row timestamps, and/or evicting rows that drop
+        out of a fresh fetch, if a future `DataProvider` ever supports windowed
+        fetches.
+        """
         most_recent_fetch = max(row.fetched_at for row in rows)
         return _utcnow() - most_recent_fetch < _CACHE_TTL
 
@@ -101,17 +131,31 @@ class CachedDataProvider(DataProvider):
         insufficient history, which propagate immediately without trying
         the fallback (docs/Analyse.md §9; see this task's `decisions` entry).
         """
+        primary_failure: str | None = None
         try:
             return self._call(self._primary, ticker, interval)
-        except DataProviderUnavailableError:
-            pass
+        except DataProviderUnavailableError as primary_exc:
+            # Logged (not silently discarded) so the primary's own failure reason
+            # survives even when the fallback succeeds. Captured into a plain str
+            # (`primary_failure`) rather than kept as an exception object because
+            # Python deletes an `except ... as name` binding at the end of its own
+            # except block -- referencing `primary_exc` itself below (outside this
+            # block) would raise NameError. See this task's `decisions` entry.
+            primary_failure = str(primary_exc)
+            logger.warning(
+                "Primary data provider failed for %r (%s), falling back: %s",
+                ticker,
+                interval,
+                primary_failure,
+            )
 
         try:
             return self._call(self._fallback, ticker, interval)
-        except DataProviderUnavailableError as exc:
+        except DataProviderUnavailableError as fallback_exc:
             raise DataProviderUnavailableError(
-                f"Both primary and fallback providers failed for {ticker!r} ({interval})"
-            ) from exc
+                f"Both primary and fallback providers failed for {ticker!r} ({interval}): "
+                f"primary={primary_failure}, fallback={fallback_exc}"
+            ) from fallback_exc
 
     @staticmethod
     def _call(provider: DataProvider, ticker: str, interval: str) -> pd.DataFrame:
@@ -126,11 +170,17 @@ class CachedDataProvider(DataProvider):
         this ticker/interval, so it naturally covers just the missing/stale range
         even though it's implemented as one full upsert pass -- the provider
         adapters don't support fetching a narrower date range (see module docstring).
+
+        Existing rows are bulk-loaded once (a single query keyed by this
+        ticker/interval, the same query `_read_cache` already runs) rather than
+        looked up one `self._db.get()` per row, which was an O(n) SELECT-per-row
+        pattern for long-history tickers. See this task's `decisions` entry.
         """
         fetched_at = _utcnow()
+        existing_by_date = {row.date: row for row in self._read_cache(ticker, interval)}
         for idx, row in frame.iterrows():
             bar_date = idx.date() if hasattr(idx, "date") else idx
-            existing = self._db.get(OHLCVCacheORM, (ticker, bar_date, interval))
+            existing = existing_by_date.get(bar_date)
             if existing is None:
                 existing = OHLCVCacheORM(ticker=ticker, date=bar_date, interval=interval)
                 self._db.add(existing)
@@ -140,7 +190,26 @@ class CachedDataProvider(DataProvider):
             existing.close = float(row["close"])
             existing.volume = float(row["volume"])
             existing.fetched_at = fetched_at
-        self._db.commit()
+        try:
+            self._db.commit()
+        except IntegrityError:
+            # Two concurrent first-time-population calls for the same
+            # (ticker, interval) can both see no existing row for a given date
+            # above and both try to insert it, so the loser's commit hits the
+            # composite primary key. Rather than a locking mechanism, the
+            # loser just discards its own attempted write: the winner's
+            # equivalent, concurrently-committed rows are already in the
+            # cache, and `_get` returns `frame` (the data this call itself
+            # just fetched) to its caller regardless of whether this upsert's
+            # commit succeeds -- so no caller-visible data is lost, only a
+            # wasted write. See this task's `decisions` entry.
+            self._db.rollback()
+            logger.warning(
+                "Concurrent cache population for %r (%s) raced this upsert; discarding "
+                "this attempt in favor of the concurrently-committed rows.",
+                ticker,
+                interval,
+            )
 
     @staticmethod
     def _rows_to_frame(rows: list[OHLCVCacheORM]) -> pd.DataFrame:
