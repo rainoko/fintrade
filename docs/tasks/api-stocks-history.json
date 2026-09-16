@@ -3,16 +3,36 @@
   "title": "API: GET /api/stocks/{ticker}/history",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["data-cache"],
   "references": ["docs/architecture/API.md#get-apistocksstickerhistory"],
   "description": "Implement the route body in app/api/routers/stocks.py (currently a 501 stub). Route signature and response_model are already wired.",
   "checklist": [
     { "step": "Route signature + HistoryResponse schema already defined — confirm no shape changes needed", "done": true },
-    { "step": "Implement handler: fetch via the cached data provider, map to HistoryResponse", "done": false },
-    { "step": "Handle unknown ticker -> 404 per docs/architecture/API.md error cases", "done": false },
-    { "step": "Handle both providers unavailable -> 503", "done": false },
-    { "step": "Write integration test (FastAPI TestClient, mocked data provider) covering 200, 404, 503", "done": false },
-    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": false }
+    { "step": "Implement handler: fetch via the cached data provider, map to HistoryResponse", "done": true },
+    { "step": "Handle unknown ticker -> 404 per docs/architecture/API.md error cases", "done": true },
+    { "step": "Handle both providers unavailable -> 503", "done": true },
+    { "step": "Write integration test (FastAPI TestClient, mocked data provider) covering 200, 404, 503", "done": true },
+    { "step": "Run pytest --cov=app --cov-report=term-missing and confirm no regression", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Only fetch the interval actually requested: `provider.get_daily_ohlcv()` for `interval=daily`, `provider.get_weekly_ohlcv()` for `interval=weekly` — not both, unlike `/analysis` which always needs both for Screen 1/2. A `weekly`-interval request is therefore the only way this endpoint can raise `InsufficientHistoryError` (the shared `YFinanceProvider._MIN_WEEKLY_BARS = 26` floor baked into `get_weekly_ohlcv` itself, per the `DataProvider` protocol), mapped to `422` the same way `/analysis` does. Rejected: unconditionally calling both methods regardless of `interval` (matches `/analysis`'s pattern but wastes a fetch/cache-read the caller didn't ask for, and would force a daily-interval history request to fail on thin weekly history it never needed).",
+      "rationale": "The `DataProvider` protocol has two separate single-interval methods with no way to ask for 'just daily, don't touch weekly' short of not calling the weekly method — so which method(s) to call per `interval` is a real branch point the docs don't spell out. Fetching only what's needed is the minimal-surprise reading of `interval` as a real filter, and keeps a `daily`-interval chart usable for a very recently listed ticker that a `weekly`-interval request to the same endpoint would legitimately reject."
+    },
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "`range` accepts `<N>d` | `<N>w` | `<N>m` | `<N>y` (e.g. `1y`, `6m`, `90d`) or the literal `max`, validated via FastAPI's `Query(pattern=...)` (so a malformed value is a standard `422` HTTPValidationError, no custom code needed). The window is trimmed server-side after fetching the provider's full history (the `DataProvider` protocol takes no date-range argument — see `app/data/cache.py`'s module docstring), anchored on the most recent bar actually present in the fetched frame rather than on today's wall-clock date. Rejected: yfinance's own broader period vocabulary (`ytd`, `5d` with no unit letter, etc.) — API.md's only documented example is `1y`, and accepting yfinance-specific spellings the doc doesn't mention would leak an implementation detail into the public contract; also rejected anchoring the trim on `datetime.now()`, since the SQLite cache can be up to 24h stale (`_CACHE_TTL`) and a delisted/thinly-traded ticker's history may not reach the present at all — either case would silently return fewer bars than the requested range implies.",
+      "rationale": "API.md documented the `range` query param's existence and one example value but not its accepted grammar or what a bad value should do, and the `DataProvider` protocol/cache explicitly punt date-range trimming to the caller (per their own docstrings) without saying where an anchor date should come from — both were real gaps this change had to close to have a testable contract."
+    },
+    {
+      "timestamp": "2026-09-16T07:04:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Declared the route's `422` response as an `anyOf` of `HTTPValidationError` (malformed `range`) and `ErrorDetail` (insufficient weekly history), mirroring the exact pattern already used by `POST /api/portfolio/positions` for its own dual-shape `422`, rather than inventing a new documentation convention.",
+      "rationale": "Two structurally different failure modes both legitimately return `422` on this route (FastAPI's own query-validation error vs. this handler's `InsufficientHistoryError` mapping); reusing the existing `anyOf` precedent keeps the OpenAPI snapshot honest about both possible bodies instead of only documenting whichever one was declared last."
+    }
   ]
 }
