@@ -32,7 +32,7 @@
     { "id": "portfolio-exit-rules", "area": "backend/portfolio", "skill": "verify-elder-signal", "state": "done" },
     { "id": "portfolio-exit-rules-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
     { "id": "portfolio-exit-rules-followups-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
-    { "id": "portfolio-exit-rules-followups-followups-followups", "area": "backend/portfolio", "skill": null, "state": "planned" },
+    { "id": "portfolio-exit-rules-followups-followups-followups", "area": "backend/portfolio", "skill": null, "state": "done" },
     { "id": "api-stocks-history", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-stocks-history-followups", "area": "backend/api", "skill": null, "state": "done" },
     { "id": "api-stocks-history-followups-followups", "area": "backend/api", "skill": null, "state": "done" },
