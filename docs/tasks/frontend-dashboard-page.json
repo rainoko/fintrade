@@ -1,0 +1,33 @@
+{
+  "id": "frontend-dashboard-page",
+  "title": "Frontend: Dashboard page (portfolio + risk summary, ticker lookup)",
+  "area": "frontend/pages/dashboard",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-portfolio-page",
+    "frontend-portfolio-risk-panel"
+  ],
+  "references": [
+    "docs/architecture/Frontend.md#3-module-layout"
+  ],
+  "description": "The landing page \u2014 composes existing portfolio/risk data into an at-a-glance summary plus a quick path into stock analysis. Introduces no new API calls beyond what frontend-portfolio-page/frontend-portfolio-risk-panel already wired; this task is composition, not new data-fetching.",
+  "checklist": [
+    {
+      "step": "pages/DashboardPage.tsx: equity summary (reusing common/StatCard + usePortfolio), a risk-warning summary card (reusing usePortfolioRisk \u2014 six_percent_rule_breached and count of two_percent_rule_breached positions), and a compact positions-at-a-glance table (a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance).",
+      "done": false
+    },
+    {
+      "step": "A ticker lookup box that navigates to /stocks/:ticker \u2014 reuse the same entry point built in frontend-stock-analysis-page rather than building a second one, if that task placed it on a page rather than in AppShell; if it was placed in AppShell, this item is already satisfied and should be marked done with a note explaining why.",
+      "done": false
+    },
+    {
+      "step": "Make DashboardPage the default route ('/') in App.tsx.",
+      "done": false
+    },
+    {
+      "step": "Component tests (MSW-mocked): populated dashboard, empty-portfolio dashboard (no positions yet \u2014 first-run state), and a dashboard with an active 6% risk breach showing the warning summary.",
+      "done": false
+    }
+  ]
+}

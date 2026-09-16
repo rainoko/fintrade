@@ -1,0 +1,41 @@
+{
+  "id": "frontend-portfolio-risk-panel",
+  "title": "Frontend: Portfolio risk panel (2%/6% rules)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-portfolio-page"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apiportfoliorisk",
+    "docs/Analyse.md#7"
+  ],
+  "description": "UI for GET /api/portfolio/risk, added as a panel/section on the Portfolio page. Depends on frontend-portfolio-page since it shares the page and the equity/positions context already established there.",
+  "checklist": [
+    {
+      "step": "features/portfolio/hooks/usePortfolioRisk.ts \u2014 useQuery wrapping api/portfolio.ts#getPortfolioRisk.",
+      "done": false
+    },
+    {
+      "step": "features/portfolio/components/RiskPanel.tsx: total_open_risk_pct as a StatCard, a prominent warning banner when six_percent_rule_breached is true (distinct visual treatment from a normal StatCard \u2014 this is the whole point of the 6% rule).",
+      "done": false
+    },
+    {
+      "step": "Per-position risk table: protective_stop, position_risk_pct (via common/PercentChange), two_percent_rule_breached (visually flagged row when true), exit_flags rendered as a list of readable labels (not raw snake_case strings) \u2014 map each known exit_flags value from Analyse.md \u00a77 to a human label.",
+      "done": false
+    },
+    {
+      "step": "Handle the documented silent-exclusion behavior (API.md: a position whose risk can't be computed is simply absent from the response) \u2014 don't render a misleading 'zero risk' row for a ticker that's actually missing from risk.positions; if useful, cross-reference against usePortfolio's position list to note (non-blocking, informational) that a held position has no risk data, rather than silently having no acknowledgment of the gap at all \u2014 record whichever approach is chosen as a decisions entry.",
+      "done": false
+    },
+    {
+      "step": "Wire RiskPanel into PortfolioPage.tsx alongside PositionsTable.",
+      "done": false
+    },
+    {
+      "step": "Component tests (MSW-mocked): no breaches, 2% breach on one position, 6% breach, and a position silently excluded from risk data while present in the portfolio.",
+      "done": false
+    }
+  ]
+}

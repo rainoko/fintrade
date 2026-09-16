@@ -1,73 +1,145 @@
 # Frontend Architecture
 
-TypeScript (required — no plain JS), React, Vite. See [Architecture.md](../Architecture.md) for how this fits the overall system.
+TypeScript (required — no plain JS), React, Vite, Material UI (MUI). See [Architecture.md](../Architecture.md) for how this fits the overall system, and [API.md](API.md) for the exact contract every feature below is built against.
 
-## 1. Why React (not Astro), why TypeScript
+## 1. Why React (not Astro), why TypeScript, why MUI
 
-This is a stateful dashboard: live portfolio data, per-stock charts, frequent re-fetching/re-rendering, filters and interactions. Astro's island architecture is built for mostly-static, content-first sites (blogs, marketing, docs) with light interactivity — the opposite of this app's profile. React fits a data-dense interactive dashboard.
+This is a stateful dashboard: live portfolio data, per-stock analysis and charts, frequent re-fetching/re-rendering, forms and confirmations. Astro's island architecture targets mostly-static, content-first sites — the opposite of this app's profile. React fits a data-dense interactive dashboard.
 
-TypeScript is required project-wide: the API boundary (signals, confidence breakdowns, portfolio positions, risk warnings) is exactly the kind of shape-sensitive data where a silent `undefined`/typo bug is costly, and generating types from the backend's Pydantic schemas keeps both sides honest at compile time.
+TypeScript is required project-wide: the API boundary (signals, confidence breakdowns, portfolio positions, risk warnings) is exactly the kind of shape-sensitive data where a silent `undefined`/typo bug is costly, and generating types from the backend's committed OpenAPI snapshot keeps both sides honest at compile time.
 
-## 2. Module Layout
+**Material UI (MUI)** is the component library — Material Design gives this app a coherent, accessible baseline (forms, tables, dialogs, navigation) without hand-building and re-testing basic widgets. Don't reach for a second component library or hand-rolled CSS framework alongside it; extend MUI's theme rather than fighting it.
+
+## 2. State management: server state only, no client-state library
+
+**TanStack Query (`@tanstack/react-query`) is the only data layer.** Every piece of server-derived data (positions, risk, stock analysis, price history) is fetched and cached through it — no data is ever duplicated into component state "just in case."
+
+**Redux and MobX are not allowed, under any circumstance.** This is a hard rule, not a default that yields to a future need: this app has no cross-cutting *client* state complex enough to justify one (no undo stacks, no multi-step wizards spanning routes, no offline sync). If a genuine cross-page client-state need appears later, use React Context first and re-evaluate then — don't add a state library preemptively to solve a problem that doesn't exist yet.
+
+What state lives where:
+- **Server state** (anything that came from the API): TanStack Query only — `useQuery`/`useMutation`, with `queryClient.invalidateQueries` on mutation success (e.g. adding/deleting a position invalidates the portfolio and risk queries).
+- **Local UI state** (a dialog's open/closed flag, a form's in-progress field values, a table's sort column): plain `useState`/`useReducer` in the component that owns it. Don't lift it further than the component(s) that actually need it.
+- **Cross-cutting UI state that isn't server data** (rare — e.g. a global snackbar/toast queue): a small React Context, colocated with what it serves. Only introduce one when a second, unrelated component genuinely needs the same state — not preemptively.
+
+Function components and hooks only. No class components.
+
+## 3. Module Layout
 
 ```
 frontend/
+  .storybook/
+    main.ts
+    preview.ts
   src/
     api/
-      client.ts         # thin fetch wrapper
-      types.ts           # generated/mirrored from backend Pydantic schemas (see API.md)
-      stocks.ts           # typed endpoint functions
+      client.ts            # thin fetch wrapper: base URL, JSON parsing, typed error mapping (404/422/503 -> ApiError)
+      types.ts              # generated from the committed backend/openapi.json — never hand-edited
+      stocks.ts               # typed endpoint functions: getStockAnalysis(ticker), getStockHistory(ticker, params)
       portfolio.ts
+    theme/
+      theme.ts              # MUI theme: palette (incl. semantic BUY/SELL/HOLD + risk-breach colors), typography
     components/
-      charts/
-        PriceChart.tsx        # Lightweight Charts wrapper: candlesticks + EMA overlay
-        IndicatorPane.tsx      # MACD / Stochastic / Force Index sub-panes
-      signals/
-        SignalBadge.tsx         # BUY/SELL/HOLD + confidence %
-        ConfidenceBreakdown.tsx  # per-component score display (Analyse.md §6)
+      common/                # generic, reusable, presentational, domain-agnostic — every one exposed via Storybook
+        PageHeader/
+          PageHeader.tsx
+          PageHeader.stories.tsx
+          PageHeader.test.tsx
+        StatCard/
+        SignalBadge/          # BUY/SELL/HOLD colored chip
+        ConfidenceGauge/       # 0-100 with Low/Medium/High band coloring (Analyse.md §6)
+        PercentChange/          # colored +/- percentage display
+        DataTable/               # thin MUI Table wrapper: sortable columns, empty state built in
+        LoadingState/
+        ErrorState/               # renders an ApiError (404/422/503) with a human-readable message per case
+        EmptyState/
+        ConfirmDialog/
+      layout/                 # app shell, not reusable outside this app — no stories
+        AppShell.tsx           # MUI AppBar + persistent nav
+        NavDrawer.tsx
+    features/                # one folder per domain area; owns its hooks + feature-specific components
       portfolio/
-        PositionTable.tsx
-        RiskWarningBanner.tsx    # 2%/6% rule breaches
-    hooks/
-      useStockAnalysis.ts    # React Query hook wrapping api/stocks.ts
-      usePortfolio.ts
-    pages/
-      Dashboard.tsx
-      StockDetail.tsx
-      Portfolio.tsx
-    App.tsx
+        hooks/
+          usePortfolio.ts        # useQuery wrapping api/portfolio.ts#getPortfolio
+          usePortfolioRisk.ts
+          useAddPosition.ts        # useMutation, invalidates portfolio + risk queries on success
+          useDeletePosition.ts
+        components/
+          PositionsTable.tsx        # built on common/DataTable
+          AddPositionDialog.tsx
+          RiskPanel.tsx               # total_open_risk_pct, 6% breach banner, per-position exit_flags
+      stocks/
+        hooks/
+          useStockAnalysis.ts
+          useStockHistory.ts
+        components/
+          SignalSummary.tsx            # SignalBadge + ConfidenceGauge + confidence_breakdown table
+          ScreensPanel.tsx                # Tide/Impulse/Wave/Trigger structured display
+          IndicatorsPanel.tsx               # latest ema_13/ema_26/macd_histogram/bull_power/bear_power, as data — not a chart overlay (see §5)
+          PriceChart.tsx                     # Lightweight Charts candlestick wrapper over /history
+    pages/                  # route-level composition ONLY — layout + hooks + components, no business logic, no direct fetch() calls
+      DashboardPage.tsx
+      PortfolioPage.tsx
+      StockDetailPage.tsx
+    App.tsx                # router setup
     main.tsx
   tests/
-    unit/            # component tests, hooks
-    mocks/            # MSW handlers mirroring API.md contract
+    mocks/
+      handlers.ts           # MSW handlers mirroring API.md, including every error case in API.md's "Error Cases to Cover in Tests"
+      server.ts
   vite.config.ts
   tsconfig.json
+  package.json
 ```
 
-## 3. Key Dependencies
+### Structure rules
+
+- **Pages are thin.** A page file composes hooks + components and handles routing concerns (URL params, navigation) — it does not contain fetch logic, business rules, or markup beyond layout. If a page file is doing real work, that work belongs in a `features/<domain>/` hook or component instead.
+- **`components/common/` is domain-agnostic.** A component belongs there only if it doesn't know what a "position" or a "signal" is — `SignalBadge` takes a `signal: 'BUY' | 'SELL' | 'HOLD'` prop, it doesn't fetch or know about the Triple Screen. Anything that references portfolio/stock domain concepts belongs under `features/<domain>/components/`, not `common/`.
+- **One component per file**, named the same as the file, default-exported. A component's test and (for `common/`) story file are colocated in the same folder, not in a parallel `__tests__/`/`stories/` tree.
+- **Hooks wrap exactly one API concern each** and live under the feature they serve (`features/portfolio/hooks/usePortfolio.ts`), not in a single catch-all `hooks/` folder — this keeps a feature's data layer next to the components that use it, and keeps `git blame`/navigation scoped to one domain at a time.
+- **No default barrel-exporting `index.ts` re-exports for the sake of it** — import components/hooks from their actual file. A barrel is fine only where it demonstrably reduces real import noise (e.g. `components/common/index.ts` re-exporting every common component, since those are meant to be reused broadly).
+
+## 4. Storybook: the common component library
+
+Every component under `components/common/` **must** have a `.stories.tsx` covering its meaningful variants and states (e.g. `SignalBadge` gets a story per signal value; `ErrorState` gets a story per error case it renders; `DataTable` gets an empty-state story). This is what "reused and exposed and tracked by Storybook" means in practice — Storybook is the living catalog of the app's reusable UI, not a demo built after the fact. A new `common/` component isn't done until its story exists.
+
+Feature-specific components (`features/<domain>/components/`) and pages do **not** get stories — they're wired to real hooks/data and are covered by component tests (with MSW), not Storybook. Storybook is for the domain-agnostic, reusable layer only.
+
+`npm run build-storybook` must succeed as part of CI-equivalent verification (see `test-90`-style closing pass) — a component whose story is broken is exactly the kind of regression this exists to catch before it reaches a page.
+
+## 5. Chart & indicator display: what the backend actually supports
+
+`GET /api/stocks/{ticker}/history` returns raw OHLCV bars only — no indicator values. `GET /api/stocks/{ticker}/analysis` returns indicator values for the *latest* bar only (`ema_13`, `ema_26`, `macd_histogram`, `bull_power`, `bear_power`) — not a historical series. **Decision: the frontend does not recompute Elder's indicators in TypeScript to backfill a historical overlay.** Doing so would duplicate the backend's indicator math in a second language with no test-cross-checking, directly against the project's "confidence scores and signals are computed entirely in the backend... one place, testable once" principle (`Architecture.md` §3) — and the same reasoning extends to indicator math generally, not just final scoring.
+
+Practical effect: `PriceChart.tsx` renders a candlestick chart of `/history`'s OHLCV bars only (via TradingView Lightweight Charts) — no EMA line overlay, no indicator sub-panes plotted over time. `IndicatorsPanel.tsx` displays the latest indicator values from `/analysis` as structured data (a small table/stat grid) alongside the chart, not plotted on it. If historical indicator overlays are wanted later, that requires a backend change (an endpoint returning indicator time series) — track that as a future backend task if/when it's actually wanted, not something to work around client-side now.
+
+## 6. Key Dependencies
 
 | Package | Purpose |
 |---|---|
 | `react`, `react-dom` | UI |
 | `vite` | Build/dev server |
 | `typescript` | Required language |
-| `@tanstack/react-query` | Server-state fetching/caching — avoids hand-rolled loading/error state per view |
-| `lightweight-charts` (TradingView) | Candlestick + indicator-pane charts |
+| `@mui/material`, `@mui/icons-material`, `@emotion/react`, `@emotion/styled` | Material Design components + required peer deps |
+| `react-router-dom` | Client-side routing (Dashboard / Portfolio / Stock Detail) |
+| `@tanstack/react-query` | Server-state fetching/caching — the *only* data layer, see §2 |
+| `lightweight-charts` (TradingView) | Candlestick chart (`PriceChart.tsx`) |
 | `vitest` + `@testing-library/react` | Component/unit testing (see [Testing.md](Testing.md)) |
 | `msw` (Mock Service Worker) | Mocks the backend API in tests, so no test ever hits a real network call |
+| `storybook` (+ `@storybook/react-vite`, a11y/interactions addons) | Catalogs and tests `components/common/` in isolation |
+| `openapi-typescript` (dev dependency, generator only) | Generates `api/types.ts` from `backend/openapi.json` |
 
-State management beyond server state (React Query) stays in local component state / React context — no Redux/Zustand unless a concrete cross-page client-state need shows up. Don't add it preemptively.
+Explicitly **not** used: Redux, Redux Toolkit, MobX, Zustand, Recoil, Jotai, or any other client-state library (see §2).
 
-## 4. Chart Integration
-
-`PriceChart.tsx` wraps `lightweight-charts`: candlestick series for OHLC, line series overlay for EMA(13)/EMA(26), and marker annotations for BUY/SELL trigger points. `IndicatorPane.tsx` renders MACD-Histogram, Stochastic, and Force Index as separate synced panes below the price chart — matching how Elder's own charting layout works (price on top, oscillators below).
-
-## 5. API Contract Alignment
+## 7. API Contract Alignment
 
 `api/types.ts` types must match the backend's Pydantic response schemas exactly (see [API.md](API.md)). Generate these types from the **committed** `backend/openapi.json` snapshot (see [API.md §Contract Snapshot & Parallel Development](API.md#contract-snapshot--parallel-development)) — e.g. via `openapi-typescript backend/openapi.json -o src/api/types.ts` — rather than hand-maintaining a parallel definition or requiring the Python backend to be running. This is what lets frontend and backend implementation proceed at the same time: every route's request/response/error shape is already final in that file even before its handler logic exists.
 
+`api/client.ts` maps every documented error case (see [API.md's "Error Cases to Cover in Tests"](API.md#error-cases-to-cover-in-tests)) to a typed `ApiError` with a `status` and `detail`, so `ErrorState` can render a distinct, human-readable message per case (unknown ticker vs. insufficient history vs. provider unavailable) rather than one generic "something went wrong."
+
 ## Testing Notes
 
-- Every component that renders API data is tested with **MSW-mocked responses**, including error/empty states (no positions yet, indicator data unavailable, low-confidence signal) — not just the happy path.
-- `SignalBadge`/`ConfidenceBreakdown` get explicit tests for boundary values (0%, 100%, the Low/Medium/High band edges from Analyse.md §6) since off-by-one band errors are easy to introduce.
+- Every component that renders API data is tested with **MSW-mocked responses**, including every error/empty state in [API.md's error cases](API.md#error-cases-to-cover-in-tests) — not just the happy path.
+- `SignalBadge`/`ConfidenceGauge` get explicit tests for boundary values (0%, 100%, the Low/Medium/High band edges from Analyse.md §6) since off-by-one band errors are easy to introduce.
+- Every `components/common/` component has both a test and a story (§4); a component with one but not the other is incomplete.
 - No test hits the real backend or a real market data provider — see [Testing.md](Testing.md) for the coverage gate and CI wiring.

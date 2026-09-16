@@ -1,0 +1,42 @@
+{
+  "id": "frontend-api-client",
+  "title": "Frontend: typed API client generated from backend/openapi.json",
+  "area": "frontend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-scaffold"
+  ],
+  "references": [
+    "docs/architecture/API.md",
+    "docs/architecture/Frontend.md#7-api-contract-alignment",
+    "backend/openapi.json"
+  ],
+  "description": "Generates src/api/types.ts from the committed backend/openapi.json snapshot and builds the thin typed client + MSW mocks every feature task depends on. No UI in this task \u2014 this is the data layer only.",
+  "checklist": [
+    {
+      "step": "Add openapi-typescript as a dev dependency and a script to generate src/api/types.ts from ../backend/openapi.json \u2014 never hand-edit types.ts.",
+      "done": false
+    },
+    {
+      "step": "Build src/api/client.ts: a thin fetch wrapper (base URL config, JSON parsing) that maps every documented error case (404/422/503, per API.md's 'Error Cases to Cover in Tests') to a typed ApiError with status and detail.",
+      "done": false
+    },
+    {
+      "step": "Build src/api/stocks.ts: getStockAnalysis(ticker) and getStockHistory(ticker, { range, interval }) typed against the generated types.",
+      "done": false
+    },
+    {
+      "step": "Build src/api/portfolio.ts: getPortfolio(), getPortfolioRisk(), addPosition(payload), deletePosition(id) typed against the generated types.",
+      "done": false
+    },
+    {
+      "step": "Build tests/mocks/handlers.ts (MSW) mirroring every endpoint in API.md, including the merge-on-duplicate-ticker POST behavior and every error case in API.md's error-cases section \u2014 this becomes the shared mock layer every later feature task's tests reuse.",
+      "done": false
+    },
+    {
+      "step": "Unit-test api/client.ts's error-mapping logic directly (each status code maps to the right ApiError shape) \u2014 this module needs its own tests since no feature UI exists yet to exercise it indirectly.",
+      "done": false
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "frontend-test-90",
+  "title": "Frontend: close coverage to 90% gate, verify Storybook + no-network invariants",
+  "area": "frontend/testing",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-dashboard-page",
+    "frontend-stock-history-chart"
+  ],
+  "references": [
+    "docs/architecture/Testing.md"
+  ],
+  "description": "Closing pass once every frontend-* feature task has landed: run the real coverage gate across the whole app, close any gaps, and verify the cross-cutting invariants (no live network calls, Storybook builds clean) hold for the app as a whole, not just per-task. Mirrors the backend's check-coverage/test-90 skill pair, applied here as one task since there's no dedicated frontend skill yet.",
+  "checklist": [
+    {
+      "step": "Run `npm run test:coverage` (vitest --coverage) against the full app; identify every file below the 90% lines/branches/functions/statements threshold from docs/architecture/Testing.md.",
+      "done": false
+    },
+    {
+      "step": "Write the missing tests to close each gap \u2014 prefer testing real behavior (an interaction, a rendered error state) over trivial assertions that only exist to move a number, per Testing.md's 'What 90% Coverage Does Not Guarantee' section.",
+      "done": false
+    },
+    {
+      "step": "Grep the whole frontend/ test suite for any accidental real network call (a bare fetch()/axios call not going through MSW, or a test missing its MSW handler) \u2014 fix any found.",
+      "done": false
+    },
+    {
+      "step": "Confirm `npm run build-storybook` still succeeds and every components/common/ component has both a test and a story (re-verify frontend-common-components' bar holds after all feature work landed, since a later task could have quietly skipped it).",
+      "done": false
+    },
+    {
+      "step": "Confirm `npm run build` (production build) succeeds with no TypeScript errors.",
+      "done": false
+    }
+  ]
+}
