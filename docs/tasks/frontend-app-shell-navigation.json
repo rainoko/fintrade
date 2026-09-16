@@ -3,7 +3,7 @@
   "title": "Frontend: app shell and navigation",
   "area": "frontend/layout",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -54,6 +54,9 @@
     }
   ],
   "git": {
-    "branch": "task/frontend-app-shell-navigation"
+    "branch": "task/frontend-app-shell-navigation",
+    "pr_number": 62,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/62",
+    "pushed_at": "2026-09-16T21:21:43Z"
   }
 }
