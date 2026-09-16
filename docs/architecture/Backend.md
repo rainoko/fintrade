@@ -18,6 +18,7 @@ backend/
       yfinance_provider.py
       stooq_provider.py
       cache.py         # SQLite-backed OHLCV cache
+      exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
     indicators/    # pure functions, one indicator per module
       ema.py
       macd.py

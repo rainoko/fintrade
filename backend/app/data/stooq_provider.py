@@ -1,5 +1,4 @@
 import io
-import urllib.error
 import urllib.request
 
 import pandas as pd
@@ -97,9 +96,19 @@ class StooqProvider(DataProvider):
         """Stooq requires a market suffix (e.g. ``aapl.us``) on its symbols; a
         bare ticker like ``AAPL`` is assumed to be a US equity, matching the
         default market YFinanceProvider is used for in this project.
+
+        A ``.`` in the input ticker isn't necessarily an existing market
+        suffix -- Stooq (and yfinance) use a hyphen, not a dot, for
+        class-share tickers (``BRK.B`` -> ``brk-b``), so a dotted class-share
+        ticker must still get the ``.us`` suffix appended after its dot is
+        converted to a hyphen. ``.us`` itself is the one case treated as an
+        already-qualified symbol and passed through unchanged, since this
+        provider only ever targets US equities (docs/Analyse.md §9).
         """
         symbol = ticker.strip().lower()
-        return symbol if "." in symbol else f"{symbol}.us"
+        if symbol.endswith(".us"):
+            return symbol
+        return f"{symbol.replace('.', '-')}.us"
 
     @staticmethod
     def _normalize(raw: pd.DataFrame) -> pd.DataFrame:

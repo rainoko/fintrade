@@ -3,7 +3,7 @@
   "title": "Data provider: Stooq — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["data-provider-stooq"],
   "references": [
     "docs/tasks/data-provider-stooq.json#review",
@@ -14,19 +14,34 @@
   "checklist": [
     {
       "step": "Fix _to_stooq_symbol (backend/app/data/stooq_provider.py) treating any '.' in the ticker as an existing market suffix, so a literal dotted class-share ticker like 'BRK.B' skips the '.us' suffix and produces the wrong Stooq symbol (Stooq/yfinance both use a hyphen for class shares, e.g. brk-b.us). Low impact since this app's own ticker convention already uses hyphens, so it only bites on non-canonical input, but worth a fix + regression test.",
-      "done": false
+      "done": true
     },
     {
       "step": "Remove the unused `import urllib.error` in backend/app/data/stooq_provider.py — all transport failures go through the broad `except Exception` in _fetch_daily/_fetch_csv, never a specific urllib.error type. Dead code.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add app/data/exceptions.py to docs/architecture/Backend.md §2's module-layout diagram — the module's existence is well-justified and recorded in data-provider-stooq's decisions, just not reflected in the architecture doc's diagram yet.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/tests/unit/data/test_provider_contract.py still scopes `_PROVIDER_CLASSES` to StooqProvider only, and its docstring still says YFinanceProvider is an unmerged stub on main. That premise no longer holds: PR #18 (data-provider-yfinance) merged to main before this branch's own 2026-09-15 merge-conflict-resolution commit, and this task's decisions/index.json both already record yfinance as done. Per the original decisions entry's own stated plan ('adding YFinanceProvider once it lands on main is a one-line change'), append YFinanceProvider to _PROVIDER_CLASSES with its own mocked-fetch fixture and update the docstring, so the 'shared contract test proving interchangeability' checklist item is actually cross-provider rather than Stooq-only.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "_to_stooq_symbol now treats a trailing '.us' as the only case of an already-fully-qualified Stooq symbol; every other '.' in the input ticker is converted to '-' (Stooq/yfinance's class-share notation) before the '.us' suffix is appended, instead of the old rule of 'any dot means don't touch it'.",
+      "rationale": "This provider only ever targets US equities (docs/Analyse.md §9 default market), so '.us' is the one legitimate pre-supplied suffix an existing test (test_does_not_double_suffix_ticker_that_already_has_a_market_suffix) already depends on being passed through unchanged. Treating every other dot as class-share notation rather than as a suffix fixes 'BRK.B' -> 'brk-b.us' (previously 'brk.b', an invalid Stooq symbol) without breaking that existing suffix-passthrough case, and without needing a country-code allowlist this app has no other use for.",
+      "alternatives_considered": "Considered maintaining an allowlist of known non-US market suffixes (.uk, .de, etc.) to distinguish 'already suffixed' from 'class share', but rejected it as unnecessary complexity: this app's data providers are documented as US-equity-only, so '.us' is the only suffix that can legitimately already be present."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended backend/tests/unit/data/test_provider_contract.py's parametrized protocol-conformance tests to cover both StooqProvider and YFinanceProvider, and added two new dedicated shape-output tests for YFinanceProvider (daily/weekly) alongside the existing Stooq ones, rather than trying to parametrize the shape-output tests themselves across both classes.",
+      "rationale": "The two providers mock at different boundaries (StooqProvider._fetch_csv vs yf.Ticker), so a single parametrized shape test body can't drive both without an awkward per-class dispatch table; separate, symmetrical test methods (mirroring test_yfinance_provider.py's own mocking pattern) are simpler to read and keep each provider's contract-shape assertion self-contained. Reused the yfinance fixtures already on main (tests/fixtures/yfinance/aapl_daily.csv, aapl_weekly.csv) rather than recording new ones, since they already satisfy the 'own mocked-fetch fixture' requirement from the task checklist. Rejected: a single dispatch-table-driven parametrized test across both provider classes, which would have obscured each provider's distinct mocking boundary behind indirection for no real gain given there are only two providers."
     }
   ]
 }
