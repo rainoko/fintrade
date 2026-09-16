@@ -206,9 +206,13 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     latest = force_index_2ema.iloc[-1]
     if pd.isna(latest):
         return False
-    if negative and latest >= 0:
-        return False
-    if not negative and latest <= 0:
+
+    # Signed multiplier rather than an `if negative: ... else: ...` pair of sign checks --
+    # `sign * latest <= 0` reads directly as "wrong sign (or zero)" for whichever direction
+    # was requested, instead of forcing a reader through `negative and latest >= 0` /
+    # `not negative and latest <= 0`'s double-negative branches to see the same thing.
+    sign = -1 if negative else 1
+    if sign * latest <= 0:
         return False
 
     rolling_std = force_index_2ema.rolling(window=_FORCE_INDEX_SPIKE_WINDOW).std().iloc[-1]
@@ -247,9 +251,16 @@ def evaluate_wave(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
     ``"NO_WAVE"`` rather than a guessed direction.
 
     An empty (0-row) ``daily_ohlcv`` degrades to the same NaN/``"NO_WAVE"`` shape rather than
-    raising, mirroring ``evaluate_impulse``'s ``len(daily_ohlcv) < 2`` guard in this same
-    module (app/signals/impulse.py) for the analogous reason: there's no bar to read
-    ``.iloc[-1]`` from, so this is a data-availability case, not a signal to compute.
+    raising, for the same data-availability reason ``evaluate_impulse``'s guard exists in
+    ``app/signals/impulse.py`` (a different module from this one, ``triple_screen.py``): with
+    zero rows there's no bar to read ``.iloc[-1]`` from. The condition here is
+    ``len(daily_ohlcv) == 0`` rather than ``evaluate_impulse``'s ``len(daily_ohlcv) < 2``,
+    because unlike that function's ``_direction`` helper (which reads ``.iloc[-2]`` and so
+    needs 2 rows), everything below reads only the single latest bar via ``.iloc[-1]`` --
+    ``stochastic_oscillator``/``force_index`` already return NaN rather than raising when given
+    just 1 row, so a 1-row ``daily_ohlcv`` reaches ``"NO_WAVE"`` through the ordinary
+    NaN-degrades-to-``"NO_WAVE"`` path below instead of needing its own guard (see
+    ``test_single_row_daily_ohlcv_degrades_to_no_wave_instead_of_raising``).
     """
     if len(daily_ohlcv) == 0:
         return {

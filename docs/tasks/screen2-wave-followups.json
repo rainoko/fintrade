@@ -3,7 +3,7 @@
   "title": "Screen 2: Wave — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["screen2-wave"],
   "references": [
     "docs/tasks/screen2-wave.json#review",
@@ -13,15 +13,53 @@
   "checklist": [
     {
       "step": "_is_force_index_spike's `negative: bool` parameter forces double-negative reasoning (`if negative and latest >= 0`, `if not negative and latest <= 0`); both branches are correct and tested, but a signed-multiplier form would read more directly for a future editor.",
-      "done": false
+      "done": true
     },
     {
       "step": "Fix the self-contradictory docstring on evaluate_wave's new len-guard: it says it mirrors evaluate_impulse's `len(daily_ohlcv) < 2` guard 'in this same module (app/signals/impulse.py)', but evaluate_wave lives in triple_screen.py, a different module, and the condition actually implemented is `== 0`, not `< 2`.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a regression test pinning the 1-row daily_ohlcv boundary case — only 0 rows is currently covered (test_empty_daily_ohlcv_degrades_to_no_wave_instead_of_raising); the 0-row-vs-<2 guard asymmetry vs. evaluate_impulse means a future stricter single-row check elsewhere wouldn't be caught here.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced _is_force_index_spike's `if negative and latest >= 0: return False` / `if not negative and latest <= 0: return False` pair with a single `sign = -1 if negative else 1; if sign * latest <= 0: return False`, keeping the existing `negative: bool` keyword-only parameter (and all existing call sites/tests) unchanged rather than renaming it to a signed multiplier itself.",
+      "rationale": "The checklist item's own wording ('a signed-multiplier form would read more directly') is about the internal reasoning, not the public parameter name; `_is_force_index_spike(..., negative=True)` at each call site (evaluate_wave's two branches) already reads clearly as 'is this a negative spike', and renaming the parameter would touch call sites and tests for no behavior or readability gain. The one-line signed-multiplier check removes the double-negative (`not negative and ...`) branch entirely while staying provably equivalent (sign=-1 -> sign*latest<=0 == latest>=0; sign=1 -> sign*latest<=0 == latest<=0), and all existing TestIsForceIndexSpike cases plus the two end-to-end Wave tests pass unchanged, confirming no behavior drift."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Rewrote evaluate_wave's len-guard docstring paragraph to name the correct module (app/signals/impulse.py, explicitly called out as a different module from this one) and to explain *why* the guard here is `== 0` rather than evaluate_impulse's `< 2` (this function only ever reads `.iloc[-1]`, never `.iloc[-2]`, and stochastic_oscillator/force_index already return NaN rather than raise for a 1-row input) instead of just asserting mirrored behavior.",
+      "rationale": "The old text was self-contradictory (claimed impulse.py was 'this same module' while evaluate_wave lives in triple_screen.py) and imprecise (claimed the guard mirrors `< 2` when the code implements `== 0`). Explaining the actual reason for the asymmetry (fewer required rows because the two indicators tolerate a 1-row input) is more useful to a future editor than just restating the numbers, and is now backed by test_single_row_daily_ohlcv_degrades_to_no_wave_instead_of_raising."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added test_single_row_daily_ohlcv_degrades_to_no_wave_instead_of_raising using real (unmocked) stochastic_oscillator/force_index, mirroring the existing 0-row test's unmocked style, rather than mocking stochastic_k/force_index_2ema to NaN directly.",
+      "rationale": "The point of this regression test is specifically to prove the 1-row boundary doesn't need its own guard because the underlying indicators already degrade to NaN for insufficient history and .iloc[-1] on a 1-element Series doesn't raise; mocking the indicators' outputs to NaN would only test the already-covered 'NaN input produces NO_WAVE' path (test_nan_stochastic_k_from_insufficient_history_is_no_wave) and wouldn't catch a future stricter single-row check inside either indicator, which is exactly the gap the checklist item flagged."
+    }
+  ],
+  "git": {
+    "branch": "task/screen2-wave-followups",
+    "pr_number": 58,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/58",
+    "pushed_at": "2026-09-16T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T11:07:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/58",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite: 472 passed, 99.84% coverage overall, 100% on app/signals/triple_screen.py; no regression against the 90% gate. No ruff/mypy config exists yet, so no lint step to run. Manually re-derived _is_force_index_spike's signed-multiplier refactor by hand across all 6 cases (negative=True/False x latest >0/<0/==0) and confirmed it's exactly equivalent to the original double-negative branches; the code-review skill (medium effort) independently confirmed the same with no findings. Confirmed evaluate_impulse genuinely lives in app/signals/impulse.py (a different module) and its `< 2` guard exists because _direction reads .iloc[-2], versus evaluate_wave's `== 0` guard since it only reads .iloc[-1] -- the corrected docstring is accurate. Confirmed the new 1-row boundary test genuinely uses real, unmocked stochastic_oscillator/force_index (no mocker fixture requested). Checked against docs/Analyse.md §2/§4 (verify-elder-signal): negative=True/False mapping to BULLISH/BEARISH tide branches matches the documented buy/sell cue framing; this PR only touches internal reasoning/docs/tests, not the Screen 2 decision logic. No API route/schema touched (no openapi.json change needed), no new module/dependency (no architecture-review needed), no UI surface (browser walkthrough explicitly skipped per the no-UI-surface exception). All 3 checklist items have decisions entries recorded. No non-blocking findings -- no follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T11:09:29Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 472 passed, 99.84% coverage, 100% on app/signals/triple_screen.py, matching pr-reviewer's numbers exactly. Independently re-derived _is_force_index_spike's signed-multiplier equivalence algebraically (not just spot-checked): for negative=True, sign=-1, so sign*latest<=0 <=> -latest<=0 <=> latest>=0, exactly the original `negative and latest>=0` branch; for negative=False, sign=1, so sign*latest<=0 <=> latest<=0, exactly the original `not negative and latest<=0` branch -- holds for all real latest, including latest==0, so it's a full proof, not a finite case check. Verified the corrected docstring: app/signals/impulse.py:60 uses `len(daily_ohlcv) < 2` (evaluate_impulse, a different module), app/signals/triple_screen.py:265 uses `== 0` (evaluate_wave), matching the docstring's claim exactly. Skimmed the full diff (triple_screen.py, test_triple_screen.py, index.json, task JSON) -- the new 1-row regression test genuinely calls evaluate_wave with no mocker fixture, exercising real stochastic_oscillator/force_index. No issues found; accept holds."
+  }
 }
