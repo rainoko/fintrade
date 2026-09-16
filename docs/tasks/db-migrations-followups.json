@@ -3,7 +3,7 @@
   "title": "Alembic migrations setup — non-blocking review follow-up",
   "area": "backend/db",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["db-migrations"],
   "references": [
     "docs/tasks/db-migrations.json#review",
@@ -30,5 +30,23 @@
     "pr_number": 47,
     "pr_url": "https://github.com/rainoko/fintrade/pull/47",
     "pushed_at": "2026-09-16T08:38:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T08:43:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/47",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the duplicate-ticker failure path does not work as documented. `ensure_positions_ticker_unique_index` runs `DROP INDEX IF EXISTS ix_positions_ticker` then `CREATE UNIQUE INDEX ix_positions_ticker ...` inside a single `engine.begin()` block; when the CREATE fails against genuine duplicate ticker rows, the DROP is NOT rolled back (pysqlite implicitly commits DDL outside SQLAlchemy's transactional-DDL workaround, which this script doesn't set up), so the pre-existing non-unique index is permanently destroyed and never recreated. Reproduced independently against a throwaway SQLite file with two rows sharing a ticker: after the expected IntegrityError/non-zero exit, `inspect(engine).get_indexes('positions')` returns `[]` (was previously the non-unique index). This contradicts the module docstring, the decisions entry, docs/architecture/Backend.md §7, and README.md, all of which claim the failure path 'fails loudly ... rather than silently leaving the table inconsistent' / leaves no partial state -- it does leave the table with zero index on ticker (row data itself is untouched, confirmed). The PR's own test (TestDriftedTableWithDuplicateTickers::test_raises_instead_of_silently_leaving_duplicates) encodes this broken behavior as its expected assertion (`_index_info(...) in {(False, False)}`) instead of catching it. Independently reproduced twice: once by hand against a raw engine.begin() block, and again via the code-review skill run against this diff, which found and reproduced the identical bug on its own. Suggested fix: build the replacement index under a temporary name and only drop+rename after it succeeds, or run a pre-check (SELECT ticker FROM positions GROUP BY ticker HAVING COUNT(*) > 1) and raise before touching the schema at all if duplicates exist -- either avoids ever destroying the working index on the failure path.",
+        "file": "backend/scripts/fix_schema_drift.py",
+        "line": 95
+      },
+      {
+        "summary": "Verified accurate (not a finding, recorded for the record): the CREATE UNIQUE INDEX IF NOT EXISTS-alone rejection in the decisions entry holds -- reproduced independently that SQLite's IF NOT EXISTS only checks the index name, silently leaving a same-named non-unique index non-unique. The env.py-hook and normal-Alembic-revision rejected alternatives are also sound for the reasons given.",
+        "file": "backend/scripts/fix_schema_drift.py",
+        "line": 0
+      }
+    ],
+    "notes": "Full review of PR #47 (task/db-migrations-followups). Checked out via `gh pr checkout 47` (was already on the branch). Tests: 447 backend tests pass (source .venv/bin/activate && python -m pytest --cov=app --cov-branch --cov-report=term-missing), up from 437 on main (the 10 new tests in tests/integration/test_fix_schema_drift.py); overall coverage 99.83% (gate 90%), no regression. backend/scripts/* correctly stays outside pyproject.toml's [tool.coverage.run] source = [\"app\"], same as the pre-existing export_openapi.py, even though it has its own dedicated integration tests. No lint/type-check tool configured in backend/pyproject.toml (no ruff/mypy section), consistent with PR #46's review -- nothing to run there. No frontend exists yet, so the browser walkthrough is explicitly skipped (no UI surface anywhere in the repo), not silently omitted. Not an API/schema change, so backend/openapi.json correctly untouched. verify-elder-signal not applicable (area is backend/db, no signals/portfolio logic touched). architecture-review not separately invoked as a new module/dependency/layer -- this is a standalone script alongside the pre-existing scripts/export_openapi.py, same pattern, not a new layer. The one checklist item was phrased as 'consider (a) or (b)', which is a judgment call, not a bare 'decide X' -- the task's decisions entry records which was chosen and why, satisfying CLAUDE.md's decision-memory requirement; that record's reasoning about IF NOT EXISTS and the two rejected implementation locations (env.py hook, chained Alembic revision) was independently verified and holds. Ran the code-review skill (medium) against the diff in parallel with my own manual verification; it independently reproduced the exact same failure-path bug by actually running the script, which corroborates the finding rather than being taken on trust. The core ask of this review (verify the IF NOT EXISTS claim and the duplicate-row failure path by trying to break them, not just trusting the docstring) surfaced one real, reproducible, blocking correctness bug -- see comments. No other findings beyond it; this is a small, focused diff (140+256 new lines) and I did not find additional non-blocking issues warranting a separate tracked follow-up. No pr_decision was present on this task prior to this review, so nothing to clear. Posted as a COMMENTED-type PR review (gh pr review 47 --comment), never an approve/request-changes. State set back to implementing per CLAUDE.md's needs_work flow so task-worker re-dispatches; index.json mirrored in the same commit."
   }
 }
