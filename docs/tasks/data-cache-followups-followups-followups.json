@@ -22,17 +22,23 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-16T00:00:00Z",
+      "timestamp": "2026-09-16T10:55:10Z",
       "recorded_by": "task-worker",
       "decision": "Kept the OperationalError catch broad (still `except (IntegrityError, OperationalError)`, no `str(exc)`/`orig` pattern-matching for 'database is locked') and instead (1) added an inline comment documenting that OperationalError's scope is unverified/wider than IntegrityError's -- it can also mean a missing table, a corrupted DB file, or disk-full, none of which are benign -- and (2) changed the except-branch's `logger.warning` to include the caught exception's type and message (`type(exc).__name__`, `exc`), not just the ticker/interval as before.",
       "rationale": "The task explicitly offered a choice between narrowing by inspecting the error message/args vs. a clarifying comment/log message. Message/args inspection was rejected: the adjacent IntegrityError branch already explicitly rejects the equivalent move (parsing `orig` for which constraint fired) as fragile across SQLite versions/drivers, and 'database is locked' is exactly that kind of driver-specific string -- narrowing on it would swap one undocumented assumption for a differently fragile one, and this is explicitly 'not a live bug today'. Logging the exception content instead costs nothing at runtime, doesn't change any behavior/control flow (so no new test scenarios to cover), and directly serves the stated goal ('surfaced ... to an operator') -- an operator grepping logs for this warning can now see a literal 'database is locked' vs. something else (e.g. 'no such table') and escalate accordingly, even though the code path still treats both as the same benign race today."
     },
     {
-      "timestamp": "2026-09-16T00:00:00Z",
+      "timestamp": "2026-09-16T10:55:10Z",
       "recorded_by": "task-worker",
       "decision": "Extended TestUpsertDuplicateDateWithinFrame with a new sibling test (test_three_plus_duplicate_dates_in_one_frame_dedupe_to_the_last_occurrence) reusing the exact 4-row shape (3 rows sharing one date, 1 on a distinct date) manually verified during PR #56's review, rather than editing the existing 2-row test in place.",
       "rationale": "Keeping the original 2-row test intact preserves that exact regression case (the minimal duplicate-pair scenario the fix was originally written against) while the new test independently pins the N>2 generalization the checklist item calls out -- losing either coverage shape to the other wasn't worth it when both are cheap to keep. The 4-row shape (not just e.g. 3 identical dates) was chosen specifically because it also asserts that a distinct-date row alongside the duplicates is unaffected, matching what was actually manually verified rather than a narrower case."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/data-cache-followups-followups-followups",
+    "pr_number": 57,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/57",
+    "pushed_at": "2026-09-16T10:55:10Z"
+  }
 }
