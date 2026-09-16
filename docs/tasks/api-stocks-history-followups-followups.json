@@ -1,0 +1,21 @@
+{
+  "id": "api-stocks-history-followups-followups",
+  "title": "GET /api/stocks/{ticker}/history follow-ups — further non-blocking review follow-up",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-stocks-history-followups"],
+  "references": [
+    "docs/tasks/api-stocks-history-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/41"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #41 (api-stocks-history-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "In backend/app/api/routers/stocks.py, the new `_RangeOutOfBoundsError` class is defined between `get_history` (which references it in a `try/except` at line ~113, above the class's own definition) and `_trim_to_range` (which raises it, below the definition). This works correctly at runtime -- both functions only touch the name when called, by which point the whole module (including the class statement) has already executed -- but the physical ordering (used-before-defined, then defined-before-raised) is a minor readability wrinkle compared to the codebase's usual pattern of defining an exception type before its first use. Worth moving `_RangeOutOfBoundsError`'s definition up (e.g. directly above `_trim_to_range`, or near the top of the module alongside `_RANGE_PATTERN`) next time this file is touched, purely for readability -- not a functional issue.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

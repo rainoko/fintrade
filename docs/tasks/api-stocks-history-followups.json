@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/history — review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-history"],
   "references": [
     "docs/tasks/api-stocks-history.json",
@@ -34,5 +34,23 @@
     "pr_number": 41,
     "pr_url": "https://github.com/rainoko/fintrade/pull/41",
     "pushed_at": "2026-09-16T07:18:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:22:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/41",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Both PR #40 follow-up findings genuinely closed. Verified independently (not just via the new tests): the previously-500ing cases (`range=999999999y`, `range=99999999999999999999999d`) now return 422 via the tightened `_RANGE_PATTERN` (`\\d{1,4}`); the residual case the pattern cap alone can't catch (`range=9999y`, 4 digits but overflows `pd.Timestamp`'s ~1677-2262 bounds) returns 422 via the new `_RangeOutOfBoundsError` catch in `_trim_to_range`/`get_history`. Also spot-checked `9999d`/`9999w`/`9999m` (200/200/422) and the new weekly-404 test (`interval=weekly` + unknown ticker -> 404) directly against a stub provider -- all match the PR's claims. Full backend suite: 424/424 pass, 99.83% coverage overall, `app/api/routers/stocks.py` at 100% line/branch. No ruff/mypy config exists in backend/pyproject.toml so none run (consistent with prior reviews on this repo). `backend/openapi.json` is current -- re-ran `python scripts/export_openapi.py` and diffed against the committed snapshot, no changes. No frontend exists yet (CLAUDE.md: 'not yet scaffolded'), so this backend-only PR has no UI surface -- browser walkthrough explicitly skipped rather than silently omitted. area is backend/api (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply. Both checklist items are concrete bug/gap fixes, not 'decide X' items, and the task's own `decisions` entry adequately records the rationale for fixing both ways rather than one.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 0
+      },
+      {
+        "summary": "Minor, non-blocking: `_RangeOutOfBoundsError` is defined between `get_history` (which references it above its own definition) and `_trim_to_range` (which raises it, below the definition). Correct at runtime since the class statement executes at import time before either function is called, but the used-before-defined-then-defined-before-raised ordering is a minor readability wrinkle versus this codebase's usual pattern of defining an exception type before its first use. Filed as a follow-up rather than blocking on it.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 130
+      }
+    ],
+    "notes": "Accepted. Manual boundary-case verification (a fresh TestClient against a stub provider, run independently of the PR's own tests) confirms both follow-up findings from PR #40's review are genuinely closed, not just superficially tested. One new non-blocking nit filed to docs/tasks/api-stocks-history-followups-followups.json (new task, since none existed yet for this task id)."
   }
 }
