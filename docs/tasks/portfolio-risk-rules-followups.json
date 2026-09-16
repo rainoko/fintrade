@@ -15,5 +15,11 @@
       "step": "The 'daily_ohlcv must be ordered oldest-first (most recent row last)' contract that protective_stop() relies on (via .tail()) is only documented in risk.py's own docstring. app/data/base.py's DataProvider.get_daily_ohlcv docstring says 'indexed by date' but doesn't state sort order explicitly — state it there too so a future data-provider implementation can't silently violate the contract this function depends on.",
       "done": true
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/portfolio-risk-rules-followups",
+    "pr_number": 48,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/48",
+    "pushed_at": "2026-09-16T08:56:10Z"
+  }
 }
