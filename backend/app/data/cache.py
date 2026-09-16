@@ -18,7 +18,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.data.base import DataProvider
@@ -175,8 +175,29 @@ class CachedDataProvider(DataProvider):
         ticker/interval, the same query `_read_cache` already runs) rather than
         looked up one `self._db.get()` per row, which was an O(n) SELECT-per-row
         pattern for long-history tickers. See this task's `decisions` entry.
+
+        `existing_by_date` is kept in sync as rows are added within the loop
+        (not just pre-populated from the DB before it), so a `frame` that
+        itself contains two rows for the same normalized date -- a malformed
+        or duplicate source response -- updates the same just-added row
+        instead of attempting a second INSERT with an identical composite PK.
+        This restores the self-healing behavior the old per-row
+        `self._db.get()` lookup got for free from SQLAlchemy's identity map,
+        which the bulk-dict rewrite above had otherwise dropped. See this
+        task's `decisions` entry.
         """
         fetched_at = _utcnow()
+        # Deliberately re-runs the same query `_get`'s `cached_rows` already
+        # ran, rather than reusing that earlier snapshot -- this is a known,
+        # accepted trade-off, not an oversight. `cached_rows` was read
+        # *before* the network fetch in `_get`; re-querying here, right
+        # before the upsert, picks up any rows a concurrent request managed
+        # to commit during that fetch, narrowing (not just duplicating) the
+        # race window the `except (IntegrityError, OperationalError)` below
+        # exists for. Reusing `cached_rows` would save one cheap local SQLite
+        # SELECT per cache-miss/stale-refresh call, at the cost of widening
+        # that race window back out to cover the full fetch duration. See
+        # this task's `decisions` entry.
         existing_by_date = {row.date: row for row in self._read_cache(ticker, interval)}
         for idx, row in frame.iterrows():
             bar_date = idx.date() if hasattr(idx, "date") else idx
@@ -184,6 +205,7 @@ class CachedDataProvider(DataProvider):
             if existing is None:
                 existing = OHLCVCacheORM(ticker=ticker, date=bar_date, interval=interval)
                 self._db.add(existing)
+                existing_by_date[bar_date] = existing
             existing.open = float(row["open"])
             existing.high = float(row["high"])
             existing.low = float(row["low"])
@@ -192,17 +214,35 @@ class CachedDataProvider(DataProvider):
             existing.fetched_at = fetched_at
         try:
             self._db.commit()
-        except IntegrityError:
+        except (IntegrityError, OperationalError):
             # Two concurrent first-time-population calls for the same
             # (ticker, interval) can both see no existing row for a given date
             # above and both try to insert it, so the loser's commit hits the
-            # composite primary key. Rather than a locking mechanism, the
-            # loser just discards its own attempted write: the winner's
-            # equivalent, concurrently-committed rows are already in the
-            # cache, and `_get` returns `frame` (the data this call itself
-            # just fetched) to its caller regardless of whether this upsert's
-            # commit succeeds -- so no caller-visible data is lost, only a
-            # wasted write. See this task's `decisions` entry.
+            # composite primary key (IntegrityError). SQLite's default
+            # file-level write locking -- no WAL mode or explicit
+            # `busy_timeout` configured on the engine (app/db/session.py) --
+            # also makes a genuinely concurrent commit at least as likely to
+            # instead raise OperationalError ("database is locked"),
+            # depending on timing, so both are caught the same way here.
+            # Rather than a locking mechanism, the loser just discards its
+            # own attempted write: the winner's equivalent, concurrently-
+            # committed rows are already (or about to be) in the cache, and
+            # `_get` returns `frame` (the data this call itself just fetched)
+            # to its caller regardless of whether this upsert's commit
+            # succeeds -- so no caller-visible data is lost, only a wasted
+            # write. See this task's `decisions` entry.
+            #
+            # This except is scoped to the whole commit rather than only the
+            # composite-PK conflict it's documented/tested for, because
+            # SQLAlchemy/SQLite don't offer a cheap, portable way to inspect
+            # *which* constraint an IntegrityError came from without parsing
+            # driver-specific message text (`orig`) -- fragile across SQLite
+            # versions and not worth it for the one constraint OHLCVCacheORM
+            # currently has. Verified against the current schema (app/db/
+            # models.py) that the composite PK is the only NOT NULL/UNIQUE/FK
+            # constraint on this table today, so this can't currently mask an
+            # unrelated integrity bug. Revisit (narrow the catch, or inspect
+            # `orig`) if OHLCVCacheORM ever gains another constraint.
             self._db.rollback()
             logger.warning(
                 "Concurrent cache population for %r (%s) raced this upsert; discarding "

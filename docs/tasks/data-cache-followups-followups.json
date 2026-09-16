@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer — non-blocking findings from PR #55's review",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["data-cache-followups"],
   "references": [
     "docs/tasks/data-cache-followups.json#review",
@@ -13,21 +13,84 @@
   "checklist": [
     {
       "step": "_upsert's `except IntegrityError` around `self._db.commit()` only catches the composite-PK-conflict outcome of a concurrent first-time-population race. Under SQLite's default file-level write locking -- no WAL mode and no explicit `busy_timeout`/`timeout` configured on the engine (app/db/session.py only sets `check_same_thread: False`) -- two genuinely concurrent commits from separate request-scoped sessions (confirmed reachable: app/api/dependencies.py wires CachedDataProvider into sync `def` route handlers that Starlette dispatches to a threadpool) are at least as likely to raise `sqlite3.OperationalError` (\"database is locked\") as a clean `IntegrityError`, depending on commit timing. `OperationalError` is not caught here and would still propagate as an unhandled 500. Consider also catching `OperationalError` (or configuring WAL mode / an explicit busier timeout on the engine) so the same race doesn't have an uncaught outcome depending on timing luck.",
-      "done": false
+      "done": true
     },
     {
       "step": "The `except IntegrityError` in `_upsert` is scoped to the entire commit, not specifically the composite-PK conflict it's documented and tested for. Verified against the current schema (app/db/models.py's OHLCVCacheORM: only the composite PK and NOT NULL columns, all of which are always set before commit) that the PK conflict is the only realistic source of IntegrityError today, so this isn't a live bug -- but if a future schema change adds another constraint (a FK, CHECK, or additional UNIQUE constraint) to OHLCVCacheORM, a genuine data-integrity bug on that constraint would be silently logged-and-swallowed as though it were the benign concurrent-population race, rather than surfaced. Worth a comment tying the except clause to the specific constraint it's meant to catch (e.g. inspecting the IntegrityError's message/orig for the PK columns) or revisiting if/when the schema gains a new constraint.",
-      "done": false
+      "done": true
     },
     {
       "step": "Item #1's rewrite of `_upsert` to build `existing_by_date` as one dict computed *before* the row loop (instead of the old per-row `self._db.get()`, which benefited from SQLAlchemy's session identity map) drops self-healing for a fetched frame that itself contains two rows for the same normalized date: the old code's `self._db.get()` would find the first row's just-added ORM object in the identity map and update it again; the new code's dict lookup won't see it (only pre-existing DB rows are in `existing_by_date`), so a second same-date row always creates a second `OHLCVCacheORM` with an identical PK, deterministically raising `IntegrityError` on commit -- not just under concurrency. Combined with item #3's new catch-and-swallow, this is silently logged as though it were the benign concurrent-population race and the entire upsert is discarded, so that ticker/interval can never be cached (not self-healing on a later call, since the same duplicate would reappear on every re-fetch) -- contradicting the 'self-healing thereafter' claim in item #3's own decisions entry. Reproduced directly (not just read from the diff): a stub provider frame with two rows sharing a date triggers this every time, with 0 rows ever landing in the cache. Verified this cannot currently occur with either real provider (StooqProvider's `.resample(\"W-FRI\")` and YFinanceProvider's native `interval=\"1wk\"`/`\"1d\"` both structurally guarantee a unique index), so this doesn't manifest in production today, mirroring the same 'latent gap, doesn't manifest under current provider behavior' rationale already accepted for item #2's staleness gap on this same task -- but it's a real regression in the `_upsert` code path's robustness that's cheap to fix (update `existing_by_date[bar_date] = existing` when a new row is added inside the loop, restoring the old identity-map-equivalent behavior) and worth closing given it directly undercuts a claim in this PR's own decision record.",
-      "done": false
+      "done": true
     },
     {
       "step": "_upsert's new `existing_by_date = {row.date: row for row in self._read_cache(ticker, interval)}` reruns the exact same query `_get` already ran via its own `cached_rows = self._read_cache(...)` a few lines earlier in the same call, on every cache-miss/stale-refresh path -- one extra full SELECT per call that a passed-through `cached_rows` could avoid. Note this isn't purely wasteful, though: re-querying at upsert time (after the network fetch) picks up any rows a concurrent request committed in the interim, narrowing (not just duplicating) the race window item #3 addresses -- so simply reusing the earlier snapshot would be a real trade-off, not a pure win. Worth either reusing `cached_rows` with a comment on the accepted trade-off, or documenting why the second query is intentional.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #1 (uncaught OperationalError alongside IntegrityError): fixed by broadening `_upsert`'s `except IntegrityError` to `except (IntegrityError, OperationalError)`, both handled identically (rollback + warning log), rather than configuring SQLite WAL mode or an explicit `busy_timeout` on the engine.",
+      "rationale": "Both exceptions are two different manifestations of the exact same benign race this except clause already exists for (a concurrent first-time-population commit for the same ticker/interval), so handling them the same way is the natural fix and needed no new logic, just a wider except tuple. Rejected configuring WAL mode / an explicit busy_timeout on the engine (app/db/session.py) as a follow-up-scope change: it would reduce how often the race manifests as OperationalError at all (SQLite's writer lock waits up to `busy_timeout` before failing), which is a genuine improvement, but it's an engine-wide behavior change unrelated to this task's specific finding (an uncaught exception type) and touches a file/decision (this task's `depends_on`, data-cache-followups, deliberately left engine config alone) outside this narrow follow-up's scope -- catching both outcomes closes the actual reported gap (an unhandled 500) without that broader change.",
+      "rejected_alternatives": "WAL mode / busy_timeout tuning on app/db/session.py's engine."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #2 (except scoped to the whole commit, not the specific PK conflict): documented with an inline comment explaining why the current broad catch is safe today and what would need to change, rather than inspecting `IntegrityError.orig`/message text to narrow the catch to the composite-PK conflict specifically.",
+      "rationale": "SQLAlchemy's `IntegrityError.orig` for SQLite is a driver-specific `sqlite3.IntegrityError` whose only machine-readable signal is a message string ('UNIQUE constraint failed: ohlcv_cache.ticker, ohlcv_cache.date, ohlcv_cache.interval') -- there's no portable, structured way to assert 'this specific composite PK' short of substring-matching that message, which is fragile across SQLite/SQLAlchemy versions and arguably less trustworthy than the comment-plus-schema-verification approach the checklist item itself offered as an acceptable alternative ('...or revisiting if/when the schema gains a new constraint'). Verified (again, matching PR #55's own review note) that OHLCVCacheORM's only constraints today are the composite PK and NOT NULL columns that are always populated before commit, so nothing is currently silently masked. Rejected message-substring inspection as the fix given it trades one code smell (an overly broad except) for a more fragile one (parsing driver error text) without eliminating the risk, just relocating it; the comment achieves the item's actual goal (make the assumption explicit and revisitable) without that fragility.",
+      "rejected_alternatives": "Inspecting IntegrityError.orig/message text to assert the PK-conflict specifically."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #3 (duplicate-date-within-frame regression): fixed exactly as the checklist item itself suggested -- `existing_by_date[bar_date] = existing` is now set immediately after a new `OHLCVCacheORM` is created and `self._db.add()`-ed inside the loop, so a second row later in the same `frame` sharing that date updates the just-created row (last occurrence wins) instead of attempting a second INSERT with an identical composite PK.",
+      "rationale": "This is the minimal, behavior-preserving fix: it restores exactly the self-healing the old per-row `self._db.get()` + SQLAlchemy identity-map lookup gave for free, without reintroducing the O(n) SELECT-per-row pattern item #1 of the parent task (data-cache-followups) fixed. Rejected pre-deduplicating `frame` itself (e.g. `frame[~frame.index.duplicated(keep='last')]`) before the loop, which the task description also floated as an option: it's an equally correct fix but a less minimal diff (adds a pandas-specific dedup step operating on the whole frame) for the same outcome the one-line in-loop fix already gives; the in-loop fix also generalizes better if `_upsert` is ever called with rows that aren't `DatetimeIndex`-backed. Verified with a new regression test (TestUpsertDuplicateDateWithinFrame) asserting a two-row-same-date stub frame both returns the correct 2-row result to the caller and persists exactly 1 (last-write-wins) row to the cache, where before this fix it persisted 0 (swallowed by item #1's IntegrityError catch).",
+      "rejected_alternatives": "Pre-deduplicating the incoming frame by date (keep='last') before the loop, instead of updating the lookup dict in-loop."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item #4 (redundant duplicate SELECT on every miss/stale-refresh): kept the second `_read_cache` query as-is (did not thread `cached_rows` through from `_get`), and instead added an inline comment at the call site making the accepted trade-off explicit.",
+      "rationale": "The checklist item's own framing already concluded this isn't a pure win either way ('a real trade-off, not a pure win'), and the two exception types now caught by item #1's fix (IntegrityError and OperationalError) mean *both* choices are now safe from a correctness standpoint -- reusing `cached_rows` would no longer risk an unhandled crash on a race, only a slightly wider window in which a losing/discarded upsert becomes more likely (still harmless per the existing decisions entry: `_get` returns the freshly-fetched `frame` to the caller regardless of whether the cache write lands). Chose to keep the second query (rather than reuse `cached_rows`) because it's one cheap, local, already-indexed SQLite SELECT (composite PK on ticker+date+interval) per cache-miss/stale-refresh call -- not a network round trip -- so the cost side of the trade-off is small, while the benefit (narrowing the race window back to just the final commit rather than the whole network-fetch duration) is a real, if modest, robustness improvement worth keeping now that both outcomes of that narrowed race are handled cleanly by item #1. Rejected threading `cached_rows` through from `_get` to `_upsert` to eliminate the query, since that would trade a small, cheap query for a wider race window with no offsetting benefit now that the cost of the query itself is not the bottleneck (SQLite on a local file).",
+      "rejected_alternatives": "Threading `cached_rows` from `_get` into `_upsert` to eliminate the second SELECT."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/data-cache-followups-followups",
+    "pr_number": 56,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/56",
+    "pushed_at": "2026-09-16T10:44:46Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T10:47:31Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/56",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Item (c) verified directly, not just read from the diff: reproduced with a 4-row stub frame where 3 rows share one date and a 4th has a distinct date. Result: exactly 2 persisted rows (one per distinct date), the shared-date row holding the last occurrence's values (30.0, the 3rd of the 3 duplicates), 0 IntegrityError. Confirms 'last occurrence wins' holds for 3+ duplicates in one frame, not just the 2-row case the PR's own new test (TestUpsertDuplicateDateWithinFrame) exercises -- the in-loop `existing_by_date[bar_date] = existing` update makes each subsequent duplicate see the previous one's already-updated row, so the fix generalizes correctly by construction.",
+        "file": "backend/app/data/cache.py",
+        "line": 208
+      },
+      {
+        "summary": "Non-blocking: broadening the commit-time except clause to `(IntegrityError, OperationalError)` also broadens the swallowed-error surface for OperationalError specifically -- unlike IntegrityError, whose scope the inline comment verifies against the current schema (only the composite PK constraint), nothing here verifies that OperationalError can currently only arise from SQLite lock contention on this commit. A different OperationalError cause (e.g. a missing table from a skipped migration, a corrupted db file, a disk-full condition) would now also be silently logged-and-swallowed as though it were the benign concurrent-population race. Not a live bug today (this commit only writes to an already-migrated OHLCVCacheORM table), but worth the same kind of scope note item #2 gives IntegrityError, or narrowing by inspecting the exception message for the specific SQLite 'database is locked' text. Filed as a follow-up rather than blocking, since it mirrors the same accepted trade-off already made (and reviewed) for IntegrityError's broad scope on this same except clause.",
+        "file": "backend/app/data/cache.py",
+        "line": 217
+      },
+      {
+        "summary": "Non-blocking, test-completeness only: the new regression test (TestUpsertDuplicateDateWithinFrame) exercises exactly 2 duplicate rows for one date; the underlying fix generalizes to N duplicates (verified manually with 3), but the test suite doesn't pin that stronger claim. Worth extending the existing test (or adding a second one) with 3+ duplicate dates to lock in the behavior the fix's own docstring already describes generally.",
+        "file": "backend/tests/unit/data/test_cache.py",
+        "line": 425
+      }
+    ],
+    "notes": "Full review: checked out PR #56, ran the backend suite (470 passed, 99.84% line/branch coverage against the 90% gate, cache.py itself at 100%) and manually reproduced item (c)'s claim with a 3+-duplicate-date frame (not just the PR's own 2-row test) to directly verify the data-loss regression fix is correct, not just plausible from the diff -- confirmed last-occurrence-wins with exactly 1 persisted row per distinct date and 0 IntegrityError. No frontend exists yet and this PR touches no API route/schema, so no OpenAPI regeneration was required and no browser walkthrough applies (stated explicitly per review process, not silently skipped). No ruff/mypy config exists in backend/pyproject.toml to run. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply. All four checklist items have corresponding decisions entries recorded by task-worker. Two non-blocking findings (OperationalError catch scope, test coverage of only 2 vs 3+ duplicates) filed as a new checklist entries on docs/tasks/data-cache-followups-followups-followups.json rather than left only in this PR comment."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T10:50:44Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend suite myself: 470 passed, 99.84% line/branch coverage, cache.py at 100% -- matches pr-reviewer's reported numbers exactly. Independently reproduced the dedup fix with 5 duplicate rows on one date plus 2 distinct-date rows: exactly 3 persisted rows, 0 IntegrityError, shared-date row held 14.0 (the 5th/last of the 5 duplicates) -- confirms last-occurrence-wins generalizes beyond pr-reviewer's own 3-duplicate check. Skimmed the full diff (cache.py, test_cache.py, both task JSONs, index.json); confirmed the two non-blocking findings (OperationalError catch scope, test coverage gap) are correctly filed on data-cache-followups-followups-followups.json and are genuinely non-blocking -- OperationalError can only arise here from an already-migrated table's commit path, so the broadened catch doesn't currently mask anything live. No human PR comments present on #56."
+  }
 }

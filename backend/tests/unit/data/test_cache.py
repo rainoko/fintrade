@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.data.cache import CachedDataProvider
@@ -381,3 +381,55 @@ class TestConcurrentFirstPopulation:
         # session's view of the cache -- that's the accepted trade-off (see
         # this task's `decisions` entry), the caller-visible result is correct
         assert session.query(OHLCVCacheORM).filter_by(ticker="AAPL").count() == 0
+
+    def test_operational_error_on_upsert_commit_is_also_swallowed_not_raised(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same race as above, but SQLite raises OperationalError ("database is
+        locked") instead of IntegrityError -- at least as likely an outcome as
+        IntegrityError under SQLite's default file-level locking, per this
+        task's checklist. `_upsert` must swallow this the same way, not just
+        IntegrityError, or the same race has an uncaught outcome depending on
+        timing luck.
+        """
+        fresh = _frame(["2026-06-02"], [21.0])
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        original_commit = session.commit
+
+        def _commit_raises_once():
+            monkeypatch.setattr(session, "commit", original_commit)
+            session.rollback()
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(session, "commit", _commit_raises_once)
+
+        result = provider.get_daily_ohlcv("AAPL")
+
+        assert list(result["close"]) == [21.0]
+        assert session.query(OHLCVCacheORM).filter_by(ticker="AAPL").count() == 0
+
+
+class TestUpsertDuplicateDateWithinFrame:
+    def test_two_rows_for_the_same_date_in_one_frame_are_deduped_not_raised(
+        self, session: Session
+    ) -> None:
+        """Regression test for the identity-map-self-healing regression flagged
+        on this task: a fetched frame with two rows sharing one date must not
+        raise IntegrityError on commit, and the second (last) occurrence should
+        win -- matching what the old per-row `self._db.get()` lookup did via
+        SQLAlchemy's identity map before the bulk-dict rewrite.
+        """
+        fresh = _frame(["2026-07-01", "2026-07-01"], [30.0, 31.0])
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_daily_ohlcv("DUPE")
+
+        assert list(result["close"]) == [30.0, 31.0]
+        rows = session.query(OHLCVCacheORM).filter_by(ticker="DUPE", interval="daily").all()
+        assert len(rows) == 1
+        assert rows[0].close == 31.0
