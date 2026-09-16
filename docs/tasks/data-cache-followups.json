@@ -79,5 +79,11 @@
       "decision": "Item #6 (silently-discarded primary exception): fixed by adding `logger = logging.getLogger(__name__)` (Python's stdlib `logging`, no new dependency) to app/data/cache.py and logging the primary provider's exception message (`logger.warning`) at the point it's caught in `_fetch_from_source`, plus folding that same message into the raised `DataProviderUnavailableError`'s text when the fallback also fails (previously only the fallback's exception survived, as `__cause__`).",
       "rationale": "stdlib `logging` was chosen over introducing an actual logging framework/config (structlog, a dictConfig setup, etc.) because the review's own finding explicitly noted no logging framework exists anywhere in this backend yet, and standing one up is out of scope for a non-blocking follow-up about one discarded exception -- `logging.getLogger(__name__)` with no handler configured still uses Python's default 'lastResort' handler (writes WARNING+ to stderr), which is a real, non-silent behavior change without requiring any new setup elsewhere in the app. The primary's exception object itself can't be `raise ... from` the final error the way the fallback's is (a `raise` can only chain one `__cause__`), and Python deletes an `except ... as name` binding at the end of its own `except` block, so the primary's message is captured into a plain `str` (`primary_failure`) before that block exits and threaded into both the log call and the final error's text -- verified this doesn't regress by re-running the existing TestBothProvidersFailed tests (still pass, now with a bit more descriptive text) and confirming no test asserts on the previous exact wording."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/data-cache-followups",
+    "pr_number": 55,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/55",
+    "pushed_at": "2026-09-16T10:26:33Z"
+  }
 }
