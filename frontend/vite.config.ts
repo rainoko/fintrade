@@ -22,6 +22,15 @@ export default defineConfig({
         functions: 90,
         statements: 90,
       },
+      // By default vitest's v8 provider only instruments files a test
+      // actually imports, so an entirely untested file is silently
+      // excluded from both the numerator and denominator of the report
+      // instead of counting as 0%. `include` (this version of vitest
+      // removed the older `coverage.all` boolean in favor of this) makes
+      // every matching file under src/ count, mirroring the backend's
+      // `source = ["app"]` config which counts every file regardless of
+      // whether a test imports it.
+      include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/api/types.ts', // generated from backend/openapi.json, never hand-edited
         'src/main.tsx', // app bootstrap, not meaningfully unit-testable

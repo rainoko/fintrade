@@ -3,7 +3,7 @@
   "title": "Frontend: scaffold Vite + React + TypeScript + MUI project",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -83,6 +83,12 @@
       "recorded_by": "task-worker",
       "decision": "Added a minimal but real baseline test suite (src/App.test.tsx covering the route table, src/theme/theme.test.ts covering the semantic palette) instead of leaving the scaffold with zero tests.",
       "rationale": "vitest exits non-zero ('No test files found') when no test file exists, which would make `npm run test:coverage` fail — directly contradicting the checklist's 'confirm test:coverage ... succeed on the empty scaffold' requirement. Testing the route table and theme palette is legitimate coverage of the actual scaffold code (App.tsx, pages/*, theme.ts) rather than a throwaway assertion, and reaches 100% on all four coverage dimensions without pulling forward any frontend-* feature work."
+    },
+    {
+      "timestamp": "2026-09-16T21:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the pr-reviewer blocking finding by adding `coverage.include: ['src/**/*.{ts,tsx}']` to vite.config.ts rather than `coverage.all: true` as the review comment suggested.",
+      "rationale": "Checked the installed vitest 5.0.1 / @vitest/coverage-v8 5.0.1 type definitions (node_modules/vitest/dist/chunks/plugin.d.CN87HSxv.d.ts, interface CoverageOptions) directly rather than assuming the option name: there is no `all` field in this version's CoverageOptions at all, only `include`/`exclude`, and `include`'s own doc comment says 'By default only files covered by tests are included' — i.e. setting `include` is this version's mechanism for switching from tested-files-only to all-matching-files, replacing the older `coverage.all` boolean from earlier vitest majors. Verified empirically the same way the reviewer did: added a throwaway src/scratch-untested.ts with an untested if/else branch, reran `npm run test:coverage` — it now appeared in the report and dragged coverage from 100% to 62.5%, correctly failing the 90% threshold gate (previously the run stayed unchanged at 100% with the file invisible). Removed the throwaway file and confirmed `npm run test:coverage` passes cleanly again at 100% on all four dimensions."
     }
   ],
   "git": {
