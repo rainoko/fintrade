@@ -43,5 +43,11 @@
       "decision": "Added test_single_row_daily_ohlcv_degrades_to_no_wave_instead_of_raising using real (unmocked) stochastic_oscillator/force_index, mirroring the existing 0-row test's unmocked style, rather than mocking stochastic_k/force_index_2ema to NaN directly.",
       "rationale": "The point of this regression test is specifically to prove the 1-row boundary doesn't need its own guard because the underlying indicators already degrade to NaN for insufficient history and .iloc[-1] on a 1-element Series doesn't raise; mocking the indicators' outputs to NaN would only test the already-covered 'NaN input produces NO_WAVE' path (test_nan_stochastic_k_from_insufficient_history_is_no_wave) and wouldn't catch a future stricter single-row check inside either indicator, which is exactly the gap the checklist item flagged."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/screen2-wave-followups",
+    "pr_number": 58,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/58",
+    "pushed_at": "2026-09-16T00:00:00Z"
+  }
 }
