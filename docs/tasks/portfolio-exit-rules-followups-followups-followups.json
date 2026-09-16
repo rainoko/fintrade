@@ -37,5 +37,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Purely additive PR (two direct unit tests for protective_stop()'s columns_validated skip-semantics; no production code touched). Full backend suite: 449 passed, app/portfolio/risk.py at 100% line/branch coverage, overall 99.83% (gate 90%). Independently verified both new tests are non-vacuous by temporarily mutating risk.py (never committed) to simulate the two regressions each test claims to catch -- both failed as expected, confirming genuine regression coverage; risk.py restored to a clean git diff afterward. No ruff/mypy config exists in backend/pyproject.toml, so none run, per CLAUDE.md. verify-elder-signal: no production code changed, docs/Analyse.md §7's protective-stop formula unaffected, no methodology drift. No API route/schema touched (openapi.json check n/a). No new module/dependency/layer (architecture-review n/a). No frontend/UI surface -- browser walkthrough explicitly skipped, nothing to click through. code-review skill (medium effort, full diff) found zero correctness/reuse/simplification/efficiency issues. Task's decisions entry has a genuine decision+rationale pair. No non-blocking findings; no follow-up task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T09:22:46Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 449 passed, app/portfolio/risk.py 100% line/branch, overall 99.83% coverage -- matches pr-reviewer's reported numbers exactly. Confirmed via `git diff origin/main...HEAD -- backend/app/` that no production code changed (diff is empty); the only substantive diff is the two new tests in backend/tests/unit/test_portfolio_risk.py. Read protective_stop() in backend/app/portfolio/risk.py directly (lines 38-109) and confirmed its actual columns_validated branching (skips validate_daily_ohlcv_columns but still runs the .empty check) matches exactly what the two new tests assert."
   }
 }
