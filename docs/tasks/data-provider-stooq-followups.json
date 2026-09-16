@@ -92,5 +92,10 @@
       }
     ],
     "notes": "No blocking findings. Tests, coverage, and the ticker-convention claim all independently verified; two narrow non-blocking edge cases found (one pre-existing, one a documented scope tradeoff) and filed as docs/tasks/data-provider-stooq-followups-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T10:08:09Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 460 passed, 99.83% overall coverage, stooq_provider.py 100%. Called StooqProvider._to_stooq_symbol directly for BRK.B -> brk-b.us (fix confirmed), aapl.us -> aapl.us (passthrough preserved), BRK.B.US -> brk.b.us and SAP.DE -> sap-de.us (both non-blocking edge cases reproduced exactly as pr-reviewer described, correctly filed to data-provider-stooq-followups-followups.json). Skimmed the full diff (stooq_provider.py, both test files, Backend.md); confirmed urllib.error import removed and no ruff/mypy config exists in backend/pyproject.toml."
   }
 }
