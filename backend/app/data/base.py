@@ -12,7 +12,13 @@ class DataProvider(Protocol):
     """
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
-        """Daily OHLCV bars for `ticker`. Columns: open, high, low, close, volume; indexed by date."""
+        """Daily OHLCV bars for `ticker`. Columns: open, high, low, close, volume; indexed by date.
+
+        Rows must be ordered oldest-first (most recent row last) -- callers such as
+        ``app.portfolio.risk.protective_stop`` rely on this via ``.tail()`` to select the
+        most recent trading days. A future implementation of this protocol must preserve
+        that ordering.
+        """
         ...
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
