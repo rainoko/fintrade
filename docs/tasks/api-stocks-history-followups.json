@@ -52,5 +52,10 @@
       }
     ],
     "notes": "Accepted. Manual boundary-case verification (a fresh TestClient against a stub provider, run independently of the PR's own tests) confirms both follow-up findings from PR #40's review are genuinely closed, not just superficially tested. One new non-blocking nit filed to docs/tasks/api-stocks-history-followups-followups.json (new task, since none existed yet for this task id)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:24:28Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 424/424 passed, 99.83% overall coverage, backend/app/api/routers/stocks.py 100% line/branch. Independently hand-verified pd.Timestamp('2025-01-01') - pd.DateOffset(years=9999) raises 'year -7974 is out of range', confirming the overflow claim. Hit the live TestClient myself (not the PR's own tests) for range values 999999999y, 99999999999999999999999d, 9999y, 9999d, 9999w, 9999m, 1y, banana -> got 422/422/422/200/200/422/200/422, matching pr-reviewer's claims exactly. Re-ran scripts/export_openapi.py and diffed against the committed backend/openapi.json -- no changes, snapshot is current. Skimmed the full diff (stocks.py, test_stocks_history.py, the new followups-followups task, index.json) -- matches the PR description; the one non-blocking readability nit was correctly filed as a new follow-up task rather than left only as a PR comment."
   }
 }
