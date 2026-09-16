@@ -23,7 +23,7 @@
     { "id": "indicator-autoenvelope-followups", "area": "backend/indicators", "skill": null, "state": "done" },
     { "id": "screen1-tide", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "screen2-wave", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
-    { "id": "screen2-wave-followups", "area": "backend/signals", "skill": null, "state": "planned" },
+    { "id": "screen2-wave-followups", "area": "backend/signals", "skill": null, "state": "testing" },
     { "id": "screen3-trigger", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "impulse-system", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
     { "id": "confidence-scoring", "area": "backend/signals", "skill": "verify-elder-signal", "state": "done" },
