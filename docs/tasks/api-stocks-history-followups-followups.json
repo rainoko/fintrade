@@ -37,5 +37,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Pure code-motion refactor confirmed: git diff shows _RangeOutOfBoundsError's class body moved verbatim from between get_history and _trim_to_range to just below `router = APIRouter(...)`, alongside _RANGE_PATTERN -- no other lines changed. Decision entry properly records the choice of placement (both offered locations were valid per the originating finding). Full backend suite: 424 passed, coverage 99.83% (gate 90%), app/api/routers/stocks.py at 100%. No ruff/mypy configured in backend/pyproject.toml; no frontend exists yet, so no linting to run beyond pytest. code-review skill (medium effort) found zero issues. No route/schema signature changed, so backend/openapi.json correctly untouched. Not backend/signals or backend/portfolio and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No UI surface (backend-only cosmetic reorder, no frontend consumer) -- browser walkthrough explicitly skipped. No checklist item phrased as 'decide X' beyond the one already recorded. No blocking or non-blocking findings; no follow-up task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:32:37Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `git diff origin/main...HEAD -- backend/app/api/routers/stocks.py`: confirms the only change is _RangeOutOfBoundsError's class body moved verbatim from between get_history/_trim_to_range to just below `router = APIRouter(...)` -- byte-identical docstring, no other lines touched, and `git diff --stat` shows no other source files changed (only this file plus the two task-board JSON files). Re-ran the full backend suite myself: 424 passed, coverage 99.83% (gate 90%), app/api/routers/stocks.py at 100% -- matches pr-reviewer's reported numbers exactly. skill is null so no add-indicator reference-value check applies."
   }
 }
