@@ -69,5 +69,10 @@
       }
     ],
     "notes": "Both decisions entries recorded by task-worker are sound and well-reasoned: the weekly guard skips exactly the branch evaluate_tide's own <2-row short-circuit already made unreachable (confirmed unreachable by walking triple_screen.evaluate_tide's implementation), and the columns_validated opt-in correctly avoids weakening GET /api/portfolio/risk's documented ValueError-catching contract for its own unvalidated direct call. No blocking findings. Filed one non-blocking test-completeness gap as a tracked follow-up per CLAUDE.md's autonomous-pipeline rule."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T09:14:06Z",
+    "verdict": "merge",
+    "notes": "Re-ran the full backend suite myself: 447 passed, app/portfolio/exits.py and app/portfolio/risk.py both 100% line/branch, overall 99.83% -- matches pr-reviewer's reported numbers exactly. Traced both optimizations against the actual code: confirmed triple_screen.evaluate_tide (app/signals/triple_screen.py:159-160) short-circuits to NEUTRAL/'flat' on len(weekly_ohlcv) < 2 without touching histogram/ema_13/ema_26, so exits.py's new `if len(weekly_ohlcv) >= 2:` guard around the weekly MACD/EMA(13)/EMA(26) computation and both evaluate_tide calls is behavior-preserving (tide_flipped_bearish, which requires previous_tide=='BULLISH', can never fire on that skipped path) -- and validate_weekly_ohlcv_columns still runs unconditionally before the guard, so a malformed short weekly_ohlcv still raises ValueError. Confirmed protective_stop's new columns_validated=True path (risk.py:76-99) is only reached from evaluate_exit_flags (exits.py:130-151), which calls validate_daily_ohlcv_columns on the identical unsliced daily_ohlcv moments earlier -- slicing via .iloc[:-1] can't change column membership, and protective_stop still always checks .empty itself; GET /api/portfolio/risk's direct call (app/api/routers/portfolio.py:266) omits the new kwarg and keeps its documented ValueError-catching contract by default. Skimmed the full diff (exits.py, risk.py, both task JSONs, index.json) -- no undisclosed behavior changes."
   }
 }
