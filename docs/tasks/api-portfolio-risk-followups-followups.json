@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/risk follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-portfolio-risk-followups"],
   "references": [
     "docs/tasks/api-portfolio-risk-followups.json#review",
@@ -28,5 +28,11 @@
       "rationale": "A raising-or-unset weekly fixture for the daily-excluded ticker would make the test pass whether or not the ordering was correct, since that position is already excluded via a daily-side ValueError/None before either implementation would reach the weekly fetch -- it can't distinguish 'skipped' from 'attempted and would have failed anyway'. A call-count spy observes the actual number/set of tickers get_weekly_ohlcv was invoked for, which is the only way to positively assert the wasted fetch didn't happen; confirmed by manually reverting the reorder locally (weekly fetch before protective_stop()) and observing the new test fail with a KeyError from the stub being asked for a ticker it was never given weekly data for, then restoring the reorder and confirming it passes again."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-risk-followups-followups",
+    "pr_number": 36,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/36",
+    "pushed_at": "2026-09-16T06:13:41Z"
+  }
 }
