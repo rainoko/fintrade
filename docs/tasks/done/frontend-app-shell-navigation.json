@@ -97,5 +97,10 @@
       }
     ],
     "notes": "Accepted. No blocking findings: tests/coverage/lint/build/build-storybook all pass, browser walkthrough confirms the golden path and responsive/404 edge cases work with no console or network errors, and the layout/ placement of AppShell/NavDrawer matches Frontend.md exactly. AppErrorBoundary's layout/ placement is a genuinely arguable (not clear-cut) call and is tracked as a non-blocking follow-up alongside two code-review nits (nested <nav> landmark, duplicated matchMedia test mock) in docs/tasks/frontend-app-shell-navigation-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T21:29:51Z",
+    "verdict": "merge",
+    "notes": "Re-ran frontend suite myself: 20/20 tests pass with 100% stmt/branch/func/line coverage, lint clean, tsc-b+vite build clean, build-storybook succeeds with the expected 'no story files found' warning. Backend suite unaffected: 472 passed, 99.84% coverage. Read the full diff: confirmed the nested <nav> (AppShell.tsx:64 Box component=\"nav\" wrapping NavDrawer.tsx:42 List component=\"nav\") and duplicated matchMedia mock (AppShell.test.tsx:9-23 vs tests/setup.ts:17-29) findings are real but non-blocking, and both are already tracked in docs/tasks/frontend-app-shell-navigation-followups.json. Frontend.md §3 (lines 42-58) confirms layout/ explicitly names AppShell.tsx/NavDrawer.tsx (clear-cut) while AppErrorBoundary's layout/-vs-common/ placement is genuinely arguable, not clear-cut, matching pr-reviewer's read."
   }
 }
