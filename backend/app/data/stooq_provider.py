@@ -101,13 +101,32 @@ class StooqProvider(DataProvider):
         suffix -- Stooq (and yfinance) use a hyphen, not a dot, for
         class-share tickers (``BRK.B`` -> ``brk-b``), so a dotted class-share
         ticker must still get the ``.us`` suffix appended after its dot is
-        converted to a hyphen. ``.us`` itself is the one case treated as an
-        already-qualified symbol and passed through unchanged, since this
-        provider only ever targets US equities (docs/Analyse.md §9).
+        converted to a hyphen. A trailing ``.us`` is stripped first (rather
+        than short-circuited on with an early return) so a combined,
+        already-suffixed class-share input like ``BRK.B.US`` still gets its
+        remaining dot hyphenated before ``.us`` is reappended, producing
+        ``brk-b.us`` rather than passing the whole thing through as the
+        invalid ``brk.b.us``.
+
+        ``.us`` is the only market suffix this method recognizes, since this
+        provider only ever targets US equities (docs/Analyse.md §9) --
+        yfinance (this project's primary provider) is used for that same
+        default market, and Stooq is only ever consulted as its fallback
+        (docs/architecture/Backend.md §2). An already-suffixed non-US ticker
+        such as ``SAP.DE`` is therefore *not* recognized as pre-qualified and
+        still gets its dot hyphenated and ``.us`` appended (``sap-de.us``),
+        which is not a symbol Stooq recognizes -- a deliberate, documented
+        gap rather than a bug, since there's no reliable way to distinguish a
+        genuine non-US market suffix from a single-letter class-share dot
+        (e.g. ``BRK.B``) without a country-code allowlist this app has no
+        other use for (see this task's `decisions` entry, and
+        data-provider-stooq-followups's own decisions entry for the same
+        tradeoff on the class-share-vs-suffix ambiguity). Callers must only
+        pass this provider US-equity tickers.
         """
         symbol = ticker.strip().lower()
         if symbol.endswith(".us"):
-            return symbol
+            symbol = symbol[: -len(".us")]
         return f"{symbol.replace('.', '-')}.us"
 
     @staticmethod
