@@ -3,7 +3,7 @@
   "title": "Frontend: common component library (Storybook-tracked)",
   "area": "frontend/components/common",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -12,43 +12,87 @@
     "docs/architecture/Frontend.md#4-storybook-the-common-component-library",
     "docs/Analyse.md#6"
   ],
-  "description": "Builds the domain-agnostic, reusable component layer under components/common/ that every feature page composes from. Every component here ships with a colocated test and a Storybook story per Frontend.md \u00a74 \u2014 this is the 'reused and exposed and tracked by Storybook' requirement.",
+  "description": "Builds the domain-agnostic, reusable component layer under components/common/ that every feature page composes from. Every component here ships with a colocated test and a Storybook story per Frontend.md §4 — this is the 'reused and exposed and tracked by Storybook' requirement.",
   "checklist": [
     {
-      "step": "PageHeader \u2014 title + optional action slot (e.g. a button). Story: with and without action slot.",
-      "done": false
+      "step": "PageHeader — title + optional action slot (e.g. a button). Story: with and without action slot.",
+      "done": true
     },
     {
-      "step": "StatCard \u2014 label + value (+ optional trend/delta) card, used for equity/risk summary stats. Story: positive/negative/neutral delta variants.",
-      "done": false
+      "step": "StatCard — label + value (+ optional trend/delta) card, used for equity/risk summary stats. Story: positive/negative/neutral delta variants.",
+      "done": true
     },
     {
-      "step": "SignalBadge \u2014 colored chip for 'BUY' | 'SELL' | 'HOLD'. Story: one per signal value. Test: renders correct color/label per signal.",
-      "done": false
+      "step": "SignalBadge — colored chip for 'BUY' | 'SELL' | 'HOLD'. Story: one per signal value. Test: renders correct color/label per signal.",
+      "done": true
     },
     {
-      "step": "ConfidenceGauge \u2014 0-100 confidence display with Low/Medium/High band coloring per Analyse.md \u00a76's thresholds. Story + boundary-value tests: 0, 100, and each band-edge value.",
-      "done": false
+      "step": "ConfidenceGauge — 0-100 confidence display with Low/Medium/High band coloring per Analyse.md §6's thresholds. Story + boundary-value tests: 0, 100, and each band-edge value.",
+      "done": true
     },
     {
-      "step": "PercentChange \u2014 colored +/-/zero percentage display (used for unrealized_pnl_pct and similar). Story: positive, negative, zero.",
-      "done": false
+      "step": "PercentChange — colored +/-/zero percentage display (used for unrealized_pnl_pct and similar). Story: positive, negative, zero.",
+      "done": true
     },
     {
-      "step": "DataTable \u2014 thin MUI Table wrapper: typed columns, sortable, built-in empty state (reuses EmptyState). Story: populated and empty.",
-      "done": false
+      "step": "DataTable — thin MUI Table wrapper: typed columns, sortable, built-in empty state (reuses EmptyState). Story: populated and empty.",
+      "done": true
     },
     {
-      "step": "LoadingState, ErrorState, EmptyState \u2014 ErrorState renders a distinct message per ApiError case (404/422/503) from frontend-api-client, not one generic message; story per case for all three.",
-      "done": false
+      "step": "LoadingState, ErrorState, EmptyState — ErrorState renders a distinct message per ApiError case (404/422/503) from frontend-api-client, not one generic message; story per case for all three.",
+      "done": true
     },
     {
-      "step": "ConfirmDialog \u2014 generic confirm/cancel modal (used for delete-position). Story: open state with custom title/body/confirm-label.",
-      "done": false
+      "step": "ConfirmDialog — generic confirm/cancel modal (used for delete-position). Story: open state with custom title/body/confirm-label.",
+      "done": true
     },
     {
-      "step": "Confirm `npm run build-storybook` succeeds and every common/ component has both a passing test and a non-empty stories file (per Frontend.md \u00a74's 'a new common/ component isn't done until its story exists').",
-      "done": false
+      "step": "Confirm `npm run build-storybook` succeeds and every common/ component has both a passing test and a non-empty stories file (per Frontend.md §4's 'a new common/ component isn't done until its story exists').",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Did not add a components/common/index.ts barrel export in this task.",
+      "rationale": "Frontend.md §3 allows (doesn't require) a common/ barrel 'where it demonstrably reduces real import noise'. No feature code exists yet that imports these components, so a barrel would sit unimported and unexercised by any test, which under this project's vitest coverage.include config (every src/**/*.{ts,tsx} counts even if unimported) risks dragging down the 90% gate for no real benefit yet. Rejected alternative: add the barrel now and exclude it from coverage — rejected because it hides a file the coverage config's own philosophy says should count. Revisit once a feature actually imports from components/common/ broadly enough to justify it."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a small shared frontend/tests/renderWithTheme.tsx test helper (wraps RTL's render in <ThemeProvider theme={theme}>) instead of repeating the ThemeProvider/theme import inline in every test that needs the app's custom signal/riskBreach palette entries.",
+      "rationale": "SignalBadge and ConfidenceGauge read theme.palette.signal.{buy,sell,hold}, which only exist on the app's own theme (src/theme/theme.ts), not MUI's bare default theme returned by useTheme() when no ThemeProvider wraps the render — confirmed by a TypeError in the first test run. AppShell.test.tsx already inlines this ThemeProvider wrapping per-file; a shared helper avoids copy-pasting that boilerplate into every future common/ or feature component test that touches the custom palette. tests/ is already excluded from the coverage gate, so this file carries no coverage risk."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ErrorState maps status codes to a distinct heading/icon for 404, 422, and 503 (the three documented API.md cases), plus an explicit 0 case (network-level failure, per api/client.ts's ApiError contract) and a generic fallback for any other status.",
+      "rationale": "The checklist only names 404/422/503, but api/client.ts's request() also throws ApiError(0, ...) for a network-level failure (backend unreachable/DNS/CORS), which is a real case any caller of ErrorState can receive — silently lumping it into the generic fallback would contradict the same 'distinct message per case' principle the checklist is asking for. Rejected alternative: only handle 404/422/503 and let 0 and any other status fall through to one generic 'Something went wrong' — rejected because status 0 is a documented, common ApiError case, not a hypothetical one."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "SignalBadge and PercentChange set their computed semantic color via a plain `style` prop rather than MUI's `sx` prop.",
+      "rationale": "Both components' tests assert the exact rendered color per signal/sign value with jest-dom's toHaveStyle. `sx` compiles to an emotion-generated CSS class inserted into a <style> tag, and relying on jsdom's CSS engine to resolve a class-based computed style in tests is fragile; a native `style` attribute is directly and reliably assertable in both jsdom and the real browser. Other components in this task (StatCard, ConfidenceGauge) keep `sx` for color since their tests don't assert the exact color value, only the displayed text/band."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted confidenceBand() (the Low/Medium/High threshold logic) into a sibling confidenceBand.ts file instead of keeping it exported alongside the ConfidenceGauge component in ConfidenceGauge.tsx.",
+      "rationale": "Co-exporting a plain function next to the default component export tripped eslint-plugin-react-refresh's only-export-components rule (a component file should only export components, for Fast Refresh correctness). Splitting it out also makes the pure banding logic trivially unit-testable on its own, independent of rendering."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "DataTable sorts strictly by a column's raw `row[key]` value (via a required `key: keyof T`), even when that column supplies a custom `render` for display; no separate `sortValue` accessor was added.",
+      "rationale": "None of the components/pages anticipated by the task board need a derived sort key that differs from an existing property on the row (e.g. sorting a formatted '$178.50' string column still sorts by the underlying numeric avgCost). Keeping DataTable's prop surface smaller was preferred over speculatively adding a sortValue callback with no current consumer; a future feature needing a genuinely derived sort key can add that then."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Used `sx={{ alignItems: ..., justifyContent: ... }}` instead of MUI Stack's top-level `alignItems`/`justifyContent` props in StatCard and ConfidenceGauge.",
+      "rationale": "The pinned @mui/material@9.4.0 in this repo's package.json ships a Stack.d.ts whose StackOwnProps type doesn't include alignItems/justifyContent as direct props (only as CSS system props via `sx`), causing a `tsc -b` type error when passed directly. Routing the same values through `sx` compiles cleanly and renders identically; not a stylistic preference, but a workaround for this pinned version's actual type surface — worth revisiting if a future @mui/material upgrade restores those as direct props."
     }
   ]
 }
