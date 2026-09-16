@@ -1,0 +1,121 @@
+{
+  "id": "frontend-portfolio-risk-panel",
+  "title": "Frontend: Portfolio risk panel (2%/6% rules)",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-portfolio-page"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apiportfoliorisk",
+    "docs/Analyse.md#7"
+  ],
+  "description": "UI for GET /api/portfolio/risk, added as a panel/section on the Portfolio page. Depends on frontend-portfolio-page since it shares the page and the equity/positions context already established there.",
+  "checklist": [
+    {
+      "step": "features/portfolio/hooks/usePortfolioRisk.ts \u2014 useQuery wrapping api/portfolio.ts#getPortfolioRisk.",
+      "done": true
+    },
+    {
+      "step": "features/portfolio/components/RiskPanel.tsx: total_open_risk_pct as a StatCard, a prominent warning banner when six_percent_rule_breached is true (distinct visual treatment from a normal StatCard \u2014 this is the whole point of the 6% rule).",
+      "done": true
+    },
+    {
+      "step": "Per-position risk table: protective_stop, position_risk_pct (via common/PercentChange), two_percent_rule_breached (visually flagged row when true), exit_flags rendered as a list of readable labels (not raw snake_case strings) \u2014 map each known exit_flags value from Analyse.md \u00a77 to a human label.",
+      "done": true
+    },
+    {
+      "step": "Handle the documented silent-exclusion behavior (API.md: a position whose risk can't be computed is simply absent from the response) \u2014 don't render a misleading 'zero risk' row for a ticker that's actually missing from risk.positions; if useful, cross-reference against usePortfolio's position list to note (non-blocking, informational) that a held position has no risk data, rather than silently having no acknowledgment of the gap at all \u2014 record whichever approach is chosen as a decisions entry.",
+      "done": true
+    },
+    {
+      "step": "Wire RiskPanel into PortfolioPage.tsx alongside PositionsTable.",
+      "done": true
+    },
+    {
+      "step": "Component tests (MSW-mocked): no breaches, 2% breach on one position, 6% breach, and a position silently excluded from risk data while present in the portfolio.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Handled the API.md silent-exclusion gap (a held position whose risk couldn't be computed is simply absent from GET /api/portfolio/risk's `positions`) by having RiskPanel accept the full held-position list as a `positions` prop (the same PositionOut[] PortfolioPage already gets from usePortfolio) and cross-referencing it against `risk.positions` by ticker. Any held ticker not present in the risk response is surfaced in a small, non-blocking `role=\"status\"` note ('No risk data available for X \u2014 its price or history couldn't be fetched...') rendered above the risk table, rather than as a table row (which would need fabricated/null field values the schema doesn't allow) or as an error/alert (which would overstate the severity \u2014 it's a per-ticker data gap, not a request failure).",
+      "rationale": "Rejected: (1) rendering nothing for the gap, which is what the checklist explicitly flagged as the wrong default \u2014 a user could misread a missing ticker as 'zero risk' instead of 'unknown'; (2) inventing a placeholder risk row with zero/null values, which RiskPosition's schema (all fields required, no partial representation, per api-portfolio-risk's own decisions) doesn't support and would misrepresent an unknown value as a known one; (3) treating it as a blocking ErrorState, which is wrong severity \u2014 the rest of the portfolio's risk data is still valid and actionable, only one ticker's is missing. A prop-based cross-reference (rather than RiskPanel independently re-fetching /api/portfolio itself) was chosen because PortfolioPage already holds that data from usePortfolio and passing it down avoids a second, redundant network request for data the page already has."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended common/DataTable with two new optional props \u2014 `getRowStyle(row) => CSSProperties | undefined` for per-row flagging (used for `two_percent_rule_breached`) and `ariaLabel` for the underlying `<table>`'s accessible name \u2014 instead of building a second, RiskPanel-only table component.",
+      "rationale": "DataTable was already the shared, common/ sortable-table primitive (PositionsTable's own dependency); duplicating it for RiskPanel would have created exactly the kind of near-duplicate Frontend.md/pr-reviewer flags. Both new props stay domain-agnostic (they take a row and return a plain style/string, with no knowledge of 'risk' or 'positions'), so the addition doesn't compromise DataTable's common/ placement. `getRowStyle` returns a plain inline `style` object rather than an MUI `sx` value: `sx`-driven colors resolve to computed CSS via an injected stylesheet class, which testing-library's `toHaveStyle` cannot reliably assert on in jsdom, whereas a literal `style` attribute can \u2014 matching the same choice already made by PercentChange/SignalBadge elsewhere in `common/`. `ariaLabel` was added because wiring RiskPanel's own DataTable into PortfolioPage produces two `<table>` elements on one page, which broke existing PortfolioPage tests that queried `getByRole('table')` with no name (now ambiguous) \u2014 giving each table a distinct accessible name ('Positions' vs. 'Portfolio risk') was simpler and more robust than switching those tests to `getAllByRole('table')[n]` positional lookups.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RiskPanel checks `!riskQuery.data` first (rendering ErrorState or LoadingState inside that branch) rather than the more common isLoading-then-isError-then-data ordering used elsewhere (e.g. PortfolioPage), which would otherwise need a trailing `if (!riskQuery.data) return null` to satisfy TypeScript's narrowing before destructuring `riskQuery.data` below.",
+      "rationale": "usePortfolioRisk has no `enabled: false`/pagination path that could leave the query settled with neither `data` nor an `error`, so that trailing guard is permanently dead code for this hook \u2014 confirmed by it showing up as an uncovered branch that would have required either an artificial test or accepting a coverage gap. Reordering the checks (data-present short-circuits to the full render; otherwise fall through to error-or-loading) covers every branch via the existing loading/error/success test cases with no unreachable code and no behavior change.",
+      "context": null
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel",
+    "pr_number": 66,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/66",
+    "pushed_at": "2026-09-16T23:28:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T23:36:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/66",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Placement check (step 7a) on the common/DataTable extension: `getRowStyle(row) => CSSProperties | undefined` and `ariaLabel` are both genuinely domain-agnostic (a plain style/string keyed off a caller-supplied predicate, no knowledge of 'risk' or 'positions') — no leakage of risk-panel logic into common/. DataTable's existing stories/tests still pass; getRowStyle got a new story (`WithFlaggedRow`) and both props got dedicated unit tests. `npm run build-storybook` succeeds.",
+        "file": "frontend/src/components/common/DataTable/DataTable.tsx"
+      },
+      {
+        "summary": "exit_flags/2%/6% display verified against docs/Analyse.md §7 and backend app/portfolio/exits.py: RiskPanel's EXIT_FLAG_LABELS map covers all five flag values the backend actually emits (stop_hit, two_percent_rule_breached, six_percent_rule_contributor, profit_zone_impulse_red, tide_flipped_bearish) with a sane humanized fallback for any future flag. Thresholds (2.0/6.0) are computed backend-side only and passed through as booleans, not re-derived client-side.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx"
+      },
+      {
+        "summary": "Silent-exclusion decision (positions prop cross-referenced against risk.positions by ticker, rendered as a non-blocking role=\"status\" note) verified live in the browser against a real backend with an intentionally-invalid ticker (ZZZZINVALID) and, via a mocked 6%-breach response, a second missing ticker (TSLA) simultaneously — both correctly excluded from the risk table/total and both named in the note, with no misleading zero-risk row. Sound UX choice; decisions entry properly documents the rejected alternatives (placeholder row, blocking error).",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx"
+      },
+      {
+        "summary": "Browser walkthrough (dev server + a locally-run FastAPI instance with live market data via the yfinance/Stooq-backed provider; CORS added only for the ad hoc test session, not committed): golden path (no breaches), a naturally-occurring 2%-rule breach on AAPL from live prices, the silent-exclusion note for an invalid ticker, and a Playwright-mocked 6%-rule breach with two flagged rows and multiple exit flags per position all rendered correctly. No console errors and no failed/4xx/5xx network requests observed in any scenario.",
+        "file": null
+      },
+      {
+        "summary": "Full test suite (128 frontend tests, 23 files) passes; frontend coverage 99.58%/99.41%/100%/99.57% (stmts/branch/funcs/lines), well above the 90% gate — the only uncovered branch (PositionsTable.tsx:87) is a pre-existing, already-tracked gap unrelated to this PR. Backend suite (472 tests, unaffected by this frontend-only PR) still passes at 99.84%. eslint and `tsc -b`/`vite build` both clean. No backend/schema changes in this PR, so no openapi.json regeneration was needed.",
+        "file": null
+      },
+      {
+        "summary": "Non-blocking: position_risk_pct is rendered via common/PercentChange, whose green/+ coloring is designed for a gain/loss metric, not a risk-exposure magnitude where higher is worse — confirmed live that a 2%-rule-breaching row (5.00%) still renders green. Tracked as a follow-up rather than blocking, since the row's own red highlight still communicates the breach.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 107
+      },
+      {
+        "summary": "Non-blocking: RiskPanel.tsx's local `formatCurrency` duplicates PositionsTable.tsx's identical helper, and is a third distinct currency format on the same page (PortfolioPage.tsx's StatCards use `toLocaleString` with thousands separators, the other two don't). Tracked as a follow-up to extract one shared formatter.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 50
+      },
+      {
+        "summary": "Non-blocking: the silent-exclusion note's wording doesn't pluralize for more than one missing ticker ('its price' instead of 'their price' when the joined list has 2+ tickers). Tracked as a follow-up copy fix.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 164
+      },
+      {
+        "summary": "Non-blocking: DataTable's new `ariaLabel` prop has test coverage but no dedicated Storybook story variant (only `getRowStyle` got one, via `WithFlaggedRow`) — arguable given it's accessibility-only and produces no visual variant, but tracked as a follow-up per Frontend.md §4's 'every meaningful variant' bar.",
+        "file": "frontend/src/components/common/DataTable/DataTable.stories.tsx"
+      }
+    ],
+    "notes": "code-review skill (medium effort) independently found the same PercentChange color-semantics issue plus the formatCurrency duplication, both folded into the non-blocking comments above. area is frontend/pages/portfolio and skill is add-frontend-feature, so verify-elder-signal doesn't formally apply, but its governing doc (docs/Analyse.md §7) was cross-checked directly against exit_flags/2%/6% display per this review's own instructions, and the display was found faithful. No new module/dependency/layer was introduced (DataTable is extended, not replaced), so a full architecture-review pass wasn't triggered beyond the mandatory 7a placement check (done above). No checklist item was left as an undecided 'decide X' — all three decisions entries have real rationale and rejected alternatives. Four non-blocking findings filed as docs/tasks/frontend-portfolio-risk-panel-followups.json (new, since no pre-existing follow-up task referenced this task id)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T23:41:28Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything: frontend npm run test:coverage (128 tests/23 files pass, 99.58/99.41/100/99.57% stmts/branch/funcs/lines, matching pr-reviewer exactly), npm run lint and npm run build clean, npm run build-storybook succeeds; backend pytest --cov=app (472 passed, 99.84% coverage, unaffected as expected). Skimmed the full diff (DataTable.tsx, RiskPanel.tsx/.test.tsx, usePortfolioRisk.ts, PortfolioPage.tsx/.test.tsx, PositionsTable.tsx, api/portfolio.ts) directly rather than trusting the summary. Confirmed getRowStyle/ariaLabel on common/DataTable are genuinely generic (typed `(row: T) => CSSProperties | undefined` and a plain string forwarded to aria-label, no risk/position vocabulary) — no leakage. Hand-cross-checked RiskPanel's EXIT_FLAG_LABELS against backend/app/portfolio/exits.py's five actually-emitted flags (stop_hit, two_percent_rule_breached, six_percent_rule_contributor, profit_zone_impulse_red, tide_flipped_bearish) and against docs/Analyse.md §7's five bulleted exit conditions — labels and semantics line up exactly, thresholds stay backend-only booleans. Checked the silent-exclusion decision's soundness beyond face value: confirmed via docs/tasks/done/api-portfolio-add-position.json's decisions entry that duplicate-ticker adds merge into one row (ticker is effectively unique per account), so RiskPanel's ticker-keyed cross-reference between the full `positions` prop and `risk.positions` can't misfire on an ambiguous duplicate ticker. No PR comments from a human account (gh pr view --json comments/reviews came back automation-only). Found nothing pr-reviewer missed or underweighted; the four filed follow-ups are genuinely non-blocking."
+  }
+}

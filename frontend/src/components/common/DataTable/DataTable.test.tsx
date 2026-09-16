@@ -114,6 +114,36 @@ describe('DataTable', () => {
     expect(screen.getByText('10 shares')).toBeInTheDocument()
   })
 
+  it('exposes an accessible table name via ariaLabel', () => {
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        getRowKey={(row) => row.id}
+        ariaLabel="Positions"
+      />,
+    )
+
+    expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument()
+  })
+
+  it('applies getRowStyle per row when provided', () => {
+    render(
+      <DataTable
+        columns={columns}
+        rows={rows}
+        getRowKey={(row) => row.id}
+        getRowStyle={(row) =>
+          row.ticker === 'AAPL' ? { backgroundColor: '#ff0000' } : undefined
+        }
+      />,
+    )
+
+    const bodyRows = getBodyRows()
+    expect(bodyRows[0]).not.toHaveStyle({ backgroundColor: '#ff0000' })
+    expect(bodyRows[1]).toHaveStyle({ backgroundColor: '#ff0000' })
+  })
+
   it('does not render a sort control for a non-sortable column', () => {
     render(
       <DataTable
