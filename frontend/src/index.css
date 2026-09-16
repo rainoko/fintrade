@@ -1,0 +1,5 @@
+/* Base reset only — MUI's CssBaseline (wired in main.tsx) handles the rest
+   of the global styling, so this stays minimal. */
+#root {
+  min-height: 100svh;
+}

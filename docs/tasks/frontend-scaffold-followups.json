@@ -1,0 +1,23 @@
+{
+  "id": "frontend-scaffold-followups",
+  "title": "Frontend scaffold — non-blocking review follow-ups",
+  "area": "frontend/scaffold",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-scaffold"],
+  "references": [
+    "docs/tasks/frontend-scaffold.json#review",
+    "https://github.com/rainoko/fintrade/pull/61"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #61 (frontend-scaffold), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face). Every page silently falls through to the next stack entry (system font) instead of Inter. Either load the font (e.g. @fontsource/inter, imported once in main.tsx or index.html) or drop it from the stack if a system font is actually intended.",
+      "done": false
+    },
+    {
+      "step": "docs/architecture/Testing.md's frontend coverage example (§Frontend, the `vite.config.ts` code block) still shows the coverage config without `include: ['src/**/*.{ts,tsx}']` — the fix landed in PR #61's follow-up commit (4bb0676) only in the actual frontend/vite.config.ts, not in this doc, which the original frontend-scaffold checklist named as the config vite.config.ts must match. Update the doc's example to include the `include` field (mirroring the backend example's `source = [\"app\"]`, which already documents the equivalent \"count every file regardless of import\" mechanism) so a future task copying this doc's snippet doesn't silently reintroduce the same silently-broken 90% gate.",
+      "done": false
+    }
+  ]
+}
