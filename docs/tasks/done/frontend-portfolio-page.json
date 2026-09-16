@@ -1,0 +1,118 @@
+{
+  "id": "frontend-portfolio-page",
+  "title": "Frontend: Portfolio page (positions, add, delete)",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-api-client",
+    "frontend-common-components",
+    "frontend-app-shell-navigation"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apiportfolio",
+    "docs/architecture/API.md#post-apiportfoliopositions",
+    "docs/architecture/API.md#delete-apiportfoliopositionsid"
+  ],
+  "description": "Full UI for GET /api/portfolio, POST /api/portfolio/positions, and DELETE /api/portfolio/positions/{id} — the first of the two portfolio-area feature tasks (frontend-portfolio-risk-panel covers GET /api/portfolio/risk separately, since it's visually and conceptually a distinct panel).",
+  "checklist": [
+    {
+      "step": "features/portfolio/hooks/usePortfolio.ts — useQuery wrapping api/portfolio.ts#getPortfolio.",
+      "done": true
+    },
+    {
+      "step": "features/portfolio/hooks/useAddPosition.ts / useDeletePosition.ts — useMutation, invalidating the portfolio (and risk) query on success.",
+      "done": true
+    },
+    {
+      "step": "features/portfolio/components/PositionsTable.tsx built on common/DataTable — ticker, quantity, avg_cost_basis, entry_date, current_price, unrealized_pnl_pct (via common/PercentChange). Handle current_price/unrealized_pnl_pct being null gracefully (API.md notes these are null right after a write, before read-time enrichment).",
+      "done": true
+    },
+    {
+      "step": "features/portfolio/components/AddPositionDialog.tsx — form (ticker, quantity, avg_cost_basis, entry_date) with client-side validation, wired to useAddPosition; surface the merge-on-duplicate-ticker behavior (API.md) as an informational message after submit rather than letting it look like a silent no-op.",
+      "done": true
+    },
+    {
+      "step": "Delete action on each row opens common/ConfirmDialog before calling useDeletePosition.",
+      "done": true
+    },
+    {
+      "step": "pages/PortfolioPage.tsx composes StatCard(s) for equity.cash/positions_value/total, PositionsTable, and the Add Position entry point — stays thin per Frontend.md's page rules.",
+      "done": true
+    },
+    {
+      "step": "Component tests (MSW-mocked) for: populated table, empty portfolio (no positions yet), add-position happy path, add-position validation errors, delete-position confirm flow, and each ApiError case from API.md surfaced via common/ErrorState.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T22:53:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Query key convention: portfolioKeys.all = ['portfolio'], portfolioKeys.risk = ['portfolio', 'risk'] (features/portfolio/hooks/queryKeys.ts). useAddPosition/useDeletePosition invalidate only portfolioKeys.all.",
+      "rationale": "TanStack Query's invalidateQueries does prefix matching by default, so invalidating ['portfolio'] also invalidates any ['portfolio', 'risk'] query already in the cache once frontend-portfolio-risk-panel adds usePortfolioRisk. This satisfies the checklist's 'invalidating the portfolio (and risk) query on success' requirement without this task needing to import from a hook that doesn't exist yet, and without the two tasks needing to coordinate on invalidation calls independently (which could silently drift out of sync). Rejected alternative: two unrelated top-level keys invalidated via two explicit invalidateQueries calls, which would require frontend-portfolio-risk-panel to remember to add the second call rather than getting it for free from the key structure."
+    },
+    {
+      "timestamp": "2026-09-16T22:53:16Z",
+      "recorded_by": "task-worker",
+      "decision": "AddPositionDialog shows the merge-vs-add informational message as a success view inside the dialog (Alert + a 'Done' button the user must click to close), not a toast/snackbar and not an auto-close.",
+      "rationale": "The checklist explicitly calls for surfacing the merge behavior as an informational message 'rather than letting it look like a silent no-op' — a toast risks being missed/auto-dismissed before the user reads it, and Frontend.md §2 says only to add a cross-cutting UI state mechanism (e.g. a global snackbar Context) once a second, unrelated component actually needs it, which isn't the case yet. Keeping the success view local to the dialog (plain useState) needs no new shared state mechanism and guarantees the message is seen before the dialog can be dismissed. Whether the ticker being submitted matches an existing holding (to choose the merge vs. added wording) is determined client-side from the existingTickers prop (the already-fetched portfolio data) purely for copy — the backend remains the sole source of truth for whether a merge actually happened."
+    },
+    {
+      "timestamp": "2026-09-16T22:53:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Delete-position and add-position mutation failures are rendered via common/ErrorState (the same component used for the page-level portfolio fetch error), not a separate inline Alert/snackbar treatment.",
+      "rationale": "Reuses the one component Frontend.md already designates for rendering an ApiError with a distinct heading/icon per status code, rather than inventing a second, inconsistent error presentation for mutation failures. Rejected alternative: a compact MUI Alert for mutation errors (visually lighter, arguably better suited to a dialog/inline context) — rejected because the checklist explicitly names common/ErrorState as what should surface 'each ApiError case', and a second ad hoc error UI would fragment how errors look across the same page for no clear benefit here."
+    },
+    {
+      "timestamp": "2026-09-16T22:53:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a shared frontend/tests/renderWithProviders.tsx test helper (ThemeProvider + a fresh per-test QueryClient with retry disabled) and switched the pre-existing src/App.test.tsx to use it, since App now renders PortfolioPage, whose usePortfolio call requires a QueryClientProvider ancestor.",
+      "rationale": "Every current/future page that fetches data will need the same QueryClientProvider wrapping in its tests; a single shared helper avoids each page's test file re-deriving its own ad hoc wrapper. Implemented via RTL's `wrapper` render option (rather than manually nesting providers around the passed element) specifically so a test's `rerender(...)` continues to apply the same providers, which manual nesting would silently drop. Test QueryClient uses `retry: false` (vs. the real app's `retry: 1` in main.tsx) purely so a mocked error response resolves to an error state immediately instead of after TanStack Query's retry/backoff delay."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-page",
+    "pr_number": 65,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/65",
+    "pushed_at": "2026-09-16T22:53:16Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T23:04:47Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/65",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Mutation invalidation traced end to end: portfolioKeys.all = ['portfolio'] and portfolioKeys.risk = ['portfolio', 'risk'] (queryKeys.ts); both useAddPosition and useDeletePosition call invalidateQueries({ queryKey: portfolioKeys.all }), which TanStack Query's default prefix-matching invalidation correctly extends to any cached ['portfolio', 'risk'] query once frontend-portfolio-risk-panel adds it. Confirmed working live: adding/merging/deleting a position in the browser (real backend, not MSW) refetches and updates the table and equity stat cards without a manual reload.",
+        "file": "frontend/src/features/portfolio/hooks/queryKeys.ts"
+      },
+      {
+        "summary": "Placement check (step 7a): PositionsTable and AddPositionDialog both reference position/ticker/quantity/avg_cost_basis domain concepts and are correctly under features/portfolio/components/, not components/common/. PositionsTable builds on common/DataTable, common/ConfirmDialog, common/ErrorState, and common/PercentChange rather than reinventing table/dialog/error primitives; AddPositionDialog builds on common/ErrorState for mutation failures. No near-duplicate of an existing common/ component was introduced.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.tsx"
+      },
+      {
+        "summary": "MSW-mocked tests cover the documented merge-on-duplicate-ticker behavior (AddPositionDialog.test.tsx: 'shows the merge message when the ticker is already held', end-to-end in PortfolioPage.test.tsx), client-side validation errors (missing/invalid fields), the 422 ErrorDetail overflow case, the 422 HTTPValidationError per-field case, the DELETE 404 case (PositionsTable.test.tsx), a GET /api/portfolio network-level error, and the empty-portfolio state. This matches every error case API.md documents as relevant to these three endpoints.",
+        "file": "frontend/src/features/portfolio/components/AddPositionDialog.test.tsx"
+      },
+      {
+        "summary": "Full test suite (120 frontend tests, 22 files) passes; frontend coverage 99.53% lines / 99.36% branches, well above the 90% gate. Backend suite (472 tests, unaffected by this frontend-only PR) still passes at 99.84%. eslint, tsc build, and build-storybook all clean.",
+        "file": null
+      },
+      {
+        "summary": "Live browser walkthrough performed against a real backend (dev server + a locally-run FastAPI instance, CORS added only for the ad hoc test session, not committed): added a position (golden path), added a duplicate-ticker position and confirmed the in-dialog merge message plus the table updating to the merged quantity/avg_cost_basis after the query-invalidation refetch, triggered and dismissed the delete confirm dialog, deleted a position, and forced a real 404 on a stale row's delete button to confirm common/ErrorState renders the mutation error correctly. No console errors or unexpected failed network requests observed (one DELETE request briefly reported net::ERR_ABORTED by Chromium's network panel despite the backend returning a clean 204 and the UI updating correctly afterward — a known Chromium/CDP artifact for empty-body responses, not an app-level bug).",
+        "file": null
+      },
+      {
+        "summary": "Minor, non-blocking: PositionsTable.tsx's handleConfirmDelete has a defensive `if (!pendingDelete) return` guard that's unreachable in practice (ConfirmDialog only calls onConfirm while pendingDelete is set) — the one uncovered branch in the coverage report. Tracked as a follow-up task rather than blocking.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.tsx",
+        "line": 85
+      }
+    ],
+    "notes": "code-review skill (medium effort) found no correctness bugs or reuse/simplification issues after tracing hooks/components against their callers and API.md/openapi types. No backend/schema changes in this PR, so no openapi.json regeneration was needed. area is frontend/pages/portfolio and skill is add-frontend-feature, so verify-elder-signal doesn't apply; no new module/dependency/layer was introduced, so a full architecture-review pass wasn't triggered beyond the mandatory 7a placement check (done above). No checklist item was phrased as 'decide X' needing a decisions entry beyond the four already recorded, all of which have real rationale and rejected alternatives. One non-blocking finding filed as docs/tasks/frontend-portfolio-page-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T23:09:23Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (120/120 tests, 22 files, 99.53% lines/99.36% branches), lint, build, and build-storybook, all clean, and the backend suite (472/472, 99.84% coverage) unaffected by this frontend-only diff (confirmed via git diff --stat origin/main...HEAD) — all numbers match review.comments exactly. Traced useAddPosition/useDeletePosition myself: both invalidate portfolioKeys.all=['portfolio'], which usePortfolio's query key matches exactly, and TanStack Query's default prefix-matching invalidation correctly extends this to a future ['portfolio','risk'] query; PortfolioPage.test.tsx's end-to-end add/delete tests exercise the real refetch through MSW, corroborating this beyond just reading the code. Spot-checked AddPositionDialog.test.tsx/PositionsTable.test.tsx/PortfolioPage.test.tsx against tests/mocks/handlers.ts: merge-on-duplicate-ticker, 422 per-field, 422 overflow, DELETE 404, network error, and empty-portfolio cases are all genuinely exercised against realistic mock response shapes. PositionsTable/AddPositionDialog placement under features/portfolio/components/ built on common/ primitives confirmed correct."
+  }
+}

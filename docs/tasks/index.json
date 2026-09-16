@@ -404,8 +404,15 @@
       "id": "frontend-portfolio-page",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-portfolio-page.json"
+    },
+    {
+      "id": "frontend-portfolio-page-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-portfolio-page.json"
+      "path": "docs/tasks/frontend-portfolio-page-followups.json"
     },
     {
       "id": "frontend-portfolio-risk-panel",

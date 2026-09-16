@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
+import { renderWithProviders } from '../tests/renderWithProviders'
 import App from './App'
 
 // Route-table smoke test: confirms every route in App.tsx resolves to its
@@ -14,7 +15,7 @@ describe('App', () => {
     ['/portfolio', 'Portfolio'],
     ['/stocks/AAPL', 'Stock Detail'],
   ])('renders the page mapped to %s', (path, heading) => {
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={[path]}>
         <App />
       </MemoryRouter>,
@@ -24,7 +25,7 @@ describe('App', () => {
   })
 
   it('renders the 404 page for an unmatched route', () => {
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={['/does-not-exist']}>
         <App />
       </MemoryRouter>,
@@ -34,7 +35,7 @@ describe('App', () => {
   })
 
   it('renders the nav shell around every route', () => {
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
