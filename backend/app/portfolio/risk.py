@@ -36,7 +36,11 @@ def validate_daily_ohlcv_columns(daily_ohlcv: pd.DataFrame) -> None:
 
 
 def protective_stop(
-    position: Position, daily_ohlcv: pd.DataFrame, *, short_ema: pd.Series | None = None
+    position: Position,
+    daily_ohlcv: pd.DataFrame,
+    *,
+    short_ema: pd.Series | None = None,
+    columns_validated: bool = False,
 ) -> float:
     """Swing low minus a volatility buffer (docs/Analyse.md §7, SafeZone concept).
 
@@ -69,10 +73,31 @@ def protective_stop(
     (the default) to have this function compute EMA(13) itself, unchanged from
     before this parameter existed.
 
+    ``columns_validated``, if True, skips this function's own column-membership check (the
+    ``{'low', 'close'} - set(columns)`` part of ``validate_daily_ohlcv_columns``) and only
+    checks ``daily_ohlcv.empty`` -- for a caller that has already validated the identical
+    column set on this same frame moments earlier, e.g. ``app.portfolio.exits
+    .evaluate_exit_flags``, whose own up-front ``validate_daily_ohlcv_columns`` call covers
+    ``daily_ohlcv`` before this function is called on a row-sliced view of it (slicing rows
+    can't change which columns exist, so that earlier validation's column-membership result
+    still holds here -- it's ``.empty`` that slicing *can* invalidate, e.g. a 1-row
+    ``daily_ohlcv`` sliced to ``.iloc[:-1]``, which is why that check alone still always runs).
+    Leave this False (the default) for a caller that invokes this function directly on a frame
+    it hasn't pre-validated itself -- e.g. ``app.api.routers.portfolio.get_risk``, which relies
+    on this function's own ``ValueError`` to catch and exclude a malformed frame -- see the
+    ``portfolio-exit-rules-followups-followups`` task's `decisions` entry.
+
     Raises:
-        ValueError: if ``daily_ohlcv`` is empty or missing a required column.
+        ValueError: if ``daily_ohlcv`` is empty, or (when ``columns_validated`` is False)
+            missing a required column.
     """
-    validate_daily_ohlcv_columns(daily_ohlcv)
+    if columns_validated:
+        if daily_ohlcv.empty:
+            raise ValueError(
+                "daily_ohlcv must contain at least one row to compute a protective stop"
+            )
+    else:
+        validate_daily_ohlcv_columns(daily_ohlcv)
 
     window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
     swing_low = float(window["low"].min())
