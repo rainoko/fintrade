@@ -3,7 +3,7 @@
   "title": "Frontend: scaffold Vite + React + TypeScript + MUI project",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
@@ -90,5 +90,23 @@
     "pr_number": 61,
     "pr_url": "https://github.com/rainoko/fintrade/pull/61",
     "pushed_at": "2026-09-16T20:50:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T20:58:06Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/61",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "frontend/vite.config.ts's vitest v8 coverage config has no `all: true` / `include`, so any source file a test never imports is silently excluded from both the numerator and denominator of the coverage report rather than counting as 0% — verified empirically by adding an untested src/scratch-untested.ts (an if/else branch) and rerunning `npm run test:coverage`: the report stayed unchanged at 100% (5/5 statements) and the new file never appeared. This defeats the 90% 'hard gate... enforced in CI, not just warns' language in Testing.md/CLAUDE.md for exactly the files that most need it, and doesn't match the backend's equivalent `source = [\"app\"]` config (counts every file under app/ regardless of import). Blocking because the ~9 dependent frontend-* feature tasks are about to build real components/hooks on top of this scaffold, and as configured the gate won't catch an entirely untested new file. Fix: add `all: true` with `include: ['src/**/*.{ts,tsx}']` mirroring the existing exclude list.",
+        "file": "frontend/vite.config.ts",
+        "line": 15
+      },
+      {
+        "summary": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face) — every page silently falls through to the next stack entry (system font) instead of Inter. Cosmetic, non-blocking; tracked in frontend-scaffold-followups.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 68
+      }
+    ],
+    "notes": "Checked out the PR and ran npm run build, npm run test:coverage, npm run lint, npm run format:check, and npm run build-storybook myself; all passed. Ran the backend suite as a regression check (untouched by this PR: 472 passed, 99.84% coverage). Ran architecture-review against Architecture.md/Frontend.md/Testing.md and code-review against the diff. Did a lightweight headless-Playwright pass over all three placeholder routes (/, /portfolio, /stocks/:ticker) — no console errors, no page errors; a full walkthrough isn't warranted yet since there's no real feature UI. All five recorded decisions are reasonable with real rationale; CLAUDE.md's repo-layout line was updated correctly; coverage thresholds numerically match Testing.md's 90/90/90/90 v8-provider config. One blocking finding (coverage all/include gap, undermines the enforceability of the 90% gate for untested new files) sends this back to implementing; one non-blocking finding (Inter font never loaded) filed as a follow-up task."
   }
 }
