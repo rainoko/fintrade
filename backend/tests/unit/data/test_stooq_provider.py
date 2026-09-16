@@ -79,6 +79,21 @@ class TestGetDailyOhlcv:
         assert "s=aapl.us" in url
         assert "s=aapl.us.us" not in url
 
+    def test_dotted_class_share_ticker_is_hyphenated_not_treated_as_a_market_suffix(self, mocker) -> None:
+        """A dotted class-share ticker like ``BRK.B`` isn't an already-suffixed
+        Stooq symbol -- Stooq/yfinance both spell class shares with a hyphen
+        (``brk-b``), so the '.' must become '-' and ``.us`` must still be
+        appended, rather than the '.' being mistaken for an existing market
+        suffix and left as ``brk.b`` (which Stooq doesn't recognize).
+        """
+        text = _load_fixture_text("aapl_daily")
+        mock_fetch = mocker.patch("app.data.stooq_provider.StooqProvider._fetch_csv", return_value=text)
+
+        StooqProvider().get_daily_ohlcv("BRK.B")
+
+        (url,), _ = mock_fetch.call_args
+        assert "s=brk-b.us" in url
+
     def test_unknown_ticker_no_data_body_raises_ticker_not_found(self, mocker) -> None:
         text = _load_fixture_text("unknown_ticker")
         mocker.patch("app.data.stooq_provider.StooqProvider._fetch_csv", return_value=text)

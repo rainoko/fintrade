@@ -4,7 +4,8 @@
   "tasks": [
     { "id": "data-provider-yfinance", "area": "backend/data", "skill": null, "state": "done" },
     { "id": "data-provider-stooq", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-provider-stooq-followups", "area": "backend/data", "skill": null, "state": "planned" },
+    { "id": "data-provider-stooq-followups", "area": "backend/data", "skill": null, "state": "done" },
+    { "id": "data-provider-stooq-followups-followups", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "data-cache", "area": "backend/data", "skill": null, "state": "done" },
     { "id": "data-cache-followups", "area": "backend/data", "skill": null, "state": "planned" },
     { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
