@@ -67,5 +67,11 @@
       "decision": "Left the sequential per-position price-fetch latency as a documented known limitation (this entry) rather than a code fix.",
       "rationale": "The DataProvider protocol (app/data/base.py) has no batch method, and neither YFinanceProvider nor StooqProvider's underlying libraries (yfinance's per-ticker Ticker API as used here, Stooq's per-ticker CSV endpoint) are wrapped in this codebase in a way that supports a genuine batched fetch today -- adding one would be a protocol change touching every DataProvider implementation and CachedDataProvider's cache-key granularity (per-ticker rows), well beyond a non-blocking follow-up's scope. A concurrency wrapper (e.g. a thread pool around the existing per-ticker calls in enrich_positions_with_price) was considered and rejected for now: CachedDataProvider shares a single SQLAlchemy Session (app/db/session.py) across all its cache reads/writes, and SQLAlchemy Sessions are not thread-safe for concurrent use from multiple threads at once -- parallelizing the fetch loop as it's currently structured would introduce a real correctness bug (concurrent session access) to fix a performance one, which is a worse trade for a single-user MVP where portfolios are expected to be small. This is genuinely a scale limitation worth revisiting if/when either the DataProvider protocol grows batch support or the session-per-request pattern changes (e.g. a session-per-fetch design), not something with a straightforward fix available today."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-portfolio-get-followups",
+    "pr_number": 43,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/43",
+    "pushed_at": "2026-09-16T07:41:01Z"
+  }
 }
