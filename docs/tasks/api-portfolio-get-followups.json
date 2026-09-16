@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-portfolio-get"],
   "references": [
     "docs/tasks/api-portfolio-get.json#review",
@@ -73,5 +73,18 @@
     "pr_number": 43,
     "pr_url": "https://github.com/rainoko/fintrade/pull/43",
     "pushed_at": "2026-09-16T07:41:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:47:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/43",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The N+1 fix's regression tests (test_portfolio_pricing_session.py, test_db_session.py) prove expire_on_commit=False avoids the re-SELECT and that SessionLocal carries the flag, but neither goes through the actual FastAPI get_db dependency-injection path -- tests/integration/conftest.py's shared db_session fixture builds its own sessionmaker() without expire_on_commit=False (pre-existing, not touched by this PR), so no test exercises GET /api/portfolio/GET /api/portfolio/risk end-to-end via TestClient to prove the production wiring benefits. Not a correctness risk (the flag's effect is fully determined by sessionmaker construction, verified directly against the real SessionLocal), but worth closing so a future get_db/SessionLocal refactor can't silently regress it. Filed as docs/tasks/api-portfolio-get-followups-followups.json.",
+        "file": "backend/tests/integration/conftest.py",
+        "line": 32
+      }
+    ],
+    "notes": "Checked out PR #43, ran the full backend suite: 429 passed, 99.83% coverage (gate 90%, backend/pyproject.toml), app/db/session.py and app/api/routers/portfolio.py both at 100%. No ruff/mypy configured in backend/pyproject.toml, so none run (matches project config; matches PR's own claim). Re-ran scripts/export_openapi.py -- output byte-identical to the committed backend/openapi.json, correctly unchanged since no route/schema signature changed. Traced item 4 (expire_on_commit=False on app/db/session.py's SessionLocal, a global session-behavior change) against every db.commit() call site in the app: CachedDataProvider._upsert (app/data/cache.py) never re-reads a committed row afterward (returns the freshly-fetched source frame, not a re-query); add_position (app/api/routers/portfolio.py) calls db.refresh(row) after commit, which always re-fetches regardless of expire_on_commit per SQLAlchemy docs; delete_position doesn't touch the row after commit (204 No Content). No server_default/DB-generated columns in app/db/models.py that would need post-commit expiry to pick up a DB-computed value. Confirmed no other sessionmaker in the app shares this change inappropriately (only backend/tests/integration/conftest.py builds a separate one, pre-existing, not part of this PR). test_portfolio_pricing_session.py's SQL-select-counting technique is a genuine behavioral proof, not incidental: it constructs a real mid-loop CachedDataProvider cache-miss commit against a shared session and includes a companion test confirming the same technique reproduces >0 re-selects under the old expire_on_commit=True default, so the select_count==0 assertion isn't vacuously true. Position-ordering change (_ordered_positions()) verified applied consistently to both GET /api/portfolio and GET /api/portfolio/risk, with regression tests that insert positions out of both entry_date and id order so a pass can only be explained by the explicit ORDER BY. Decisions entries present and adequate for every judgment call in this task's checklist (items 1, 3, 4, 5, 6); item 2 (docs diagram) and item 3 (ordering) are direct, non-judgment-call fixes. Cross-checked docs/tasks/api-portfolio-get.json's new decisions entry (item 5, account=None->cash=0.0 fallback) -- present and reasoned. area is backend/api and skill is null (not backend/signals or backend/portfolio, not verify-elder-signal), so verify-elder-signal doesn't apply. No new module/dependency/layer added (existing files edited plus new/extended test files and one doc line), so architecture-review doesn't apply. No UI surface -- no frontend exists yet and no API contract change, so the browser walkthrough is explicitly skipped as not applicable. Also ran the code-review skill (medium effort) independently against the diff: found zero correctness bugs or reuse/simplification/efficiency issues, and independently surfaced the same conftest.py test-architecture gap noted above. One non-blocking finding total, filed as a checklist entry on docs/tasks/api-portfolio-get-followups-followups.json (new task, depends_on this one)."
   }
 }
