@@ -383,8 +383,8 @@
       "id": "frontend-common-components",
       "area": "frontend/components/common",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-common-components.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-common-components.json"
     },
     {
       "id": "frontend-app-shell-navigation",
@@ -441,6 +441,13 @@
       "skill": "test-90",
       "state": "planned",
       "path": "docs/tasks/frontend-test-90.json"
+    },
+    {
+      "id": "frontend-common-components-followups",
+      "area": "frontend/components/common",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-common-components-followups.json"
     }
   ]
 }
