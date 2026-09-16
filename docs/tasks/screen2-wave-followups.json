@@ -3,7 +3,7 @@
   "title": "Screen 2: Wave — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["screen2-wave"],
   "references": [
     "docs/tasks/screen2-wave.json#review",
@@ -49,5 +49,12 @@
     "pr_number": 58,
     "pr_url": "https://github.com/rainoko/fintrade/pull/58",
     "pushed_at": "2026-09-16T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T11:07:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/58",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite: 472 passed, 99.84% coverage overall, 100% on app/signals/triple_screen.py; no regression against the 90% gate. No ruff/mypy config exists yet, so no lint step to run. Manually re-derived _is_force_index_spike's signed-multiplier refactor by hand across all 6 cases (negative=True/False x latest >0/<0/==0) and confirmed it's exactly equivalent to the original double-negative branches; the code-review skill (medium effort) independently confirmed the same with no findings. Confirmed evaluate_impulse genuinely lives in app/signals/impulse.py (a different module) and its `< 2` guard exists because _direction reads .iloc[-2], versus evaluate_wave's `== 0` guard since it only reads .iloc[-1] -- the corrected docstring is accurate. Confirmed the new 1-row boundary test genuinely uses real, unmocked stochastic_oscillator/force_index (no mocker fixture requested). Checked against docs/Analyse.md §2/§4 (verify-elder-signal): negative=True/False mapping to BULLISH/BEARISH tide branches matches the documented buy/sell cue framing; this PR only touches internal reasoning/docs/tests, not the Screen 2 decision logic. No API route/schema touched (no openapi.json change needed), no new module/dependency (no architecture-review needed), no UI surface (browser walkthrough explicitly skipped per the no-UI-surface exception). All 3 checklist items have decisions entries recorded. No non-blocking findings -- no follow-up task filed."
   }
 }
