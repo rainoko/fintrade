@@ -1,0 +1,120 @@
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableContainer from '@mui/material/TableContainer'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import TableSortLabel from '@mui/material/TableSortLabel'
+import Paper from '@mui/material/Paper'
+import { useMemo, useState, type ReactNode } from 'react'
+import EmptyState from '../EmptyState/EmptyState'
+
+export interface DataTableColumn<T> {
+  /** Property of `T` this column renders/sorts by. */
+  key: keyof T
+  /** Column header text. */
+  header: string
+  /** Whether clicking the header sorts by this column. Defaults to false. */
+  sortable?: boolean
+  /** Custom cell renderer. Defaults to the raw `row[key]` value. */
+  render?: (row: T) => ReactNode
+  align?: 'left' | 'right' | 'center'
+}
+
+export interface DataTableProps<T> {
+  columns: DataTableColumn<T>[]
+  rows: T[]
+  /** Stable unique key for each row, e.g. `(row) => row.id`. */
+  getRowKey: (row: T) => string | number
+  /** Message shown via EmptyState when `rows` is empty. */
+  emptyMessage?: string
+  /** Optional action shown alongside the empty-state message. */
+  emptyAction?: ReactNode
+}
+
+type SortDirection = 'asc' | 'desc'
+
+function compareValues(a: unknown, b: unknown): number {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a - b
+  }
+  return String(a).localeCompare(String(b))
+}
+
+/**
+ * Thin MUI Table wrapper: typed columns, optional per-column sorting, and a
+ * built-in empty state (reusing common/EmptyState) when `rows` is empty.
+ * Domain-agnostic — every column and cell value is supplied by the caller.
+ */
+export default function DataTable<T>({
+  columns,
+  rows,
+  getRowKey,
+  emptyMessage = 'No data to display.',
+  emptyAction,
+}: DataTableProps<T>) {
+  const [sortKey, setSortKey] = useState<keyof T | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+
+  const sortedRows = useMemo(() => {
+    if (sortKey === null) {
+      return rows
+    }
+    const copy = [...rows]
+    copy.sort((a, b) => {
+      const result = compareValues(a[sortKey], b[sortKey])
+      return sortDirection === 'asc' ? result : -result
+    })
+    return copy
+  }, [rows, sortKey, sortDirection])
+
+  if (rows.length === 0) {
+    return <EmptyState message={emptyMessage} action={emptyAction} />
+  }
+
+  const handleSort = (key: keyof T) => {
+    if (sortKey === key) {
+      setSortDirection((direction) => (direction === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDirection('asc')
+    }
+  }
+
+  return (
+    <TableContainer component={Paper} variant="outlined">
+      <Table>
+        <TableHead>
+          <TableRow>
+            {columns.map((column) => (
+              <TableCell key={String(column.key)} align={column.align ?? 'left'}>
+                {column.sortable ? (
+                  <TableSortLabel
+                    active={sortKey === column.key}
+                    direction={sortKey === column.key ? sortDirection : 'asc'}
+                    onClick={() => handleSort(column.key)}
+                  >
+                    {column.header}
+                  </TableSortLabel>
+                ) : (
+                  column.header
+                )}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {sortedRows.map((row) => (
+            <TableRow key={getRowKey(row)}>
+              {columns.map((column) => (
+                <TableCell key={String(column.key)} align={column.align ?? 'left'}>
+                  {column.render ? column.render(row) : String(row[column.key])}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  )
+}

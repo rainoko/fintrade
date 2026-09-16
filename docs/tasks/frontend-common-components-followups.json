@@ -1,0 +1,33 @@
+{
+  "id": "frontend-common-components-followups",
+  "title": "Frontend common component library — non-blocking review follow-ups",
+  "area": "frontend/components/common",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-common-components"],
+  "references": [
+    "docs/tasks/done/frontend-common-components.json#review",
+    "https://github.com/rainoko/fintrade/pull/64",
+    "docs/Analyse.md#6",
+    "docs/architecture/Frontend.md#4-storybook-the-common-component-library"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #64 (frontend-common-components), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "ConfidenceGauge re-derives the Low/Medium/High band client-side (confidenceBand.ts) from a raw `confidence: number`, duplicating the exact same <40/40-70/>70 rule already computed server-side in backend/app/signals/confidence.py#confidence_band and already exposed on the API response as `confidence_band: 'Low'|'Medium'|'High'` (see frontend/src/api/types.ts). The two copies agree today, but if Analyse.md's banding rule is ever revised and only the backend is updated, the frontend would silently keep showing a stale band next to a confidence value the API says is in a different band, with no test able to catch the drift since ConfidenceGauge's own boundary tests just re-assert its own copy of the rule. Consider having ConfidenceGauge accept an optional pre-computed `band` prop (falling back to local computation only when absent) so a feature component wired to real Signal data can pass the API's own `confidence_band` through instead of recomputing it.",
+      "done": false
+    },
+    {
+      "step": "ConfidenceGauge clamps the LinearProgress bar value to [0,100] but not the printed percentage text, so an out-of-range confidence (e.g. 105, from a future caller that doesn't respect the 0-100 contract) would render an inconsistent bar-vs-label (bar at 100%, text reading '105% · High'). Clamp (or validate/guard) the displayed number the same way as the bar value.",
+      "done": false
+    },
+    {
+      "step": "DataTable's compareValues() only special-cases number/number pairs for numeric sort; a column with an optional/nullable numeric value (e.g. a future `quantity?: number` with some rows `undefined`) would silently fall back to lexicographic string comparison once any row's value is missing, sorting '10' before '9'. No current column exercises this, but worth handling explicitly (e.g. treating missing values as sorting last) before a feature table adds an optional numeric column.",
+      "done": false
+    },
+    {
+      "step": "ErrorState.tsx's default/fallback case (any HTTP status other than 404/422/503/0) has a unit test but no corresponding Storybook story, unlike the four explicitly-handled cases which each get one. Frontend.md §4 asks for a story per case a component renders; add a 'GenericFallback' (or similarly named) story using e.g. `new ApiError(500, ...)` for completeness.",
+      "done": false
+    }
+  ]
+}

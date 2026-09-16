@@ -1,0 +1,157 @@
+{
+  "id": "frontend-common-components",
+  "title": "Frontend: common component library (Storybook-tracked)",
+  "area": "frontend/components/common",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-scaffold"
+  ],
+  "references": [
+    "docs/architecture/Frontend.md#3-module-layout",
+    "docs/architecture/Frontend.md#4-storybook-the-common-component-library",
+    "docs/Analyse.md#6"
+  ],
+  "description": "Builds the domain-agnostic, reusable component layer under components/common/ that every feature page composes from. Every component here ships with a colocated test and a Storybook story per Frontend.md §4 — this is the 'reused and exposed and tracked by Storybook' requirement.",
+  "checklist": [
+    {
+      "step": "PageHeader — title + optional action slot (e.g. a button). Story: with and without action slot.",
+      "done": true
+    },
+    {
+      "step": "StatCard — label + value (+ optional trend/delta) card, used for equity/risk summary stats. Story: positive/negative/neutral delta variants.",
+      "done": true
+    },
+    {
+      "step": "SignalBadge — colored chip for 'BUY' | 'SELL' | 'HOLD'. Story: one per signal value. Test: renders correct color/label per signal.",
+      "done": true
+    },
+    {
+      "step": "ConfidenceGauge — 0-100 confidence display with Low/Medium/High band coloring per Analyse.md §6's thresholds. Story + boundary-value tests: 0, 100, and each band-edge value.",
+      "done": true
+    },
+    {
+      "step": "PercentChange — colored +/-/zero percentage display (used for unrealized_pnl_pct and similar). Story: positive, negative, zero.",
+      "done": true
+    },
+    {
+      "step": "DataTable — thin MUI Table wrapper: typed columns, sortable, built-in empty state (reuses EmptyState). Story: populated and empty.",
+      "done": true
+    },
+    {
+      "step": "LoadingState, ErrorState, EmptyState — ErrorState renders a distinct message per ApiError case (404/422/503) from frontend-api-client, not one generic message; story per case for all three.",
+      "done": true
+    },
+    {
+      "step": "ConfirmDialog — generic confirm/cancel modal (used for delete-position). Story: open state with custom title/body/confirm-label.",
+      "done": true
+    },
+    {
+      "step": "Confirm `npm run build-storybook` succeeds and every common/ component has both a passing test and a non-empty stories file (per Frontend.md §4's 'a new common/ component isn't done until its story exists').",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Did not add a components/common/index.ts barrel export in this task.",
+      "rationale": "Frontend.md §3 allows (doesn't require) a common/ barrel 'where it demonstrably reduces real import noise'. No feature code exists yet that imports these components, so a barrel would sit unimported and unexercised by any test, which under this project's vitest coverage.include config (every src/**/*.{ts,tsx} counts even if unimported) risks dragging down the 90% gate for no real benefit yet. Rejected alternative: add the barrel now and exclude it from coverage — rejected because it hides a file the coverage config's own philosophy says should count. Revisit once a feature actually imports from components/common/ broadly enough to justify it."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a small shared frontend/tests/renderWithTheme.tsx test helper (wraps RTL's render in <ThemeProvider theme={theme}>) instead of repeating the ThemeProvider/theme import inline in every test that needs the app's custom signal/riskBreach palette entries.",
+      "rationale": "SignalBadge and ConfidenceGauge read theme.palette.signal.{buy,sell,hold}, which only exist on the app's own theme (src/theme/theme.ts), not MUI's bare default theme returned by useTheme() when no ThemeProvider wraps the render — confirmed by a TypeError in the first test run. AppShell.test.tsx already inlines this ThemeProvider wrapping per-file; a shared helper avoids copy-pasting that boilerplate into every future common/ or feature component test that touches the custom palette. tests/ is already excluded from the coverage gate, so this file carries no coverage risk."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ErrorState maps status codes to a distinct heading/icon for 404, 422, and 503 (the three documented API.md cases), plus an explicit 0 case (network-level failure, per api/client.ts's ApiError contract) and a generic fallback for any other status.",
+      "rationale": "The checklist only names 404/422/503, but api/client.ts's request() also throws ApiError(0, ...) for a network-level failure (backend unreachable/DNS/CORS), which is a real case any caller of ErrorState can receive — silently lumping it into the generic fallback would contradict the same 'distinct message per case' principle the checklist is asking for. Rejected alternative: only handle 404/422/503 and let 0 and any other status fall through to one generic 'Something went wrong' — rejected because status 0 is a documented, common ApiError case, not a hypothetical one."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "SignalBadge and PercentChange set their computed semantic color via a plain `style` prop rather than MUI's `sx` prop.",
+      "rationale": "Both components' tests assert the exact rendered color per signal/sign value with jest-dom's toHaveStyle. `sx` compiles to an emotion-generated CSS class inserted into a <style> tag, and relying on jsdom's CSS engine to resolve a class-based computed style in tests is fragile; a native `style` attribute is directly and reliably assertable in both jsdom and the real browser. Other components in this task (StatCard, ConfidenceGauge) keep `sx` for color since their tests don't assert the exact color value, only the displayed text/band."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted confidenceBand() (the Low/Medium/High threshold logic) into a sibling confidenceBand.ts file instead of keeping it exported alongside the ConfidenceGauge component in ConfidenceGauge.tsx.",
+      "rationale": "Co-exporting a plain function next to the default component export tripped eslint-plugin-react-refresh's only-export-components rule (a component file should only export components, for Fast Refresh correctness). Splitting it out also makes the pure banding logic trivially unit-testable on its own, independent of rendering."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "DataTable sorts strictly by a column's raw `row[key]` value (via a required `key: keyof T`), even when that column supplies a custom `render` for display; no separate `sortValue` accessor was added.",
+      "rationale": "None of the components/pages anticipated by the task board need a derived sort key that differs from an existing property on the row (e.g. sorting a formatted '$178.50' string column still sorts by the underlying numeric avgCost). Keeping DataTable's prop surface smaller was preferred over speculatively adding a sortValue callback with no current consumer; a future feature needing a genuinely derived sort key can add that then."
+    },
+    {
+      "timestamp": "2026-09-16T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Used `sx={{ alignItems: ..., justifyContent: ... }}` instead of MUI Stack's top-level `alignItems`/`justifyContent` props in StatCard and ConfidenceGauge.",
+      "rationale": "The pinned @mui/material@9.4.0 in this repo's package.json ships a Stack.d.ts whose StackOwnProps type doesn't include alignItems/justifyContent as direct props (only as CSS system props via `sx`), causing a `tsc -b` type error when passed directly. Routing the same values through `sx` compiles cleanly and renders identically; not a stylistic preference, but a workaround for this pinned version's actual type surface — worth revisiting if a future @mui/material upgrade restores those as direct props."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-common-components",
+    "pr_number": 64,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/64",
+    "pushed_at": "2026-09-16T22:25:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T22:32:10Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/64",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "All 10 common/ components (PageHeader, StatCard, SignalBadge, ConfidenceGauge, PercentChange, DataTable, LoadingState, ErrorState, EmptyState, ConfirmDialog) verified present with a colocated, non-trivial test file and a non-empty stories file covering meaningful variants (read every stories file, not just checked existence) — matches Frontend.md §4.",
+        "file": "frontend/src/components/common",
+        "line": 0
+      },
+      {
+        "summary": "ConfidenceGauge has explicit boundary-value tests and stories for 0, 100, and both band edges (39/40 and 70/71) per Analyse.md §6 and Frontend.md's Testing Notes; confidenceBand.ts's thresholds (<40 Low, 40-70 Medium, >70 High) match the backend's own confidence_band() in app/signals/confidence.py exactly.",
+        "file": "frontend/src/components/common/ConfidenceGauge/ConfidenceGauge.test.tsx",
+        "line": 8
+      },
+      {
+        "summary": "Placement check (7a): all 10 components are genuinely domain-agnostic — none reference position/ticker/portfolio concepts, each takes only generic or narrowly-typed union props (e.g. SignalBadge's signal: 'BUY'|'SELL'|'HOLD', matching Frontend.md §3's own example). No near-duplicates of existing common/ or feature components found (this is the first common/ component library in the repo).",
+        "file": "frontend/src/components/common",
+        "line": 0
+      },
+      {
+        "summary": "Spot-checked the MUI Stack sx-vs-top-level-prop decision against the installed @mui/material@9.4.0's Stack.d.ts: StackOwnProps genuinely omits alignItems/justifyContent as direct props in this version (only accepts them via sx). This is a real type-system constraint, not a misunderstanding of the API.",
+        "file": "frontend/src/components/common/StatCard/StatCard.tsx",
+        "line": 52
+      },
+      {
+        "summary": "npm run test:coverage (102/102 tests, 100% statements/branches/functions/lines across the whole frontend src tree, well above the 90% gate), npm run lint (clean), npm run build (tsc -b + vite build, clean), and npm run build-storybook (clean) all pass. Backend suite unaffected (472/472 passed, 99.84% coverage) since this PR touches frontend only.",
+        "file": "frontend/package.json",
+        "line": 0
+      },
+      {
+        "summary": "Browser walkthrough: started `npm run storybook`, drove all 30 published stories in a real headless Chromium via Playwright (iframe.html per story id) — every story rendered into #storybook-root with zero console/page errors. Additionally verified SignalBadge renders three distinct background colors per signal value and ErrorState's four documented cases render distinct headings, both in a real browser rather than jsdom.",
+        "file": "frontend/src/components/common",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: ConfidenceGauge re-derives the Low/Medium/High band client-side from a raw confidence number, duplicating the exact rule backend/app/signals/confidence.py#confidence_band already computes and already exposes on the API response (confidence_band, typed in frontend/src/api/types.ts). No current behavioral bug since both copies agree today, but a future rule change updated only server-side would silently drift. Tracked as a follow-up rather than blocking, since the task's own checklist explicitly asked for ConfidenceGauge to take a raw number and compute the band itself, and keeping it domain-agnostic (no Signal-schema import) is a legitimate common/ design choice.",
+        "file": "frontend/src/components/common/ConfidenceGauge/confidenceBand.ts",
+        "line": 10
+      },
+      {
+        "summary": "Non-blocking: ConfidenceGauge clamps the progress-bar value to [0,100] but not the displayed percentage text, so an out-of-range input would show an inconsistent bar vs. label. DataTable's compareValues() falls back to lexicographic comparison for a nullable/optional numeric column. ErrorState's generic-fallback case has a unit test but no corresponding story. All filed on docs/tasks/frontend-common-components-followups.json.",
+        "file": "frontend/src/components/common/ConfidenceGauge/ConfidenceGauge.tsx",
+        "line": 22
+      }
+    ],
+    "notes": "Full review: gh pr checkout 64, ran test:coverage/lint/build/build-storybook myself, ran the code-review skill (high effort) against the diff, read every one of the 10 components' .tsx/.test.tsx/.stories.tsx files (not just checked existence), verified ConfidenceGauge's boundary tests against Analyse.md §6 and against the backend's own confidence_band() implementation, spot-checked the Stack typing claim against the installed MUI version's .d.ts, and did a real-browser Storybook walkthrough of all 30 stories via a locally-scripted Playwright run (no Playwright MCP tool was available in this session, so a temp local Playwright install using the devcontainer's cached Chromium was used instead). No blocking findings. Four non-blocking findings filed to docs/tasks/frontend-common-components-followups.json per the autonomous-pipeline rule."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T22:38:11Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend test:coverage (102/102 tests, 100% stmts/branch/func/line), lint (clean), build (tsc -b + vite build, clean), and build-storybook (clean, warning-only bundle-size notice) plus backend pytest --cov (472 passed, 99.84% coverage) — all match pr-reviewer's reported numbers exactly. Hand-verified ConfidenceGauge/confidenceBand.ts's boundary values (0->Low, 39->Low, 40->Medium, 70->Medium, 71->High, 100->High) against both Analyse.md §6's '<40 Low, 40-70 Medium, >70 High' text and backend/app/signals/confidence.py's confidence_band() (identical <40/<=70/else logic) — both the test file and the implementation are correct and consistent. Spot-read SignalBadge, ErrorState, DataTable, StatCard, PercentChange, ConfirmDialog, PageHeader, and EmptyState (8 of the 10) plus their test/story files in full; every component takes only generic/presentational props with no position/ticker/portfolio-specific types, confirming the domain-agnostic placement claim. Confirmed the two non-blocking findings I checked in detail (ErrorState missing a generic-fallback story; DataTable's compareValues() lexicographic fallback for non-number pairs) are accurately described and correctly tracked on frontend-common-components-followups.json, whose index.json entry is consistent. No backend files changed in this diff. Accept holds."
+  }
+}
