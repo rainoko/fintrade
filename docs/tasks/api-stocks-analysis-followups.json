@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/analysis — review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-stocks-analysis"],
   "references": [
     "docs/tasks/api-stocks-analysis.json",
@@ -13,7 +13,33 @@
   "checklist": [
     {
       "step": "Correct the first `decisions` entry on docs/tasks/api-stocks-analysis.json: it claims the router's per-exception-subtype -> HTTP-status mapping (TickerNotFoundError -> 404, InsufficientHistoryError -> 422, DataProviderUnavailableError -> 503) is 'the same try/except pattern already used in app/api/routers/portfolio.py'. That's inaccurate -- portfolio.py's get_risk only has a broad `except DataProviderError` that silently skips a position (no per-subtype mapping), and its only direct HTTPException(404/422) calls are for unrelated domain logic (position-not-found, merge-overflow). The mapping implemented in stocks.py is itself correct and faithful to API.md/app/data/exceptions.py; only the decision record's stated precedent is wrong. Fix by amending the decision text (or adding a follow-up decisions entry) to accurately describe this as a new pattern rather than a reused one, so a future reader doesn't assume equivalent precedent exists elsewhere in the codebase.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T06:52:08Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the first `decisions` entry on docs/tasks/api-stocks-analysis.json by removing the inaccurate claim that the router's per-exception-subtype -> HTTP-status mapping reused 'the same try/except pattern already used in app/api/routers/portfolio.py', and appended a dated correction note to the entry's `rationale` explaining why (portfolio.py's get_risk only has a broad `except DataProviderError` with no per-subtype mapping) rather than deleting or silently rewriting the original text.",
+      "rationale": "Preserving the original wording with an appended correction (instead of silently editing it in place) keeps the record of what was actually believed and decided at the time, consistent with CLAUDE.md's decision-memory rule that decisions should be recorded, not just fixed in code/docs with no trace. The underlying technical reasoning in that entry (no separate minimum-history check in the router; daily fetched before weekly) was sound and is unaffected by this correction, so only the inaccurate precedent claim was addressed, not the substance of the decision."
+    }
+  ],
+  "git": {
+    "branch": "task/api-stocks-analysis-followups",
+    "pr_number": 39,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/39",
+    "pushed_at": "2026-09-16T06:52:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T06:55:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/39",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure task-board bookkeeping change (3 files under docs/tasks/, no application code): flips this task's state to testing (later done), checks off its one checklist item, adds a decisions entry recording the fix, and appends a dated correction note to docs/tasks/api-stocks-analysis.json's first decisions entry. Verified the correction's substance directly against backend/app/api/routers/portfolio.py: get_risk (line 215) only has a broad `except DataProviderError: continue` at line 262 with no per-exception-subtype -> HTTP-status mapping, and its two direct HTTPException(404/422) calls are for unrelated domain logic (position-not-found, merge-overflow) -- confirms the removed claim ('the same try/except pattern already used in app/api/routers/portfolio.py') was indeed inaccurate and the new text is correct. The other precedent claim left untouched in the same rationale ('daily fetched before weekly...to match the call order already used by...get_risk') also checked out: enrich_positions_with_price (portfolio.py:236) fetches daily OHLCV via pricing.py's get_daily_ohlcv before get_risk's later per-position weekly-fetch loop (portfolio.py:261). The correction follows CLAUDE.md's append-don't-silently-rewrite decision-memory convention: the inaccurate clause was removed from the decision text but is quoted verbatim inside the appended, dated correction note in rationale, so the original belief is still traceable, not lost. Ran the full backend suite on the checked-out branch: `pytest --cov=app --cov-report=term-missing` -- 406 passed, 99.73% line/branch coverage (gate 90%), no regression (expected, since no application code changed). No ruff/mypy configured in backend/pyproject.toml's dev extras, so no separate lint step applies; no frontend exists yet. No API route/schema touched, so the openapi.json-regeneration check doesn't apply. area is backend/api (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply. No UI surface in this diff (docs/tasks JSON only) -- browser walkthrough explicitly skipped, not silently omitted. Ran the code-review skill (medium effort) against the diff: reported no findings, correctly noting there's no executable code in this change for the correctness/reuse/simplification/efficiency angles to apply to. No checklist item phrased as 'decide X' without a corresponding decisions entry. No stale pr_decision existed on this task to clear (first review pass)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T06:56:59Z",
+    "verdict": "merge",
+    "notes": "Confirmed `git diff origin/main...HEAD` touches only docs/tasks/{api-stocks-analysis-followups.json,api-stocks-analysis.json,index.json} -- no application code. Re-ran `pytest --cov=app --cov-report=term-missing`: 406 passed, 99.73% coverage, matching pr-reviewer's reported numbers exactly. Independently grepped backend/app/api/routers/portfolio.py for HTTPException/except clauses: confirmed only a broad `except DataProviderError: continue` (line 262, no per-subtype mapping) and two unrelated HTTPException(404/422) calls (line 203 position-not-found, line 165 merge-overflow); TickerNotFoundError/InsufficientHistoryError/DataProviderUnavailableError only appear in stocks.py. This confirms the corrected decision text is accurate and the original 'same pattern already used in portfolio.py' claim was indeed false."
+  }
 }
