@@ -3,7 +3,7 @@
   "title": "Indicator: Autoenvelope — non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["indicator-autoenvelope"],
   "references": [
     "docs/tasks/indicator-autoenvelope.json#review",
@@ -29,5 +29,12 @@
     "pr_number": 45,
     "pr_url": "https://github.com/rainoko/fintrade/pull/45",
     "pushed_at": "2026-09-16T08:11:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T08:14:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/45",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: 432 backend tests pass, autoenvelope.py at 100% line+branch coverage, overall 99.83% (gate 90%), no regression. No lint/type-check tool configured in backend/pyproject.toml and no frontend yet, so nothing to run there. Independently recomputed both new hand-computed reference values by hand (test_near_zero_mid_yields_nan_not_inf and test_all_zero_close_and_mid_stays_finite) -- both correct. Confirmed the guard only touches the derived pct_deviation quotient (mid column left as-is), and that normal-case behavior (any bar with abs(mid) > 1e-9, i.e. virtually all real data) is byte-for-byte unchanged. Traced the only real caller (app/portfolio/exits.py) and confirmed it already guards with pd.isna(upper_band) before use, so the new NaN is already a safely-handled case downstream. Ran verify-elder-signal: Autoenvelope (docs/Analyse.md §4) is profit-target/overextension only, not part of Tide/Wave/Trigger/Impulse/Confidence/Risk computation, so this fix has no bearing there; the docstring's claim that this matches stochastic_oscillator's flat-range 0/0-to-NaN convention checked out against app/indicators/stochastic.py. Ran the code-review skill against the diff -- no findings. Not an API/schema change (openapi.json correctly untouched), no new module/dependency (architecture-review not applicable), no UI surface (pure backend indicator math, browser walkthrough explicitly skipped). decisions entry has both decision and rationale per CLAUDE.md. index.json state mirror in sync. No blocking or non-blocking findings; no follow-up task filed."
   }
 }
