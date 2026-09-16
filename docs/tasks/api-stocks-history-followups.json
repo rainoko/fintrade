@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/history — review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["api-stocks-history"],
   "references": [
     "docs/tasks/api-stocks-history.json",
@@ -13,13 +13,49 @@
   "checklist": [
     {
       "step": "An unbounded numeric `range` value (e.g. `range=999999999y`, or an arbitrarily long digit string like `range=99999999999999999999999d`) matches the route's own `_RANGE_PATTERN` (`^(max|\\d+[dwmy])$`, no upper bound on digit count) but crashes `_trim_to_range`'s `pd.DateOffset` arithmetic in `backend/app/api/routers/stocks.py` with an unhandled `ValueError`/`OverflowError`, which FastAPI turns into a generic `500 Internal Server Error` instead of the `422` the endpoint's own contract promises for a bad `range`. Verified directly: `TestClient(app).get('/api/stocks/AAPL/history', params={'range': '999999999y'})` returns `500`. Fix by either bounding the pattern's digit count (e.g. `\\d{1,4}`) or catching the overflow in `_trim_to_range` and mapping it to the same `422` path as a malformed `range`.",
-      "done": false
+      "done": true
     },
     {
       "step": "The 404 (unknown ticker) integration test only exercises the `interval=daily` path (`failing_daily`); no test exercises `interval=weekly` hitting the same `TickerNotFoundError` -> 404 mapping through `get_weekly_ohlcv`. Low risk since both branches share identical exception handling, but worth a one-line test for completeness.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the range-overflow 500 with both of the task's suggested approaches, not just one: capped `_RANGE_PATTERN`'s digit run at 4 characters (`\\d{1,4}`, max 9999) so FastAPI's own pattern validation rejects an absurd digit count (e.g. the 23-digit example) via the standard 422 HTTPValidationError shape before `_trim_to_range` ever runs, *and* wrapped `_trim_to_range`'s `pd.DateOffset` arithmetic in a try/except that raises a new `_RangeOutOfBoundsError` (a `ValueError` subclass), caught in `get_history` and mapped to `HTTPException(422)`.",
+      "rationale": "A 4-digit cap alone isn't sufficient: '9999y' (4 digits, passes the cap) still overflows pd.Timestamp's ~1677-2262 bounds when subtracted from a real anchor date (verified directly: `pd.Timestamp('2025-01-01') - pd.DateOffset(years=9999)` raises `ValueError: year -7974 is out of range`), so the pattern fix alone (rejected as the sole fix) would leave the 'm'/'y' units still able to 500 on a value as short as 4 digits. Catching the overflow alone (rejected as the sole fix, without the pattern cap) would still let an unbounded digit string do wasted int-parsing work, and Python's int-from-string conversion has its own default 4300-digit safety limit (`sys.set_int_max_str_digits`) that a genuinely enormous digit string could hit as a plain `ValueError` before/independent of the DateOffset call anyway -- capping the pattern gives a cleaner, more standard 422 shape for that case for free, so both fixes are complementary rather than either being sufficient alone. Chose 4 digits (max 9999) as the cap rather than something tighter like 2-3 digits, since docs/Analyse.md and the existing tests never reference a range longer than a couple of years and nothing in the endpoint's contract implies a use case beyond low hundreds of days/weeks/months/years."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-history-followups",
+    "pr_number": 41,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/41",
+    "pushed_at": "2026-09-16T07:18:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T07:22:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/41",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Both PR #40 follow-up findings genuinely closed. Verified independently (not just via the new tests): the previously-500ing cases (`range=999999999y`, `range=99999999999999999999999d`) now return 422 via the tightened `_RANGE_PATTERN` (`\\d{1,4}`); the residual case the pattern cap alone can't catch (`range=9999y`, 4 digits but overflows `pd.Timestamp`'s ~1677-2262 bounds) returns 422 via the new `_RangeOutOfBoundsError` catch in `_trim_to_range`/`get_history`. Also spot-checked `9999d`/`9999w`/`9999m` (200/200/422) and the new weekly-404 test (`interval=weekly` + unknown ticker -> 404) directly against a stub provider -- all match the PR's claims. Full backend suite: 424/424 pass, 99.83% coverage overall, `app/api/routers/stocks.py` at 100% line/branch. No ruff/mypy config exists in backend/pyproject.toml so none run (consistent with prior reviews on this repo). `backend/openapi.json` is current -- re-ran `python scripts/export_openapi.py` and diffed against the committed snapshot, no changes. No frontend exists yet (CLAUDE.md: 'not yet scaffolded'), so this backend-only PR has no UI surface -- browser walkthrough explicitly skipped rather than silently omitted. area is backend/api (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply. Both checklist items are concrete bug/gap fixes, not 'decide X' items, and the task's own `decisions` entry adequately records the rationale for fixing both ways rather than one.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 0
+      },
+      {
+        "summary": "Minor, non-blocking: `_RangeOutOfBoundsError` is defined between `get_history` (which references it above its own definition) and `_trim_to_range` (which raises it, below the definition). Correct at runtime since the class statement executes at import time before either function is called, but the used-before-defined-then-defined-before-raised ordering is a minor readability wrinkle versus this codebase's usual pattern of defining an exception type before its first use. Filed as a follow-up rather than blocking on it.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 130
+      }
+    ],
+    "notes": "Accepted. Manual boundary-case verification (a fresh TestClient against a stub provider, run independently of the PR's own tests) confirms both follow-up findings from PR #40's review are genuinely closed, not just superficially tested. One new non-blocking nit filed to docs/tasks/api-stocks-history-followups-followups.json (new task, since none existed yet for this task id)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T07:24:28Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 424/424 passed, 99.83% overall coverage, backend/app/api/routers/stocks.py 100% line/branch. Independently hand-verified pd.Timestamp('2025-01-01') - pd.DateOffset(years=9999) raises 'year -7974 is out of range', confirming the overflow claim. Hit the live TestClient myself (not the PR's own tests) for range values 999999999y, 99999999999999999999999d, 9999y, 9999d, 9999w, 9999m, 1y, banana -> got 422/422/422/200/200/422/200/422, matching pr-reviewer's claims exactly. Re-ran scripts/export_openapi.py and diffed against the committed backend/openapi.json -- no changes, snapshot is current. Skimmed the full diff (stocks.py, test_stocks_history.py, the new followups-followups task, index.json) -- matches the PR description; the one non-blocking readability nit was correctly filed as a new follow-up task rather than left only as a PR comment."
+  }
 }
