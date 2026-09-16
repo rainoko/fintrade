@@ -1,0 +1,33 @@
+{
+  "id": "data-cache-followups-followups",
+  "title": "OHLCV cache layer — non-blocking findings from PR #55's review",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["data-cache-followups"],
+  "references": [
+    "docs/tasks/data-cache-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/55"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #55 (data-cache-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. All four concern app/data/cache.py's `_upsert` -- items #1 (bulk existing-row lookup) and #3 (the IntegrityError catch-and-rollback fix for the concurrent first-time-population race) of PR #55's own checklist.",
+  "checklist": [
+    {
+      "step": "_upsert's `except IntegrityError` around `self._db.commit()` only catches the composite-PK-conflict outcome of a concurrent first-time-population race. Under SQLite's default file-level write locking -- no WAL mode and no explicit `busy_timeout`/`timeout` configured on the engine (app/db/session.py only sets `check_same_thread: False`) -- two genuinely concurrent commits from separate request-scoped sessions (confirmed reachable: app/api/dependencies.py wires CachedDataProvider into sync `def` route handlers that Starlette dispatches to a threadpool) are at least as likely to raise `sqlite3.OperationalError` (\"database is locked\") as a clean `IntegrityError`, depending on commit timing. `OperationalError` is not caught here and would still propagate as an unhandled 500. Consider also catching `OperationalError` (or configuring WAL mode / an explicit busier timeout on the engine) so the same race doesn't have an uncaught outcome depending on timing luck.",
+      "done": false
+    },
+    {
+      "step": "The `except IntegrityError` in `_upsert` is scoped to the entire commit, not specifically the composite-PK conflict it's documented and tested for. Verified against the current schema (app/db/models.py's OHLCVCacheORM: only the composite PK and NOT NULL columns, all of which are always set before commit) that the PK conflict is the only realistic source of IntegrityError today, so this isn't a live bug -- but if a future schema change adds another constraint (a FK, CHECK, or additional UNIQUE constraint) to OHLCVCacheORM, a genuine data-integrity bug on that constraint would be silently logged-and-swallowed as though it were the benign concurrent-population race, rather than surfaced. Worth a comment tying the except clause to the specific constraint it's meant to catch (e.g. inspecting the IntegrityError's message/orig for the PK columns) or revisiting if/when the schema gains a new constraint.",
+      "done": false
+    },
+    {
+      "step": "Item #1's rewrite of `_upsert` to build `existing_by_date` as one dict computed *before* the row loop (instead of the old per-row `self._db.get()`, which benefited from SQLAlchemy's session identity map) drops self-healing for a fetched frame that itself contains two rows for the same normalized date: the old code's `self._db.get()` would find the first row's just-added ORM object in the identity map and update it again; the new code's dict lookup won't see it (only pre-existing DB rows are in `existing_by_date`), so a second same-date row always creates a second `OHLCVCacheORM` with an identical PK, deterministically raising `IntegrityError` on commit -- not just under concurrency. Combined with item #3's new catch-and-swallow, this is silently logged as though it were the benign concurrent-population race and the entire upsert is discarded, so that ticker/interval can never be cached (not self-healing on a later call, since the same duplicate would reappear on every re-fetch) -- contradicting the 'self-healing thereafter' claim in item #3's own decisions entry. Reproduced directly (not just read from the diff): a stub provider frame with two rows sharing a date triggers this every time, with 0 rows ever landing in the cache. Verified this cannot currently occur with either real provider (StooqProvider's `.resample(\"W-FRI\")` and YFinanceProvider's native `interval=\"1wk\"`/`\"1d\"` both structurally guarantee a unique index), so this doesn't manifest in production today, mirroring the same 'latent gap, doesn't manifest under current provider behavior' rationale already accepted for item #2's staleness gap on this same task -- but it's a real regression in the `_upsert` code path's robustness that's cheap to fix (update `existing_by_date[bar_date] = existing` when a new row is added inside the loop, restoring the old identity-map-equivalent behavior) and worth closing given it directly undercuts a claim in this PR's own decision record.",
+      "done": false
+    },
+    {
+      "step": "_upsert's new `existing_by_date = {row.date: row for row in self._read_cache(ticker, interval)}` reruns the exact same query `_get` already ran via its own `cached_rows = self._read_cache(...)` a few lines earlier in the same call, on every cache-miss/stale-refresh path -- one extra full SELECT per call that a passed-through `cached_rows` could avoid. Note this isn't purely wasteful, though: re-querying at upsert time (after the network fetch) picks up any rows a concurrent request committed in the interim, narrowing (not just duplicating) the race window item #3 addresses -- so simply reusing the earlier snapshot would be a real trade-off, not a pure win. Worth either reusing `cached_rows` with a comment on the accepted trade-off, or documenting why the second query is intentional.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
