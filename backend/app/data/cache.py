@@ -214,7 +214,7 @@ class CachedDataProvider(DataProvider):
             existing.fetched_at = fetched_at
         try:
             self._db.commit()
-        except (IntegrityError, OperationalError):
+        except (IntegrityError, OperationalError) as exc:
             # Two concurrent first-time-population calls for the same
             # (ticker, interval) can both see no existing row for a given date
             # above and both try to insert it, so the loser's commit hits the
@@ -243,12 +243,34 @@ class CachedDataProvider(DataProvider):
             # constraint on this table today, so this can't currently mask an
             # unrelated integrity bug. Revisit (narrow the catch, or inspect
             # `orig`) if OHLCVCacheORM ever gains another constraint.
+            #
+            # OperationalError's scope is *not* pinned down the same way:
+            # unlike IntegrityError (verified above to only ever mean the
+            # composite-PK race on this table today), SQLite raises
+            # OperationalError for a much wider family of causes -- "database
+            # is locked" (the benign race this branch is actually for), but
+            # also a missing table from a skipped/failed migration, a
+            # corrupted database file, or a disk-full condition, none of
+            # which are benign. Not a live bug today (this path only ever
+            # writes to an already-migrated OHLCVCacheORM table in the app's
+            # normal lifecycle, so those other causes can't currently occur
+            # here), and deliberately *not* narrowed by pattern-matching
+            # `str(exc)` for "database is locked" -- that text is
+            # driver/SQLite-version-specific and exactly the kind of fragile
+            # message-parsing the IntegrityError branch above already
+            # rejected for the same reason. Instead, `exc` itself is logged
+            # below (not just the ticker/interval) so an operator scanning
+            # logs can immediately tell a genuine lock-contention message
+            # apart from a non-benign one that's currently still swallowed
+            # here -- see this task's `decisions` entry.
             self._db.rollback()
             logger.warning(
                 "Concurrent cache population for %r (%s) raced this upsert; discarding "
-                "this attempt in favor of the concurrently-committed rows.",
+                "this attempt in favor of the concurrently-committed rows. (%s: %s)",
                 ticker,
                 interval,
+                type(exc).__name__,
+                exc,
             )
 
     @staticmethod

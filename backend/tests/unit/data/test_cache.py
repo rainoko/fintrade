@@ -433,3 +433,35 @@ class TestUpsertDuplicateDateWithinFrame:
         rows = session.query(OHLCVCacheORM).filter_by(ticker="DUPE", interval="daily").all()
         assert len(rows) == 1
         assert rows[0].close == 31.0
+
+    def test_three_plus_duplicate_dates_in_one_frame_dedupe_to_the_last_occurrence(
+        self, session: Session
+    ) -> None:
+        """Pins the N-duplicate generalization of the fix above: `existing_by_date`
+        is updated in-loop for every row, not just the second of a pair, so this
+        must hold for 3+ duplicates of the same date, not only exactly 2.
+
+        Mirrors the 4-row reproduction (3 rows sharing one date, a 4th on a
+        distinct date) manually verified during PR #56's review but never
+        committed as a test -- see this task's checklist.
+        """
+        fresh = _frame(
+            ["2026-07-01", "2026-07-01", "2026-07-01", "2026-07-02"],
+            [30.0, 31.0, 32.0, 40.0],
+        )
+        primary = _StubProvider(daily=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_daily_ohlcv("DUPE3")
+
+        assert list(result["close"]) == [30.0, 31.0, 32.0, 40.0]
+        rows = (
+            session.query(OHLCVCacheORM)
+            .filter_by(ticker="DUPE3", interval="daily")
+            .order_by(OHLCVCacheORM.date)
+            .all()
+        )
+        assert len(rows) == 2
+        assert rows[0].close == 32.0
+        assert rows[1].close == 40.0
