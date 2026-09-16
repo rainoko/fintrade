@@ -14,6 +14,12 @@
     { "step": "Against a database that already has tables from the create_all stopgap (see description), run `alembic stamp head` instead of `alembic upgrade head` — a blind upgrade would try to CREATE TABLE against tables that already exist and fail. Verify this path too, not just the fresh-file case above.", "done": true },
     { "step": "Document the migration workflow (how to generate/run migrations) — where this lives is a decision for whoever picks this up: README vs a doc", "done": true }
   ],
+  "git": {
+    "branch": "task/db-migrations",
+    "pr_number": 46,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/46",
+    "pushed_at": "2026-09-16T08:24:08Z"
+  },
   "decisions": [
     {
       "timestamp": "2026-09-16T08:30:00Z",
