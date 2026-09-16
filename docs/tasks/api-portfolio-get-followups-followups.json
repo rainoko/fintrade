@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-portfolio-get-followups"],
   "references": [
     "docs/tasks/api-portfolio-get-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "The N+1 fix's regression tests (backend/tests/integration/test_portfolio_pricing_session.py, backend/tests/unit/test_db_session.py) prove that expire_on_commit=False avoids the re-SELECT and that app.db.session.SessionLocal carries the flag, but neither goes through the actual FastAPI get_db dependency-injection path: backend/tests/integration/conftest.py's shared db_session fixture builds its own sessionmaker(...) without expire_on_commit=False (pre-existing, not touched by PR #43), so no test exercises GET /api/portfolio or GET /api/portfolio/risk end-to-end via TestClient to prove production wiring (get_db -> SessionLocal) actually benefits from the fix. Not a correctness risk today -- SQLAlchemy session behavior is fully determined by the flag passed to sessionmaker regardless of how the session is constructed or wired, and the flag itself is directly asserted against the real SessionLocal object -- but a future refactor of get_db/SessionLocal construction (e.g. accidentally dropping the kwarg, or introducing a second sessionmaker) could silently regress the fix with nothing failing. Worth either updating conftest.py's db_session fixture to set expire_on_commit=False (matching production) or adding one true end-to-end TestClient-driven regression test that counts SQL selects the way test_portfolio_pricing_session.py does.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed the gap by adding one genuine end-to-end regression test (backend/tests/integration/test_portfolio_get_db_wiring.py) that exercises GET /api/portfolio through the real, unmodified get_db -> SessionLocal production path -- rather than editing tests/integration/conftest.py's shared db_session fixture to pass expire_on_commit=False.",
+      "rationale": "The conftest fixture builds its own, separate sessionmaker(); setting expire_on_commit=False there would only make that fixture's *current* hardcoded value match production's *current* value coincidentally -- it doesn't read production's real SessionLocal.kw, so a future regression that drops the kwarg (or introduces a second, differently-configured sessionmaker) from app/db/session.py would leave the fixture, and every test using it, silently green. It also doesn't run the real get_db dependency at all (both conftest's client fixture and test_portfolio_get.py's own client fixture override get_db outright), so no test would actually be exercising FastAPI's real DI-wired path either way. The new test instead monkeypatches app.db.session.SessionLocal/engine and app/api/dependencies.py's YFinanceProvider/StooqProvider in place -- copying **whatever kwargs the real SessionLocal was actually constructed with** onto a throwaway in-memory engine -- so get_db, get_data_provider, and the GET /api/portfolio route handler all run completely unmodified, production code, with a real per-request session shared with CachedDataProvider exactly as in production. Verified it actually catches the regression it's meant to catch: temporarily flipping app/db/session.py's expire_on_commit back to True (the pre-fix default) makes the new test fail (select_count 4 != 1) before reverting. Limited the select-counting assertion to GET /api/portfolio only (not also GET /api/portfolio/risk): both routes call the exact same app.portfolio.pricing.enrich_positions_with_price function the fix targets, and GET /api/portfolio/risk's extra protective-stop/weekly-history preconditions would add real test complexity without exercising any additional session-expiry behavior beyond what this test already proves. Alternative considered and rejected: editing conftest.py's db_session fixture to add expire_on_commit=False -- it improves test/prod parity as a general hygiene matter but doesn't close the specific gap (a production regression going undetected) the task described."
+    }
+  ],
   "questions": []
 }
