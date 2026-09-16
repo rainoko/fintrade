@@ -28,5 +28,11 @@
       "rationale": "A 4-digit cap alone isn't sufficient: '9999y' (4 digits, passes the cap) still overflows pd.Timestamp's ~1677-2262 bounds when subtracted from a real anchor date (verified directly: `pd.Timestamp('2025-01-01') - pd.DateOffset(years=9999)` raises `ValueError: year -7974 is out of range`), so the pattern fix alone (rejected as the sole fix) would leave the 'm'/'y' units still able to 500 on a value as short as 4 digits. Catching the overflow alone (rejected as the sole fix, without the pattern cap) would still let an unbounded digit string do wasted int-parsing work, and Python's int-from-string conversion has its own default 4300-digit safety limit (`sys.set_int_max_str_digits`) that a genuinely enormous digit string could hit as a plain `ValueError` before/independent of the DateOffset call anyway -- capping the pattern gives a cleaner, more standard 422 shape for that case for free, so both fixes are complementary rather than either being sufficient alone. Chose 4 digits (max 9999) as the cap rather than something tighter like 2-3 digits, since docs/Analyse.md and the existing tests never reference a range longer than a couple of years and nothing in the endpoint's contract implies a use case beyond low hundreds of days/weeks/months/years."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-history-followups",
+    "pr_number": 41,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/41",
+    "pushed_at": "2026-09-16T07:18:52Z"
+  }
 }
