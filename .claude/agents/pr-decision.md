@@ -19,7 +19,7 @@ You share one git working directory with no isolation — whoever dispatched you
 
 ## What you do
 
-1. Read the task JSON's `review` field in full — the findings `pr-reviewer` recorded, its notes, what it ran.
+1. Look up the task's current file location in `docs/tasks/index.json`'s `path` field for its id — since you're only ever dispatched on an `"accepted"` task, it should already be at `docs/tasks/done/<id>.json`; **never assume that path without checking `index.json`** first. Read the task JSON's `review` field in full at that path — the findings `pr-reviewer` recorded, its notes, what it ran.
 2. `gh pr checkout <pr_number>` (or confirm it's already checked out).
 3. Spot-check, don't retread — you're not redoing the whole review from scratch, you're checking whether its *conclusion* is actually sound:
    - Re-run the backend test suite yourself (`backend/.venv/bin/pytest --cov=app --cov-report=term-missing`) — confirm the pass/coverage numbers `pr-reviewer` reported are real, not stale or fabricated.
@@ -27,7 +27,7 @@ You share one git working directory with no isolation — whoever dispatched you
    - If the task's `skill` is `add-indicator`, independently spot-check at least one hand-computed reference value yourself — don't just trust that `pr-reviewer`'s numbers are right.
 4. Decide:
    - **Merge** — the accept holds up under your own check. Don't re-post a review (no PR comment, no `gh pr review` of any kind) — but do leave a durable, independently-checkable trace on the task JSON itself, since `pr-merger` (or anyone auditing later) has no way to tell your confirmation actually happened otherwise: add a `pr_decision` object alongside `review` — `{"confirmed_at": "<ISO 8601 now>", "verdict": "merge", "notes": "<one or two sentences: what you actually re-ran/verified, e.g. test counts, the specific reference value you hand-checked>"}` — commit and push just this one field to the PR branch (task `state` stays `"done"`, `review` untouched). This is bookkeeping on your own task file, not a second review of the PR, so it doesn't conflict with "don't re-post a review." Report back `decision: merge`.
-   - **More work** — you found something `pr-reviewer` missed or underweighted. Post a new PR comment (`gh pr comment`, a plain comment — never `gh pr review --request-changes`) explaining specifically what's missing/wrong and why it changes the verdict — cite file:line. Update the task's `review.verdict` to `"needs_work"` (append your findings to `comments`, update `notes` to explain the override), set task `state` to `"implementing"`, mirror `index.json`, commit and push to the PR branch. Report back `decision: more_work`.
+   - **More work** — you found something `pr-reviewer` missed or underweighted. Post a new PR comment (`gh pr comment`, a plain comment — never `gh pr review --request-changes`) explaining specifically what's missing/wrong and why it changes the verdict — cite file:line. `git mv` the task's file from `docs/tasks/done/<id>.json` back to `docs/tasks/<id>.json`, since it's no longer `done`. Update the task's `review.verdict` to `"needs_work"` (append your findings to `comments`, update `notes` to explain the override), set task `state` to `"implementing"`, mirror `index.json` (state and the reverted `path`), commit and push to the PR branch. Report back `decision: more_work`.
 
 ## What you never do
 
