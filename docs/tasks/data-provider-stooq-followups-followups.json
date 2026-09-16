@@ -3,7 +3,7 @@
   "title": "Stooq class-share ticker fix — further non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["data-provider-stooq-followups"],
   "references": [
     "docs/tasks/data-provider-stooq-followups.json#review",
@@ -13,13 +13,39 @@
   "checklist": [
     {
       "step": "_to_stooq_symbol (backend/app/data/stooq_provider.py) checks `symbol.endswith('.us')` and returns early before the new dot-to-hyphen class-share conversion runs. A ticker that carries both a class-share dot and an explicit '.us' suffix (e.g. 'BRK.B.US') is therefore passed through as the invalid 'brk.b.us' instead of the correct 'brk-b.us' -- the exact failure mode this PR's fix eliminated for bare 'BRK.B' resurfaces for that combined input. Confirmed directly: `StooqProvider._to_stooq_symbol('BRK.B.US')` -> `'brk.b.us'`. Not introduced by this PR (the old any-dot-means-passthrough rule produced the identical wrong result), and no test covers the combined case -- only bare 'BRK.B' and bare 'aapl.us' are tested separately. Surfaced by the code-review skill during pr-reviewer's review of PR #53.",
-      "done": false
+      "done": true
     },
     {
       "step": "_to_stooq_symbol's narrowing of the passthrough case to *only* a trailing '.us' means an already-correctly-suffixed non-US ticker (e.g. 'SAP.DE', if Stooq's convention for it is a plain dot suffix like the old code assumed) now gets mangled: `StooqProvider._to_stooq_symbol('SAP.DE')` -> `'sap-de.us'` instead of being passed through unchanged. This is a real behavior change introduced by this PR (the old any-dot-means-passthrough rule would have left 'sap.de' alone). Low real-world impact since this app's data providers are documented/decided (data-provider-stooq-followups's own decisions entry) as targeting US equities only and no test or code path elsewhere exercises a non-US market suffix, but worth a test/doc note -- or a scoped guard if non-US suffix support is ever added -- next time this file is touched, so the tradeoff stays visible rather than only living in a decisions-array rationale.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the combined-suffix case by stripping a trailing '.us' (instead of returning early on it) before the dot-to-hyphen class-share conversion runs, so 'BRK.B.US' -> 'brk-b.us'. Left the non-US-suffix case ('SAP.DE' -> 'sap-de.us', not passed through unchanged) as-is, and instead documented it explicitly in `_to_stooq_symbol`'s docstring plus a dedicated regression test (test_non_us_market_suffix_is_not_recognized_as_pre_qualified) asserting the current, intentional behavior.",
+      "rationale": "The combined-suffix bug is a genuine correctness fix with no tradeoff: stripping '.us' first and re-appending it after hyphenation is strictly more correct than the early-return and doesn't change any existing passthrough behavior (aapl.us, brk-b.us both still round-trip unchanged). The non-US-suffix case is different: there's no reliable way to distinguish a genuine non-US market suffix (e.g. '.DE', '.L', '.TO' -- one or two letters, just like a single-letter class-share dot such as 'BRK.B') from class-share notation without a country-code allowlist. data-provider-stooq-followups's own decisions entry already considered and rejected exactly that allowlist as unnecessary complexity, since this provider is documented (docs/Analyse.md §9) as US-equity-only -- callers are only ever expected to pass US tickers, so 'SAP.DE' is out-of-contract input rather than a case this provider needs to handle correctly. Adding a heuristic guard now would either reintroduce the allowlist that was already rejected, or use a fragile letter-count heuristic that risks misclassifying a real class-share ticker. Chose the checklist's own offered alternative (test/doc note) over a guard for that reason.",
+      "alternatives_considered": "Considered a scoped guard that raises an error for tickers ending in a plausible non-US country-code suffix, but rejected it: distinguishing 'SAP.DE' (country suffix) from 'BRK.B' (class share) by shape alone (both are TICKER.[A-Z]{1,2}) isn't reliable, and the only robust way to do it -- a country-code allowlist -- was already considered and explicitly rejected in data-provider-stooq-followups's decisions entry for this exact ambiguity."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/data-provider-stooq-followups-followups",
+    "pr_number": 54,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/54",
+    "pushed_at": "2026-09-16T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T10:16:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/54",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full backend suite: 462 passed, 99.83% coverage (stooq_provider.py 100%), no regressions, gate (90%) comfortably met. No ruff/mypy config exists in backend/pyproject.toml, so no lint step applies. Independently re-derived and executed _to_stooq_symbol's logic against BRK.B.US, BRK.B, aapl.us, AAPL, SAP.DE, brk-b.us: combined-suffix fix confirmed correct (BRK.B.US -> brk-b.us) with no regression on the prior BRK.B/aapl.us fix, and SAP.DE -> sap-de.us matches the newly documented/tested gap. Ran the code-review skill against the diff: no correctness or reuse/simplification findings. No API/schema change, so backend/openapi.json is correctly untouched. No UI surface (frontend not yet scaffolded) -- browser walkthrough not applicable, noted explicitly rather than skipped silently. Documenting-not-fixing the SAP.DE case is the right call: consistent with data-provider-stooq-followups's own decisions entry rejecting a country-code allowlist for the identical class-share-vs-suffix ambiguity, and this provider is documented (docs/Analyse.md #9) as a US-equity fallback for yfinance. Both checklist items are done with proper decisions entries (decision + rationale + rejected alternatives). No stale pr_decision was present to clear. No blocking or non-blocking findings; no follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-16T10:17:56Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 462 passed, 99.83% coverage (stooq_provider.py 100%), matching pr-reviewer's reported numbers exactly. Independently called StooqProvider._to_stooq_symbol directly (not via mocked fetch) for BRK.B.US, BRK.B, aapl.us, AAPL, SAP.DE, brk-b.us, MSFT.US, BF.B: combined-suffix fix confirmed (BRK.B.US -> brk-b.us, no longer the invalid brk.b.us), no regression on prior class-share fix (BRK.B, BF.B -> *-b.us) or plain passthrough (aapl.us, MSFT.US, brk-b.us unchanged), and the documented SAP.DE -> sap-de.us gap behaves exactly as described. Skimmed the full diff (stooq_provider.py, test_stooq_provider.py, task JSON, index.json): small, consistent with the two checklist items and their decisions entries; index.json state mirror matches task state done. No lint/type config exists to check separately. Accept holds."
+  }
 }

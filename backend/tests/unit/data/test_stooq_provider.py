@@ -94,6 +94,38 @@ class TestGetDailyOhlcv:
         (url,), _ = mock_fetch.call_args
         assert "s=brk-b.us" in url
 
+    def test_combined_class_share_dot_and_us_suffix_is_hyphenated_not_short_circuited(self, mocker) -> None:
+        """A ticker that carries both a class-share dot and an explicit
+        '.us' suffix (``BRK.B.US``) must still get its dot hyphenated --
+        the '.us' check strips the suffix first rather than returning early
+        on it, so this doesn't regress to the invalid ``brk.b.us``.
+        """
+        text = _load_fixture_text("aapl_daily")
+        mock_fetch = mocker.patch("app.data.stooq_provider.StooqProvider._fetch_csv", return_value=text)
+
+        StooqProvider().get_daily_ohlcv("BRK.B.US")
+
+        (url,), _ = mock_fetch.call_args
+        assert "s=brk-b.us" in url
+
+    def test_non_us_market_suffix_is_not_recognized_as_pre_qualified(self, mocker) -> None:
+        """Documented gap, not a regression to guard against: this provider
+        only recognizes a trailing '.us' as an already-qualified symbol
+        (docs/Analyse.md §9, US-equity-only scope), so an already-suffixed
+        non-US ticker like ``SAP.DE`` still gets its dot hyphenated and
+        '.us' appended, rather than passed through unchanged. See the
+        `_to_stooq_symbol` docstring and this task's `decisions` entry for
+        why a country-code allowlist to distinguish this from a genuine
+        class-share dot was rejected.
+        """
+        text = _load_fixture_text("aapl_daily")
+        mock_fetch = mocker.patch("app.data.stooq_provider.StooqProvider._fetch_csv", return_value=text)
+
+        StooqProvider().get_daily_ohlcv("SAP.DE")
+
+        (url,), _ = mock_fetch.call_args
+        assert "s=sap-de.us" in url
+
     def test_unknown_ticker_no_data_body_raises_ticker_not_found(self, mocker) -> None:
         text = _load_fixture_text("unknown_ticker")
         mocker.patch("app.data.stooq_provider.StooqProvider._fetch_csv", return_value=text)
