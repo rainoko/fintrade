@@ -8,7 +8,7 @@ Stock/portfolio analysis app that signals BUY/SELL/HOLD with a confidence percen
 - `docs/Architecture.md` + `docs/architecture/{Backend,Frontend,API,Testing}.md` — system design. Source of truth for *how* it's built.
 - `docs/tasks/` — the feature task board (see below).
 - `backend/` — Python/FastAPI backend.
-- `frontend/` — TypeScript/React frontend (not yet scaffolded).
+- `frontend/` — TypeScript/React frontend: Vite + React + MUI, TanStack Query for server state, react-router-dom for routing, vitest/Testing Library/MSW for tests, Storybook for the `components/common/` catalog.
 - `.claude/skills/` — repeatable workflows (see below).
 - `.claude/agents/` — task-scoped subagents (see below).
 - `.devcontainer/` — the dev container all development happens in (see below).

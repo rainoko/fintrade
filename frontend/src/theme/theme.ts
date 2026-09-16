@@ -1,0 +1,76 @@
+import { createTheme } from '@mui/material/styles'
+
+/**
+ * MUI theme augmentation: adds a `signal` palette (BUY/SELL/HOLD, per
+ * docs/Analyse.md's Triple Screen signal output) and a `riskBreach` palette
+ * entry (the portfolio 2%/6% risk-rule warning color, per Analyse.md §7-8
+ * and Frontend.md's PositionsTable/RiskPanel). Components reference these
+ * via `theme.palette.signal.buy` etc. instead of hard-coding hex values, so
+ * every BUY/SELL/HOLD chip and risk banner in the app stays visually
+ * consistent and themeable from one place.
+ */
+declare module '@mui/material/styles' {
+  interface Palette {
+    signal: {
+      buy: string
+      sell: string
+      hold: string
+    }
+    riskBreach: {
+      main: string
+      background: string
+    }
+  }
+
+  interface PaletteOptions {
+    signal?: {
+      buy: string
+      sell: string
+      hold: string
+    }
+    riskBreach?: {
+      main: string
+      background: string
+    }
+  }
+}
+
+export const theme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: {
+      main: '#1565c0',
+    },
+    secondary: {
+      main: '#6a1b9a',
+    },
+    // BUY/SELL/HOLD: green/red/amber is the conventional finance-app
+    // mapping and reads correctly against both the light background above
+    // and MUI's default Chip/Alert components used to render them.
+    signal: {
+      buy: '#2e7d32',
+      sell: '#c62828',
+      hold: '#ed6c02',
+    },
+    // Portfolio risk-rule breach (total open risk > 6%, or a single new
+    // position pushing equity risk > 2% — see Analyse.md §7). Deliberately
+    // distinct from `signal.sell` so a risk breach banner never reads as
+    // "this is a SELL signal" — it's a portfolio-level warning, not a
+    // per-stock signal.
+    riskBreach: {
+      main: '#d32f2f',
+      background: '#fdecea',
+    },
+  },
+  typography: {
+    fontFamily: [
+      '"Inter"',
+      '-apple-system',
+      'BlinkMacSystemFont',
+      '"Segoe UI"',
+      'Roboto',
+      'Arial',
+      'sans-serif',
+    ].join(','),
+  },
+})

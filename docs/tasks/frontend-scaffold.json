@@ -3,54 +3,86 @@
   "title": "Frontend: scaffold Vite + React + TypeScript + MUI project",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/architecture/Frontend.md",
     "docs/architecture/Testing.md",
     "docs/Architecture.md"
   ],
-  "description": "Foundational task: create the frontend/ project from scratch (currently not yet scaffolded, per CLAUDE.md's repo layout). Nothing else in the frontend-* task family can start before this lands. Establishes the toolchain, MUI theme, TanStack Query provider, routing shell, and the test/Storybook harness \u2014 no feature UI yet.",
+  "description": "Foundational task: create the frontend/ project from scratch (currently not yet scaffolded, per CLAUDE.md's repo layout). Nothing else in the frontend-* task family can start before this lands. Establishes the toolchain, MUI theme, TanStack Query provider, routing shell, and the test/Storybook harness — no feature UI yet.",
   "checklist": [
     {
       "step": "Scaffold frontend/ with Vite + React + TypeScript (strict mode on in tsconfig.json).",
-      "done": false
+      "done": true
     },
     {
-      "step": "Install and configure MUI (@mui/material, @mui/icons-material, @emotion/react, @emotion/styled) with a theme.ts under src/theme/ \u2014 define a palette including semantic colors for BUY/SELL/HOLD signals and risk-rule-breach warnings, per Frontend.md.",
-      "done": false
+      "step": "Install and configure MUI (@mui/material, @mui/icons-material, @emotion/react, @emotion/styled) with a theme.ts under src/theme/ — define a palette including semantic colors for BUY/SELL/HOLD signals and risk-rule-breach warnings, per Frontend.md.",
+      "done": true
     },
     {
       "step": "Install and configure @tanstack/react-query: QueryClientProvider wired in main.tsx/App.tsx with sane defaults (retry, staleTime) documented inline.",
-      "done": false
+      "done": true
     },
     {
       "step": "Install react-router-dom and set up the route table in App.tsx (routes can point at placeholder pages until frontend-app-shell-navigation and the page tasks land).",
-      "done": false
+      "done": true
     },
     {
       "step": "Set up ESLint + Prettier (or the project's preferred lint/format pair) with npm scripts (lint, format).",
-      "done": false
+      "done": true
     },
     {
       "step": "Set up the test harness: vitest + @testing-library/react + msw, matching docs/architecture/Testing.md's coverage config exactly (v8 provider, 90% lines/branches/functions/statements thresholds) in vite.config.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Set up Storybook (storybook + @storybook/react-vite, plus an accessibility addon) with .storybook/main.ts and preview.ts wired to the MUI theme.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add package.json scripts: dev, build, test, test:coverage, storybook, build-storybook.",
-      "done": false
+      "done": true
     },
     {
       "step": "Update CLAUDE.md's repo layout line for frontend/ to remove '(not yet scaffolded)' and briefly describe the stack.",
-      "done": false
+      "done": true
     },
     {
-      "step": "Confirm `npm run test:coverage`, `npm run build`, and `npm run build-storybook` all succeed on the empty scaffold (no coverage gate failure expected yet since there's no application code to cover below the threshold \u2014 document how the coverage gate is meant to behave once features land, per Testing.md).",
-      "done": false
+      "step": "Confirm `npm run test:coverage`, `npm run build`, and `npm run build-storybook` all succeed on the empty scaffold (no coverage gate failure expected yet since there's no application code to cover below the threshold — document how the coverage gate is meant to behave once features land, per Testing.md).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T20:49:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Used `npm create vite@latest frontend -- --template react-ts` and let npm resolve current latest versions for every package rather than hand-pinning older versions: React 19.2.8, MUI 9.4.0, Vite 8.3.0, TypeScript ~6.0.2, ESLint 10.10.0 (flat config), vitest 5.0.1 / @vitest/coverage-v8 5.0.1, Storybook 10.6.0.",
+      "rationale": "No architecture doc pins exact versions, only package names (Frontend.md §6). Taking whatever npm resolves as current keeps the scaffold on a toolchain that will actually receive support/fixes for the ~9 dependent frontend-* tasks still to come, rather than deliberately starting behind. Verified the whole chain (build, lint, vitest+coverage, storybook build) actually works together before treating this as settled, rather than assuming compatibility from version numbers alone."
+    },
+    {
+      "timestamp": "2026-09-16T20:49:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Chose ESLint + Prettier over the create-vite default (oxlint) for lint/format.",
+      "rationale": "The checklist named 'ESLint + Prettier (or the project's preferred lint/format pair)' as the primary option. ESLint's plugin ecosystem (eslint-plugin-react-hooks, eslint-plugin-storybook, typescript-eslint) is what the later frontend-* tasks and Storybook integration expect; oxlint's plugin surface for this project's needs (react-hooks rules-of-hooks, storybook story linting) is thinner. Removed the generated .oxlintrc.json and its dependency."
+    },
+    {
+      "timestamp": "2026-09-16T20:49:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Ran `storybook init` but pruned its auto-added @storybook/addon-vitest, @chromatic-com/storybook, and @storybook/addon-mcp, keeping only @storybook/addon-a11y (the task's required accessibility addon) and @storybook/addon-docs.",
+      "rationale": "addon-vitest wires a Playwright-backed browser test project into vite.config.ts and downloads Chromium binaries (with a printed warning about missing system deps) — a heavy, out-of-scope addition the checklist didn't ask for, and one that would have made vite.config.ts's coverage config a multi-project setup rather than matching Testing.md's example 'exactly' as required. Chromatic (cloud visual-review SaaS) and the MCP addon are unrelated to any checklist item. All three can be added later in a task that actually wants them, with review of the tradeoff at that point."
+    },
+    {
+      "timestamp": "2026-09-16T20:49:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Kept .storybook/preview.tsx as a .tsx file rather than .ts, even though the checklist says 'preview.ts'.",
+      "rationale": "The MUI ThemeProvider decorator that wires every story to src/theme/theme.ts (required by the same checklist line) returns JSX, which needs a .tsx extension to compile under this project's TypeScript/Vite config. Read 'preview.ts' as shorthand for 'the preview config file', not a literal ban on JSX in it — this is Storybook's own documented convention for a themed decorator."
+    },
+    {
+      "timestamp": "2026-09-16T20:49:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a minimal but real baseline test suite (src/App.test.tsx covering the route table, src/theme/theme.test.ts covering the semantic palette) instead of leaving the scaffold with zero tests.",
+      "rationale": "vitest exits non-zero ('No test files found') when no test file exists, which would make `npm run test:coverage` fail — directly contradicting the checklist's 'confirm test:coverage ... succeed on the empty scaffold' requirement. Testing the route table and theme palette is legitimate coverage of the actual scaffold code (App.tsx, pages/*, theme.ts) rather than a throwaway assertion, and reaches 100% on all four coverage dimensions without pulling forward any frontend-* feature work."
     }
   ]
 }
