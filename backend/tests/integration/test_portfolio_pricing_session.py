@@ -15,40 +15,13 @@ asserting the config flag in isolation (tests/unit/test_db_session.py does that 
 
 from datetime import date
 
-import pandas as pd
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.data.cache import CachedDataProvider
 from app.db.models import Base, PositionORM
 from app.portfolio.pricing import enrich_positions_with_price
-
-
-def _frame(closes: list[float]) -> pd.DataFrame:
-    idx = pd.DatetimeIndex([f"2026-01-{i + 1:02d}" for i in range(len(closes))], name="date")
-    return pd.DataFrame(
-        {
-            "open": [c - 0.5 for c in closes],
-            "high": [c + 1.0 for c in closes],
-            "low": [c - 1.0 for c in closes],
-            "close": closes,
-            "volume": [1_000.0 for _ in closes],
-        },
-        index=idx,
-    )
-
-
-class _NetworkStub:
-    """A minimal primary DataProvider: always returns a fixed daily frame, never used as the
-    fallback (no test here exercises a fallback path), so every ticker is a guaranteed cache
-    miss the first time -- CachedDataProvider._upsert() commits on the shared session as a
-    result, which is the exact mid-loop commit this test is reproducing."""
-
-    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
-        return _frame([100.0, 110.0])
-
-    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused here
-        raise NotImplementedError
+from tests.integration.conftest import _count_position_selects, _StubDailyProvider
 
 
 def _make_session(*, expire_on_commit: bool) -> Session:
@@ -58,24 +31,6 @@ def _make_session(*, expire_on_commit: bool) -> Session:
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=expire_on_commit
     )
     return TestingSessionLocal()
-
-
-def _count_position_selects(session: Session, fn) -> int:
-    select_count = 0
-
-    def _listener(conn, cursor, statement, parameters, context, executemany):
-        nonlocal select_count
-        upper = statement.strip().upper()
-        if upper.startswith("SELECT") and "POSITIONS" in upper:
-            select_count += 1
-
-    engine = session.get_bind()
-    event.listen(engine, "before_cursor_execute", _listener)
-    try:
-        fn()
-    finally:
-        event.remove(engine, "before_cursor_execute", _listener)
-    return select_count
 
 
 class TestNoNPlusOneOnMidLoopCacheCommit:
@@ -95,10 +50,10 @@ class TestNoNPlusOneOnMidLoopCacheCommit:
             session.commit()
             rows = session.query(PositionORM).order_by(PositionORM.id).all()
 
-            provider = CachedDataProvider(_NetworkStub(), _NetworkStub(), session)
+            provider = CachedDataProvider(_StubDailyProvider(), _StubDailyProvider(), session)
 
             select_count = _count_position_selects(
-                session, lambda: enrich_positions_with_price(rows, provider)
+                session.get_bind(), lambda: enrich_positions_with_price(rows, provider)
             )
 
             # Both cache misses (AAPL then MSFT) commit on the shared session; with
@@ -129,10 +84,10 @@ class TestNoNPlusOneOnMidLoopCacheCommit:
             session.commit()
             rows = session.query(PositionORM).order_by(PositionORM.id).all()
 
-            provider = CachedDataProvider(_NetworkStub(), _NetworkStub(), session)
+            provider = CachedDataProvider(_StubDailyProvider(), _StubDailyProvider(), session)
 
             select_count = _count_position_selects(
-                session, lambda: enrich_positions_with_price(rows, provider)
+                session.get_bind(), lambda: enrich_positions_with_price(rows, provider)
             )
 
             assert select_count > 0
