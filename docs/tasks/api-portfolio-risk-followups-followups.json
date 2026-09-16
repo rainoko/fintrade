@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/risk follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["api-portfolio-risk-followups"],
   "references": [
     "docs/tasks/api-portfolio-risk-followups.json#review",
@@ -13,13 +13,20 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md §6's new portfolio/pricing.py paragraph says it 'depends only on data/base.py's DataProvider protocol and db/models.py/portfolio/models.py', but app/portfolio/pricing.py also imports DataProviderError from app.data.exceptions (used in _latest_close's except clause). Minor inaccuracy in an otherwise-correct description -- worth folding data/exceptions.py into that dependency list next time this paragraph is touched.",
-      "done": false
+      "done": true
     },
     {
       "step": "The get_risk() reorder in backend/app/api/routers/portfolio.py (protective_stop() before provider.get_weekly_ohlcv()) has no test asserting the intended effect -- that the weekly fetch is actually skipped/not attempted for a position excluded on the daily side. tests/integration/test_portfolio_risk.py's existing cases (e.g. test_position_with_daily_frame_missing_low_column_is_excluded) all supply valid weekly data too, so they pass identically whether or not the reorder happened and don't guard against a future regression that re-introduces the wasted fetch. Worth adding a case with a provider whose get_weekly_ohlcv raises/is unset for that ticker (or a call-count spy) to pin the ordering down as behavior, not just as a code comment.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned the protective_stop()-before-get_weekly_ohlcv() ordering down with a call-count spy (_StubProvider.weekly_calls, a plain list appended to on every get_weekly_ohlcv call) rather than a raising/unset weekly entry for the excluded ticker.",
+      "rationale": "A raising-or-unset weekly fixture for the daily-excluded ticker would make the test pass whether or not the ordering was correct, since that position is already excluded via a daily-side ValueError/None before either implementation would reach the weekly fetch -- it can't distinguish 'skipped' from 'attempted and would have failed anyway'. A call-count spy observes the actual number/set of tickers get_weekly_ohlcv was invoked for, which is the only way to positively assert the wasted fetch didn't happen; confirmed by manually reverting the reorder locally (weekly fetch before protective_stop()) and observing the new test fail with a KeyError from the stub being asked for a ticker it was never given weekly data for, then restoring the reorder and confirming it passes again."
+    }
+  ],
   "questions": []
 }
