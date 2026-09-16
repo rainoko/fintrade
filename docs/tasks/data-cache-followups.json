@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["data-cache"],
   "references": [
     "docs/tasks/data-cache.json#review",
@@ -85,5 +85,42 @@
     "pr_number": 55,
     "pr_url": "https://github.com/rainoko/fintrade/pull/55",
     "pushed_at": "2026-09-16T10:26:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T10:31:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/55",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the premise re-check in this task's first `decisions` entry: app/api/dependencies.py's get_data_provider wires CachedDataProvider into sync `def` route handlers (get_portfolio/get_risk in portfolio.py, get_history/get_analysis in stocks.py), which Starlette dispatches to a threadpool -- so the O(n) upsert lookup and the concurrent-population race were correctly treated as real, reachable production concerns rather than deferred hypotheticals.",
+        "file": "backend/app/api/dependencies.py"
+      },
+      {
+        "summary": "Item 3's IntegrityError catch-and-rollback: correct as far as it goes. rollback() returns the session to a reusable state (SQLAlchemy autobegins the next transaction), and no caller-visible data is lost since _get returns the freshly-fetched frame regardless of whether the upsert's commit lands. Non-blocking gap: it only catches IntegrityError, but SQLite's default file-locking (no WAL mode / explicit busy_timeout configured on the engine) makes a concurrent commit at least as likely to raise OperationalError (\"database is locked\") depending on timing, which isn't caught and would still propagate as an unhandled 500. Filed as a follow-up.",
+        "file": "backend/app/data/cache.py",
+        "line": 193
+      },
+      {
+        "summary": "Item 3's `except IntegrityError` is scoped to the whole commit rather than specifically the composite-PK conflict it's documented/tested for. Verified against the current OHLCVCacheORM schema that the PK conflict is the only realistic source today, so not a live bug, but a future schema change adding another constraint would have a genuine integrity violation silently swallowed as though it were the benign race. Filed as a follow-up.",
+        "file": "backend/app/data/cache.py",
+        "line": 195
+      },
+      {
+        "summary": "Item 4's float64 cast: verified no downstream code (indicators, signals, portfolio, schemas, routers) assumes int64 volume -- Pydantic schema already declares float, the history router already does float(row[\"volume\"]), force_index does float arithmetic. Safe, no regression.",
+        "file": "backend/app/data/cache.py",
+        "line": 88
+      },
+      {
+        "summary": "Item 1's rewrite of the per-row `self._db.get()` lookup into a dict built once before the loop (`existing_by_date`) drops the SQLAlchemy identity-map self-healing the old code had for a fetched frame containing two rows for the same normalized date: reproduced directly (a stub provider frame with a duplicate date) that this now deterministically raises IntegrityError on commit -- not only under concurrency -- and, combined with item 3's new catch, is silently swallowed and logged as a 'concurrent race' even though it isn't one, permanently preventing that ticker/interval from ever being cached (not self-healing on a later call, contradicting item 3's own decisions-entry claim). Verified this can't currently occur with either real provider (StooqProvider's W-FRI resample and YFinanceProvider's native weekly/daily intervals both structurally guarantee a unique index), matching this same task's item 2's own 'latent, doesn't manifest under current provider behavior' precedent -- treated as non-blocking on that basis, but flagged prominently since it undercuts a claim this PR's own decision record makes and is a cheap one-line fix (update existing_by_date as rows are added).",
+        "file": "backend/app/data/cache.py",
+        "line": 180
+      },
+      {
+        "summary": "_upsert's existing_by_date query reruns the same _read_cache(ticker, interval) query _get already ran a few lines earlier via cached_rows, on every cache-miss/stale-refresh call -- one avoidable extra SELECT. Not purely wasteful though: re-querying after the network fetch narrows (doesn't just duplicate) the concurrent-race window item 3 addresses, so reusing the earlier snapshot would be a real trade-off, not a pure win. Filed as a follow-up to document the trade-off explicitly or reuse cached_rows.",
+        "file": "backend/app/data/cache.py",
+        "line": 79
+      }
+    ],
+    "notes": "Checked out PR #55, ran the full backend suite: 468 passed, coverage 99.84% (app/data/cache.py itself at 100% line/branch), well above the 90% gate. No ruff/mypy config exists in this repo yet (checked backend/pyproject.toml) so no lint step applies; no API route/schema touched so no openapi.json regeneration needed; no frontend exists yet and this PR has no UI surface, so the browser walkthrough is correctly skipped (noted explicitly per process). All 6 checklist items are done with decisions entries that include both what was decided and why (including rejected alternatives), meeting CLAUDE.md's decision-memory bar -- no checklist item phrased as 'decide X' lacks a matching decisions entry. Re-verified task-worker's concurrency-wiring claim directly against app/api/dependencies.py and the routers rather than taking it on faith. Ran the code-review skill (medium) against the diff in the background and independently reproduced its most important finding (the identity-map/duplicate-date regression) myself with a throwaway script before including it. Four non-blocking findings (two on item 3's IntegrityError handling scope, one on item 1's loss of identity-map self-healing for in-frame duplicate dates, one a minor query-reuse note) filed as docs/tasks/data-cache-followups-followups.json rather than left only as PR comments -- none change the accept verdict since none are reachable with the two real providers wired in today, consistent with this task's own item-2 precedent for latent, provider-behavior-contingent gaps."
   }
 }
