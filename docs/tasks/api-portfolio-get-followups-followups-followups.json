@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio follow-ups follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-portfolio-get-followups-followups"],
   "references": [
     "docs/tasks/api-portfolio-get-followups-followups.json#review",
@@ -13,9 +13,22 @@
   "checklist": [
     {
       "step": "backend/tests/integration/test_portfolio_get_db_wiring.py duplicates `_frame`, a stub market-data provider class (`_StubProvider` here vs `_NetworkStub` in the sibling file), and `_count_position_selects` near-verbatim from backend/tests/integration/test_portfolio_pricing_session.py (same directory). Not a correctness bug -- both copies pass and are independently correct today -- but it's a maintenance cost: a future change to the fixture frame shape (e.g. adding a column) or to the SELECT-counting listener logic now has to be made in two places to stay consistent, and the two `_count_position_selects` copies have already diverged slightly (one takes a SQLAlchemy `Session` and calls `.get_bind()`, the other takes an `Engine` directly). Worth extracting `_frame` and `_count_position_selects` into tests/integration/conftest.py (or a small shared helper module) and having both test files import them, collapsing `_StubProvider`/`_NetworkStub` into one shared stub if their behavior stays identical.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T09:28:23Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted `_frame`, a unified `_StubDailyProvider` (replacing both `_NetworkStub` and the local `_StubProvider`), and `_count_position_selects` into backend/tests/integration/conftest.py as plain module-level helpers (not pytest fixtures), imported directly by both test_portfolio_pricing_session.py and test_portfolio_get_db_wiring.py.",
+      "rationale": "conftest.py already holds shared integration-test fixtures (db_session/client) per its own docstring's precedent for exactly this kind of dedup, so it's the natural home rather than inventing a new shared-utils module. Plain functions/classes (not fixtures) were used because none of the three need per-test setup/teardown -- `_frame` is a pure builder, `_StubDailyProvider` is stateless, and `_count_position_selects` is a context-managed helper that takes its target and a callback -- so fixture machinery (a `yield`, dependency injection by parameter name) would add indirection without benefit; callers just import them from `tests.integration.conftest`, which is fine since conftest.py is itself a regular importable module (tests/ and tests/integration/ both have __init__.py, making it a package)."
+    },
+    {
+      "timestamp": "2026-09-16T09:28:23Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved the `_count_position_selects` Session-vs-Engine divergence by standardizing the shared helper on `Engine` (matching test_portfolio_get_db_wiring.py's existing signature), and updated test_portfolio_pricing_session.py's two call sites to pass `session.get_bind()` instead of `session`.",
+      "rationale": "Engine is the lower-level, more general object (a Session is always bound to one via .get_bind()), so standardizing on Engine keeps the helper usable from both a raw-engine caller and a session-based caller without needing two variants or an isinstance check inside the helper. The alternative -- standardizing on Session and doing `.get_bind()` inside the helper -- would have forced the Engine-only caller in test_portfolio_get_db_wiring.py (which deliberately has no Session, only monkeypatched SessionLocal/engine module attributes -- see that file's own module docstring) to fabricate one solely to satisfy the helper's signature, which is more awkward than the one-line `.get_bind()` call added to the other file."
+    }
+  ],
   "questions": []
 }

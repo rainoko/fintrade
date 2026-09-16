@@ -18,24 +18,28 @@ None of the three would catch a future regression that drops the `expire_on_comm
 kwarg from -- or introduces a second, differently-configured sessionmaker for -- the real
 `SessionLocal`, since none of them actually calls it.
 
-This module deliberately does NOT use conftest.py's fixtures or override `get_db` at all.
-Instead it monkeypatches `app.db.session.SessionLocal`/`engine` in place, copying whatever
-kwargs the real `SessionLocal` was actually constructed with (so a future kwarg regression
-flows straight into this test's assertion below) onto a throwaway in-memory engine, and
-monkeypatches the two upstream provider classes `app/api/dependencies.py`'s
+This module deliberately does NOT use conftest.py's `db_session`/`client` fixtures or override
+`get_db` at all. Instead it monkeypatches `app.db.session.SessionLocal`/`engine` in place,
+copying whatever kwargs the real `SessionLocal` was actually constructed with (so a future
+kwarg regression flows straight into this test's assertion below) onto a throwaway in-memory
+engine, and monkeypatches the two upstream provider classes `app/api/dependencies.py`'s
 `get_data_provider` composes `CachedDataProvider` from (so no live network call happens) --
 while `get_db`, `get_data_provider`, and the route handlers themselves all run completely
 unmodified, production code. See the api-portfolio-get-followups-followups task's
+`decisions` entry.
+
+It does still import `_StubDailyProvider` and `_count_position_selects` from conftest.py --
+plain helpers shared with test_portfolio_pricing_session.py's regression test for the same
+fix, not fixtures -- see the api-portfolio-get-followups-followups-followups task's
 `decisions` entry.
 """
 
 from collections.abc import Iterator
 from datetime import date
 
-import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -43,33 +47,7 @@ import app.api.dependencies as dependencies_module
 import app.db.session as db_session_module
 from app.db.models import AccountORM, Base, PositionORM
 from app.main import app
-
-
-def _frame(closes: list[float]) -> pd.DataFrame:
-    idx = pd.DatetimeIndex([f"2026-01-{i + 1:02d}" for i in range(len(closes))], name="date")
-    return pd.DataFrame(
-        {
-            "open": [c - 0.5 for c in closes],
-            "high": [c + 1.0 for c in closes],
-            "low": [c - 1.0 for c in closes],
-            "close": closes,
-            "volume": [1_000.0 for _ in closes],
-        },
-        index=idx,
-    )
-
-
-class _StubProvider:
-    """Stands in for both `YFinanceProvider` and `StooqProvider`: always returns a fixed
-    daily frame, so every ticker is a guaranteed cache miss on its first fetch -- the exact
-    mid-loop `CachedDataProvider._upsert()` commit this test reproduces through the real,
-    get_db-wired session (mirrors test_portfolio_pricing_session.py's `_NetworkStub`)."""
-
-    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
-        return _frame([100.0, 110.0])
-
-    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused here
-        raise NotImplementedError
+from tests.integration.conftest import _count_position_selects, _StubDailyProvider
 
 
 @pytest.fixture
@@ -97,30 +75,13 @@ def real_wiring_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestCl
     # itself (there's no dependency-injected provider to override) -- swap the classes it
     # composes CachedDataProvider from so no live network call happens, leaving
     # get_data_provider's own logic (and CachedDataProvider, and get_db) running unmodified.
-    monkeypatch.setattr(dependencies_module, "YFinanceProvider", _StubProvider)
-    monkeypatch.setattr(dependencies_module, "StooqProvider", _StubProvider)
+    monkeypatch.setattr(dependencies_module, "YFinanceProvider", _StubDailyProvider)
+    monkeypatch.setattr(dependencies_module, "StooqProvider", _StubDailyProvider)
 
     try:
         yield TestClient(app), test_engine
     finally:
         test_engine.dispose()
-
-
-def _count_position_selects(engine: Engine, fn) -> int:
-    select_count = 0
-
-    def _listener(conn, cursor, statement, parameters, context, executemany):
-        nonlocal select_count
-        upper = statement.strip().upper()
-        if upper.startswith("SELECT") and "POSITIONS" in upper:
-            select_count += 1
-
-    event.listen(engine, "before_cursor_execute", _listener)
-    try:
-        fn()
-    finally:
-        event.remove(engine, "before_cursor_execute", _listener)
-    return select_count
 
 
 class TestRealGetDbWiringAvoidsNPlusOne:

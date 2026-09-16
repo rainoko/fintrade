@@ -41,7 +41,7 @@
     { "id": "api-portfolio-get", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-portfolio-get-followups", "area": "backend/api", "skill": null, "state": "done" },
     { "id": "api-portfolio-get-followups-followups", "area": "backend/api", "skill": null, "state": "done" },
-    { "id": "api-portfolio-get-followups-followups-followups", "area": "backend/api", "skill": null, "state": "planned" },
+    { "id": "api-portfolio-get-followups-followups-followups", "area": "backend/api", "skill": null, "state": "testing" },
     { "id": "api-portfolio-add-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-portfolio-delete-position", "area": "backend/api", "skill": "add-api-endpoint", "state": "done" },
     { "id": "api-portfolio-delete-position-followups", "area": "backend/api", "skill": null, "state": "done" },
