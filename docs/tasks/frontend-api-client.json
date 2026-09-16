@@ -3,7 +3,7 @@
   "title": "Frontend: typed API client generated from backend/openapi.json",
   "area": "frontend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-scaffold"
   ],
