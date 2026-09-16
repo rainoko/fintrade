@@ -1,0 +1,43 @@
+// Typed endpoint functions for the /api/stocks/* routes (docs/architecture/API.md).
+// Response shapes come straight from the generated types.ts — never redeclared
+// by hand — so a backend schema change surfaces here as a compile error the
+// next time src/api/types.ts is regenerated.
+
+import { request } from './client'
+import type { components } from './types'
+
+export type AnalysisResponse = components['schemas']['AnalysisResponse']
+export type HistoryResponse = components['schemas']['HistoryResponse']
+export type HistoryInterval = components['schemas']['HistoryResponse']['interval']
+
+export interface GetStockHistoryParams {
+  /**
+   * Lookback window: '<N>d' | '<N>w' | '<N>m' | '<N>y', or 'max' (see
+   * API.md). Omitted entirely means the backend's own default ('1y').
+   */
+  range?: string
+  /** Defaults to 'daily' on the backend when omitted. */
+  interval?: HistoryInterval
+}
+
+/** `GET /api/stocks/{ticker}/analysis` — full Triple Screen evaluation for one ticker. */
+export function getStockAnalysis(ticker: string): Promise<AnalysisResponse> {
+  return request<AnalysisResponse>(`/api/stocks/${encodeURIComponent(ticker)}/analysis`)
+}
+
+/** `GET /api/stocks/{ticker}/history` — raw OHLCV bars for charting. */
+export function getStockHistory(
+  ticker: string,
+  params: GetStockHistoryParams = {},
+): Promise<HistoryResponse> {
+  const query = new URLSearchParams()
+  if (params.range !== undefined) {
+    query.set('range', params.range)
+  }
+  if (params.interval !== undefined) {
+    query.set('interval', params.interval)
+  }
+  const queryString = query.toString()
+  const path = `/api/stocks/${encodeURIComponent(ticker)}/history${queryString ? `?${queryString}` : ''}`
+  return request<HistoryResponse>(path)
+}

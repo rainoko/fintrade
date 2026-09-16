@@ -369,7 +369,7 @@
       "id": "frontend-api-client",
       "area": "frontend/api",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-api-client.json"
     },
     {

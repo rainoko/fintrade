@@ -14,6 +14,7 @@ coverage gate.
 | `npm run build`                   | Type-check (`tsc -b`) + production build                                                                      |
 | `npm run preview`                 | Preview a production build locally                                                                            |
 | `npm run lint`                    | ESLint                                                                                                        |
+| `npm run generate:api-types`      | Regenerate `src/api/types.ts` from the committed `../backend/openapi.json` snapshot — never hand-edit that file |
 | `npm run format` / `format:check` | Prettier write / check                                                                                        |
 | `npm run test`                    | Run the vitest suite once                                                                                     |
 | `npm run test:coverage`           | Run the suite with coverage, enforcing the 90% lines/branches/functions/statements gate from `vite.config.ts` |

@@ -3,7 +3,7 @@
   "title": "Frontend: typed API client generated from backend/openapi.json",
   "area": "frontend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -16,27 +16,53 @@
   "checklist": [
     {
       "step": "Add openapi-typescript as a dev dependency and a script to generate src/api/types.ts from ../backend/openapi.json \u2014 never hand-edit types.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Build src/api/client.ts: a thin fetch wrapper (base URL config, JSON parsing) that maps every documented error case (404/422/503, per API.md's 'Error Cases to Cover in Tests') to a typed ApiError with status and detail.",
-      "done": false
+      "done": true
     },
     {
       "step": "Build src/api/stocks.ts: getStockAnalysis(ticker) and getStockHistory(ticker, { range, interval }) typed against the generated types.",
-      "done": false
+      "done": true
     },
     {
       "step": "Build src/api/portfolio.ts: getPortfolio(), getPortfolioRisk(), addPosition(payload), deletePosition(id) typed against the generated types.",
-      "done": false
+      "done": true
     },
     {
       "step": "Build tests/mocks/handlers.ts (MSW) mirroring every endpoint in API.md, including the merge-on-duplicate-ticker POST behavior and every error case in API.md's error-cases section \u2014 this becomes the shared mock layer every later feature task's tests reuse.",
-      "done": false
+      "done": true
     },
     {
       "step": "Unit-test api/client.ts's error-mapping logic directly (each status code maps to the right ApiError shape) \u2014 this module needs its own tests since no feature UI exists yet to exercise it indirectly.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T21:40:42Z",
+      "recorded_by": "task-worker",
+      "decision": "Installed openapi-typescript@^7.13.0 with npm's --legacy-peer-deps, since its published peerDependencies range (typescript ^5.x) predates this project's pinned typescript ~6.0.2 and npm's default resolver refuses the install otherwise.",
+      "rationale": "openapi-typescript is a devDependency / build-time code generator only \u2014 it never ships in the runtime bundle \u2014 and its generated output (src/api/types.ts) type-checked cleanly under typescript 6.0.3 with no errors, so the peer-range mismatch is a stale peerDependencies declaration on the package's side, not a real incompatibility. Rejected alternative: downgrading the project's typescript version to satisfy the peer range, which would undo a decision already made in frontend-scaffold for no functional benefit."
+    },
+    {
+      "timestamp": "2026-09-16T21:40:42Z",
+      "recorded_by": "task-worker",
+      "decision": "api/client.ts resolves its base URL from import.meta.env.VITE_API_BASE_URL, defaulting to '' (same-origin) when unset; every endpoint path passed to request() already includes the '/api' prefix per API.md.",
+      "rationale": "Neither API.md nor Frontend.md pins down how the frontend locates the backend at runtime (dev-server proxy vs. same-origin production deploy vs. a separate host). An env var with an empty-string default keeps local dev and a same-origin production deploy working with zero configuration, while still giving a future task (or ops config) a single seam to point at a different host. Rejected alternative: hardcoding a localhost:8000 default, which would silently misbehave in any non-local deployment instead of failing loudly."
+    },
+    {
+      "timestamp": "2026-09-16T21:40:42Z",
+      "recorded_by": "task-worker",
+      "decision": "tests/mocks/handlers.ts reaches every documented error case through sentinel tickers/ids/payload values (e.g. GET /api/stocks/UNKNOWN/analysis -> 404, ticker 'NOPROVIDER' -> 503, ticker 'THINHISTORY' -> 422 insufficient history, POST payload ticker 'OVERFLOW' -> 422 merge-overflow ErrorDetail) baked into the default handler list, rather than a parallel set of per-scenario handlers every consuming test must opt into via server.use().",
+      "rationale": "Keeps the shared mock layer's surface area small and self-documenting for the many feature tasks that will import these handlers \u2014 a component test can hit an error path by requesting a sentinel ticker/id with the exact same handler registration as the happy path, with no need to learn MSW's server.use() override API just to exercise an error state. Rejected alternative: exporting a second `errorHandlers` map for tests to layer in, which duplicates each endpoint's routing logic and adds an extra import every error-path test needs."
+    },
+    {
+      "timestamp": "2026-09-16T21:40:42Z",
+      "recorded_by": "task-worker",
+      "decision": "The mock POST /api/portfolio/positions handler stores only the always-known PositionOut fields (id, ticker, quantity, avg_cost_basis, entry_date) and computes current_price/unrealized_pnl_pct at GET-time from a small mockPrices lookup, rather than storing/mutating those two fields directly on the position.",
+      "rationale": "API.md is explicit that current_price/unrealized_pnl_pct are always null in the POST response itself but are enriched on a later read \u2014 storing them directly on the position object made the POST-response-is-always-null rule and the GET-is-enriched rule fight over the same field, so the mock's initial implementation left a freshly-merged position permanently null-priced even after a subsequent GET, which is a smaller-but-still-real deviation from the documented contract this task's mock layer exists to encode correctly for every later feature test. Rejected alternative: leaving current_price null forever after any merge, which was simpler but wrong per API.md."
     }
   ]
 }
