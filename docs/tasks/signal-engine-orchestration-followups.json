@@ -3,7 +3,7 @@
   "title": "Signal engine orchestration — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["signal-engine-orchestration"],
   "references": [
     "docs/tasks/signal-engine-orchestration.json#review",
@@ -13,11 +13,25 @@
   "checklist": [
     {
       "step": "analyse() calls evaluate_wave(daily_ohlcv, tide) once directly for today's `wave`, then _wave_showed_state() calls evaluate_wave() again up to 5 times per target state (once for OVERSOLD_PULLBACK, once for OVERBOUGHT_RALLY) -- up to 11 total evaluate_wave() calls per analyse() invocation, each re-deriving the full Stochastic Oscillator/Force Index/rolling-std computations from scratch over its slice. Confirmed via code-review (medium effort) on this PR's diff: evaluate_wave's result never depends on target_state, and since evaluate_wave can only ever produce OVERSOLD_PULLBACK when tide==BULLISH or OVERBOUGHT_RALLY when tide==BEARISH (never both for a given tide), one of the two _wave_showed_state calls is guaranteed to do 5 fully wasted evaluate_wave invocations on every single analyse() call, and the direct `wave` computation duplicates the lookback loop's final (full-length) iteration again on top of that. Not a correctness issue on current single-ticker, on-demand-analysis data sizes (~2-3x cost multiplier on analyse(), which runs once per held/watched ticker), but worth refactoring to compute each lookback bar's wave state once (cache per slice-length, or skip the loop whose target_state can never match the current tide) and check against a single pass instead of two independent loops.",
-      "done": false
+      "done": true
     },
     {
       "step": "evaluate_impulse(daily_ohlcv) (app/signals/impulse.py, pre-existing) internally computes ema(daily_close, 13) and macd_histogram(daily_close) but only returns the derived GREEN/RED/BLUE color, discarding the series. analyse() then separately recomputes ema(daily_close, 13) and macd_components(daily_close).histogram on the same daily_close for the `indicators` dict this PR added. Both computations produce identical values (same inputs, same functions) but run twice with no sharing -- correctness is unaffected (indicators is independent of evaluate_impulse's return value) but it's real duplicated work introduced by this PR now that analyse() needs those series for a second purpose. Consider having evaluate_impulse optionally accept/return the underlying EMA(13)/MACD-Histogram series (or restructure so engine.py computes them once and passes them to both evaluate_impulse and the indicators dict) next time impulse.py or engine.py is touched.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced app/signals/engine.py's `_wave_showed_state(daily_ohlcv, tide, target_state)` (called twice per analyse(), once per target state) with a single `_wave_lookback(daily_ohlcv, tide) -> (wave, wave_showed_pullback, wave_showed_rally)` that makes one pass. It (a) derives the single achievable target_state from tide up front (None for NEUTRAL) and skips the lookback loop entirely for the direction that can never match instead of scanning it anyway, (b) reads today's `wave` off the same evaluate_wave call the 'shows' check already needed (rather than a separate direct call), and (c) scans the remaining lookback window newest-to-oldest with an early break on first match, rather than a fixed 5-call scan. Worst case is now 5 evaluate_wave() calls (a directional tide with no match anywhere in the window) and best case 1 (today's bar already matches, or tide is NEUTRAL) -- down from a fixed 11 every time. Rejected caching every lookback bar's wave state across analyse() calls (e.g. a module-level or per-ticker cache keyed by slice length): daily_ohlcv slices change on every new bar/ticker in practice, so a cross-call cache would need invalidation logic disproportionate to the actual cost (a few extra Stochastic/Force Index computations over short slices), and the single-pass-plus-skip approach already eliminates the guaranteed-wasted half of the work the checklist item flagged.",
+      "rationale": "Directly addresses the checklist's 'skip the loop whose target_state can never match the current tide' and 'compute each lookback bar's wave state once ... single pass instead of two independent loops' suggestions, while preserving evaluate_wave's existing per-call semantics (no change to Screen 2's own logic) and keeping the function pure/stateless so behavior stays identical to before -- only call count changes. Verified via unit tests in tests/unit/signals/test_engine.py::TestWaveLookback that assert both the returned booleans/wave dict and, where relevant, the exact evaluate_wave call count (e.g. NEUTRAL tide calls it exactly once)."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Gave app.signals.impulse.evaluate_impulse a new optional `histogram: pd.Series | None = None` keyword parameter (mirroring the existing `ema_13` parameter added by portfolio-exit-rules-followups), used in place of an internal macd_histogram(daily_close) call when supplied. app/signals/engine.py's analyse() now computes daily_close's ema_13/ema_26/histogram series once, up front, and passes ema_13/histogram into evaluate_impulse as well as reusing them for the `indicators` dict and (for ema_13) the Elder-Ray Bull/Bear Power calls -- rather than evaluate_impulse recomputing its own ema(13)/macd_histogram internally and analyse() separately recomputing the same series a second time for `indicators`. Rejected restructuring evaluate_impulse to return the series instead of just the GREEN/RED/BLUE color: that would change its return type/contract for every existing caller (including app.portfolio.exits.evaluate_exit_flags, which only wants the color), whereas an additional optional input parameter is purely additive and backward-compatible -- every other call site (evaluate_exit_flags's `evaluate_impulse(daily_ohlcv, ema_13=daily_ema_13)`) is unaffected.",
+      "rationale": "Matches the checklist's own suggested fix ('have evaluate_impulse optionally accept/return the underlying EMA(13)/MACD-Histogram series') and the precedent already set by the ema_13 parameter from portfolio-exit-rules-followups, keeping the sharing mechanism consistent across both signal-engine callers. Verified the two computations are provably identical (same fast/slow/signal params, same daily_close input -- app.indicators.macd.macd_histogram is a thin wrapper over macd_components(...).histogram) so no output value changes, only call count; confirmed via the full backend suite (451 tests, 99.83% coverage) and this task's own dedicated TestEvaluateImpulsePrecomputedEma13-style coverage for the new histogram parameter path."
     }
   ]
 }

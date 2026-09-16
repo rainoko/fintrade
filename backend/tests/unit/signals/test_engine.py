@@ -7,10 +7,11 @@ each Screen 1/2/3 + Impulse combination explicitly" guidance:
    (``_determine_signal``) from the Screen/gate functions themselves -- covers every
    Tide x Impulse x Wave x Trigger combination named in docs/Analyse.md §5, not just the two
    "everything lines up" happy paths.
-2. ``TestWaveShowedState`` isolates the "Wave shows/showed" lookback window
-   (``_wave_showed_state``) by mocking ``evaluate_wave`` with a per-slice-length
-   ``side_effect`` -- covers today's bar matching, an earlier bar within the lookback window
-   matching, and a match older than the window not counting.
+2. ``TestWaveLookback`` isolates the "Wave shows/showed" single-pass lookback
+   (``_wave_lookback``) by mocking ``evaluate_wave`` with a per-slice-length ``side_effect``
+   -- covers today's bar matching, an earlier bar within the lookback window matching, a
+   match older than the window not counting, and that only the direction the current tide
+   can actually produce is ever scanned (see this task's `decisions` entry).
 3. ``TestAnalyseCombinations`` exercises ``analyse()`` itself with ``evaluate_tide`` /
    ``evaluate_impulse`` / ``evaluate_wave`` / ``evaluate_trigger`` all mocked, covering each
    Screen 1/2/3 + Impulse combination end to end (signal + confidence/breakdown shape), plus
@@ -27,7 +28,7 @@ import pandas as pd
 import pytest
 
 from app.signals.confidence import ConfidenceComponent
-from app.signals.engine import _determine_signal, _wave_showed_state, analyse
+from app.signals.engine import _determine_signal, _wave_lookback, analyse
 from app.signals.triple_screen import TideResult
 
 
@@ -106,21 +107,30 @@ class TestDetermineSignal:
         assert _determine_signal("BULLISH", "RED", False, True, True) == "HOLD"
 
 
-class TestWaveShowedState:
-    """Isolates the "Wave shows/showed" lookback window by mocking evaluate_wave with a
-    per-slice-length side_effect, so the loop's actual windowing behavior (not evaluate_wave's
-    own oversold/overbought math, already covered in test_triple_screen.py) is what's tested.
+class TestWaveLookback:
+    """Isolates the "Wave shows/showed" single-pass lookback by mocking evaluate_wave with a
+    per-slice-length side_effect, so the loop's actual windowing/early-exit behavior (not
+    evaluate_wave's own oversold/overbought math, already covered in test_triple_screen.py)
+    is what's tested -- including that only the direction the current tide can actually
+    produce is ever scanned, and that today's bar is never re-evaluated a second time (see
+    this task's `decisions` entry).
     """
 
-    def test_matches_on_todays_bar(self) -> None:
+    def test_matches_on_todays_bar_without_further_calls(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
 
         def side_effect(df: pd.DataFrame, tide: str) -> dict:
             state = "OVERSOLD_PULLBACK" if len(df) == 10 else "NO_WAVE"
             return {"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": state}
 
-        with patch("app.signals.engine.evaluate_wave", side_effect=side_effect):
-            assert _wave_showed_state(daily_ohlcv, "BULLISH", "OVERSOLD_PULLBACK") is True
+        with patch("app.signals.engine.evaluate_wave", side_effect=side_effect) as mock_wave:
+            wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BULLISH")
+
+        assert wave["state"] == "OVERSOLD_PULLBACK"
+        assert showed_pullback is True
+        assert showed_rally is False
+        # Matched on the first (today's) call -- no further evaluate_wave calls needed.
+        mock_wave.assert_called_once_with(daily_ohlcv, "BULLISH")
 
     def test_matches_within_lookback_window_but_not_on_todays_bar(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
@@ -131,7 +141,11 @@ class TestWaveShowedState:
             return {"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": state}
 
         with patch("app.signals.engine.evaluate_wave", side_effect=side_effect):
-            assert _wave_showed_state(daily_ohlcv, "BULLISH", "OVERSOLD_PULLBACK") is True
+            wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BULLISH")
+
+        assert wave["state"] == "NO_WAVE"
+        assert showed_pullback is True
+        assert showed_rally is False
 
     def test_does_not_match_outside_lookback_window(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
@@ -143,7 +157,10 @@ class TestWaveShowedState:
             return {"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": state}
 
         with patch("app.signals.engine.evaluate_wave", side_effect=side_effect):
-            assert _wave_showed_state(daily_ohlcv, "BULLISH", "OVERSOLD_PULLBACK") is False
+            _wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BULLISH")
+
+        assert showed_pullback is False
+        assert showed_rally is False
 
     def test_no_match_anywhere_in_window_is_false(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
@@ -152,14 +169,66 @@ class TestWaveShowedState:
             "app.signals.engine.evaluate_wave",
             return_value={"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": "NO_WAVE"},
         ):
-            assert _wave_showed_state(daily_ohlcv, "BULLISH", "OVERSOLD_PULLBACK") is False
+            _wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BULLISH")
+
+        assert showed_pullback is False
+        assert showed_rally is False
 
     def test_empty_daily_ohlcv_is_false_without_indexing_error(self) -> None:
         daily_ohlcv = _daily_ohlcv(0)
 
-        with patch("app.signals.engine.evaluate_wave") as mock_evaluate_wave:
-            assert _wave_showed_state(daily_ohlcv, "BULLISH", "OVERSOLD_PULLBACK") is False
-        mock_evaluate_wave.assert_not_called()
+        with patch(
+            "app.signals.engine.evaluate_wave",
+            return_value={
+                "stochastic_k": float("nan"),
+                "force_index_2ema": float("nan"),
+                "state": "NO_WAVE",
+            },
+        ) as mock_wave:
+            _wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BULLISH")
+
+        assert showed_pullback is False
+        assert showed_rally is False
+        # Only today's (the sole, empty) bar is ever evaluated -- no window to loop over.
+        mock_wave.assert_called_once_with(daily_ohlcv, "BULLISH")
+
+    def test_neutral_tide_never_matches_and_evaluates_wave_only_once(self) -> None:
+        """NEUTRAL tide can never produce OVERSOLD_PULLBACK or OVERBOUGHT_RALLY (see
+        evaluate_wave's own contract), so the lookback loop is skipped entirely -- confirms
+        this task's headline fix: a tide whose target state can never match doesn't spend
+        any evaluate_wave calls scanning for it.
+        """
+        daily_ohlcv = _daily_ohlcv(10)
+
+        with patch(
+            "app.signals.engine.evaluate_wave",
+            return_value={"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"},
+        ) as mock_wave:
+            _wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "NEUTRAL")
+
+        assert showed_pullback is False
+        assert showed_rally is False
+        mock_wave.assert_called_once_with(daily_ohlcv, "NEUTRAL")
+
+    def test_bearish_tide_only_ever_reports_rally_never_pullback(self) -> None:
+        """A BEARISH tide can only ever show a rally, never a pullback (and vice versa for
+        BULLISH) -- the unreachable boolean is always False without evaluate_wave needing to
+        report anything about it, since the lookback loop for it is never even entered.
+        """
+        daily_ohlcv = _daily_ohlcv(10)
+
+        with patch(
+            "app.signals.engine.evaluate_wave",
+            return_value={
+                "stochastic_k": 80.0,
+                "force_index_2ema": 100.0,
+                "state": "OVERBOUGHT_RALLY",
+            },
+        ):
+            _wave, showed_pullback, showed_rally = _wave_lookback(daily_ohlcv, "BEARISH")
+
+        assert showed_pullback is False
+        assert showed_rally is True
 
 
 def _patched_screens(tide: TideResult, impulse: str, wave: dict, trigger: dict):
