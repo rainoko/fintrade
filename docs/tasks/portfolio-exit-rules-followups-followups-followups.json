@@ -1,0 +1,21 @@
+{
+  "id": "portfolio-exit-rules-followups-followups-followups",
+  "title": "Existing-position exit rules follow-ups — further-further non-blocking review follow-up",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["portfolio-exit-rules-followups-followups"],
+  "references": [
+    "docs/tasks/portfolio-exit-rules-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/49"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #49 (portfolio-exit-rules-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "protective_stop()'s new `columns_validated: bool = False` parameter (backend/app/portfolio/risk.py) is only exercised indirectly: no test in backend/tests/unit/test_portfolio_risk.py calls protective_stop() directly with columns_validated=True to confirm, in isolation, that it genuinely skips the {'low', 'close'} column-membership check (as opposed to that skip only ever being safe in practice because evaluate_exit_flags -- the sole caller that passes it -- always hands it an already-column-valid frame). Coverage on risk.py is 100% branch, satisfied entirely via evaluate_exit_flags's own end-to-end tests (e.g. test_real_too_short_daily_history_raises exercises the columns_validated=True + empty-frame branch). Worth adding a direct unit test next time risk.py is touched -- e.g. protective_stop(position, a frame missing 'low' but non-empty, columns_validated=True) either raises a KeyError (documenting the parameter's real contract: it trusts the caller, it doesn't re-check) or is asserted not to raise the 'missing required column(s)' ValueError -- so the parameter's own skip-semantics has regression coverage independent of any particular caller's usage pattern.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
