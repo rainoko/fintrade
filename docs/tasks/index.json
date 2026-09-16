@@ -9,7 +9,7 @@
     { "id": "data-cache", "area": "backend/data", "skill": null, "state": "done" },
     { "id": "data-cache-followups", "area": "backend/data", "skill": null, "state": "done" },
     { "id": "data-cache-followups-followups", "area": "backend/data", "skill": null, "state": "done" },
-    { "id": "data-cache-followups-followups-followups", "area": "backend/data", "skill": null, "state": "planned" },
+    { "id": "data-cache-followups-followups-followups", "area": "backend/data", "skill": null, "state": "testing" },
     { "id": "db-models", "area": "backend/db", "skill": null, "state": "done" },
     { "id": "db-migrations", "area": "backend/db", "skill": null, "state": "done" },
     { "id": "db-migrations-followups", "area": "backend/db", "skill": null, "state": "done" },
