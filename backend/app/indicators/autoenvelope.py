@@ -2,6 +2,11 @@ import pandas as pd
 
 from app.indicators.ema import ema
 
+# Below this magnitude, `mid` is treated as degenerate (e.g. a data-provider
+# gap that filled `close`, and therefore `mid`, with 0.0) rather than a real
+# EMA(close) value -- see the per-bar pct_deviation guard below.
+_MID_ZERO_EPSILON = 1e-9
+
 
 def autoenvelope(
     close: pd.Series,
@@ -40,6 +45,21 @@ def autoenvelope(
     but NaN 'upper'/'lower', since the rolling average deviation isn't yet
     defined over a full window.
 
+    A bar whose ``mid`` is zero or within ``_MID_ZERO_EPSILON`` of it (e.g. a
+    data-provider gap that fills ``close``, and therefore ``mid``, with 0.0)
+    leaves that bar's percentage deviation undefined (NaN) rather than
+    dividing by (near-)zero into +/-inf -- matching how
+    ``app.indicators.stochastic.stochastic_oscillator`` leaves a flat
+    trailing range's fast %K as NaN (its 0/0 case) instead of raising. Since
+    ``avg_pct_deviation``'s rolling window requires every bar in the window
+    to be non-NaN (``min_periods`` equals the window size), one degenerate
+    bar's NaN deviation propagates into NaN 'upper'/'lower' for exactly the
+    following ``deviation_lookback`` bars -- the same bounded, predictable
+    NaN warm-up window this function already produces at the start of any
+    series, not an unbounded +/-inf leak. ``mid`` itself is left as whatever
+    ``app.indicators.ema.ema`` (or the caller-supplied ``mid``) computed,
+    degenerate or not -- only the derived deviation quotient is guarded.
+
     Raises:
         TypeError: if ``ema_period`` or ``deviation_lookback`` is not an
             ``int`` (including ``bool``, a subclass of ``int`` in Python).
@@ -54,7 +74,8 @@ def autoenvelope(
 
     if mid is None:
         mid = ema(close, ema_period)
-    pct_deviation = (close - mid).abs() / mid
+    mid_for_deviation = mid.where(mid.abs() > _MID_ZERO_EPSILON)
+    pct_deviation = (close - mid).abs() / mid_for_deviation
     avg_pct_deviation = pct_deviation.rolling(
         window=deviation_lookback, min_periods=deviation_lookback
     ).mean()

@@ -43,6 +43,7 @@ Python loop (no pandas, no ewm/rolling) for the fixture:
         t=7: mid=16.65625, upper=17.867177522349934, lower=15.445322477650063
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -155,6 +156,75 @@ class TestAutoenvelope:
         result_shared = autoenvelope(CLOSES, ema_period=3, deviation_lookback=3, mid=precomputed_mid)
 
         pd.testing.assert_frame_equal(result_default, result_shared)
+
+    def test_near_zero_mid_yields_nan_not_inf(self) -> None:
+        """A degenerate bar (e.g. a data-provider gap filling `close`, and
+        therefore `mid`, with 0.0) must leave that bar's deviation as NaN,
+        not +/-inf from an unguarded division by ~0 -- see the
+        indicator-autoenvelope-followups task.
+
+        Hand-computed reference (mid supplied directly via the `mid` kwarg
+        so the zero bar is exact and isolated from EMA's own recursion):
+
+            close = [10, 10, 10, 10, 10]
+            mid   = [10,  0, 10, 10, 10]   (bar 1 is the degenerate/gap bar)
+            deviation_lookback = 2
+
+            pct_dev = [0.0, NaN (guarded, was 10/0 = inf unguarded), 0.0, 0.0, 0.0]
+
+            avg (rolling mean, window=2, min_periods=2 -- both bars in the
+            window must be non-NaN, so any window touching index 1 is NaN):
+                avg[0] = NaN (window not full yet)
+                avg[1] = mean(pct_dev[0:2]) -> window contains the NaN bar -> NaN
+                avg[2] = mean(pct_dev[1:3]) -> window contains the NaN bar -> NaN
+                avg[3] = mean(pct_dev[2:4]) = mean(0.0, 0.0) = 0.0
+                avg[4] = mean(pct_dev[3:5]) = mean(0.0, 0.0) = 0.0
+
+            upper/lower = mid * (1 +/- avg):
+                t=3: mid=10, upper=10.0, lower=10.0
+                t=4: mid=10, upper=10.0, lower=10.0
+
+        So the single degenerate bar's NaN propagates through exactly the
+        following `deviation_lookback` (2) bars (t=1, t=2), then the band
+        recovers cleanly at t=3 -- the same bounded warm-up-style NaN window
+        this function already produces at the start of any series, never an
+        unbounded inf/-inf leak.
+        """
+        close = pd.Series([10.0, 10.0, 10.0, 10.0, 10.0])
+        mid = pd.Series([10.0, 0.0, 10.0, 10.0, 10.0])
+
+        result = autoenvelope(close, deviation_lookback=2, mid=mid)
+
+        assert not np.isinf(result["upper"].to_numpy(dtype=float)).any()
+        assert not np.isinf(result["lower"].to_numpy(dtype=float)).any()
+
+        assert result["upper"].iloc[0:3].isna().all()
+        assert result["lower"].iloc[0:3].isna().all()
+
+        assert result["upper"].iloc[3] == pytest.approx(10.0)
+        assert result["lower"].iloc[3] == pytest.approx(10.0)
+        assert result["upper"].iloc[4] == pytest.approx(10.0)
+        assert result["lower"].iloc[4] == pytest.approx(10.0)
+
+        # mid itself is left exactly as supplied, degenerate 0.0 included --
+        # only the derived deviation quotient is guarded.
+        assert result["mid"].iloc[1] == 0.0
+
+    def test_all_zero_close_and_mid_stays_finite(self) -> None:
+        """A fully degenerate series (e.g. a ticker with no trades yet, or a
+        provider outage filling every bar with 0.0) must not raise and must
+        not produce inf anywhere -- EMA(all-zero) is itself all-zero, so this
+        exercises the guard via the normal EMA computation path, not just a
+        contrived `mid` override."""
+        close = pd.Series([0.0] * 5)
+
+        result = autoenvelope(close, ema_period=1, deviation_lookback=2)
+
+        assert (result["mid"] == 0.0).all()
+        assert not np.isinf(result["upper"].to_numpy(dtype=float)).any()
+        assert not np.isinf(result["lower"].to_numpy(dtype=float)).any()
+        assert result["upper"].isna().all()
+        assert result["lower"].isna().all()
 
     def test_precomputed_mid_is_actually_used_not_ignored(self) -> None:
         """A deliberately wrong `mid` must change the result -- confirms the parameter is
