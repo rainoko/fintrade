@@ -6,6 +6,7 @@ import type { components } from './types'
 
 export type PortfolioResponse = components['schemas']['PortfolioResponse']
 export type RiskResponse = components['schemas']['RiskResponse']
+export type RiskPosition = components['schemas']['RiskPosition']
 export type PositionIn = components['schemas']['PositionIn']
 export type PositionOut = components['schemas']['PositionOut']
 

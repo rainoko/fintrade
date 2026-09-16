@@ -8,6 +8,7 @@ import PageHeader from '../components/common/PageHeader/PageHeader'
 import StatCard from '../components/common/StatCard/StatCard'
 import AddPositionDialog from '../features/portfolio/components/AddPositionDialog'
 import PositionsTable from '../features/portfolio/components/PositionsTable'
+import RiskPanel from '../features/portfolio/components/RiskPanel'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
 
 function formatCurrency(value: number): string {
@@ -69,6 +70,7 @@ export default function PortfolioPage() {
             />
           </Stack>
           <PositionsTable positions={portfolioQuery.data.positions} />
+          <RiskPanel positions={portfolioQuery.data.positions} />
         </Stack>
       )}
 

@@ -21,12 +21,19 @@ describe('PortfolioPage', () => {
 
     expect(screen.getByText('Loading portfolio...')).toBeInTheDocument()
 
-    await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
 
     expect(screen.getByText('Cash')).toBeInTheDocument()
     expect(screen.getByText('Positions Value')).toBeInTheDocument()
     expect(screen.getByText('Total Equity')).toBeInTheDocument()
     expect(screen.getByText('AAPL')).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Total Open Risk')).toBeInTheDocument()
   })
 
   it('shows the empty state when the portfolio has no positions', async () => {
@@ -34,6 +41,13 @@ describe('PortfolioPage', () => {
       http.get('/api/portfolio', () =>
         HttpResponse.json({
           equity: { cash: 5000, positions_value: 0, total: 5000 },
+          positions: [],
+        }),
+      ),
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({
+          total_open_risk_pct: 0,
+          six_percent_rule_breached: false,
           positions: [],
         }),
       ),
@@ -62,7 +76,9 @@ describe('PortfolioPage', () => {
     const user = userEvent.setup()
     renderWithProviders(<PortfolioPage />)
 
-    await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
 
     await user.click(screen.getByRole('button', { name: 'Add Position' }))
     await user.type(screen.getByLabelText('Ticker'), 'MSFT')
@@ -79,7 +95,7 @@ describe('PortfolioPage', () => {
     await user.click(screen.getByRole('button', { name: 'Done' }))
 
     await waitFor(() => {
-      const table = screen.getByRole('table')
+      const table = screen.getByRole('table', { name: 'Positions' })
       expect(within(table).getByText('MSFT')).toBeInTheDocument()
     })
   })

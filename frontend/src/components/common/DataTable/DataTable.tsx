@@ -6,7 +6,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import TableSortLabel from '@mui/material/TableSortLabel'
 import Paper from '@mui/material/Paper'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import EmptyState from '../EmptyState/EmptyState'
 
 export interface DataTableColumn<T> {
@@ -30,6 +30,24 @@ export interface DataTableProps<T> {
   emptyMessage?: string
   /** Optional action shown alongside the empty-state message. */
   emptyAction?: ReactNode
+  /**
+   * Optional per-row inline styling, e.g. flagging a row that breaches a
+   * caller's own rule (RiskPanel's `two_percent_rule_breached`). Takes the
+   * row and returns a `style` object, or `undefined` for no special styling
+   * — still domain-agnostic, since the condition that triggers it is
+   * entirely the caller's business. Plain inline `style` (not `sx`) so a
+   * resolved color always renders as a `style` attribute jsdom/testing-
+   * library can assert on directly, matching PercentChange/SignalBadge's
+   * same choice elsewhere in `common/`.
+   */
+  getRowStyle?: (row: T) => CSSProperties | undefined
+  /**
+   * Accessible name for the underlying `<table>` (MUI's `Table` forwards
+   * `aria-label`), so a page rendering more than one DataTable (e.g.
+   * PortfolioPage's PositionsTable + RiskPanel) can be queried by name
+   * instead of an ambiguous generic `table` role match.
+   */
+  ariaLabel?: string
 }
 
 type SortDirection = 'asc' | 'desc'
@@ -52,6 +70,8 @@ export default function DataTable<T>({
   getRowKey,
   emptyMessage = 'No data to display.',
   emptyAction,
+  getRowStyle,
+  ariaLabel,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<keyof T | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
@@ -83,7 +103,7 @@ export default function DataTable<T>({
 
   return (
     <TableContainer component={Paper} variant="outlined">
-      <Table>
+      <Table aria-label={ariaLabel}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (
@@ -105,7 +125,7 @@ export default function DataTable<T>({
         </TableHead>
         <TableBody>
           {sortedRows.map((row) => (
-            <TableRow key={getRowKey(row)}>
+            <TableRow key={getRowKey(row)} style={getRowStyle?.(row)}>
               {columns.map((column) => (
                 <TableCell key={String(column.key)} align={column.align ?? 'left'}>
                   {column.render ? column.render(row) : String(row[column.key])}

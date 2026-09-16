@@ -102,6 +102,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         rows={positions}
         getRowKey={(row) => row.id}
         emptyMessage="No positions yet. Add one to get started."
+        ariaLabel="Positions"
       />
       <ConfirmDialog
         open={pendingDelete !== null}

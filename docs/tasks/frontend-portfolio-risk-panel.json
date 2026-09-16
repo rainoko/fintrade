@@ -3,7 +3,7 @@
   "title": "Frontend: Portfolio risk panel (2%/6% rules)",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-portfolio-page"
   ],
@@ -15,27 +15,49 @@
   "checklist": [
     {
       "step": "features/portfolio/hooks/usePortfolioRisk.ts \u2014 useQuery wrapping api/portfolio.ts#getPortfolioRisk.",
-      "done": false
+      "done": true
     },
     {
       "step": "features/portfolio/components/RiskPanel.tsx: total_open_risk_pct as a StatCard, a prominent warning banner when six_percent_rule_breached is true (distinct visual treatment from a normal StatCard \u2014 this is the whole point of the 6% rule).",
-      "done": false
+      "done": true
     },
     {
       "step": "Per-position risk table: protective_stop, position_risk_pct (via common/PercentChange), two_percent_rule_breached (visually flagged row when true), exit_flags rendered as a list of readable labels (not raw snake_case strings) \u2014 map each known exit_flags value from Analyse.md \u00a77 to a human label.",
-      "done": false
+      "done": true
     },
     {
       "step": "Handle the documented silent-exclusion behavior (API.md: a position whose risk can't be computed is simply absent from the response) \u2014 don't render a misleading 'zero risk' row for a ticker that's actually missing from risk.positions; if useful, cross-reference against usePortfolio's position list to note (non-blocking, informational) that a held position has no risk data, rather than silently having no acknowledgment of the gap at all \u2014 record whichever approach is chosen as a decisions entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire RiskPanel into PortfolioPage.tsx alongside PositionsTable.",
-      "done": false
+      "done": true
     },
     {
       "step": "Component tests (MSW-mocked): no breaches, 2% breach on one position, 6% breach, and a position silently excluded from risk data while present in the portfolio.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Handled the API.md silent-exclusion gap (a held position whose risk couldn't be computed is simply absent from GET /api/portfolio/risk's `positions`) by having RiskPanel accept the full held-position list as a `positions` prop (the same PositionOut[] PortfolioPage already gets from usePortfolio) and cross-referencing it against `risk.positions` by ticker. Any held ticker not present in the risk response is surfaced in a small, non-blocking `role=\"status\"` note ('No risk data available for X \u2014 its price or history couldn't be fetched...') rendered above the risk table, rather than as a table row (which would need fabricated/null field values the schema doesn't allow) or as an error/alert (which would overstate the severity \u2014 it's a per-ticker data gap, not a request failure).",
+      "rationale": "Rejected: (1) rendering nothing for the gap, which is what the checklist explicitly flagged as the wrong default \u2014 a user could misread a missing ticker as 'zero risk' instead of 'unknown'; (2) inventing a placeholder risk row with zero/null values, which RiskPosition's schema (all fields required, no partial representation, per api-portfolio-risk's own decisions) doesn't support and would misrepresent an unknown value as a known one; (3) treating it as a blocking ErrorState, which is wrong severity \u2014 the rest of the portfolio's risk data is still valid and actionable, only one ticker's is missing. A prop-based cross-reference (rather than RiskPanel independently re-fetching /api/portfolio itself) was chosen because PortfolioPage already holds that data from usePortfolio and passing it down avoids a second, redundant network request for data the page already has."
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended common/DataTable with two new optional props \u2014 `getRowStyle(row) => CSSProperties | undefined` for per-row flagging (used for `two_percent_rule_breached`) and `ariaLabel` for the underlying `<table>`'s accessible name \u2014 instead of building a second, RiskPanel-only table component.",
+      "rationale": "DataTable was already the shared, common/ sortable-table primitive (PositionsTable's own dependency); duplicating it for RiskPanel would have created exactly the kind of near-duplicate Frontend.md/pr-reviewer flags. Both new props stay domain-agnostic (they take a row and return a plain style/string, with no knowledge of 'risk' or 'positions'), so the addition doesn't compromise DataTable's common/ placement. `getRowStyle` returns a plain inline `style` object rather than an MUI `sx` value: `sx`-driven colors resolve to computed CSS via an injected stylesheet class, which testing-library's `toHaveStyle` cannot reliably assert on in jsdom, whereas a literal `style` attribute can \u2014 matching the same choice already made by PercentChange/SignalBadge elsewhere in `common/`. `ariaLabel` was added because wiring RiskPanel's own DataTable into PortfolioPage produces two `<table>` elements on one page, which broke existing PortfolioPage tests that queried `getByRole('table')` with no name (now ambiguous) \u2014 giving each table a distinct accessible name ('Positions' vs. 'Portfolio risk') was simpler and more robust than switching those tests to `getAllByRole('table')[n]` positional lookups.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-16T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RiskPanel checks `!riskQuery.data` first (rendering ErrorState or LoadingState inside that branch) rather than the more common isLoading-then-isError-then-data ordering used elsewhere (e.g. PortfolioPage), which would otherwise need a trailing `if (!riskQuery.data) return null` to satisfy TypeScript's narrowing before destructuring `riskQuery.data` below.",
+      "rationale": "usePortfolioRisk has no `enabled: false`/pagination path that could leave the query settled with neither `data` nor an `error`, so that trailing guard is permanently dead code for this hook \u2014 confirmed by it showing up as an uncovered branch that would have required either an artificial test or accepting a coverage gap. Reordering the checks (data-present short-circuits to the full render; otherwise fall through to error-or-loading) covers every branch via the existing loading/error/success test cases with no unreachable code and no behavior change.",
+      "context": null
     }
   ]
 }

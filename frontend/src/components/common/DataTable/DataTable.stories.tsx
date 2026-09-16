@@ -50,3 +50,13 @@ export const Empty: Story = {
     emptyMessage: 'No positions yet.',
   },
 }
+
+export const WithFlaggedRow: Story = {
+  args: {
+    columns,
+    rows,
+    getRowKey: (row) => row.id,
+    getRowStyle: (row) =>
+      row.ticker === 'NVDA' ? { backgroundColor: '#fdecea' } : undefined,
+  },
+}
