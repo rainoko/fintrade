@@ -3,7 +3,7 @@
   "title": "Data provider: Stooq — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["data-provider-stooq"],
   "references": [
     "docs/tasks/data-provider-stooq.json#review",
@@ -49,5 +49,48 @@
     "pr_number": 53,
     "pr_url": "https://github.com/rainoko/fintrade/pull/53",
     "pushed_at": "2026-09-16T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-16T10:05:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/53",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently verified the Stooq class-share ticker convention claim: Yahoo Finance's real ticker for Berkshire Hathaway Class B is 'BRK-B' (hyphen), and Stooq mirrors the same US-equity ticker spelling lowercased with a '.us' suffix, so 'brk-b.us' is the correct Stooq symbol -- 'brk.b.us' (the pre-fix output) is not a symbol Stooq recognizes. Attempted to confirm directly against Stooq's live CSV endpoint but it's behind a JS proof-of-work bot challenge; did not attempt to solve/bypass that (out of scope for a review, and consistent with this project's own 'no live network calls in tests' policy anyway). Confidence in the fix rests on well-established, independently-checkable domain knowledge of Yahoo/Stooq's shared US-equity ticker convention, not on trusting the PR's own docstring.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 108
+      },
+      {
+        "summary": "Full backend suite: 460 passed. stooq_provider.py at 100% line/branch coverage, overall 99.83% -- well above the 90% gate. No ruff/mypy config exists in backend/pyproject.toml, so no lint/type-check step beyond pytest+coverage was run, per CLAUDE.md's 'don't invent tool config that isn't there' instruction.",
+        "file": "backend/pyproject.toml"
+      },
+      {
+        "summary": "All four checklist items genuinely implemented and match their decisions entries: the .us-only-passthrough fix with a real regression test (BRK.B -> brk-b.us, confirmed by direct call), the dead urllib.error import removed (grepped clean across app/ and tests/), app/data/exceptions.py added to Backend.md's module diagram with an accurate one-line description, and test_provider_contract.py now genuinely parametrizes both StooqProvider and YFinanceProvider (protocol conformance + separate shape-output tests per provider, matching the decisions entry's stated rationale for not trying to share one parametrized shape test across two different mocking boundaries).",
+        "file": "backend/tests/unit/data/test_provider_contract.py"
+      },
+      {
+        "summary": "No API route/schema touched by this PR -- backend/openapi.json correctly untouched, no regeneration needed.",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "No frontend exists yet and this PR has no UI-facing surface (an internal data-provider symbol-normalization fix) -- browser walkthrough explicitly skipped as inapplicable rather than silently omitted.",
+        "file": "backend/app/data/stooq_provider.py"
+      },
+      {
+        "summary": "code-review skill (medium effort, single-pass): found one genuine edge case -- _to_stooq_symbol's `endswith('.us')` early return short-circuits before the new dot-to-hyphen conversion, so a ticker with both a class-share dot and an explicit '.us' suffix (e.g. 'BRK.B.US') still produces the invalid 'brk.b.us' instead of 'brk-b.us'. Confirmed directly (`StooqProvider._to_stooq_symbol('BRK.B.US')` -> `'brk.b.us'`). Pre-existing (the old any-dot-means-passthrough rule produced the identical wrong result for this input), not a regression introduced by this PR, and a narrow doubly-non-canonical input -- non-blocking. Tracked as docs/tasks/data-provider-stooq-followups-followups.json.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 108
+      },
+      {
+        "summary": "Own finding: narrowing the passthrough case to only a trailing '.us' is a real (if narrow) behavior change -- an already-correctly-suffixed non-US ticker like 'SAP.DE' previously passed through unchanged is now mangled to 'sap-de.us' (confirmed: `StooqProvider._to_stooq_symbol('SAP.DE')` -> `'sap-de.us'`). Low real-world impact given this app's providers are documented/decided as US-equity-only (this task's own decisions entry, and data-provider-stooq's original decision), and the decisions entry explicitly considered and rejected a country-code allowlist as unnecessary complexity -- a reasonable, deliberate tradeoff, not a bug, but worth a visible test/doc note rather than only living in a decisions-array rationale. Non-blocking. Tracked as docs/tasks/data-provider-stooq-followups-followups.json.",
+        "file": "backend/app/data/stooq_provider.py",
+        "line": 108
+      },
+      {
+        "summary": "Decisions cross-check: both checklist items requiring judgment (the .us-vs-class-share normalization rule, and how to structure the cross-provider contract test) have corresponding decisions entries with rationale and rejected alternatives -- no undocumented judgment call.",
+        "file": "docs/tasks/data-provider-stooq-followups.json"
+      }
+    ],
+    "notes": "No blocking findings. Tests, coverage, and the ticker-convention claim all independently verified; two narrow non-blocking edge cases found (one pre-existing, one a documented scope tradeoff) and filed as docs/tasks/data-provider-stooq-followups-followups.json."
   }
 }

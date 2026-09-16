@@ -1,0 +1,25 @@
+{
+  "id": "data-provider-stooq-followups-followups",
+  "title": "Stooq class-share ticker fix — further non-blocking review follow-ups",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["data-provider-stooq-followups"],
+  "references": [
+    "docs/tasks/data-provider-stooq-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/53"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #53 (data-provider-stooq-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "_to_stooq_symbol (backend/app/data/stooq_provider.py) checks `symbol.endswith('.us')` and returns early before the new dot-to-hyphen class-share conversion runs. A ticker that carries both a class-share dot and an explicit '.us' suffix (e.g. 'BRK.B.US') is therefore passed through as the invalid 'brk.b.us' instead of the correct 'brk-b.us' -- the exact failure mode this PR's fix eliminated for bare 'BRK.B' resurfaces for that combined input. Confirmed directly: `StooqProvider._to_stooq_symbol('BRK.B.US')` -> `'brk.b.us'`. Not introduced by this PR (the old any-dot-means-passthrough rule produced the identical wrong result), and no test covers the combined case -- only bare 'BRK.B' and bare 'aapl.us' are tested separately. Surfaced by the code-review skill during pr-reviewer's review of PR #53.",
+      "done": false
+    },
+    {
+      "step": "_to_stooq_symbol's narrowing of the passthrough case to *only* a trailing '.us' means an already-correctly-suffixed non-US ticker (e.g. 'SAP.DE', if Stooq's convention for it is a plain dot suffix like the old code assumed) now gets mangled: `StooqProvider._to_stooq_symbol('SAP.DE')` -> `'sap-de.us'` instead of being passed through unchanged. This is a real behavior change introduced by this PR (the old any-dot-means-passthrough rule would have left 'sap.de' alone). Low real-world impact since this app's data providers are documented/decided (data-provider-stooq-followups's own decisions entry) as targeting US equities only and no test or code path elsewhere exercises a non-US market suffix, but worth a test/doc note -- or a scoped guard if non-US suffix support is ever added -- next time this file is touched, so the tradeoff stays visible rather than only living in a decisions-array rationale.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
