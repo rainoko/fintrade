@@ -29,11 +29,20 @@ order relative to `alembic stamp head`, against any database state:
   would silently skip fixing a same-named-but-wrong index instead of
   correcting it.
 - `positions` exists with duplicate ticker values under the old non-unique
-  index: the `CREATE UNIQUE INDEX` fails loudly (an OperationalError /
-  IntegrityError from the database, surfaced as a non-zero exit here) rather
-  than silently leaving the table inconsistent -- that case is a genuine data
-  problem (two rows claiming the same ticker) that needs a manual decision
-  about which row wins, not something this script should paper over.
+  index: duplicates are checked for *before* the old index is touched (a
+  `GROUP BY ... HAVING COUNT(*) > 1` pre-check inside the same transaction as
+  the drop/create), and this script raises without dropping or creating
+  anything if any are found -- fails loudly (non-zero exit here) rather than
+  silently leaving the table inconsistent, and critically leaves the
+  pre-existing non-unique index fully intact (not just the row data) since
+  the drop never happens. That case is a genuine data problem (two rows
+  claiming the same ticker) that needs a manual decision about which row
+  wins, not something this script should paper over. (Checking first rather
+  than dropping-then-recreating-then-catching-the-failure also sidesteps a
+  real pitfall: pysqlite commits DDL outside SQLAlchemy's transactional-DDL
+  workaround, so a `DROP INDEX` followed by a failing `CREATE UNIQUE INDEX`
+  inside one `engine.begin()` block would NOT roll back the drop -- checking
+  before touching the schema at all avoids that class of bug entirely.)
 
 This only fixes this one specific, currently-known drift case; it is not a
 general schema-diff tool. If app/db/models.py changes in a way that
@@ -61,6 +70,11 @@ TICKER_COLUMN = "ticker"
 UNIQUE_INDEX_NAME = "ix_positions_ticker"
 
 
+class DuplicateTickerError(RuntimeError):
+    """Raised when `positions.ticker` has duplicate values and the unique index
+    can't safely be created without a manual decision about which row wins."""
+
+
 def _index_is_correct(engine: Engine) -> tuple[bool, bool]:
     """Returns (table_exists, index_is_already_correct)."""
     inspector = inspect(engine)
@@ -82,9 +96,10 @@ def ensure_positions_ticker_unique_index(database_url: str) -> bool:
     applied (drift was found and corrected), False if nothing needed doing
     (no `positions` table yet, or the index was already correct).
 
-    Raises whatever the underlying database driver raises if the table has
-    duplicate ticker values and the unique index genuinely can't be created --
-    that's a real data problem, not something to swallow.
+    Raises `DuplicateTickerError` (without touching the schema at all -- see
+    below) if the table has duplicate ticker values and the unique index
+    genuinely can't be created; that's a real data problem, not something to
+    swallow.
     """
     engine = create_engine(database_url)
     try:
@@ -93,9 +108,32 @@ def ensure_positions_ticker_unique_index(database_url: str) -> bool:
             return False
 
         with engine.begin() as conn:
+            # Check for duplicates *before* touching the schema at all, rather
+            # than dropping the old index and relying on the CREATE UNIQUE
+            # INDEX failure to roll it back: pysqlite commits DDL outside
+            # SQLAlchemy's transactional-DDL workaround, so a DROP followed by
+            # a failing CREATE inside this same engine.begin() block would NOT
+            # roll back the drop, permanently destroying the pre-existing
+            # (non-unique but working) index. Checking first means the
+            # duplicate-data case never drops anything in the first place.
+            has_duplicates = conn.execute(
+                text(
+                    f"SELECT 1 FROM {POSITIONS_TABLE} "
+                    f"GROUP BY {TICKER_COLUMN} HAVING COUNT(*) > 1 LIMIT 1"
+                )
+            ).first()
+            if has_duplicates is not None:
+                raise DuplicateTickerError(
+                    f"{POSITIONS_TABLE}.{TICKER_COLUMN} has duplicate values; "
+                    "resolve them manually (decide which row should win) "
+                    "before re-running this script."
+                )
+
             # Drop first (not `CREATE UNIQUE INDEX IF NOT EXISTS`): a same-named
             # but non-unique index from the pre-`unique=True` schema already
-            # exists here, and IF NOT EXISTS only checks the name.
+            # exists here, and IF NOT EXISTS only checks the name. Safe now --
+            # the duplicate check above already ensured CREATE UNIQUE INDEX
+            # below cannot fail on duplicate data.
             conn.execute(text(f"DROP INDEX IF EXISTS {UNIQUE_INDEX_NAME}"))
             conn.execute(
                 text(

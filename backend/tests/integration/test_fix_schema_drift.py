@@ -178,12 +178,14 @@ class TestDriftedTableWithDuplicateTickers:
             ],
         )
 
-        with pytest.raises(Exception):
+        with pytest.raises(fix_schema_drift.DuplicateTickerError):
             fix_schema_drift.ensure_positions_ticker_unique_index(f"sqlite:///{db_path}")
 
-        # The failed CREATE UNIQUE INDEX must not have left a bogus/partial index
-        # behind, and the duplicate rows are untouched (nothing silently dropped).
-        assert _index_info(db_path, "ix_positions_ticker") in {(False, False)}
+        # The duplicate check runs *before* the old index is ever dropped, so the
+        # pre-existing (non-unique) index must survive untouched -- not be left
+        # missing/partial -- and the duplicate rows are untouched (nothing silently
+        # dropped).
+        assert _index_info(db_path, "ix_positions_ticker") == (True, False)
         con = sqlite3.connect(db_path)
         try:
             (count,) = con.execute("SELECT COUNT(*) FROM positions WHERE ticker = 'AAPL'").fetchone()
