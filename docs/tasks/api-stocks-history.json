@@ -34,5 +34,11 @@
       "decision": "Declared the route's `422` response as an `anyOf` of `HTTPValidationError` (malformed `range`) and `ErrorDetail` (insufficient weekly history), mirroring the exact pattern already used by `POST /api/portfolio/positions` for its own dual-shape `422`, rather than inventing a new documentation convention.",
       "rationale": "Two structurally different failure modes both legitimately return `422` on this route (FastAPI's own query-validation error vs. this handler's `InsufficientHistoryError` mapping); reusing the existing `anyOf` precedent keeps the OpenAPI snapshot honest about both possible bodies instead of only documenting whichever one was declared last."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-stocks-history",
+    "pr_number": 40,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/40",
+    "pushed_at": "2026-09-16T07:06:28Z"
+  }
 }
