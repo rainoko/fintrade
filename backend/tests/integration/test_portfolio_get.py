@@ -162,6 +162,37 @@ class TestGetPortfolio:
         assert prices == {"AAPL": pytest.approx(110.0), "MSFT": pytest.approx(330.0)}
         assert body["equity"]["positions_value"] == pytest.approx(10 * 110.0 + 5 * 330.0)
 
+    def test_positions_are_ordered_by_entry_date_then_id_not_insertion_order(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        # Inserted out of both entry_date and id order, so a passing assertion below can only
+        # be explained by an explicit ORDER BY, not incidental SQLite row-return order.
+        db_session.add(
+            PositionORM(id="pos_z", ticker="GOOG", quantity=1, avg_cost_basis=100.0, entry_date=date(2026, 1, 2))
+        )
+        db_session.add(
+            PositionORM(id="pos_b", ticker="MSFT", quantity=1, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_a", ticker="AAPL", quantity=1, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(prices={"GOOG": [1.0], "MSFT": [1.0], "AAPL": [1.0]})
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        body = response.json()
+        # pos_a and pos_b share entry_date 2026-01-01, so "pos_a" < "pos_b" breaks the tie;
+        # pos_z's later entry_date sorts it last regardless of id.
+        assert [p["id"] for p in body["positions"]] == ["pos_a", "pos_b", "pos_z"]
+
     def test_price_fetch_failure_yields_null_price_and_excludes_from_positions_value(
         self, db_session: Session
     ) -> None:

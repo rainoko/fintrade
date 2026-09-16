@@ -230,6 +230,39 @@ class TestGetRisk:
         for position in body["positions"]:
             assert "six_percent_rule_contributor" in position["exit_flags"]
 
+    def test_positions_are_ordered_by_entry_date_then_id_not_insertion_order(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=1_000.0))
+        # Inserted out of both entry_date and id order (same technique as
+        # test_portfolio_get.py's analogous test) so a passing assertion below can only be
+        # explained by the shared _ordered_positions() helper's explicit ORDER BY.
+        db_session.add(
+            PositionORM(id="pos_z", ticker="GOOG", quantity=1.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 2))
+        )
+        db_session.add(
+            PositionORM(id="pos_b", ticker="MSFT", quantity=1.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_a", ticker="AAPL", quantity=1.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(
+            daily={"GOOG": daily, "MSFT": daily, "AAPL": daily},
+            weekly={"GOOG": weekly, "MSFT": weekly, "AAPL": weekly},
+        )
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        # pos_a and pos_b share entry_date 2026-01-01, so "pos_a" < "pos_b" breaks the tie;
+        # pos_z's later entry_date sorts it last regardless of id.
+        assert [p["id"] for p in body["positions"]] == ["pos_a", "pos_b", "pos_z"]
+
     def test_position_with_failed_price_fetch_is_excluded(self, db_session: Session) -> None:
         db_session.add(AccountORM(id=1, cash=1_000.0))
         db_session.add(

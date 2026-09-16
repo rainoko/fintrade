@@ -44,6 +44,7 @@ backend/
         stocks.py
         portfolio.py
       schemas.py        # Pydantic request/response models (source of truth for API.md)
+      dependencies.py   # shared FastAPI dependencies (e.g. get_data_provider)
     main.py           # FastAPI app assembly
   tests/
     unit/             # indicators, signals, risk — no I/O
