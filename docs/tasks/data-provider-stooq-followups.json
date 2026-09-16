@@ -43,5 +43,11 @@
       "decision": "Extended backend/tests/unit/data/test_provider_contract.py's parametrized protocol-conformance tests to cover both StooqProvider and YFinanceProvider, and added two new dedicated shape-output tests for YFinanceProvider (daily/weekly) alongside the existing Stooq ones, rather than trying to parametrize the shape-output tests themselves across both classes.",
       "rationale": "The two providers mock at different boundaries (StooqProvider._fetch_csv vs yf.Ticker), so a single parametrized shape test body can't drive both without an awkward per-class dispatch table; separate, symmetrical test methods (mirroring test_yfinance_provider.py's own mocking pattern) are simpler to read and keep each provider's contract-shape assertion self-contained. Reused the yfinance fixtures already on main (tests/fixtures/yfinance/aapl_daily.csv, aapl_weekly.csv) rather than recording new ones, since they already satisfy the 'own mocked-fetch fixture' requirement from the task checklist. Rejected: a single dispatch-table-driven parametrized test across both provider classes, which would have obscured each provider's distinct mocking boundary behind indirection for no real gain given there are only two providers."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/data-provider-stooq-followups",
+    "pr_number": 53,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/53",
+    "pushed_at": "2026-09-16T00:00:00Z"
+  }
 }
