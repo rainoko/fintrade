@@ -59,5 +59,11 @@
       "rationale": "usePortfolioRisk has no `enabled: false`/pagination path that could leave the query settled with neither `data` nor an `error`, so that trailing guard is permanently dead code for this hook \u2014 confirmed by it showing up as an uncovered branch that would have required either an artificial test or accepting a coverage gap. Reordering the checks (data-present short-circuits to the full render; otherwise fall through to error-or-loading) covers every branch via the existing loading/error/success test cases with no unreachable code and no behavior change.",
       "context": null
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel",
+    "pr_number": 66,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/66",
+    "pushed_at": "2026-09-16T23:28:20Z"
+  }
 }
