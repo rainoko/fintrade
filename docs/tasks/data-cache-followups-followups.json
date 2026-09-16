@@ -3,7 +3,7 @@
   "title": "OHLCV cache layer — non-blocking findings from PR #55's review",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["data-cache-followups"],
   "references": [
     "docs/tasks/data-cache-followups.json#review",
@@ -58,5 +58,11 @@
       "rejected_alternatives": "Threading `cached_rows` from `_get` into `_upsert` to eliminate the second SELECT."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/data-cache-followups-followups",
+    "pr_number": 56,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/56",
+    "pushed_at": "2026-09-16T10:44:46Z"
+  }
 }
