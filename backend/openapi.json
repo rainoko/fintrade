@@ -587,7 +587,7 @@
   "paths": {
     "/api/portfolio": {
       "get": {
-        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry.",
+        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in\n`app.portfolio.pricing` (shared with GET /api/portfolio/risk) \u2014 see the\napi-portfolio-risk task's `decisions` entry.",
         "operationId": "get_portfolio",
         "responses": {
           "200": {
@@ -704,7 +704,7 @@
     },
     "/api/portfolio/risk": {
       "get": {
-        "description": "Per-position protective stop, 2%-rule risk, and exit flags, plus the portfolio-wide\n6%-rule total (docs/Analyse.md \u00a77). `exit_flags` can be non-empty even when the\ncorresponding stock's fresh technical signal is HOLD \u2014 risk-driven exits are\nindependent of entry-signal logic by design.",
+        "description": "Per-position protective stop, 2%-rule risk, and exit flags, plus the portfolio-wide\n6%-rule total (docs/Analyse.md \u00a77). `exit_flags` can be non-empty even when the\ncorresponding stock's fresh technical signal is HOLD \u2014 risk-driven exits are\nindependent of entry-signal logic by design.\n\nA position is silently excluded from `positions` (and so from `total_open_risk_pct`,\nwhich only sums positions with a known stop \u2014 see `app.portfolio.risk\n.total_open_risk_pct`) whenever its risk can't be computed at all: its current price\ncouldn't be fetched (same degrade-gracefully rule as GET /api/portfolio \u2014 see this\ntask's `decisions` entry), its daily history has fewer than 2 rows (the minimum\n`evaluate_exit_flags` needs to test today's close against yesterday's stop), its weekly\nhistory couldn't be fetched, or `protective_stop`/`evaluate_exit_flags` raised for a\nmalformed frame. `RiskPosition`'s fields are all non-nullable, so a position that can't\nbe fully evaluated has no partial representation in this schema \u2014 see this task's\n`decisions` entry.",
         "operationId": "get_portfolio_risk",
         "responses": {
           "200": {
