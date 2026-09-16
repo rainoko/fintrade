@@ -51,6 +51,13 @@ FINTRADE_DATABASE_URL="sqlite:///./scratch.db" alembic upgrade head
 
 `alembic upgrade head` fails with `table ... already exists` against a database whose tables were created by `app/main.py`'s `Base.metadata.create_all` bootstrap rather than by Alembic (see `docs/architecture/Backend.md` §7) — run `alembic stamp head` instead to mark it as already migrated without re-running the `CREATE TABLE`s.
 
+`alembic stamp head` only produces a *correct* schema if the pre-existing tables already match what the initial migration would create. The one currently-known way they might not: a `positions` table created before `unique=True` was added to `PositionORM.ticker` has the column's index but not as unique. Run `python scripts/fix_schema_drift.py` (idempotent, safe before or after `stamp head`) to fix that specific case — it corrects the index if it's missing or non-unique, does nothing if it's already correct, and fails loudly (non-zero exit) instead of silently succeeding if duplicate ticker rows already exist under the old non-unique index:
+
+```bash
+python scripts/fix_schema_drift.py
+alembic stamp head
+```
+
 ## MCP servers
 
 MCP server configuration lives in `.mcp.json` (project-scoped, shared via git) and in each contributor's local Claude Code config (personal, not shared — used for anything involving a secret).
