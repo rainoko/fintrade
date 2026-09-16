@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/history follow-ups — further non-blocking review follow-up",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-stocks-history-followups"],
   "references": [
     "docs/tasks/api-stocks-history-followups.json#review",
@@ -24,5 +24,11 @@
       "rationale": "The finding itself offered both locations as equally valid ('e.g. directly above `_trim_to_range`, or near the top of the module alongside `_RANGE_PATTERN`'). Placing it near the top keeps all of the range-parsing machinery (`_RANGE_PATTERN`, `_RangeOutOfBoundsError`) grouped together above the route handlers that use them, and defines the exception before its first reference in `get_history` too -- not just before its raise site in `_trim_to_range` -- which reads better top-to-bottom than a definition sandwiched between the two functions that use it."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-history-followups-followups",
+    "pr_number": 42,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/42",
+    "pushed_at": "2026-09-16T07:27:35Z"
+  }
 }
