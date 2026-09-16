@@ -3,7 +3,7 @@
   "title": "Frontend: Dashboard page (portfolio + risk summary, ticker lookup)",
   "area": "frontend/pages/dashboard",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-portfolio-page",
     "frontend-portfolio-risk-panel"
@@ -52,5 +52,11 @@
       "rationale": "The checklist explicitly offers either option ('a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance'). PositionsTable owns the delete-position mutation/confirm-dialog flow end to end, which has no place on an at-a-glance dashboard summary; adding a 'hide the delete column and cost-basis/entry-date columns' prop to it would couple an unrelated dashboard concern into the Portfolio page's own component. A new component built directly on common/DataTable keeps both call sites simple and independently testable.",
       "alternatives_considered": "Adding a column-visibility/action-visibility prop to PositionsTable and reusing it directly on the dashboard."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-page",
+    "pr_number": 67,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/67",
+    "pushed_at": "2026-09-16T23:52:38Z"
+  }
 }
