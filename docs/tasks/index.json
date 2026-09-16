@@ -369,8 +369,8 @@
       "id": "frontend-api-client",
       "area": "frontend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-api-client.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-api-client.json"
     },
     {
       "id": "frontend-api-client-followups",

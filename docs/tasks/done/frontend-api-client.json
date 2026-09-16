@@ -3,7 +3,7 @@
   "title": "Frontend: typed API client generated from backend/openapi.json",
   "area": "frontend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-scaffold"
   ],
@@ -72,12 +72,12 @@
     "pushed_at": "2026-09-16T21:42:19Z"
   },
   "review": {
-    "reviewed_at": "2026-09-16T21:52:25Z",
+    "reviewed_at": "2026-09-16T21:58:59Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/63",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "`npm run format:check` (Prettier, configured in package.json/.prettierrc.json) fails on this branch: the new `npm run generate:api-types` row added to frontend/README.md's script table isn't padded to the table's column widths, which is what Prettier's markdown formatter enforces. Confirmed this is introduced by this PR (main's README.md passes format:check cleanly; checking out this PR's README.md reproduces the failure) and not pre-existing. Fix with `npm run format` (or manually pad the row) and recommit.",
+        "summary": "RESOLVED (commit 5f72a27): `npm run format:check` (Prettier, configured in package.json/.prettierrc.json) failed on the prior revision because the new `npm run generate:api-types` row added to frontend/README.md's script table wasn't padded to the table's column widths. task-worker ran `npx prettier --write frontend/README.md`; re-verified in this re-review that `npm run format:check` now passes cleanly, and that the fix commit is a pure formatting diff (plus the expected implementing->testing state mirror) with no other changes.",
         "file": "frontend/README.md",
         "line": 17
       },
@@ -97,6 +97,6 @@
         "line": 13
       }
     ],
-    "notes": "Full review performed: checked out PR #63, ran backend pytest --cov (99.84%, 472 passed) and frontend vitest --coverage (52 passed, 100% stmts/branches/funcs/lines against the 90% gate), npm run lint (clean), npm run build (tsc -b + vite build, clean), npm run build-storybook (clean), and npm run format:check (fails — see blocking comment). Regenerated src/api/types.ts from backend/openapi.json myself and diffed byte-for-byte against the committed file: identical, confirming it is genuinely generated and never hand-edited. Verified client.ts's extractDetail correctly distinguishes and normalizes both documented 422 shapes (ErrorDetail vs HTTPValidationError) against backend/openapi.json's actual per-route responses (add_position and get_stock_history declare `anyOf` HTTPValidationError|ErrorDetail on 422; get_stock_analysis declares plain ErrorDetail on 422) and both are covered by client.test.ts. Verified handlers.ts's merge-on-duplicate-ticker logic against API.md and portfolio.test.ts's assertions: quantity summed (100+100=200), avg_cost_basis quantity-weighted ((100*195.30+100*205.30)/200=200.30), entry_date keeps the earlier date — all correct. Reproduced the --legacy-peer-deps decision's premise directly: `npm install` without the flag in a scratch copy of package.json/package-lock.json fails with an ERESOLVE conflict purely on openapi-typescript's `peer typescript@^5.x` vs the project's pinned `typescript ~6.0.2`; openapi-typescript is a dev-only code generator (never ships in the runtime bundle) and its generated output type-checks cleanly under `tsc -b`, confirming the workaround is justified rather than masking a real incompatibility. This task adds no components/pages (data layer only, per its own description), so step 7a's placement check and the browser walkthrough (step 9) don't apply — there is no UI surface to click through. Ran the code-review skill (medium effort) against the diff in addition to my own manual pass; it found the two mock-fidelity issues recorded above as non-blocking. The one blocking finding (README.md Prettier formatting) is trivial to fix but is a genuine, PR-introduced failure of a tool this project has configured and documented (`npm run format:check`), so per review process this is needs_work rather than accepted-with-a-nit."
+    "notes": "Full review performed originally: checked out PR #63, ran backend pytest --cov (99.84%, 472 passed) and frontend vitest --coverage (52 passed, 100% stmts/branches/funcs/lines against the 90% gate), npm run lint (clean), npm run build (tsc -b + vite build, clean), npm run build-storybook (clean), and npm run format:check (failed — README.md table padding). Regenerated src/api/types.ts from backend/openapi.json myself and diffed byte-for-byte against the committed file: identical, confirming it is genuinely generated and never hand-edited. Verified client.ts's extractDetail correctly distinguishes and normalizes both documented 422 shapes (ErrorDetail vs HTTPValidationError) against backend/openapi.json's actual per-route responses and both are covered by client.test.ts. Verified handlers.ts's merge-on-duplicate-ticker logic against API.md and portfolio.test.ts's assertions: quantity summed (100+100=200), avg_cost_basis quantity-weighted ((100*195.30+100*205.30)/200=200.30), entry_date keeps the earlier date — all correct. Reproduced the --legacy-peer-deps decision's premise directly and confirmed it's justified. This task adds no components/pages (data layer only), so step 7a's placement check and the browser walkthrough (step 9) don't apply. Ran the code-review skill (medium effort) against the diff; it found the two mock-fidelity issues recorded above as non-blocking, tracked on frontend-api-client-followups.json.\n\nRe-review (this pass, PR #63 commit 5f72a27): task-worker fixed the blocking Prettier failure by running `npx prettier --write frontend/README.md`. Checked out the branch head, confirmed via `git show 5f72a27` that the fix commit is a pure formatting diff to frontend/README.md's table padding plus the expected implementing->testing state mirror in the task JSON/index.json — no application code touched. Re-ran the full verification suite from scratch: npm run format:check (passes), npm run lint (clean), npm run test:coverage (frontend: 52 passed, 100% coverage), pytest --cov (backend: 472 passed, 99.84% coverage), npm run build (clean), npm run build-storybook (clean). No regressions, no new findings. Accepted."
   }
 }
