@@ -18,11 +18,17 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-16T00:00:00Z",
+      "timestamp": "2026-09-16T07:50:00Z",
       "recorded_by": "task-worker",
       "decision": "Closed the gap by adding one genuine end-to-end regression test (backend/tests/integration/test_portfolio_get_db_wiring.py) that exercises GET /api/portfolio through the real, unmodified get_db -> SessionLocal production path -- rather than editing tests/integration/conftest.py's shared db_session fixture to pass expire_on_commit=False.",
       "rationale": "The conftest fixture builds its own, separate sessionmaker(); setting expire_on_commit=False there would only make that fixture's *current* hardcoded value match production's *current* value coincidentally -- it doesn't read production's real SessionLocal.kw, so a future regression that drops the kwarg (or introduces a second, differently-configured sessionmaker) from app/db/session.py would leave the fixture, and every test using it, silently green. It also doesn't run the real get_db dependency at all (both conftest's client fixture and test_portfolio_get.py's own client fixture override get_db outright), so no test would actually be exercising FastAPI's real DI-wired path either way. The new test instead monkeypatches app.db.session.SessionLocal/engine and app/api/dependencies.py's YFinanceProvider/StooqProvider in place -- copying **whatever kwargs the real SessionLocal was actually constructed with** onto a throwaway in-memory engine -- so get_db, get_data_provider, and the GET /api/portfolio route handler all run completely unmodified, production code, with a real per-request session shared with CachedDataProvider exactly as in production. Verified it actually catches the regression it's meant to catch: temporarily flipping app/db/session.py's expire_on_commit back to True (the pre-fix default) makes the new test fail (select_count 4 != 1) before reverting. Limited the select-counting assertion to GET /api/portfolio only (not also GET /api/portfolio/risk): both routes call the exact same app.portfolio.pricing.enrich_positions_with_price function the fix targets, and GET /api/portfolio/risk's extra protective-stop/weekly-history preconditions would add real test complexity without exercising any additional session-expiry behavior beyond what this test already proves. Alternative considered and rejected: editing conftest.py's db_session fixture to add expire_on_commit=False -- it improves test/prod parity as a general hygiene matter but doesn't close the specific gap (a production regression going undetected) the task described."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-get-followups-followups",
+    "pr_number": 44,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/44",
+    "pushed_at": "2026-09-16T07:57:06Z"
+  }
 }
