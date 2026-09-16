@@ -1,0 +1,20 @@
+{
+  "id": "frontend-portfolio-page-followups",
+  "title": "Frontend Portfolio page — non-blocking review follow-ups",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-portfolio-page"],
+  "references": [
+    "docs/tasks/done/frontend-portfolio-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/65",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #65 (frontend-portfolio-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PositionsTable.tsx's handleConfirmDelete has a defensive `if (!pendingDelete) return` guard (needed only so TypeScript narrows `pendingDelete` before reading `.id`) that's unreachable in practice — ConfirmDialog's `onConfirm` only fires while `pendingDelete !== null` is what keeps it open. This is the one uncovered branch in an otherwise ~99.5%-covered PR (vitest coverage report: PositionsTable.tsx line 87). Not worth a behavior change, but either add a direct unit test exercising it (e.g. calling the handler with no pending delete via a more invasive test) or leave a short comment noting it's intentionally-defensive dead code for the type-narrowing, so a future coverage-gap sweep doesn't re-flag it as a mystery.",
+      "done": false
+    }
+  ]
+}
