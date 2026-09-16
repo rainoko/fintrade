@@ -22,7 +22,12 @@ def _direction(series: pd.Series) -> str:
     return "rising" if latest > previous else "falling"
 
 
-def evaluate_impulse(daily_ohlcv: pd.DataFrame, *, ema_13: pd.Series | None = None) -> str:
+def evaluate_impulse(
+    daily_ohlcv: pd.DataFrame,
+    *,
+    ema_13: pd.Series | None = None,
+    histogram: pd.Series | None = None,
+) -> str:
     """'GREEN' | 'RED' | 'BLUE', from EMA(13) direction + MACD-Histogram direction together (docs/Analyse.md §3).
 
     Acts as a gate: GREEN blocks fresh SELL signals, RED blocks fresh BUY signals.
@@ -39,12 +44,18 @@ def evaluate_impulse(daily_ohlcv: pd.DataFrame, *, ema_13: pd.Series | None = No
     job (docs/architecture/Backend.md §5), not this module's; see this task's `decisions`
     entry for why that's out of scope here.
 
-    ``ema_13``, if given, is used as the already-computed ``ema(daily_ohlcv['close'], 13)``
-    instead of recomputing it here (must be index-aligned with ``daily_ohlcv``). Lets a
-    caller who needs that same EMA(13) elsewhere too (e.g.
-    ``app.portfolio.exits.evaluate_exit_flags``, which also feeds it to
-    ``protective_stop``/``autoenvelope``) share one computation -- see the
-    ``portfolio-exit-rules-followups`` task's `decisions` entry.
+    ``ema_13``/``histogram``, if given, are used as the already-computed
+    ``ema(daily_ohlcv['close'], 13)`` / ``macd_histogram(daily_ohlcv['close'])`` instead of
+    recomputing them here (each must be index-aligned with ``daily_ohlcv``). Both are
+    independent (a caller may supply either, both, or neither); anything omitted is computed
+    internally exactly as before these parameters existed. ``ema_13`` lets a caller who needs
+    that same EMA(13) elsewhere too (e.g. ``app.portfolio.exits.evaluate_exit_flags``, which
+    also feeds it to ``protective_stop``/``autoenvelope``) share one computation -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry. ``histogram`` lets
+    ``app.signals.engine.analyse`` share this same EMA(13)/MACD-Histogram pair with the
+    ``indicators`` response it builds separately from this gate's color, instead of
+    recomputing both a second time on the same ``daily_close`` -- see this task's `decisions`
+    entry.
     """
     if len(daily_ohlcv) < 2:
         return "BLUE"
@@ -52,8 +63,10 @@ def evaluate_impulse(daily_ohlcv: pd.DataFrame, *, ema_13: pd.Series | None = No
     daily_close = daily_ohlcv["close"]
     if ema_13 is None:
         ema_13 = ema(daily_close, 13)
+    if histogram is None:
+        histogram = macd_histogram(daily_close)
     ema_direction = _direction(ema_13)
-    histogram_direction = _direction(macd_histogram(daily_close))
+    histogram_direction = _direction(histogram)
 
     if ema_direction == "rising" and histogram_direction == "rising":
         return "GREEN"

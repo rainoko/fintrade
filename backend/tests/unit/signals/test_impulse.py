@@ -204,3 +204,51 @@ class TestEvaluateImpulsePrecomputedEma13:
         wrong_falling_ema_13 = pd.Series([100.0, 1.0])
 
         assert evaluate_impulse(daily_ohlcv, ema_13=wrong_falling_ema_13) == "BLUE"
+
+
+class TestEvaluateImpulsePrecomputedHistogram:
+    """Covers the `histogram` parameter (added by this task, mirroring the pre-existing
+    `ema_13` parameter above) that lets a caller -- namely
+    ``app.signals.engine.analyse``, which needs this same EMA(13)/MACD-Histogram pair a
+    second time for its `indicators` response -- share an already-computed MACD-Histogram of
+    the same close series instead of evaluate_impulse recomputing it internally. See this
+    task's `decisions` entry.
+    """
+
+    def test_precomputed_histogram_matches_default_computation(self) -> None:
+        from app.indicators.macd import macd_histogram as real_macd_histogram
+
+        closes = pd.Series([100 * (1.05**i) for i in range(30)], dtype=float)
+        daily_ohlcv = _daily_ohlcv(closes)
+        precomputed = real_macd_histogram(closes)
+
+        assert evaluate_impulse(daily_ohlcv, histogram=precomputed) == evaluate_impulse(daily_ohlcv)
+
+    def test_precomputed_histogram_is_actually_used_not_ignored(self, mocker) -> None:
+        """A deliberately wrong `histogram` must change the direction the function reads --
+        confirms the parameter is wired in, not silently ignored in favor of recomputing."""
+        mocker.patch("app.signals.impulse.ema", return_value=pd.Series([100.0, 101.0]))
+        daily_ohlcv = _daily_ohlcv(pd.Series([100.0, 101.0]))
+
+        # A wrong, sharply falling histogram flips the impulse direction away from GREEN
+        # (both rising) to BLUE (disagreement), even though ema_direction is rising.
+        wrong_falling_histogram = pd.Series([100.0, 1.0])
+
+        assert evaluate_impulse(daily_ohlcv, histogram=wrong_falling_histogram) == "BLUE"
+
+    def test_both_precomputed_together_skip_recomputation_entirely(self, mocker) -> None:
+        """When both `ema_13` and `histogram` are supplied, neither internal `ema()` nor
+        `macd_histogram()` call happens at all."""
+        ema_mock = mocker.patch("app.signals.impulse.ema")
+        histogram_mock = mocker.patch("app.signals.impulse.macd_histogram")
+        daily_ohlcv = _daily_ohlcv(pd.Series([100.0, 101.0]))
+
+        result = evaluate_impulse(
+            daily_ohlcv,
+            ema_13=pd.Series([1.0, 2.0]),
+            histogram=pd.Series([1.0, 2.0]),
+        )
+
+        assert result == "GREEN"
+        ema_mock.assert_not_called()
+        histogram_mock.assert_not_called()

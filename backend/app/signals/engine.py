@@ -55,9 +55,10 @@ def _latest(series: pd.Series) -> float:
     return float(series.iloc[-1])
 
 
-def _wave_showed_state(daily_ohlcv: pd.DataFrame, tide: str, target_state: str) -> bool:
-    """True if ``evaluate_wave`` would have classified any of the last ``_WAVE_LOOKBACK_DAYS``
-    daily bars (today inclusive) as ``target_state``, not just today's bar.
+def _wave_lookback(daily_ohlcv: pd.DataFrame, tide: str) -> tuple[dict, bool, bool]:
+    """Today's Wave (Screen 2) result, plus whether the last ``_WAVE_LOOKBACK_DAYS`` daily
+    bars (today inclusive) "show/showed" the oversold-pullback or overbought-rally state, in
+    a single pass over ``evaluate_wave``.
 
     docs/Analyse.md §5 phrases the Wave condition as "shows/showed" ("Wave shows/showed
     oversold pullback, Trigger fired") -- explicitly allowing the pullback/rally to have
@@ -70,15 +71,45 @@ def _wave_showed_state(daily_ohlcv: pd.DataFrame, tide: str, target_state: str) 
     concept to evaluate_wave itself. See this task's `decisions` entry for the chosen window
     (5 trading days) and for why the tide direction is held fixed at today's value across the
     whole window rather than being recomputed per day.
+
+    Returns ``(wave, wave_showed_pullback, wave_showed_rally)``, where ``wave`` is today's
+    ``evaluate_wave(daily_ohlcv, tide)`` result (the "shows" case, read off this same pass
+    rather than calling ``evaluate_wave`` on the full history a second time) and the two
+    booleans are whether ``OVERSOLD_PULLBACK``/``OVERBOUGHT_RALLY`` respectively appeared
+    anywhere in the lookback window.
+
+    ``evaluate_wave`` can only ever produce ``OVERSOLD_PULLBACK`` when ``tide == "BULLISH"``
+    and only ever produce ``OVERBOUGHT_RALLY`` when ``tide == "BEARISH"`` -- never both for a
+    given (fixed, per this function's own contract) tide. So only one of the two "showed"
+    booleans is ever reachable per call; the other is set to False directly without spending
+    any further ``evaluate_wave`` calls scanning a window it could never match -- see this
+    task's `decisions` entry (this used to cost up to 11 ``evaluate_wave`` calls per
+    ``analyse()`` invocation: one direct call for today's bar, plus two independent
+    ``_WAVE_LOOKBACK_DAYS``-bar lookback loops, one of which was always fully wasted).
+    Within the achievable direction, the scan checks today's bar first (already computed
+    above) and walks backwards, stopping as soon as a match is found rather than always
+    re-deriving the full window.
     """
     n = len(daily_ohlcv)
-    if n == 0:
-        return False
-    start = max(1, n - _WAVE_LOOKBACK_DAYS + 1)
-    for end in range(start, n + 1):
-        if evaluate_wave(daily_ohlcv.iloc[:end], tide)["state"] == target_state:
-            return True
-    return False
+    wave = evaluate_wave(daily_ohlcv, tide)
+    if tide == "BULLISH":
+        target_state = "OVERSOLD_PULLBACK"
+    elif tide == "BEARISH":
+        target_state = "OVERBOUGHT_RALLY"
+    else:
+        target_state = None
+
+    showed_target = target_state is not None and wave["state"] == target_state
+    if target_state is not None and not showed_target and n > 0:
+        start = max(1, n - _WAVE_LOOKBACK_DAYS + 1)
+        for end in range(n - 1, start - 1, -1):
+            if evaluate_wave(daily_ohlcv.iloc[:end], tide)["state"] == target_state:
+                showed_target = True
+                break
+
+    wave_showed_pullback = showed_target if target_state == "OVERSOLD_PULLBACK" else False
+    wave_showed_rally = showed_target if target_state == "OVERBOUGHT_RALLY" else False
+    return wave, wave_showed_pullback, wave_showed_rally
 
 
 def _determine_signal(
@@ -110,9 +141,12 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
     docs/Analyse.md §5 lists them:
 
     1. Screen 1 (Tide) -- ``evaluate_tide(weekly_ohlcv)``.
-    2. Impulse -- ``evaluate_impulse(daily_ohlcv)``, the gate.
+    2. Impulse -- ``evaluate_impulse(daily_ohlcv, ema_13=..., histogram=...)``, the gate,
+       sharing its EMA(13)/MACD-Histogram inputs with the ``indicators`` dict below instead
+       of each recomputing its own copy (see this task's `decisions` entry).
     3. Screen 2 (Wave) -- ``evaluate_wave(daily_ohlcv, tide)``, today's bar, plus a lookback
-       over the last few bars for the "shows/showed" case (see ``_wave_showed_state``).
+       over the last few bars for the "shows/showed" case (see ``_wave_lookback``, which
+       computes both in a single pass).
     4. Screen 3 (Trigger) -- ``evaluate_trigger(daily_ohlcv, tide)``, today's bar.
 
     then combines them into BUY/SELL/HOLD (``_determine_signal``) and, for a fresh BUY/SELL
@@ -142,18 +176,18 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
     """
     tide_result = evaluate_tide(weekly_ohlcv)
     tide = tide_result.trend
-    impulse = evaluate_impulse(daily_ohlcv)
-    wave = evaluate_wave(daily_ohlcv, tide)
-    trigger = evaluate_trigger(daily_ohlcv, tide)
-
-    wave_showed_pullback = _wave_showed_state(daily_ohlcv, tide, "OVERSOLD_PULLBACK")
-    wave_showed_rally = _wave_showed_state(daily_ohlcv, tide, "OVERBOUGHT_RALLY")
-    signal = _determine_signal(tide, impulse, wave_showed_pullback, wave_showed_rally, trigger["fired"])
 
     daily_close = daily_ohlcv["close"]
     ema_13_series = ema(daily_close, 13)
     ema_26_series = ema(daily_close, 26)
     histogram_series = macd_components(daily_close).histogram
+
+    impulse = evaluate_impulse(daily_ohlcv, ema_13=ema_13_series, histogram=histogram_series)
+    wave, wave_showed_pullback, wave_showed_rally = _wave_lookback(daily_ohlcv, tide)
+    trigger = evaluate_trigger(daily_ohlcv, tide)
+
+    signal = _determine_signal(tide, impulse, wave_showed_pullback, wave_showed_rally, trigger["fired"])
+
     bull_power_series = elder_bull_power(daily_ohlcv["high"], ema_13_series)
     bear_power_series = elder_bear_power(daily_ohlcv["low"], ema_13_series)
 
