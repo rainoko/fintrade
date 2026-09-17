@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Stock analysis page follow-ups (PR #74) — further non-blocking review follow-up",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-analysis-page-followups"],
   "references": [
     "docs/tasks/frontend-stock-analysis-page-followups.json#review",
@@ -35,5 +35,12 @@
     "pr_number": 75,
     "pr_url": "https://github.com/rainoko/fintrade/pull/75",
     "pushed_at": "2026-09-17T04:05:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T04:04:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/75",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Doc/comment-only change (adds `utils/` to Frontend.md §3's module layout + Structure Rules, reconciles formatNullableNumber's doc comment with IndicatorsPanel.tsx's framing). Confirmed via `git diff main...HEAD --stat` that no application logic changed. Frontend: npm run test:coverage (179 tests pass, 99.41%/99.2%/100%/99.4%), npm run lint (clean), npm run build (tsc -b && vite build succeeds). Backend (unaffected, re-run for completeness): pytest --cov=app --cov-fail-under=90 (488 passed, 99.84%). Verified the reworded comment's factual claim against backend/app/signals/engine.py's drop_malformed_daily_bars, which exists and does exactly what's claimed. New utils/ Structure Rule reads naturally alongside the existing components/common/ rule (same shape: definition, placement test, motivating example) and is internally consistent. No new/changed components in this diff, so no §7a placement check applies. No API/schema changes. No UI-facing surface, so browser walkthrough was skipped (noted explicitly). Ran the code-review skill against the diff independently: no findings. No blocking issues; no non-blocking findings either, so no follow-up task was created."
   }
 }
