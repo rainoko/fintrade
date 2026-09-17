@@ -1,5 +1,7 @@
 import pandas as pd
 
+from app.indicators._validation import validate_period
+
 
 def ema(series: pd.Series, period: int) -> pd.Series:
     """Exponential moving average. Periods used in this app: 13, 26 (docs/Analyse.md §4).
@@ -18,8 +20,5 @@ def ema(series: pd.Series, period: int) -> pd.Series:
             silently via its own ``span`` coercion).
         ValueError: if ``period`` is not >= 1.
     """
-    if isinstance(period, bool) or not isinstance(period, int):
-        raise TypeError(f"period must be an int, got {type(period).__name__}")
-    if period < 1:
-        raise ValueError("period must be >= 1")
+    validate_period("period", period)
     return series.ewm(span=period, adjust=False).mean()

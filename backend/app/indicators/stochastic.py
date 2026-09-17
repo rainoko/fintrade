@@ -1,11 +1,6 @@
 import pandas as pd
 
-
-def _validate_period(name: str, value: int) -> None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{name} must be an int, got {type(value).__name__}")
-    if value < 1:
-        raise ValueError(f"{name} must be >= 1")
+from app.indicators._validation import validate_period
 
 
 def stochastic_oscillator(
@@ -53,9 +48,9 @@ def stochastic_oscillator(
             same index (mirrors ``app.indicators.force_index.force_index``'s
             guard against silent pandas label-based misalignment).
     """
-    _validate_period("k_period", k_period)
-    _validate_period("d_period", d_period)
-    _validate_period("smooth", smooth)
+    validate_period("k_period", k_period)
+    validate_period("d_period", d_period)
+    validate_period("smooth", smooth)
 
     if not (high.index.equals(low.index) and high.index.equals(close.index)):
         raise ValueError("high, low, and close must share the same index")
