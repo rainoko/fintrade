@@ -3,7 +3,7 @@
   "title": "Frontend scaffold — non-blocking review follow-ups",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["frontend-scaffold"],
   "references": [
     "docs/tasks/frontend-scaffold.json#review",
@@ -18,6 +18,10 @@
     {
       "step": "docs/architecture/Testing.md's frontend coverage example (§Frontend, the `vite.config.ts` code block) still shows the coverage config without `include: ['src/**/*.{ts,tsx}']` — the fix landed in PR #61's follow-up commit (4bb0676) only in the actual frontend/vite.config.ts, not in this doc, which the original frontend-scaffold checklist named as the config vite.config.ts must match. Update the doc's example to include the `include` field (mirroring the backend example's `source = [\"app\"]`, which already documents the equivalent \"count every file regardless of import\" mechanism) so a future task copying this doc's snippet doesn't silently reintroduce the same silently-broken 90% gate.",
       "done": true
+    },
+    {
+      "step": "pr-reviewer (PR #79) found: PercentChange.tsx renders via an inline `style={{ fontWeight: 600 }}` (component.tsx line 30), but only Inter weights 300/400/500/700 are imported in main.tsx. Confirmed live in a browser (Storybook's common-percentchange--positive story with the real theme applied) that the computed style requests weight 600 while only 300/400/500/700 @font-face rules exist for Inter — per the CSS Fonts Module Level 4 weight-matching algorithm (target >500 matches the smallest declared weight >= target), this resolves to the Inter 700 (bold) face, not a synthesized/matched 600. PercentChange renders `unrealized_pnl_pct` in both PositionsGlanceTable and PositionsTable on the Portfolio page, so every position's gain/loss percentage now renders visibly bolder (Inter 700) than before this PR (when the system-font fallback rendered true weight 600) — a real visual regression, not just an unused-weight non-issue. Fix by importing the 600 weight (@fontsource/inter/600.css) or otherwise auditing all actually-used inline/sx fontWeight values codebase-wide (not just MUI's default Typography-variant weights) before finalizing the imported weight set.",
+      "done": false
     }
   ],
   "decisions": [
@@ -33,5 +37,28 @@
     "pr_number": 79,
     "pr_url": "https://github.com/rainoko/fintrade/pull/79",
     "pushed_at": "2026-09-17T05:01:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T05:12:19Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/79",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: PercentChange.tsx uses an inline `fontWeight: 600` style, but only Inter weights 300/400/500/700 are imported in main.tsx. Confirmed live (Storybook's common-percentchange--positive story, real theme applied): the computed style requests weight 600 while the browser's CSS font-weight matching (only 300/400/500/700 faces registered) resolves it to Inter 700, not a true/synthesized 600. PercentChange renders unrealized_pnl_pct in both PositionsGlanceTable and PositionsTable, so this is a visible regression versus pre-PR rendering (system-font fallback rendered true weight 600) affecting every position's gain/loss % on the Portfolio page. The decision record's claim that the four imported weights cover \"the weights MUI's default Typography variants actually render\" missed this component's ad-hoc inline fontWeight, which bypasses the variant defaults. Fix: import the 600 weight, or audit all actual fontWeight usages codebase-wide (a `grep -rn fontWeight src` found only this one outlier; ConfidenceGauge/RiskSummaryCard/RiskPercent/SignalBadge/ScreensPanel all use 700 or 400, both already covered).",
+        "file": "frontend/src/components/common/PercentChange/PercentChange.tsx",
+        "line": 30
+      },
+      {
+        "summary": "Non-blocking: .storybook/preview.tsx wires stories to the real MUI theme (which lists Inter first) but never imports @fontsource/inter itself (only src/main.tsx does). Confirmed live (iframe.html for common-percentchange--positive): document.fonts registers only Storybook's own Nunito Sans faces, zero Inter faces, so every component viewed in Storybook — the project's documented catalog for components/common/ per Frontend.md §4 — still silently falls back to a system font, i.e. the exact bug this task set out to fix, just not closed for this consumption surface. Tracked as a follow-up rather than blocking since it's a pre-existing gap this PR doesn't regress (Storybook fell back to system fonts before this PR too) and doesn't affect the shipped app itself.",
+        "file": "frontend/.storybook/preview.tsx",
+        "line": 1
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Frontend.md §6's Key Dependencies table wasn't updated to list the newly-added @fontsource/inter runtime dependency (frontend/package.json), leaving the table silently missing an entry for a real dependency — the kind of doc drift the project's conventions try to avoid. Tracked as a follow-up rather than blocking since it's a table entry, not a behavioral gap.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 119
+      }
+    ],
+    "notes": "Ran the full frontend suite on the PR branch: npm run lint (clean), npx tsc -b (clean), npm run test:coverage (186 tests passed, 99.7% lines/99.61% branches, well above the 90% gate), npm run build and npm run build-storybook (both succeed). Backend suite unaffected (488 passed, 99.84% coverage) since this PR touches only frontend/docs. Verified the --legacy-peer-deps install doesn't mask a real @fontsource/inter incompatibility: `npm view @fontsource/inter peerDependencies dependencies` returns nothing (it's a pure CSS/font-file package with zero deps of its own), and a clean `npm install` (no flag) reproduces the pre-existing ERESOLVE purely between devDependency typescript@~6.0.2 and openapi-typescript@7.13.0's `peer typescript@^5.x` — unrelated to this PR's added dependency. Confirmed live in a real browser that Inter actually renders for the app itself: computed body/heading font-family resolves to \"Inter, ...\" and document.fonts reports the used weights (400, 500) as status 'loaded', with the woff2/css files served from node_modules (not an external network request), matching the recorded decision. Diffed docs/architecture/Testing.md's updated vite.config.ts snippet against the real frontend/vite.config.ts: the added `include: ['src/**/*.{ts,tsx}']` line and its explanatory comment now match verbatim; the doc's snippet remains an intentionally abbreviated excerpt (no reporter/exclude/setupFiles, consistent with how it was already abbreviated pre-PR) so this is a genuine, non-partial fix of the specific gap the checklist named. Overall: the core Inter-loading and Testing.md-sync fixes are correct and verified, but the browser walkthrough surfaced a real regression (PercentChange's fontWeight:600 not covered by the imported weight set) that the task's own decision record's completeness claim missed — this is why the verdict is needs_work rather than accepted. The two other findings (Storybook not loading Inter; Frontend.md's dependency table not updated) are real but non-blocking and are filed on docs/tasks/frontend-scaffold-followups-followups.json."
   }
 }
