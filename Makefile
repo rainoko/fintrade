@@ -5,6 +5,12 @@
 
 .DEFAULT_GOAL := help
 
+# `dev`'s fail-fast cleanup (below) uses bash's `wait -n <pids...>`, which needs
+# an actual bash, not just any POSIX /bin/sh (e.g. dash, this container's default
+# SHELL). The dev container guarantees bash; other repo scripts already assume it
+# too (see .devcontainer/*.sh shebangs).
+SHELL := bash
+
 .PHONY: help backend frontend dev install test
 
 help: ## Show this help
@@ -26,10 +32,24 @@ frontend: ## Run the frontend dev server (Vite) on http://127.0.0.1:5173
 	cd frontend && npm run dev
 
 dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, including uvicorn's reloader and vite's node process
+	@# Known limitation: a bare SIGINT sent to only this recipe's top-level `make dev`
+	@# PID (not via a real terminal, and not SIGTERM) does nothing -- GNU Make ignores
+	@# SIGINT while a recipe's child is running (it defers to the terminal to deliver
+	@# interactive Ctrl-C to the whole foreground process group directly), so the trap
+	@# below never gets a chance to forward it in that specific case. Interactive
+	@# Ctrl-C and `kill -TERM <top-pid>` from another shell both work correctly (each
+	@# reaches the trap, which cleans up both process groups); only a standalone
+	@# `kill -INT <top-pid>` does not. This is inherent GNU Make behavior, not fixable
+	@# from within the recipe's own trap/signal handling -- if `make dev` is ever run
+	@# under a supervisor that specifically sends bare SIGINT to just the top PID
+	@# (most default to SIGTERM, which already works), it won't stop that way.
 	@setsid $(MAKE) backend </dev/null & bpid=$$!; \
 	setsid $(MAKE) frontend </dev/null & fpid=$$!; \
 	trap 'kill -TERM -$$bpid -$$fpid 2>/dev/null' EXIT INT TERM; \
-	wait $$bpid $$fpid
+	wait -n $$bpid $$fpid; status=$$?; \
+	kill -TERM -$$bpid -$$fpid 2>/dev/null; \
+	wait $$bpid $$fpid 2>/dev/null; \
+	exit $$status
 
 install: ## Install backend (venv + pip) and frontend (npm) dependencies
 	cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]"

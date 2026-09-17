@@ -1,0 +1,91 @@
+{
+  "id": "dev-makefile-followups",
+  "title": "Root Makefile — non-blocking review follow-ups",
+  "area": "infra",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["dev-makefile"],
+  "references": [
+    "docs/tasks/dev-makefile.json#review",
+    "https://github.com/rainoko/fintrade/pull/96"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #96 (dev-makefile), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`make dev`'s cleanup (now `trap 'kill -TERM -$$bpid -$$fpid' EXIT INT TERM` in the `dev` recipe, resolved from the earlier blocking finding by starting each of `backend`/`frontend` via `setsid` in its own process group and dropping the extra `( ... )` subshell wrapper so the trap sits on the shell that's actually make's direct child) reliably cleans up `uvicorn`/`vite` for both an interactive-terminal Ctrl-C (verified: `setsid` + `kill -INT` on the negative PGID -- clean shutdown, no orphans, no bash crash) and a plain `kill -TERM <top-pid>` from another shell (verified: GNU Make forwards SIGTERM to its direct child, which runs the trap and kills both process groups -- ports free, `pgrep -fa 'uvicorn|vite'` empty). What's still unresolved: sending *SIGINT specifically* to only the top-level `make dev` PID (not SIGTERM, and not via a real terminal's whole-process-group delivery) does nothing -- GNU Make explicitly ignores SIGINT while a recipe's child is running (deferring to the terminal to deliver it to the whole foreground process group directly), so the forwarding this fix relies on for SIGTERM never happens for a bare SIGINT sent to just the top pid: `make dev` sits orphaned indefinitely, `uvicorn`/`vite` never receive anything (re-verified directly against the current code: reproduced the same hang, then cleaned up the orphaned processes manually). This is a documented GNU Make behavior (not something fixable from within the recipe's own trap/signal handling), so non-blocking as before -- worth documenting as a known limitation if `make dev` is ever expected to run under a supervisor that specifically sends SIGINT (most use SIGTERM by default, which already works).",
+      "done": true
+    },
+    {
+      "step": "README.md's \"Quick start (Makefile)\" section says \"`make backend` (and `make dev`, which depends on it)\" -- `make dev` doesn't actually declare `backend` as a Make prerequisite; it invokes `$(MAKE) backend` as a subprocess from within its own recipe. The described runtime behavior (the venv-missing error surfaces through `make dev` too) is correct, only the \"depends on\" phrasing overstates it as formal Make dependency terminology. Minor wording fix.",
+      "done": true
+    },
+    {
+      "step": "`make dev`'s `wait $$bpid $$fpid` only returns once *both* `backend`/`frontend` sub-targets have exited, so if one fails immediately (e.g. `backend/.venv` missing) the other keeps running indefinitely instead of `make dev` exiting or reporting overall failure -- easy to miss in scrolling/non-interactive output (backend's clear error prints, then vite's own startup banner follows right after and looks like everything is fine). Found via PR #96 round-2 review (a backgrounded code-review pass, independently reproduced before filing): with `backend/.venv` temporarily moved aside, `make dev` prints the venv-missing error and `make[1]: *** [Makefile:16: backend] Error 1`, but vite keeps serving on :5173 and `make dev` never exits on its own; requires manual interruption. Distinct from the round-1 orphan bug -- the surviving process is still attached to the trap and cleans up correctly once stopped (verified: no leftover process afterward), so this is a fail-fast/UX gap, not a leak. Consider having the trap (or an explicit check after `wait`'s first return, e.g. `wait -n` then killing the other) treat one sub-target's early failure as a reason to tear down the other and exit non-zero, if `make dev` is ever expected to fail fast rather than keep serving a half-up environment.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T20:55:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the bare-SIGINT-to-top-pid limitation as a comment directly above the `dev` recipe in the Makefile itself, rather than in README.md.",
+      "rationale": "The limitation is about the recipe's own internal signal-handling mechanics (why the trap never fires for that one specific delivery path), which is implementation detail a Makefile comment communicates more naturally, right next to the trap/wait logic it explains, than README's user-facing Quick Start section would. README.md's Makefile section is intentionally short (target list + one paragraph); adding a signal-handling caveat there would bury the more commonly useful information under an edge case that only matters to someone running `make dev` under a supervisor sending a bare SIGINT specifically (most default to SIGTERM, which already works). Rejected alternative: putting it in README instead of/in addition to the Makefile -- rejected as the wrong altitude for a doc aimed at contributors just trying to start the dev servers; the Makefile comment is discoverable by anyone who'd actually need it (someone reading/adapting the `dev` recipe for a supervisor)."
+    },
+    {
+      "timestamp": "2026-09-17T20:56:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the fail-fast gap using bash's `wait -n $$bpid $$fpid` (returns as soon as either job exits, with that job's exit status) instead of a portable POSIX-sh-only polling loop, and added `SHELL := bash` to the top of the Makefile so the recipe runs under bash rather than this container's default `/bin/sh` (dash), which doesn't support `wait -n` at all (verified: `dash -c 'wait -n'` errors with 'Illegal option --'). After `wait -n` returns, the recipe explicitly re-kills both process groups (`kill -TERM -$$bpid -$$fpid`, harmless as a no-op against whichever already exited) and reaps both with a final `wait $$bpid $$fpid` before `exit $$status`, so the surviving sub-target is torn down immediately and `make dev`'s own exit code reflects whichever sub-target failed, rather than always returning the last-reaped job's status.",
+      "rationale": "`wait -n` with an explicit pid list needs bash >= 5.1 (confirmed available: this container ships bash 5.3.9) and is the direct, minimal-diff mechanism for 'return as soon as either job exits' -- verified empirically (a standalone repro script) that it returns immediately with the failing job's real exit status even while the other job is still running. Setting `SHELL := bash` for the whole Makefile (not just the `dev` target) keeps all targets consistent and matches the rest of the repo's own convention of assuming bash (`.devcontainer/*.sh` are `#!/usr/bin/env bash`, and the existing `dev` recipe already relies on bash-flavored constructs like `trap`/`$$!`/process-group `kill` that happen to also work under dash but were only ever verified under the container's real interactive bash). Rejected alternative: a portable `kill -0`-based polling loop avoiding any bash-only feature (works under plain POSIX sh, no `SHELL :=` change needed) -- rejected because `kill -0` cannot reliably detect an exited-but-unreaped background job (a zombie's pid still answers `kill -0` successfully until `wait`ed), which would require an extra background 'reaper' subprocess per job to bridge that gap, materially more complex than one `wait -n` call for a project that already assumes bash everywhere else. Rejected alternative: keep polling but reap eagerly via a tight `wait $$bpid 2>/dev/null; ... ` race -- same zombie-detection problem, discarded for the same reason. Verified end-to-end against the real Makefile (not just a repro script): (1) both healthy, `kill -TERM <top-pid>` -- clean shutdown, exit 143, ports free; (2) both healthy, real process-group SIGINT (`setsid`-launched `make dev`, `kill -INT` on its own negative pgid, matching real-terminal Ctrl-C delivery) -- clean shutdown, exit 130, ports free, no bash crash; (3) `backend/.venv` temporarily moved aside then restored -- `make dev` now exits near-instantly (previously hung indefinitely) with a non-zero status and no leftover vite process, `ss` confirms both ports free afterward."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/dev-makefile-followups",
+    "pr_number": 97,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/97",
+    "pushed_at": "2026-09-17T20:54:27Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T21:00:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/97",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified all three claims independently against the real Makefile: (1) with backend/.venv moved aside, `make dev` now exits in ~0.03s with non-zero status (2) and no leftover vite/uvicorn process, ports free -- vs. the old indefinite hang; (2) `kill -TERM <top-pid>` on a healthy `make dev` still shuts down cleanly (exit 143, ports free, no orphans); (3) real terminal-style Ctrl-C (setsid-launched `make dev`, `kill -INT` on its own negative pgid) still shuts down cleanly (exit 130, ports free, no orphans). Traced the `wait -n`/re-kill/re-wait/`exit $status` sequence by hand for correctness (double-kill from both the explicit call and the EXIT trap is an intentional, harmless no-op; the final `wait $bpid $fpid` correctly reaps whichever job `wait -n` didn't already reap, avoiding a lingering zombie). No bugs found.",
+        "file": "Makefile",
+        "line": 46
+      },
+      {
+        "summary": "Confirmed `SHELL := bash` doesn't change behavior for any other target -- `make -n` dry-run output for backend/frontend/install/test is identical to before, and `make help`'s awk pipeline still parses/prints correctly. None of the existing recipes had any dash-only construct that bash would break.",
+        "file": "Makefile",
+        "line": 12
+      },
+      {
+        "summary": "Backend pytest+coverage (493 passed, 99.84% line coverage) and frontend vitest+coverage (205 passed, 99.71%+ across all metrics) both pass well above the 90% gate; no regression, as expected since no application code is touched. Backend ruff+mypy and frontend eslint+tsc all clean. No UI surface in this PR (Makefile + task-board only), so no browser walkthrough applies -- explicitly noted rather than silently skipped.",
+        "file": "Makefile",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: `wait -n` with an explicit pid list needs bash >= 5.1, and the new `SHELL := bash` resolves `bash` via PATH search (GNU Make's documented behavior for a non-absolute SHELL), not a pinned path. Outside the documented devcontainer workflow (e.g. macOS's stock /bin/bash 3.2.57, which lacks `wait -n` entirely), `make dev` would fail with a raw bash syntax error rather than the old hang. Consistent with the project's devcontainer-first convention (not a regression), but worth a README note or a cheap version guard if `make dev` is ever expected to work reliably outside the devcontainer. Filed as docs/tasks/dev-makefile-followups-followups.json.",
+        "file": "Makefile",
+        "line": 12
+      },
+      {
+        "summary": "Non-blocking (found by a code-review pass, independently re-verified before recording): decisions[1]'s rationale overstates what `wait -n`'s captured status carries -- it says make dev's exit code 'reflects whichever sub-target failed', but GNU Make's own process always exits 2 on any recipe/target failure regardless of the failing command's real exit code (verified: a target whose recipe does `exit 7` still yields `echo $?` -> 2). Since bpid/fpid are sub-`make` invocations, a failure on either side surfaces as that same code-2, not a value distinguishing which side failed. Actual runtime behavior (fail-fast, correct teardown, non-zero exit) is unaffected -- this is a decision-rationale accuracy issue, not a code bug. Filed as docs/tasks/dev-makefile-followups-followups.json.",
+        "file": "docs/tasks/done/dev-makefile-followups.json",
+        "line": 37
+      },
+      {
+        "summary": "Non-blocking (found by the same code-review pass): the 11-line bare-SIGINT-limitation comment above the `dev` recipe is written as individual `@#...` recipe lines rather than a plain `#` Makefile comment above the target -- inconsistent with the adjacent SHELL := bash rationale a few lines earlier, which correctly uses a plain comment (zero runtime cost). GNU Make spawns one shell per recipe line (confirmed via `make -d`), so every `make dev` invocation currently forks ~11 extra no-op shell processes solely to carry comment text. Negligible runtime cost for an interactively-invoked dev tool, but avoidable overhead and a style inconsistency within the same file. Filed as docs/tasks/dev-makefile-followups-followups.json.",
+        "file": "Makefile",
+        "line": 35
+      }
+    ],
+    "notes": "Small, well-contained infra diff (21 net lines in Makefile). Both fixes verified empirically against the real Makefile (not just described) in addition to a manual trace of the shell logic. Test/coverage suites unaffected (no app code touched) and remain well above the 90% gate. Static analysis clean on both sides. No blocking findings. Three non-blocking findings (bash-portability of wait -n + SHELL := bash's PATH resolution; a decision-rationale accuracy issue about what make dev's exit code actually carries; unnecessary per-line shell forks for a comment block) filed as docs/tasks/dev-makefile-followups-followups.json -- the first two found directly, the latter two surfaced by a code-review pass that completed after the initial accept was recorded and were folded in before finalizing."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T21:09:24Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest+coverage myself: 493 passed, 99.84% line coverage, well above the 90% gate -- matches pr-reviewer's numbers exactly. Skimmed the full diff (Makefile + task-board bookkeeping only, no app code). Independently reproduced the key fail-fast claim: with backend/.venv moved aside, `make dev` exited in ~0.1s with status 2, no leftover uvicorn/vite process, ports 8000/5173 free; restored .venv afterward. Also independently ran a full healthy `make dev` and sent SIGTERM to the top-level pid: both uvicorn and vite shut down cleanly (exit 143), no orphaned processes, ports free. Confirmed `SHELL := bash` doesn't change any other target's dry-run output and `make help` still runs correctly. All three of pr-reviewer's non-blocking findings are properly filed on docs/tasks/dev-makefile-followups-followups.json, and index.json's state/path mirror the done move correctly."
+  }
+}
