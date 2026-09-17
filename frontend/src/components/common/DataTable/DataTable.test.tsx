@@ -9,6 +9,12 @@ interface Row {
   quantity: number
 }
 
+interface NullableRow {
+  id: number
+  ticker: string
+  quantity?: number
+}
+
 const columns: DataTableColumn<Row>[] = [
   { key: 'ticker', header: 'Ticker', sortable: true },
   { key: 'quantity', header: 'Quantity', sortable: true, align: 'right' },
@@ -92,6 +98,39 @@ describe('DataTable', () => {
     expect(within(bodyRows[0]).getByText('C')).toBeInTheDocument()
     expect(within(bodyRows[1]).getByText('A')).toBeInTheDocument()
     expect(within(bodyRows[2]).getByText('B')).toBeInTheDocument()
+  })
+
+  it('sorts a nullable numeric column with missing values last, ascending or descending', async () => {
+    const user = userEvent.setup()
+    const nullableColumns: DataTableColumn<NullableRow>[] = [
+      { key: 'ticker', header: 'Ticker' },
+      { key: 'quantity', header: 'Quantity', sortable: true, align: 'right' },
+    ]
+    const nullableRows: NullableRow[] = [
+      { id: 1, ticker: 'A', quantity: 9 },
+      { id: 2, ticker: 'B', quantity: undefined },
+      { id: 3, ticker: 'C', quantity: 2 },
+      { id: 4, ticker: 'D', quantity: undefined },
+    ]
+    render(
+      <DataTable columns={nullableColumns} rows={nullableRows} getRowKey={(row) => row.id} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Quantity' }))
+    let bodyRows = getBodyRows()
+    expect(within(bodyRows[0]).getByText('C')).toBeInTheDocument()
+    expect(within(bodyRows[1]).getByText('A')).toBeInTheDocument()
+    // Both missing-value rows (B, D) sort after the present values, in their
+    // original relative order.
+    expect(within(bodyRows[2]).getByText('B')).toBeInTheDocument()
+    expect(within(bodyRows[3]).getByText('D')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Quantity' }))
+    bodyRows = getBodyRows()
+    expect(within(bodyRows[0]).getByText('A')).toBeInTheDocument()
+    expect(within(bodyRows[1]).getByText('C')).toBeInTheDocument()
+    expect(within(bodyRows[2]).getByText('B')).toBeInTheDocument()
+    expect(within(bodyRows[3]).getByText('D')).toBeInTheDocument()
   })
 
   it('renders a custom cell via the render function', () => {

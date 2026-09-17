@@ -42,3 +42,9 @@ export const NetworkFailure: Story = {
     ),
   },
 }
+
+export const GenericFallback: Story = {
+  args: {
+    error: new ApiError(500, 'Internal server error'),
+  },
+}
