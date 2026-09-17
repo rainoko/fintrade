@@ -3,7 +3,7 @@
   "title": "Indicator: Stochastic follow-ups — non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["indicator-stochastic-followups"],
   "references": [
     "docs/tasks/indicator-stochastic-followups.json#review",
@@ -18,6 +18,9 @@
     }
   ],
   "git": {
-    "branch": "task/indicator-stochastic-followups-followups"
+    "branch": "task/indicator-stochastic-followups-followups",
+    "pr_number": 90,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/90",
+    "pushed_at": "2026-09-17T17:47:00Z"
   }
 }

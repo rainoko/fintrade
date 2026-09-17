@@ -124,7 +124,7 @@
       "id": "indicator-stochastic-followups-followups",
       "area": "backend/indicators",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/indicator-stochastic-followups-followups.json"
     },
     {
