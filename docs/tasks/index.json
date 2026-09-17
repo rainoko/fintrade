@@ -565,8 +565,8 @@
       "id": "skill-static-verify",
       "area": "tooling",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/skill-static-verify.json"
+      "state": "done",
+      "path": "docs/tasks/done/skill-static-verify.json"
     },
     {
       "id": "skill-revalidate-done-tasks",

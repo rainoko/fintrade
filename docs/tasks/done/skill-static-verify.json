@@ -3,7 +3,7 @@
   "title": "New skill: static-verify — backend (ruff+mypy) and frontend (eslint+tsc) static analysis",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     ".claude/skills/architecture-review/SKILL.md",
@@ -48,5 +48,12 @@
     "pr_number": 95,
     "pr_url": "https://github.com/rainoko/fintrade/pull/95",
     "pushed_at": "2026-09-17T20:02:37Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T20:06:42Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/95",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest+coverage (493 passed, 99.84%), frontend vitest+coverage (99.71% stmts, unchanged by this PR, re-run for completeness, no regression), static-verify skill itself run against its own PR (ruff clean, mypy clean on 37 files, eslint clean, tsc clean), code-review skill (medium effort) returned 0 findings after an independent full-diff pass. Manually verified the Literal-type tightening on SignalResult.signal/.confidence_band is behavior-preserving: _determine_signal and confidence_band's full bodies only ever return the declared literals. Verified the cast(Screens, ...)/cast(Indicators, ...) at the stocks.py API boundary is a static-typing-only annotation -- analyse()'s screens/indicators dict literals are keyed exactly to the Screens/Indicators Pydantic schema fields, and AnalysisResponse's Pydantic construction still validates the real runtime shape regardless of the cast; consistent with docs/architecture/Backend.md's layering (domain layer doesn't import API schema types) and this task's own decisions entry. Re-ran scripts/export_openapi.py -- no diff against the committed backend/openapi.json, correct since no route signature/response_model changed. All three 'decide X' checklist items have corresponding decisions entries with rationale and rejected alternatives. No frontend/UI surface touched by this PR (backend dev tooling + agent skill/instruction files only) -- browser walkthrough explicitly skipped as not applicable. This PR updates pr-reviewer.md itself (step 4, pointing static-analysis at the new static-verify skill); reviewed under the updated instructions per CLAUDE.md's note on checked-out-branch instructions taking effect immediately, which is what surfaced the clean ruff/mypy run. No blocking or non-blocking findings; no follow-up task filed."
   }
 }
