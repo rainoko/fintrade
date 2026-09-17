@@ -29,5 +29,11 @@
       "rationale": "IndicatorsPanel.tsx's framing is the factually current one (the nullable-indicators fix landed and shipped in api-stocks-analysis-nullable-indicators), while format.ts's original wording ('the backend can legitimately serialize a NaN indicator as JSON null') was written to describe the pre-fix behavior and is now stale -- rewriting IndicatorsPanel.tsx to match format.ts instead would have re-introduced an inaccurate claim into the codebase. Rejected alternatives: (a) rewriting IndicatorsPanel.tsx's comment to drop the 'shouldn't be reachable anymore' framing and match format.ts instead -- rejected because that direction moves the more accurate comment toward the less accurate one; (b) leaving both comments as-is on the grounds that the finding was explicitly non-blocking -- rejected because this is exactly the kind of cheap, mechanical fix a follow-up task exists to close before it drifts further via more call sites.",
       "alternatives_considered": "Rewriting IndicatorsPanel.tsx's comment to match format.ts's original (now-stale) framing instead; leaving the inconsistency unresolved since it was filed as non-blocking."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-stock-analysis-page-followups-followups",
+    "pr_number": 75,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/75",
+    "pushed_at": "2026-09-17T04:05:00Z"
+  }
 }
