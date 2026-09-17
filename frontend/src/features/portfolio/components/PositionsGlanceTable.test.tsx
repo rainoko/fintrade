@@ -24,6 +24,16 @@ const unpricedPosition: PositionOut = {
   unrealized_pnl_pct: null,
 }
 
+const highPricedPosition: PositionOut = {
+  id: 'pos_456',
+  ticker: 'BRKA',
+  quantity: 1,
+  avg_cost_basis: 1000.5,
+  entry_date: '2026-02-01',
+  current_price: 1234.5,
+  unrealized_pnl_pct: 23.4,
+}
+
 function renderWithRouter(positions: PositionOut[]) {
   return render(
     <MemoryRouter>
@@ -41,6 +51,12 @@ describe('PositionsGlanceTable', () => {
     expect(link).toHaveAttribute('href', '/stocks/AAPL')
     expect(screen.getByText('$228.90')).toBeInTheDocument()
     expect(screen.getByText('+17.20%')).toBeInTheDocument()
+  })
+
+  it('renders a 4-digit price with a thousands separator', () => {
+    renderWithRouter([highPricedPosition])
+
+    expect(screen.getByText('$1,234.50')).toBeInTheDocument()
   })
 
   it('renders an em dash for a position with no known price', () => {

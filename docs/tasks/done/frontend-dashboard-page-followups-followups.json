@@ -1,0 +1,48 @@
+{
+  "id": "frontend-dashboard-page-followups-followups",
+  "title": "Follow-up: PositionsGlanceTable's price formatting silently gained thousands separators (PR #81)",
+  "area": "frontend/pages/dashboard",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-dashboard-page-followups"],
+  "references": [
+    "docs/tasks/frontend-dashboard-page-followups.json#review",
+    "frontend/src/utils/format.ts",
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.test.tsx",
+    "https://github.com/rainoko/fintrade/pull/81"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #81 (frontend-dashboard-page-followups), tracked so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #81 switched PositionsGlanceTable.tsx from its own inline `formatNullableCurrency` (`value === null/undefined ? '—' : \\`$${value.toFixed(2)}\\``, no thousands separator) onto the new shared `utils/format.ts` `formatNullableCurrency`, which wraps `formatCurrency`'s `toLocaleString(..., {style:'currency', ...})`. For any price at or above $1,000 (a plausible `current_price`/`avg_cost_basis` for many real tickers), the rendered text on the Dashboard's positions-at-a-glance table now differs from before the consolidation — e.g. `$1234.50` before vs `$1,234.50` after — gaining a thousands separator it previously lacked. This is consistent with the precedent already established in frontend-portfolio-risk-panel-followups (PR #77's `decisions` entry: the richer `toLocaleString` formatting is 'strictly better, never worse' for a finance app, so standardizing on it is intentional and desirable, not a bug), but two gaps are worth closing: (1) PositionsGlanceTable.test.tsx's only priced fixture is $228.90 (see `aaplPosition.current_price`), so no test exercises a 4-digit price and would catch a future regression in this formatting; (2) this PR's own `decisions` entry frames the PositionsGlanceTable/PositionsTable fold-in purely as consolidating null-check logic and doesn't explicitly call out that the numeric formatting itself changes for 4+-digit prices at this specific call site. Consider adding a >=$1,000 price fixture/assertion to PositionsGlanceTable.test.tsx, and noting the intentional formatting-output change explicitly in a future decision record for full traceability.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T06:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a >=$1,000-price fixture (`highPricedPosition`, `current_price: 1234.5`) to PositionsGlanceTable.test.tsx with an assertion that it renders as `$1,234.50` (thousands separator present), alongside the existing $228.90 fixture. Also extended `formatNullableCurrency`'s file-header comment in utils/format.ts to explicitly state that PositionsGlanceTable.tsx's rendered output changes for 4+-digit prices (old `$${value.toFixed(2)}` had no thousands separator; the new shared helper does), rather than only implying it via the general formatCurrency-is-strictly-better rationale already present.",
+      "rationale": "PR #81's review already correctly identified and accepted this as an intentional, desirable change (matching the PR #77 precedent), not a bug — so the fix here is purely closing the two traceability gaps the review flagged, not reconsidering the formatting choice itself. A new fixture at exactly $1,000+ (chosen as 1234.50, a plausible real per-share price, e.g. BRK.A-style) is the minimal regression test that would have caught this specific change before it shipped, given the existing suite's only priced fixture was $228.90 (3 digits, no separator to lose). Rejected changing the existing $228.90 fixture's value instead of adding a new one: that would remove test coverage for the 3-digit case while gaining 4-digit coverage, when both are worth asserting independently since they exercise different `toLocaleString` formatting paths. Rejected only updating the code comment without adding a test (or vice versa): the checklist item explicitly asks for both a fixture/assertion and a decision record, and the two gaps are independent (one is runtime regression protection, the other is documentation for future readers of utils/format.ts), so both were done."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-page-followups-followups",
+    "pr_number": 82,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/82",
+    "pushed_at": "2026-09-17T06:10:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T06:14:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/82",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #82. Diff is test-fixture + doc-comment only: adds a >=$1,000 price fixture (`highPricedPosition`, $1,234.50) and assertion to PositionsGlanceTable.test.tsx, and extends utils/format.ts's header comment to explicitly document the intentional formatting-output change for PositionsGlanceTable.tsx. No production component code changed (PositionsGlanceTable.tsx and formatCurrency/formatNullableCurrency themselves are untouched). Backend: 488 tests passed, 99.84% coverage (pytest --cov=app --cov-fail-under=90). Frontend: 192 tests passed across 35 files, 99.7%/99.6%/100%/99.7% stmt/branch/func/line coverage (vitest run --coverage), `npm run lint` clean, `npx tsc --noEmit` clean. code-review skill (medium effort) found zero issues, matching my own read of the diff. No new/changed components, so the common-vs-feature-specific placement check (step 7a) doesn't apply. No API route/schema touched, so no OpenAPI snapshot regeneration was required. Browser walkthrough: this PR has no UI-observable behavior change (the component file is untouched, only a test and a comment were added) and no Playwright browser tool was available in this session either way, so no live-browser walkthrough was performed beyond the jsdom-rendered assertion already covered by the new unit test — noting this explicitly per the review process rather than silently skipping it. Decisions entry is well-formed (documents both what was done and rejected alternatives, per CLAUDE.md's decision-memory standard). No blocking findings; no new non-blocking findings either, so no follow-up task was created for this PR."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T06:16:58Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend (488 passed, 99.84% coverage) and frontend (192 passed/35 files, 99.7%/99.6%/100%/99.7% stmt/branch/func/line, lint and tsc clean) suites myself; both match pr-reviewer's reported numbers exactly. Read the full diff (git diff origin/main...HEAD): only PositionsGlanceTable.test.tsx (new highPricedPosition fixture + assertion) and utils/format.ts's header comment changed, no production code touched, matching the review's description. Independently hand-checked the reference value: PositionsGlanceTable.tsx calls formatNullableCurrency(current_price), which delegates to formatCurrency's value.toLocaleString(undefined, {style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2}) — for 1234.5 this correctly renders '$1,234.50', confirming the new test assertion is accurate, not just asserting whatever the code happens to output."
+  }
+}

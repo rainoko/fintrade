@@ -516,8 +516,8 @@
       "id": "frontend-dashboard-page-followups-followups",
       "area": "frontend/pages/dashboard",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-dashboard-page-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-dashboard-page-followups-followups.json"
     },
     {
       "id": "frontend-test-90",
