@@ -3,7 +3,7 @@
   "title": "Follow-up: PositionsGlanceTable's price formatting silently gained thousands separators (PR #81)",
   "area": "frontend/pages/dashboard",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-dashboard-page-followups"],
   "references": [
     "docs/tasks/frontend-dashboard-page-followups.json#review",
@@ -32,5 +32,12 @@
     "pr_number": 82,
     "pr_url": "https://github.com/rainoko/fintrade/pull/82",
     "pushed_at": "2026-09-17T06:10:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T06:14:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/82",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #82. Diff is test-fixture + doc-comment only: adds a >=$1,000 price fixture (`highPricedPosition`, $1,234.50) and assertion to PositionsGlanceTable.test.tsx, and extends utils/format.ts's header comment to explicitly document the intentional formatting-output change for PositionsGlanceTable.tsx. No production component code changed (PositionsGlanceTable.tsx and formatCurrency/formatNullableCurrency themselves are untouched). Backend: 488 tests passed, 99.84% coverage (pytest --cov=app --cov-fail-under=90). Frontend: 192 tests passed across 35 files, 99.7%/99.6%/100%/99.7% stmt/branch/func/line coverage (vitest run --coverage), `npm run lint` clean, `npx tsc --noEmit` clean. code-review skill (medium effort) found zero issues, matching my own read of the diff. No new/changed components, so the common-vs-feature-specific placement check (step 7a) doesn't apply. No API route/schema touched, so no OpenAPI snapshot regeneration was required. Browser walkthrough: this PR has no UI-observable behavior change (the component file is untouched, only a test and a comment were added) and no Playwright browser tool was available in this session either way, so no live-browser walkthrough was performed beyond the jsdom-rendered assertion already covered by the new unit test — noting this explicitly per the review process rather than silently skipping it. Decisions entry is well-formed (documents both what was done and rejected alternatives, per CLAUDE.md's decision-memory standard). No blocking findings; no new non-blocking findings either, so no follow-up task was created for this PR."
   }
 }
