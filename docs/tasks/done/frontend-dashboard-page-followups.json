@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Dashboard page (PR #67)",
   "area": "frontend/pages/dashboard",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-dashboard-page"],
   "references": [
     "docs/tasks/done/frontend-dashboard-page.json",
@@ -54,5 +54,28 @@
     "pr_number": 81,
     "pr_url": "https://github.com/rainoko/fintrade/pull/81",
     "pushed_at": "2026-09-17T05:53:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T06:00:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/81",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed RiskBreachBanner (frontend/src/components/common/RiskBreachBanner/RiskBreachBanner.tsx) is genuinely domain-agnostic: its only prop is `message: ReactNode`, it has no knowledge of 'portfolio', '6% rule', or 'position' (that text lives entirely in the two callers), and it reuses theme.palette.riskBreach the same way the already-accepted common/RiskPercent does. components/common/ placement is correct, not a domain leak.",
+        "file": "frontend/src/components/common/RiskBreachBanner/RiskBreachBanner.tsx"
+      },
+      {
+        "summary": "Confirmed RiskPanel.tsx and RiskSummaryCard.tsx both now render RiskBreachBanner with only their own message text (no leftover inline markup/duplication). The 6%-breach scenario is covered end-to-end by existing MSW-mocked tests in both components' test files (role=alert, exact text, styling), all passing. No live-browser tool was available in this session to additionally drive the running app through Playwright; verification instead combined reading the final component code, the passing MSW-based tests, and a real backend+frontend smoke-start (curl against a live GET /api/portfolio/risk and the Vite dev server) confirming the stack boots and serves real data without errors. Noted as a process limitation, not a PR defect.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx"
+      },
+      {
+        "summary": "formatCurrency/formatNullableCurrency consolidation verified output-equivalent for DashboardPage.tsx (identical toLocaleString call, just moved to utils/format.ts) and PositionsTable.tsx (already wrapped the shared formatCurrency before this PR). PositionsGlanceTable.tsx is the one call site where output actually changes for 4+-digit prices: its old inline formatter (`$${value.toFixed(2)}`) had no thousands separator, while the new shared formatNullableCurrency (via formatCurrency's toLocaleString) adds one. This matches the already-established 'richer formatting is strictly better' precedent from PR #77 and is not a bug, but is untested (no >=$1,000 fixture in PositionsGlanceTable.test.tsx) and isn't explicitly called out as an output change in this PR's own decisions entry. Non-blocking; filed as frontend-dashboard-page-followups-followups.",
+        "file": "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx"
+      },
+      {
+        "summary": "Verified task-worker's self-correction: the task JSON's checklist (not the dispatch summary) correctly listed the RiskBreachBanner item as still open, and the PR genuinely completes all 3 items (RiskBreachBanner extraction, DashboardPage formatCurrency, PositionsGlanceTable/PositionsTable formatNullableCurrency) plus carries forward the already-done TickerSearchBox placement note. The decisions array records all three judgment calls with real rationale and rejected alternatives. Task JSON accurately reflects the PR's actual state."
+      }
+    ],
+    "notes": "Full review: npm run test:coverage (35 files/191 tests pass, 99.7%/99.6%/100%/99.7%, no regression vs. the 90% gate), npm run lint (clean), npm run build (tsc -b + vite build, succeeds), npm run build-storybook (succeeds, includes new RiskBreachBanner stories) all re-run and verified directly on the checked-out PR branch. code-review skill (medium effort) found no correctness or reuse/simplification issues. No API/schema touched, so the openapi.json check doesn't apply. No checklist item phrased as 'decide X' was left undecided. One non-blocking finding filed as docs/tasks/frontend-dashboard-page-followups-followups.json."
   }
 }
