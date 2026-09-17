@@ -3,7 +3,7 @@
   "title": "New skill: revalidate-done-tasks — periodic audit that done tasks are still actually done",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "CLAUDE.md#Task board (docs/tasks/)",
@@ -18,7 +18,9 @@
     { "step": "Create `.claude/skills/revalidate-done-tasks/SKILL.md` implementing the chosen approach, following existing skill file conventions.", "done": true },
     { "step": "Decide what the skill does with a task it finds no longer holds — most consistent with the project's existing rules is to flag it (revert `state` away from `done`, record a `decisions`/`questions` entry explaining why) rather than attempt an autonomous fix, matching the pipeline's existing philosophy of tracking findings on the board rather than an audit silently rewriting code — record as a `decisions` entry.", "done": true },
     { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": true },
-    { "step": "Run it once for real against the current (fully-done) board as a smoke test and report what it found (ideally nothing, confirming the board is currently accurate) before considering this done.", "done": true }
+    { "step": "Run it once for real against the current (fully-done) board as a smoke test and report what it found (ideally nothing, confirming the board is currently accurate) before considering this done.", "done": true },
+    { "step": "Fix the 'Handling a task that no longer holds' section (SKILL.md lines 36-45): it never says how to actually persist a flag given main's branch-protection ruleset rejects every direct push (CLAUDE.md). Every other task-board-writing agent in the project (task-worker: 'Never push directly to main', explicit branch/push/PR workflow) spells this out; this skill's steps 1-4 just git-mv and edit files with no commit/branch/PR mechanics, so following them literally on a main checkout leaves an unpersisted (or push-rejected) change. Add the missing branch/commit/push/PR steps, or otherwise state the intended persistence path explicitly.", "done": false },
+    { "step": "Fix step 1 (SKILL.md line 18) / the test-suite step (line 26-30): neither instructs verifying the working tree is on an up-to-date `main` before enumerating done tasks, spot-checking file/function references, or running the test+coverage suites that are reported as 'shared evidence'. Given CLAUDE.md notes the shared working tree can be left on an arbitrary PR branch after a prior agent run, running this skill without first confirming/fetching latest `main` risks the audit's conclusions (clean pass, or a specific flagged task) being computed against the wrong code. Add an explicit 'fetch and check out latest main first' step.", "done": false }
   ],
   "decisions": [
     {
@@ -45,5 +47,62 @@
     "pr_number": 92,
     "pr_url": "https://github.com/rainoko/fintrade/pull/92",
     "pushed_at": "2026-09-17T18:02:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T18:11:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/92",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: `.claude/skills/revalidate-done-tasks/SKILL.md`'s 'Handling a task that no longer holds' section (lines 36-45) git-mv's the task file and edits its JSON + index.json but never says how that change actually gets persisted, even though CLAUDE.md states main's branch-protection ruleset rejects every direct push, including a bookkeeping-only one. Every other task-board-writing agent (e.g. task-worker: 'Never push directly to main', with an explicit git fetch/branch/commit/push/PR workflow) spells this out explicitly; this skill's core 'flag it' step — its entire reason to exist, per its own description ('flags (never silently fixes)') — is not actually executable as written when run against main. Followed literally, it either leaves an uncommitted, easily-lost working-tree diff, or fails outright on push. Add the missing branch/commit/push/PR mechanics.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 40
+      },
+      {
+        "summary": "BLOCKING: neither step 1 (line 18, 'Enumerate every done task') nor the test-suite step (lines 26-30, run as 'shared evidence') instructs confirming the working tree is on an up-to-date `main` first. CLAUDE.md explicitly notes this shared working tree can be left on an arbitrary PR branch after a prior agent's run. Without an explicit fetch/checkout-latest-main step (which every other task-board agent, e.g. task-worker, states plainly), this skill's file/function existence checks and its test/coverage 'shared evidence' could be computed against a stale or unrelated branch — silently undermining the audit's whole purpose (either a false clean-pass on stale code, or missing a real regression that already landed on main).",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 18
+      },
+      {
+        "summary": "Non-blocking: the 'Handling a task that no longer holds' section doesn't instruct getting a real current timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ` before writing the `decisions`/`questions` entry a flag produces, unlike pr-reviewer's own instructions which explicitly call this out. Given this project's documented 'Orchestrator merge-ordering failure' memory note (a guessed/estimated timestamp breaking a downstream ordering check), this skill should carry the same explicit instruction. Tracked as docs/tasks/skill-revalidate-done-tasks-followups.json.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 42
+      },
+      {
+        "summary": "Non-blocking: the same section doesn't say what to do with a reopened task's pre-existing `review`/`pr_decision` fields, which still assert `verdict: \"accepted\"`/`\"merge\"` after the task is reverted to `implementing`/`waiting_input` — a future reader could be misled into thinking the task was re-confirmed accepted. Worth an explicit note. Tracked as docs/tasks/skill-revalidate-done-tasks-followups.json.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 42
+      },
+      {
+        "summary": "Non-blocking (code-review finding): the skill's own description invites 'periodic/scheduled' invocation, but neither the skill file nor CLAUDE.md's 'one agent at a time on the shared working tree' rule (which names task-worker/pr-reviewer/pr-decision/pr-merger explicitly) accounts for this skill potentially running while one of those is mid-flight on the same checkout — its git mv / index.json edits could intermix with an in-flight agent's uncommitted changes. Worth an explicit caveat in the skill (or an addition to CLAUDE.md's coordination rule once this skill is registered). Tracked as docs/tasks/skill-revalidate-done-tasks-followups.json.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 8
+      },
+      {
+        "summary": "Skill file is otherwise well-formed and matches existing conventions (architecture-review, check-coverage): frontmatter has name+description only (correct for a skill, not an agent), Steps/Output/Relationship-to-other-skills structure mirrors existing skills, and the description's trigger phrasing matches the project's style. Registered correctly in CLAUDE.md's Skills list.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 1
+      },
+      {
+        "summary": "The core audit mechanism (lightweight scripted spot-checks + one shared full test/coverage run, vs. a per-done-task task-qa-reviewer dispatch) is sound and its stated reasoning holds: a per-task dispatch would mean ~78 full subagent runs (each with its own pytest/coverage/vitest invocation, plus a Playwright walkthrough for UI-facing tasks) every time this skill runs, which is genuinely impractical for a periodic check. The chosen default mirrors the project's existing check-coverage-vs-test-90 and targeted-audit-vs-full-reverification patterns, as claimed. This part of the design is not in question — only the persistence/coordination gaps above.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 13
+      },
+      {
+        "summary": "Spot-checked the task-worker's claimed smoke-test run rather than trusting it at face value: reproduced the index.json state/path mirror check across all 81 tasks (0 mismatches, matches 'clean' claim); confirmed 78 done tasks exist under docs/tasks/done/ (matches the '~78' claim); independently scanned all done tasks' checklist+decisions text for backend/frontend source-path references (54 found, all resolve) and for docs/tasks/*.json path references (all 'misses' in my own broader scan were stale-but-valid literal paths to other tasks that have since moved into docs/tasks/done/, exactly the false-positive category described); directly confirmed the specific false positives claimed for the sampled tasks (get_analysis/analyse exist in backend/app/api/routers/stocks.py and backend/app/signals/engine.py; `_wave_showed_state` is genuinely absent from current code -- replaced by `_wave_lookback` in a later followups PR -- but only appears in decisions prose, never a checklist step, and the underlying evaluate_wave function it describes does still exist; Session.get_bind() is confirmed to be checklist prose about a real SQLAlchemy Session method used in a test file, not a claimed in-repo symbol). No unaddressed board regression found; the smoke-test's substantive conclusions hold even though the mechanism it validated has the persistence/staleness gaps noted above.",
+        "file": "docs/tasks/skill-revalidate-done-tasks.json",
+        "line": 39
+      },
+      {
+        "summary": "Re-ran both full suites myself on the checked-out PR branch and both match the task-worker's reported numbers exactly: backend `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` -- 493 passed, 99.84% coverage (gate 90%); frontend `vitest run --coverage` -- 35 test files / 205 tests passed, 99.71% lines / 99.64% branches. No regression, gate comfortably met on both sides. No application code is touched by this PR (diff is .claude/skills/revalidate-done-tasks/SKILL.md, CLAUDE.md, docs/tasks/index.json, docs/tasks/skill-revalidate-done-tasks.json only) so this was a sanity check, not evidence of a change under test. No backend lint/type-checker is configured (confirmed via grep of backend/pyproject.toml), and frontend `eslint .` / `tsc -b` both ran clean.",
+        "file": "backend/pyproject.toml"
+      },
+      {
+        "summary": "No API route/schema touched (backend/openapi.json correctly untouched); no frontend component added/changed (step 7a n/a); no new module/dependency/layer added to the application itself, so a formal architecture-review pass doesn't apply here -- the project-philosophy-consistency check this review specifically asked for (the 'flag via reverting state + decisions/questions, never auto-fix' behavior) was checked directly against CLAUDE.md and confirmed consistent, independent of the persistence/staleness gaps above. This PR has no UI-facing surface (pure skill/doc/task-board change) -- browser walkthrough explicitly not applicable, not silently skipped. Decisions cross-check: all three original checklist items phrased as a judgment call have corresponding decisions entries with rationale and rejected alternatives.",
+        "file": "CLAUDE.md",
+        "line": 105
+      }
+    ],
+    "notes": "PR #92 needs work: two blocking gaps in the new SKILL.md's own documented mechanism (added to this task's checklist above), surfaced by the code-review skill and independently confirmed against the actual file content. (1) The 'Handling a task that no longer holds' section never specifies how a flag actually gets persisted given main's branch-protection ruleset -- every other task-board-writing agent in this project spells out the branch/commit/push/PR workflow explicitly, and this skill's core promise ('flags, never silently fixes') isn't actually executable as documented without it. (2) Neither the enumeration step nor the test-suite step instructs confirming the checkout is on up-to-date main first, which risks the audit's own evidence being computed against stale/wrong code -- directly undermining the tool's purpose. Both are squarely within what this review was asked to sanity-check ('its documented mechanism is actually sound/executable'). Everything else checked out clean: backend (493 passed, 99.84% coverage) and frontend (205 passed, 99.71% lines) suites both re-run clean on the checked-out branch, exactly matching the PR's claimed numbers (no application code is touched by this PR, so this was a sanity check rather than evidence of a change under test); no lint/type-check regression; the chosen lightweight-pass-vs-per-task-dispatch mechanism design itself is sound and its stated reasoning holds; the task-worker's claimed 78-task smoke test was independently spot-checked (index.json mirror, file/function reference scan, both full suite runs) and its substantive conclusions hold; the 'flag, never auto-fix' philosophy is consistent with the project's existing read-only-audit-agent pattern; no undocumented decisions; no UI surface, no API/schema change, no OpenAPI staleness. Three further non-blocking gaps (missing timestamp-capture instruction, no guidance on stale review/pr_decision fields on a reopened task, no shared-working-tree coordination caveat given the skill's own 'periodic/scheduled' framing) filed as docs/tasks/skill-revalidate-done-tasks-followups.json rather than blocking on their own. No pr_decision existed on this task prior to this review, so nothing to clear."
   }
 }

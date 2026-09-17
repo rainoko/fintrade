@@ -1,0 +1,28 @@
+{
+  "id": "skill-revalidate-done-tasks-followups",
+  "title": "Skill: revalidate-done-tasks — non-blocking review follow-ups",
+  "area": "tooling",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["skill-revalidate-done-tasks"],
+  "references": [
+    "docs/tasks/skill-revalidate-done-tasks.json#review",
+    "https://github.com/rainoko/fintrade/pull/92",
+    ".claude/skills/revalidate-done-tasks/SKILL.md"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #92 (skill-revalidate-done-tasks), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`.claude/skills/revalidate-done-tasks/SKILL.md`'s 'Handling a task that no longer holds' section (steps 1-4) doesn't instruct getting a real current timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ` before writing the `decisions`/`questions` entry it appends when reopening a task — unlike `pr-reviewer`'s own instructions, which explicitly call this out. This project has a documented failure mode (MEMORY.md's 'Orchestrator merge-ordering failure' note) where a guessed/estimated timestamp breaks downstream ordering checks (e.g. `pr_decision.confirmed_at` vs `review.reviewed_at`). Add the same explicit 'always get the real current time via `date -u`, never estimate' instruction to this skill's flagging steps.",
+      "done": false
+    },
+    {
+      "step": "`.claude/skills/revalidate-done-tasks/SKILL.md`'s 'Handling a task that no longer holds' section doesn't address what to do with a reopened task's existing `review`/`pr_decision` fields (which still say `verdict: \"accepted\"` / `verdict: \"merge\"` after the task is reverted to `implementing`/`waiting_input`). Leaving them as-is could mislead a future reader/agent into thinking the task was genuinely re-confirmed as accepted after being reopened. Clarify the intended handling (e.g. explicitly note in the skill that these are left as a historical record of the prior review cycle, to be naturally superseded once the task goes through `pr-reviewer`/`pr-decision` again — or have the skill annotate them) so it isn't ambiguous.",
+      "done": false
+    },
+    {
+      "step": "`.claude/skills/revalidate-done-tasks/SKILL.md` invites 'periodic/scheduled' invocation (per its own description) but neither the skill file nor CLAUDE.md's 'one agent at a time on the shared working tree' coordination rule (which currently names task-worker/pr-reviewer/pr-decision/pr-merger explicitly) accounts for this skill running while one of those is mid-flight on the same checkout — its git mv / index.json edits could intermix with an in-flight agent's uncommitted changes. Add an explicit caveat to the skill (and/or extend CLAUDE.md's coordination rule to include this skill) once the blocking persistence/staleness fixes from the parent task's own checklist land.",
+      "done": false
+    }
+  ]
+}
