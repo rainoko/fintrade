@@ -3,7 +3,7 @@
   "title": "Frontend API client — non-blocking review follow-ups",
   "area": "frontend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-api-client"],
   "references": [
     "docs/tasks/frontend-api-client.json#review",
@@ -13,15 +13,35 @@
   "checklist": [
     {
       "step": "tests/mocks/handlers.ts's POST /api/portfolio/positions OVERFLOW-sentinel check compares `body.ticker.toUpperCase() === 'OVERFLOW'` without trimming, unlike the merge path two lines later (`body.ticker.trim().toUpperCase()`) and unlike PositionIn's own documented whitespace-stripping normalization. A whitespace-padded ' OVERFLOW ' ticker silently skips the intended 422 merge-overflow response and creates a real position instead. Trim before comparing.",
-      "done": false
+      "done": true
     },
     {
       "step": "tests/mocks/handlers.ts's per-field validation-error branch (quantity/avg_cost_basis <= 0) only ever reports one invalid field, even when both are simultaneously invalid, unlike real FastAPI/pydantic which lists every failing field in one HTTPValidationError. Report all failing fields so a test exercising the multi-field case doesn't pass against the mock while diverging from the real backend's response shape.",
-      "done": false
+      "done": true
     },
     {
       "step": "`vitest run --coverage`'s text reporter prints an empty per-file table (no rows, no 'All files' summary row) even though the underlying v8/lcov data and the 90% threshold gate both work correctly (verified against coverage/lcov.info directly). This predates frontend-api-client (vite.config.ts's coverage config is from frontend-scaffold) but makes the console output impossible to sanity-check by eye when investigating a future coverage regression. Investigate the vitest/coverage-v8 reporter config (e.g. an interaction between the `include` glob and the `text` reporter) and fix so the per-file table actually renders.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the OVERFLOW-sentinel check by trimming before comparing (`body.ticker.trim().toUpperCase() === 'OVERFLOW'`), matching the merge path two lines later. Added a regression test (portfolio.test.ts) that POSTs a whitespace-padded ' overflow ' ticker and asserts it still surfaces the 422 merge-overflow ApiError rather than silently creating a position.",
+      "rationale": "Directly matches the checklist's specified fix; a same-shape sibling check two lines below already does this correctly, so this is the mock's only inconsistency, not a design choice."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Rewrote the per-field validation-error branch to push one HTTPValidationError entry per failing field (quantity and/or avg_cost_basis) into a shared `detail` array, instead of a single ternary picking one field name. Added a regression test asserting the joined multi-field message (client.ts's extractDetail joins every entry's `msg` with '; ') when both fields are simultaneously invalid.",
+      "rationale": "Matches real FastAPI/pydantic's behavior of reporting every failing field in one HTTPValidationError list, which is what the checklist item and PR #63's review comment called for. Rejected leaving it as a single representative error, which the review explicitly flagged as a real mock/backend response-shape divergence a multi-field test could pass against while being wrong."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Root-caused the empty text-reporter table to Vitest's std-env `isAgent` detection (true whenever the harness running the command is an AI coding agent, e.g. this dev container under Claude Code): when true, Vitest silently merges `skipFull: true` into the `text` reporter's options unless the reporter config already specifies `skipFull` explicitly, which hides every 100%-covered file/directory row — including the root 'All files' summary row once the whole suite reaches 100%, leaving a table with only a header, a separator, and a footer. Fixed by changing vite.config.ts's `coverage.reporter` entry for 'text' from the bare string to `['text', { skipFull: false }]`, which overrides that default regardless of who invokes the command. Verified by reproducing the empty table (temporarily excluding the one sub-100%-covered file to force whole-suite 100%, matching the state PR #63 was reviewed in) both before and after the fix.",
+      "rationale": "This was the least obvious of the three findings, since the underlying coverage data was already correct (per the task's own note) and the config looked unremarkable — the failure only reproduces when (a) the invoking process is agent-detected AND (b) the suite happens to be at or near 100% coverage everywhere, which is exactly the state frontend-api-client's mostly-data-layer PR was in when pr-reviewer (itself an agent) first noticed it. Explicitly setting `skipFull: false` is preferred over pinning std-env's agent detection off (there's no supported way to do that from vite.config.ts) or adding a `text-summary` reporter (which Vitest already auto-adds for agents but doesn't solve the by-eye per-file table use case the finding was about)."
     }
   ]
 }

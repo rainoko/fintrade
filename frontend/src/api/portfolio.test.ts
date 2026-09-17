@@ -71,6 +71,23 @@ describe('api/portfolio', () => {
     ).rejects.toMatchObject({ status: 422 })
   })
 
+  it('addPosition reports every invalid field when quantity and avg_cost_basis are both non-positive', async () => {
+    const error = await addPosition({
+      ticker: 'AAPL',
+      quantity: 0,
+      avg_cost_basis: -5,
+      entry_date: '2026-01-01',
+    }).catch((caught: unknown) => caught)
+
+    // client.ts's extractDetail joins every HTTPValidationError entry's msg
+    // with '; ' — asserting on the join count (not just "422") is what
+    // catches a mock that only ever reports one of the two invalid fields.
+    expect(error).toMatchObject({
+      status: 422,
+      detail: 'Input should be greater than 0; Input should be greater than 0',
+    })
+  })
+
   it('addPosition surfaces a merge-overflow 422 ApiError (single ErrorDetail shape)', async () => {
     const error = await addPosition({
       ticker: 'OVERFLOW',
@@ -83,6 +100,28 @@ describe('api/portfolio', () => {
       status: 422,
       detail: expect.stringContaining('too large'),
     })
+  })
+
+  it('addPosition treats a whitespace-padded OVERFLOW ticker as the merge-overflow sentinel too', async () => {
+    // Guards the mock's `body.ticker.trim().toUpperCase() === 'OVERFLOW'`
+    // check: without trimming, a padded ticker would silently create a real
+    // position instead of surfacing the intended 422.
+    const error = await addPosition({
+      ticker: '  overflow ',
+      quantity: 1,
+      avg_cost_basis: 1,
+      entry_date: '2026-01-01',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({
+      status: 422,
+      detail: expect.stringContaining('too large'),
+    })
+
+    const portfolio = await getPortfolio()
+    expect(portfolio.positions.map((position) => position.ticker)).not.toContain(
+      'OVERFLOW',
+    )
   })
 
   it('deletePosition removes an existing position', async () => {

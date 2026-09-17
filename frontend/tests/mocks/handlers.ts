@@ -187,21 +187,25 @@ export const handlers: HttpHandler[] = [
     const body = (await request.json()) as PositionIn
 
     if (body.quantity <= 0 || body.avg_cost_basis <= 0) {
-      return HttpResponse.json(
-        {
-          detail: [
-            {
-              loc: ['body', body.quantity <= 0 ? 'quantity' : 'avg_cost_basis'],
-              msg: 'Input should be greater than 0',
-              type: 'greater_than',
-            },
-          ],
-        },
-        { status: 422 },
-      )
+      const detail = []
+      if (body.quantity <= 0) {
+        detail.push({
+          loc: ['body', 'quantity'],
+          msg: 'Input should be greater than 0',
+          type: 'greater_than',
+        })
+      }
+      if (body.avg_cost_basis <= 0) {
+        detail.push({
+          loc: ['body', 'avg_cost_basis'],
+          msg: 'Input should be greater than 0',
+          type: 'greater_than',
+        })
+      }
+      return HttpResponse.json({ detail }, { status: 422 })
     }
 
-    if (body.ticker.toUpperCase() === 'OVERFLOW') {
+    if (body.ticker.trim().toUpperCase() === 'OVERFLOW') {
       return HttpResponse.json(
         { detail: 'Merging this position would produce a value too large to represent.' },
         { status: 422 },
