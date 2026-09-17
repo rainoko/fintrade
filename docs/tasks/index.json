@@ -453,7 +453,7 @@
       "id": "frontend-stock-history-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-stock-history-chart.json"
     },
     {

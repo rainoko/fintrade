@@ -3,7 +3,7 @@
   "title": "Frontend: stock price history chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "frontend-stock-analysis-page"
   ],
@@ -65,5 +65,23 @@
     "pr_number": 69,
     "pr_url": "https://github.com/rainoko/fintrade/pull/69",
     "pushed_at": "2026-09-17T00:20:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T01:11:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/69",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: a bar with non-finite OHLC values crashes the whole page, not just the chart. PriceChart.tsx's useEffect passes every bar straight into `series.setData()` (lines 89-97) with no check for non-finite values. Verified live against a real backend on real yfinance/Stooq data with a real Vite dev server + Playwright/Chromium (not the mocked unit tests): GET /api/stocks/{ticker}/history returns today's still-forming daily bar with open/high/low/close: null whenever the query window reaches a not-yet-closed trading day (confirmed directly: {\"date\":\"2026-09-16\",\"open\":null,...} for AAPL) -- yfinance's normal behavior for an in-progress session (NaN OHLC, real volume), serialized to JSON null by Pydantic's default ser_json_inf_nan='null' even though OHLCVBar's fields are typed as required non-nullable float in app/api/schemas.py/openapi.json. Since the default range/interval (1Y/Daily) always includes the most recent bar, this reproduces on every ticker, every day the market is open, with zero user interaction beyond visiting the page -- reproduced identically for both AAPL and MSFT. The crash (`Assertion failed: Candlestick series item data value of open must be a number, got=object, value=null`) bubbles past PriceChart's own boundary up to AppErrorBoundary, wiping out the entire Stock Detail page (nav included). This slipped past the unit suite because PriceChart.test.tsx mocks the entire lightweight-charts module (per this task's own decisions entry), so the mocked setData never validates its input the way the real library does, and every test fixture uses well-formed numeric bars -- exactly the gap the review brief flagged a real browser walkthrough as necessary to catch. Suggested fix direction: filter out bars with any non-finite OHLC value before calling setData() (e.g. bars.filter((b) => [b.open, b.high, b.low, b.close].every(Number.isFinite))), with a decisions entry recording the chosen behavior, and a regression test that exercises a null/NaN-valued bar directly (not just well-formed fixtures). Also worth a decision on the backend-side contract mismatch (OHLCVBar promises non-nullable floats but the live endpoint already violates that) -- not blocking this PR, since a defensive frontend fix is needed regardless of what the backend does, but worth separate attention.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 89
+      },
+      {
+        "summary": "Non-blocking, incidental (not part of this PR's diff): a pre-existing React DOM-nesting warning in ScreensPanel.tsx (Impulse LabeledValue renders a Chip <div> inside a Typography variant=\"body2\" <p>). Tracked on frontend-stock-analysis-page-followups instead, since that's the task/PR that owns ScreensPanel.tsx.",
+        "file": "frontend/src/features/stocks/components/ScreensPanel.tsx",
+        "line": 0
+      }
+    ],
+    "notes": "npm run test:coverage: 165/165 pass, 99.71%/99.2%/100%/99.7% stmts/branch/func/lines, no regression, gate met. npm run lint: clean. npm run build: clean. npm run build-storybook: succeeds, correctly no new stories (feature components don't get them per Frontend.md). Backend suite re-run for due diligence though untouched by this PR: 472 passed, 99.84% coverage. code-review skill (medium effort): no correctness/reuse findings. Confirmed (a) raw-OHLCV-only rendering (setData only reads date/open/high/low/close, no indicator field) and (b) range/interval-to-query-param mapping (1M->range=1m, 3M->range=3m, Max->range=max, Weekly->interval=weekly) by tracing the code and re-running the app against a real backend; (c) both 422 cases and the 404 case are exercised distinctly via common/ErrorState in PriceChart.test.tsx. area is frontend/pages/stocks (not backend/signals or backend/portfolio) so verify-elder-signal doesn't apply; no new module/dependency/layer added (lightweight-charts was already a dependency before this PR) so architecture-review doesn't apply; PriceChart is correctly placed under features/stocks/components/ (references ticker/OHLCV bars, a domain concept) rather than components/common/. No API/schema change in this PR so the openapi.json staleness check doesn't apply. All checklist items are concrete build-X steps, not 'decide X' items needing a decisions entry beyond what's already recorded. Browser walkthrough performed (essential here per the review brief, since PriceChart.test.tsx mocks lightweight-charts entirely) using a real uvicorn backend (real yfinance/Stooq data) and a real Vite dev server, driven with Playwright/Chromium (--disable-web-security to route around the app's CORS-free dev setup without editing any repo file, same no-source-edit approach used by the frontend-dashboard-page review) -- surfaced the blocking crash above. Posted as a `gh pr review --comment` on PR #69. Verdict: needs_work, task state set back to implementing."
   }
 }
