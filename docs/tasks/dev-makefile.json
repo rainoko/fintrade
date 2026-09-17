@@ -3,7 +3,7 @@
   "title": "Root Makefile to run backend and frontend dev servers",
   "area": "infra",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "README.md",
@@ -44,7 +44,7 @@
     "branch": "task/dev-makefile",
     "pr_number": 96,
     "pr_url": "https://github.com/rainoko/fintrade/pull/96",
-    "pushed_at": "2026-09-17T20:30:00Z"
+    "pushed_at": "2026-09-17T20:33:13Z"
   },
   "review": {
     "reviewed_at": "2026-09-17T20:47:00Z",
