@@ -245,10 +245,19 @@ def get_risk(
     `e.daily_ohlcv` is passed through `app.signals.engine.drop_malformed_daily_bars` before
     `protective_stop`/`evaluate_exit_flags` ever see it — mirroring GET
     /api/stocks/{ticker}/analysis's identical filtering — so a malformed bar anywhere in a
-    position's history (not just the very latest one `app.portfolio.pricing._latest_close`
-    already excludes a position outright for) can't silently suppress an exit flag via a NaN
-    comparison quietly evaluating False. See the api-stocks-analysis-nullable-indicators-
-    followups task's `decisions` entry."""
+    position's history can't silently suppress an exit flag via a NaN comparison quietly
+    evaluating False. Called here with `require_full_ohlc_on_latest_bar=False`, unlike GET
+    /api/stocks/{ticker}/analysis's default-`True` call: the *latest* bar is dropped only if
+    its own `close` is NaN, matching `app.portfolio.pricing._latest_close`'s own close-only
+    validity rule for that exact bar (which is what `position.current_price` was derived
+    from), rather than also requiring open/high/low there — a shape `_latest_close` doesn't
+    guard against, and one this pipeline's own downstream reads (`evaluate_exit_flags` and
+    everything it calls) never touch for the latest bar anyway. Using the stricter default here
+    would silently drop a real latest bar whose close is valid but whose open/high/low haven't
+    settled yet, desyncing `position.current_price` from `daily_ohlcv`'s last row and making
+    `evaluate_exit_flags` test yesterday's close against today's stop instead of today's — see
+    the api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
+    reasoning and the regression this reconciles."""
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
@@ -279,7 +288,7 @@ def get_risk(
     for e in enriched:
         if e.position.current_price is None or e.daily_ohlcv is None:
             continue
-        daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)
+        daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv, require_full_ohlc_on_latest_bar=False)
         if len(daily_ohlcv) < 2:
             continue
         try:

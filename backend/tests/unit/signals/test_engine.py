@@ -120,6 +120,71 @@ class TestDropMalformedDailyBars:
         assert "low" not in result.columns
 
 
+class TestDropMalformedDailyBarsRequireFullOhlcOnLatestBarFalse:
+    """`require_full_ohlc_on_latest_bar=False` -- app.api.routers.portfolio.get_risk's own
+    argument, reconciling this function's default with app.portfolio.pricing._latest_close's
+    close-only validity rule for the latest bar. See the
+    api-stocks-analysis-nullable-indicators-followups task's `decisions` entry (and
+    tests/integration/test_portfolio_risk.py's
+    test_malformed_open_high_low_on_latest_bar_does_not_suppress_stop_hit for the end-to-end
+    regression this exists to fix)."""
+
+    def test_latest_bar_with_real_close_but_nan_ohl_is_kept(self) -> None:
+        daily_ohlcv = _daily_ohlcv(5)
+        daily_ohlcv.loc[daily_ohlcv.index[-1], ["open", "high", "low"]] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        assert len(result) == 5
+        assert result.iloc[-1]["close"] == daily_ohlcv.iloc[-1]["close"]
+        assert pd.isna(result.iloc[-1]["open"])
+
+    def test_latest_bar_with_nan_close_is_still_dropped(self) -> None:
+        daily_ohlcv = _daily_ohlcv(5)
+        daily_ohlcv.loc[daily_ohlcv.index[-1], ["open", "high", "low", "close"]] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        assert len(result) == 4
+        assert not result.isna().any().any()
+
+    def test_earlier_malformed_bar_still_dropped(self) -> None:
+        """A malformed bar earlier in history still needs full OHLC validity even with
+        `require_full_ohlc_on_latest_bar=False` -- only the *latest* bar's rule relaxes."""
+        daily_ohlcv = _daily_ohlcv(5)
+        daily_ohlcv.loc[daily_ohlcv.index[1], ["open", "high"]] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        assert len(result) == 4
+        assert not result.isna().any().any()
+
+    def test_clean_frame_passes_through_unchanged(self) -> None:
+        daily_ohlcv = _daily_ohlcv(5)
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        pd.testing.assert_frame_equal(result, daily_ohlcv)
+
+    def test_empty_frame_passes_through_unchanged(self) -> None:
+        daily_ohlcv = _daily_ohlcv(0)
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        assert len(result) == 0
+
+    def test_missing_close_column_does_not_raise_and_keeps_latest_bar(self) -> None:
+        """A frame missing `close` entirely is left for the caller's own column-presence
+        check to raise for, same as the require_full_ohlc_on_latest_bar=True case -- the
+        latest bar's `pd.isna(latest["close"])` guard here must not raise a bare KeyError."""
+        daily_ohlcv = _daily_ohlcv(5).drop(columns=["close"])
+
+        result = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
+        assert len(result) == 5
+        assert "close" not in result.columns
+
+
 class TestDetermineSignal:
     """Isolates the pure BUY/SELL/HOLD combination table from every Screen/gate function."""
 

@@ -41,7 +41,9 @@ class SignalResult:
     indicators: dict = field(default_factory=dict)
 
 
-def drop_malformed_daily_bars(daily_ohlcv: pd.DataFrame) -> pd.DataFrame:
+def drop_malformed_daily_bars(
+    daily_ohlcv: pd.DataFrame, *, require_full_ohlc_on_latest_bar: bool = True
+) -> pd.DataFrame:
     """Drop any daily bar whose open/high/low/close aren't all real numbers.
 
     A real, observed yfinance condition: the most recent daily bar can come back with NaN
@@ -76,10 +78,34 @@ def drop_malformed_daily_bars(daily_ohlcv: pd.DataFrame) -> pd.DataFrame:
     api-stocks-analysis-nullable-indicators-followups task's `decisions` entry (found via
     GET /api/portfolio/risk's malformed-daily-frame test fixtures, which simulate a
     missing-column frame to exercise exactly that downstream check).
+
+    ``require_full_ohlc_on_latest_bar`` (default ``True``, this function's original behavior,
+    still what ``app.signals.engine.analyse``/``app.api.routers.stocks.get_analysis`` use):
+    when ``False``, the *latest* bar is dropped only if its own ``close`` is NaN (or missing --
+    left for the caller's own column check, same as above); every earlier bar still needs full
+    OHLC validity exactly as when this parameter is ``True``. Pass ``False`` only from a caller
+    whose downstream computation never reads the latest bar's own open/high/low at all --
+    currently just ``app.api.routers.portfolio.get_risk``'s exit-flag pipeline (``app.portfolio
+    .exits.evaluate_exit_flags`` and everything it calls -- ``protective_stop``, ``autoenvelope``,
+    ``evaluate_impulse`` -- read the latest bar's ``close`` only; the *older* bars' ``low`` still
+    feeds ``protective_stop``'s swing-low window, which is why they still need full validity).
+    Using the default (``True``) there would silently desync ``position.current_price``
+    (``app.portfolio.pricing._latest_close``, which only ever checks the latest bar's ``close``
+    for NaN) from ``daily_ohlcv``'s own last row once filtered -- a real stop-hit could then be
+    missed by testing a stale prior close instead of today's -- see the
+    api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
+    reasoning and the regression this reconciles.
     """
     required_columns = ["open", "high", "low", "close"]
     present_columns = [column for column in required_columns if column in daily_ohlcv.columns]
-    return daily_ohlcv.dropna(subset=present_columns)
+    if require_full_ohlc_on_latest_bar or daily_ohlcv.empty:
+        return daily_ohlcv.dropna(subset=present_columns)
+
+    history, latest = daily_ohlcv.iloc[:-1], daily_ohlcv.iloc[[-1]]
+    history = history.dropna(subset=present_columns)
+    if "close" in latest.columns and pd.isna(latest.iloc[0]["close"]):
+        latest = latest.iloc[0:0]
+    return pd.concat([history, latest])
 
 
 def _latest(series: pd.Series) -> float:

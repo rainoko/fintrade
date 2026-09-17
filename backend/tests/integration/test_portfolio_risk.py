@@ -531,3 +531,36 @@ class TestGetRisk:
         assert response.status_code == 200
         [position] = response.json()["positions"]
         assert "stop_hit" in position["exit_flags"]
+
+    def test_malformed_open_high_low_on_latest_bar_does_not_suppress_stop_hit(
+        self, db_session: Session
+    ) -> None:
+        """Same stop-hit setup as `test_stop_hit_flag_surfaces_in_exit_flags`, except today's
+        bar has a real `close` (80.0, still below the ~98 stop) but NaN `open`/`high`/`low` --
+        the "not yet settled" yfinance shape `app.portfolio.pricing._latest_close` already
+        tolerates for `position.current_price` (it only checks `close`). Before this test's
+        fix, `drop_malformed_daily_bars` required full OHLC on *every* bar including the
+        latest, so this bar was dropped entirely -- `evaluate_exit_flags` then read
+        yesterday's close (100.0, above the stop) instead of today's, silently losing the
+        stop_hit flag despite `position.current_price` (from `_latest_close`) correctly
+        reflecting today's real 80.0 close. Reverting the `require_full_ohlc_on_latest_bar`
+        fix (or the router's `False` argument) reproduces exactly that: `exit_flags == []`
+        instead of `['stop_hit']`."""
+        closes = [100.0] * 10 + [80.0]
+        lows = [99.0] * 10 + [78.0]
+        db_session.add(AccountORM(id=1, cash=1_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(closes, lows)
+        daily.loc[daily.index[-1], ["open", "high", "low"]] = float("nan")
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert "stop_hit" in position["exit_flags"]
