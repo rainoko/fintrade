@@ -18,7 +18,7 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://127.0.0.1:8000
+backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://localhost:8000 (bound to 0.0.0.0 so the dev container's forwarded port reaches it)
 	@if [ ! -x backend/.venv/bin/uvicorn ]; then \
 		echo "error: backend/.venv not found (or missing uvicorn)."; \
 		echo "  Inside the dev container it's created automatically by .devcontainer/post-create.sh."; \
@@ -26,10 +26,10 @@ backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://127
 		echo "    cd backend && python3 -m venv .venv && .venv/bin/pip install -e \".[dev]\""; \
 		exit 1; \
 	fi
-	cd backend && .venv/bin/uvicorn app.main:app --reload
+	cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0
 
-frontend: ## Run the frontend dev server (Vite) on http://127.0.0.1:5173
-	cd frontend && npm run dev
+frontend: ## Run the frontend dev server (Vite) on http://localhost:5173 (bound to 0.0.0.0 so the dev container's forwarded port reaches it)
+	cd frontend && npm run dev -- --host 0.0.0.0
 
 dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, including uvicorn's reloader and vite's node process
 	@# Known limitation: a bare SIGINT sent to only this recipe's top-level `make dev`
