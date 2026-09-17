@@ -44,5 +44,11 @@
       "decision": "Moved AppErrorBoundary from components/layout/ to components/common/AppErrorBoundary/ (colocated .tsx + .test.tsx, unchanged, plus a new .stories.tsx with a 'renders children' story and a 'deliberately throws to exercise the fallback' story), and updated main.tsx's import accordingly.",
       "rationale": "Re-examined the two original candidate placements now that frontend-common-components has landed and established common/'s actual conventions (colocated test+story per component, one folder per component, no barrel yet). AppErrorBoundary passes Frontend.md §3's common/ test cleanly: it is fully domain-agnostic (no position/ticker/signal knowledge) and its behavior — catch a render-time throw in its subtree, show a fallback, offer a reset — is a generic pattern that could just as validly wrap a single feature subtree in the future as it currently wraps the whole app; single-instantiation-today was the prior task's stated rationale for layout/, and pr-reviewer's own review of PR #62 already flagged that reasoning as conflating current call-site count with actual reusability, which this task exists to resolve. The remaining candidate reason to keep it in layout/ (Frontend.md §3 lists AppShell.tsx/NavDrawer.tsx there) doesn't extend to AppErrorBoundary: that list isn't stated as closed, but more importantly layout/'s own definition in Frontend.md §3 is 'app shell, not reusable outside this app' — AppErrorBoundary is exactly not that, since nothing about it is app-shell- or routing-specific the way AppShell/NavDrawer's chrome and nav-item list are. Writing the 'deliberately throws' story turned out to be straightforward (a component whose render body just throws, passed as `children`), which was the concrete precedent this task was waiting on frontend-common-components to establish. Rejected alternative: leave it in layout/ on the grounds that it's still only instantiated once today — rejected for the reason above (that's an instantiation-count argument, not a reusability one, and is the exact reasoning PR #62's review called out as weak)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-app-shell-navigation-followups",
+    "pr_number": 83,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/83",
+    "pushed_at": "2026-09-17T06:35:00Z"
+  }
 }
