@@ -1,0 +1,49 @@
+{
+  "id": "frontend-scaffold-followups-followups",
+  "title": "Frontend scaffold follow-ups — further non-blocking review follow-ups (PR #79)",
+  "area": "frontend/scaffold",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-scaffold-followups"],
+  "references": [
+    "docs/tasks/frontend-scaffold-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/79"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #79 (frontend-scaffold-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": ".storybook/preview.tsx wires every story to the app's real MUI theme (src/theme/theme.ts, which lists Inter first in typography.fontFamily) but never imports @fontsource/inter itself — only src/main.tsx does. Confirmed live in a browser (Storybook's common-percentchange--positive story, iframe.html): document.fonts registers only Storybook's own 'Nunito Sans' faces, zero Inter faces, so every component viewed in Storybook (the project's documented catalog for components/common/, per docs/architecture/Frontend.md §4) still silently falls back to a system font instead of Inter — the exact bug PR #61/#79's task set out to fix, just not closed for this consumption surface. Import the same @fontsource/inter weight CSS files (or a shared entry both main.tsx and preview.tsx import) in .storybook/preview.tsx so Storybook's rendering matches the real app.",
+      "done": true
+    },
+    {
+      "step": "docs/architecture/Frontend.md §6's Key Dependencies table doesn't list the @fontsource/inter dependency added to frontend/package.json in PR #79, leaving the table silently missing an entry for a real runtime dependency. Add a row, e.g. `@fontsource/inter | Self-hosted Inter font files, loaded once in main.tsx so the theme's declared font family actually renders`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Duplicated the five @fontsource/inter weight imports (300/400/500/600/700) directly in .storybook/preview.tsx rather than factoring a shared entry module imported by both main.tsx and preview.tsx.",
+      "rationale": "The checklist item itself offers a shared-entry module as a parenthetical alternative ('or a shared entry both main.tsx and preview.tsx import'). A shared module would need to live somewhere both the Vite app build and the Storybook build resolve identically (e.g. src/fonts.ts), which is a small structural addition for two five-line import blocks with an already-explanatory comment in each. Duplicating the same five CSS imports (with a comment pointing at main.tsx as the source of truth for the weight rationale) keeps the fix minimal and consistent with how main.tsx already documents its own weight choice, and avoids introducing a new shared module that touches both the app entry point and the Storybook config for a one-time font registration. Verified the fix with `npm run build-storybook` and confirmed all five Inter weights (300/400/500/600/700, per-subset) are present in storybook-static/assets/*.css, and that document.fonts would now include Inter faces alongside Storybook's own Nunito Sans."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-scaffold-followups-followups",
+    "pr_number": 80,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/80",
+    "pushed_at": "2026-09-17T05:34:54Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T05:39:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/80",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: checked out PR #80, ran frontend test:coverage (34 files/186 tests passed, 99.71% stmts/99.61% branch/100% funcs/99.7% lines), backend pytest --cov (488 passed, 99.84%, run for completeness though this PR doesn't touch backend), npm run lint (clean), npm run build (succeeds, pre-existing >500kB chunk warning unrelated), npm run build-storybook (succeeds). code-review skill (medium effort) against diff 9fb7e65..d775f08 found no issues. Verified item (a) via built assets rather than a live browser (Playwright tooling unavailable this pass): storybook-static/assets/iframe-*.css (the stylesheet iframe.html itself links) contains 35 @font-face rules for Inter (5 weights x 7 subsets) plus font-family:Inter declarations applied to elements -- identical count (35/35) to frontend/dist/assets/index-*.css from the real app build, confirming Storybook's font setup now matches production exactly. Verified item (b): the new @fontsource/inter row in Frontend.md Sec.6 is accurate and consistent with the existing table's format/placement. No new module/dependency/layer introduced (the dependency itself was added in the parent PR #79), so architecture-review not triggered; no API/schema change, so no OpenAPI snapshot concern; no unresolved 'decide X' checklist items. No non-blocking findings this round, so no new followups task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T05:42:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend test:coverage (34 files/186 tests, 99.71%/99.61%/100%/99.7%), lint (clean), build, and build-storybook -- all matched pr-reviewer's numbers exactly. Re-ran backend pytest --cov (488 passed, 99.84%), also matching. Skimmed the full diff (Frontend.md, .storybook/preview.tsx, task JSON move to done/, index.json mirror) -- weights in preview.tsx (300/400/500/600/700) match main.tsx exactly. Independently verified the Inter font-loading fix from built assets: counted @font-face{...font-family:Inter...} blocks directly (not just occurrences of the string) in storybook-static/assets/iframe-*.css vs frontend/dist/assets/index-*.css -- 35/35 in both, confirming Storybook now loads the same Inter faces as the real app build."
+  }
+}

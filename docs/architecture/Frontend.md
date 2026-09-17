@@ -131,6 +131,7 @@ Practical effect: `PriceChart.tsx` renders a candlestick chart of `/history`'s O
 | `msw` (Mock Service Worker) | Mocks the backend API in tests, so no test ever hits a real network call |
 | `storybook` (+ `@storybook/react-vite`, a11y/interactions addons) | Catalogs and tests `components/common/` in isolation |
 | `openapi-typescript` (dev dependency, generator only) | Generates `api/types.ts` from `backend/openapi.json` |
+| `@fontsource/inter` | Self-hosted Inter font files, loaded once in `main.tsx` (and again in `.storybook/preview.tsx`) so the theme's declared font family actually renders |
 
 Explicitly **not** used: Redux, Redux Toolkit, MobX, Zustand, Recoil, Jotai, or any other client-state library (see §2).
 
