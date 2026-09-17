@@ -27,5 +27,11 @@
       "decision": "Actually load Inter via @fontsource/inter (self-hosted, no external Google Fonts request) rather than dropping it from the font stack. Imported the 300/400/500/700 weight CSS files once in src/main.tsx (the app's single bootstrap entry point) — the four weights MUI's default Typography variants (fontWeightLight/Regular/Medium/Bold) actually render, so no unused weight files bloat the bundle.",
       "rationale": "The theme was clearly authored with Inter as the intended primary typeface (listed first, with a full system-font fallback stack behind it), so dropping it silently changes the app's visual design as a side effect of a follow-up task, which is out of scope here. @fontsource/inter self-hosts the font (no third-party network request at runtime, consistent with the project's no-live-network-call testing stance and avoiding a render-blocking cross-origin request to Google Fonts). An index.html <link> to Google Fonts was considered and rejected: it would add an external dependency load and a FOUC-prone extra round trip that a bundled @fontsource import avoids entirely."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-scaffold-followups",
+    "pr_number": 79,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/79",
+    "pushed_at": "2026-09-17T05:01:06Z"
+  }
 }
