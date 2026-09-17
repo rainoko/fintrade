@@ -46,5 +46,11 @@
       "rationale": "The malformed-bar condition this whole task's filtering defends against is a specific, *observed* yfinance behavior (an unsettled latest daily bar coming back with NaN OHLC) discovered via a real frontend crash on `api-stocks-analysis-nullable-indicators` -- it has never been observed on weekly data. The checklist item itself frames this as speculative and explicitly points at the existing precedent of leaving GET /api/stocks/{ticker}/history's raw daily bars unfiltered absent an observed bug there (docs/tasks/api-stocks-history-followups.json) as the model to mirror. Proactively filtering `weekly_ohlcv` everywhere `evaluate_tide` is called (`app.signals.engine.analyse`, `app.portfolio.exits.evaluate_exit_flags`'s two calls) would also be materially more invasive than the daily-side fix: `evaluate_tide`'s current-vs-previous-tide comparison in `evaluate_exit_flags` relies on precomputed MACD/EMA series staying index-aligned with `weekly_ohlcv` across a `.iloc[:-1]` slice (see that function's own docstring), so dropping rows from `weekly_ohlcv` without also re-deriving those series consistently risks introducing a subtler alignment bug in defense of a condition that has never actually occurred. Tracking it here (this checklist item, left in the task board rather than closed as literally 'not applicable') means it will actually get picked up if a malformed weekly bar is ever observed in practice, per CLAUDE.md's decision-memory rule.",
       "alternatives_considered": "Proactively filtering `weekly_ohlcv` the same way as `daily_ohlcv` (rejected per the rationale above: speculative fix for an unobserved condition, non-trivial to do correctly given the precomputed-series-sharing between `evaluate_tide` calls in `evaluate_exit_flags`, and against this codebase's own established precedent of fixing observed problems rather than every theoretically-possible one)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-stocks-analysis-nullable-indicators-followups",
+    "pr_number": 72,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/72",
+    "pushed_at": "2026-09-17T02:32:30Z"
+  }
 }
