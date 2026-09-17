@@ -65,5 +65,11 @@
       "rationale": "Frontend.md §3's placement test is whether a component references a domain concept, not how many call sites it has — TickerSearchBox still hardcodes the `/stocks/:ticker` route and a ticker-normalization convention (uppercase, trim) in both of its current uses, so it remains stock-domain knowledge by that test regardless of consumer count. Both consumers also want the exact same behavior (look up a ticker, go to its analysis page) rather than two different behaviors sharing a generic shell, so there's no genuine second *use case* driving a generic abstraction yet — extracting a common/ `NavigatingSearchBox` now would be speculative genericization for a hypothetical future unrelated consumer, which Frontend.md §2 explicitly warns against for cross-cutting state ('only introduce ... when a second, unrelated component genuinely needs the same state — not preemptively') and the same reasoning applies to premature component generalization. Rejected alternative: promoting TickerSearchBox to components/common/ unchanged — rejected because it would put a component that still knows the app's ticker-routing convention into the domain-agnostic layer, which is exactly what Frontend.md §3 says doesn't belong there; a future second, genuinely different lookup-and-navigate consumer (e.g. an unrelated entity type) would be the right trigger to extract a generic common/ version, not an identical second use of the same behavior.",
       "alternatives_considered": "Promoting TickerSearchBox unchanged to components/common/; extracting a generic common/ NavigatingSearchBox (route-builder + input-normalizer props) with TickerSearchBox becoming a thin stock-specific wrapper around it."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-stock-analysis-page",
+    "pr_number": 68,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/68",
+    "pushed_at": "2026-09-17T00:30:00Z"
+  }
 }
