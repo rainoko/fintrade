@@ -177,4 +177,27 @@ describe('StockDetailPage', () => {
       ),
     ).toBeInTheDocument()
   })
+
+  it("falls back to a 'Stock Detail' header and skips the query when the route has no ticker param", () => {
+    // App.tsx only ever mounts this page at `/stocks/:ticker` (a required
+    // param), so this exact case can't happen through real navigation — but
+    // `useParams`'s type is `string | undefined` regardless, and the
+    // component defends against it (`ticker = ''`) rather than assuming the
+    // route always supplies one. Exercising that fallback needs a route
+    // that genuinely omits the param, hence the `:ticker?` here rather than
+    // the app's own route.
+    renderWithProviders(
+      <MemoryRouter initialEntries={['/stocks']}>
+        <Routes>
+          <Route path="/stocks/:ticker?" element={<StockDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Stock Detail' })).toBeInTheDocument()
+    // useStockAnalysis is `enabled: ticker.length > 0`, so none of the
+    // loading/error/data branches should render for an empty ticker.
+    expect(screen.queryByText(/Loading analysis/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 })

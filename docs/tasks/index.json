@@ -481,8 +481,8 @@
       "id": "frontend-test-90",
       "area": "frontend/testing",
       "skill": "test-90",
-      "state": "planned",
-      "path": "docs/tasks/frontend-test-90.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-test-90.json"
     },
     {
       "id": "frontend-common-components-followups",
