@@ -3,7 +3,7 @@
   "title": "Indicator: Stochastic follow-ups — non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["indicator-stochastic-followups"],
   "references": [
     "docs/tasks/indicator-stochastic-followups.json#review",
@@ -14,7 +14,10 @@
   "checklist": [
     {
       "step": "PR #89 added a new shared app/indicators/_validation.py module (validate_period helper used by ema.py and stochastic.py), but docs/architecture/Backend.md §2's module layout listing under indicators/ still only enumerates one-module-per-indicator (ema.py, macd.py, force_index.py, stochastic.py, elder_ray.py, ...) and doesn't mention this shared internal helper module. The placement itself is fine (pure function, no I/O, package-internal via leading underscore), but the doc is now stale relative to the code. Update Backend.md §2's layout listing to include app/indicators/_validation.py.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/indicator-stochastic-followups-followups"
+  }
 }
