@@ -7,6 +7,14 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
 import AppErrorBoundary from './components/layout/AppErrorBoundary.tsx'
 import './index.css'
+// Self-hosted Inter, the theme's primary font family (src/theme/theme.ts).
+// Only the weights MUI's default Typography variants actually use (see
+// createTheme's fontWeightLight/Regular/Medium/Bold defaults) — importing
+// every weight would bloat the bundle for weights nothing renders.
+import '@fontsource/inter/300.css'
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/700.css'
 import { theme } from './theme/theme.ts'
 
 // TanStack Query is the app's only server-state layer (see

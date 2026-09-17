@@ -37,6 +37,12 @@
         functions: 90,
         statements: 90,
       },
+      // Without `include`, the v8 provider only instruments files a test
+      // actually imports, so an entirely untested file is silently
+      // excluded from both the numerator and denominator instead of
+      // counting as 0% — mirroring the backend's `source = ["app"]` above,
+      // which counts every file regardless of whether a test imports it.
+      include: ['src/**/*.{ts,tsx}'],
     },
   }
   ```

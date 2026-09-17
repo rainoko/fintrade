@@ -3,7 +3,7 @@
   "title": "Frontend scaffold — non-blocking review follow-ups",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-scaffold"],
   "references": [
     "docs/tasks/frontend-scaffold.json#review",
@@ -13,11 +13,19 @@
   "checklist": [
     {
       "step": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face). Every page silently falls through to the next stack entry (system font) instead of Inter. Either load the font (e.g. @fontsource/inter, imported once in main.tsx or index.html) or drop it from the stack if a system font is actually intended.",
-      "done": false
+      "done": true
     },
     {
       "step": "docs/architecture/Testing.md's frontend coverage example (§Frontend, the `vite.config.ts` code block) still shows the coverage config without `include: ['src/**/*.{ts,tsx}']` — the fix landed in PR #61's follow-up commit (4bb0676) only in the actual frontend/vite.config.ts, not in this doc, which the original frontend-scaffold checklist named as the config vite.config.ts must match. Update the doc's example to include the `include` field (mirroring the backend example's `source = [\"app\"]`, which already documents the equivalent \"count every file regardless of import\" mechanism) so a future task copying this doc's snippet doesn't silently reintroduce the same silently-broken 90% gate.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T05:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Actually load Inter via @fontsource/inter (self-hosted, no external Google Fonts request) rather than dropping it from the font stack. Imported the 300/400/500/700 weight CSS files once in src/main.tsx (the app's single bootstrap entry point) — the four weights MUI's default Typography variants (fontWeightLight/Regular/Medium/Bold) actually render, so no unused weight files bloat the bundle.",
+      "rationale": "The theme was clearly authored with Inter as the intended primary typeface (listed first, with a full system-font fallback stack behind it), so dropping it silently changes the app's visual design as a side effect of a follow-up task, which is out of scope here. @fontsource/inter self-hosts the font (no third-party network request at runtime, consistent with the project's no-live-network-call testing stance and avoiding a render-blocking cross-origin request to Google Fonts). An index.html <link> to Google Fonts was considered and rejected: it would add an external dependency load and a FOUC-prone extra round trip that a bundled @fontsource import avoids entirely."
     }
   ]
 }
