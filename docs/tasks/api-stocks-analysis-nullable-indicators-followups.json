@@ -3,7 +3,7 @@
   "title": "Malformed-daily-bar hygiene: non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["api-stocks-analysis-nullable-indicators"],
   "references": [
     "docs/tasks/done/api-stocks-analysis-nullable-indicators.json#review",
@@ -52,5 +52,23 @@
     "pr_number": 72,
     "pr_url": "https://github.com/rainoko/fintrade/pull/72",
     "pushed_at": "2026-09-17T02:32:30Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T02:44:19Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/72",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking regression: get_risk's new `daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)` can drop the position's *latest* (today's) bar when that bar has NaN open/high/low but a real close -- a shape `app.portfolio.pricing._latest_close` doesn't guard against (it only checks `close` for NaN when deriving `position.current_price`, at pricing.py line 104). When that happens, `daily_by_id[e.position.id]`'s last row becomes yesterday's bar, so `evaluate_exit_flags`'s `latest_close = daily_close.iloc[-1]` (app/portfolio/exits.py) silently reads yesterday's close instead of today's -- violating evaluate_exit_flags's own documented 'daily_ohlcv and position.current_price must be as-of the same trading day' precondition, which held before this PR (the router previously passed the same unfiltered frame `_latest_close` derived `current_price` from, so the two were guaranteed to agree by construction). Reproduced end-to-end via TestClient against the real /api/portfolio/risk endpoint: a position whose today's real close (90.0) is below its protective stop (98.33...) -- which docs/Analyse.md #7 says must raise 'stop_hit' regardless of Screen 2/3 state -- gets `exit_flags: []` on this PR's branch, while the identical fixture against origin/main (pre-PR) correctly returns `exit_flags: ['stop_hit']`. This is a genuine, demonstrated regression: a real stop-hit is now silently suppressed for this malformed-bar shape -- exactly the class of hazard (a real signal silently swallowed by a NaN-adjacent comparison) this whole PR/task line exists to prevent, just reached via a different path than the one it fixed. protective_stop's own lookback window also silently shifts back by one day in this scenario (a secondary symptom of the same root cause: the filtered frame is one row shorter than the caller assumes). Neither new regression test (test_malformed_bar_earlier_in_history_does_not_perturb_stop_or_flags, test_malformed_bar_that_drops_history_below_minimum_excludes_position) covers 'latest bar: real close, other OHLC fields NaN' -- both place the malformed bar earlier in history or fully NaN including close. This needs a fix before merge: e.g. deriving position.current_price from the same drop_malformed_daily_bars-filtered frame in app.portfolio.pricing (so current_price and daily_ohlcv's last row can never disagree), or excluding a position outright in get_risk when filtering changes which row is 'latest', rather than silently proceeding with the two out of sync.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 282
+      },
+      {
+        "summary": "Non-blocking: test_malformed_bar_earlier_in_history_does_not_perturb_stop_or_flags places its injected malformed row at the very oldest position in the frame, where pandas' ewm(adjust=False)/skipna aggregations happen to make dropping it a no-op regardless of whether drop_malformed_daily_bars is actually called -- verified by reverting the router fix locally, this test still passes. It therefore doesn't discriminate the fix the way test_malformed_bar_that_drops_history_below_minimum_excludes_position does. Tracked as a follow-up task rather than blocking, since the production fix itself is still correct and general (drop_malformed_daily_bars drops a NaN row unconditionally, regardless of position in the frame).",
+        "file": "backend/tests/integration/test_portfolio_risk.py",
+        "line": 445
+      }
+    ],
+    "notes": "Backend suite: 481 passed, 99.84% coverage (100% on both changed files), tsc/eslint clean, openapi.json/types.ts confirmed genuinely regenerate to a no-op diff (docstring-only). verify-elder-signal and code-review skills found no methodology/style issues in the diff itself; the blocking finding above was found via manual cross-file tracing (pricing.py's _latest_close only NaN-guards `close`, not open/high/low) plus an end-to-end TestClient reproduction against both this branch and origin/main to confirm it's a genuine, PR-introduced regression rather than a pre-existing gap. The weekly_ohlcv-filtering deferral (checklist item 2 / decisions entry 3) is a sound, well-reasoned call -- speculative absent an observed malformed weekly bar, and non-trivial to do correctly given evaluate_tide's index-alignment invariant across evaluate_exit_flags's two calls -- no finding there. Filed docs/tasks/api-stocks-analysis-nullable-indicators-followups-followups.json for the one non-blocking finding."
   }
 }

@@ -1,0 +1,21 @@
+{
+  "id": "api-stocks-analysis-nullable-indicators-followups-followups",
+  "title": "Malformed-daily-bar hygiene round 2: non-blocking review follow-up",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-stocks-analysis-nullable-indicators-followups"],
+  "references": [
+    "docs/tasks/api-stocks-analysis-nullable-indicators-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/72",
+    "backend/tests/integration/test_portfolio_risk.py",
+    "backend/app/signals/engine.py"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #72 (api-stocks-analysis-nullable-indicators-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges/is fixed. This is separate from -- and does not duplicate -- the blocking finding on that same review (a real stop_hit-suppression regression, sent back via `review.verdict: needs_work`), which the task-worker must fix before this follow-up applies.",
+  "checklist": [
+    {
+      "step": "`TestGetRisk::test_malformed_bar_earlier_in_history_does_not_perturb_stop_or_flags` (backend/tests/integration/test_portfolio_risk.py) places its injected malformed (all-NaN) row at the very front (oldest position) of the daily history. Verified by reverting the router's `drop_malformed_daily_bars` call locally: this test still passes even without the fix, because pandas' `Series.ewm(adjust=False).mean()` treats a leading NaN as 'not yet started' and doesn't propagate it into later values, and the swing-low `.min()`/volatility `.mean()` aggregations `protective_stop` uses are `skipna=True` by default -- so a malformed bar at the very oldest position happens to be a structural no-op whether or not it's dropped. (Contrast: a malformed bar in the *middle* of the window does perturb subsequent EMA(13) values with vs. without dropping it -- verified via a standalone `Series.ewm` repro with a mid-series NaN producing different downstream values than the same series with that row removed.) This means the test provides no actual regression protection for the 'malformed bar elsewhere in history' scenario its own docstring describes, even though the production fix (`drop_malformed_daily_bars`, which drops a NaN row unconditionally regardless of position) is still correct for that case. Strengthen the test by placing the malformed row inside the `_SWING_LOW_WINDOW_DAYS`/EMA(13) window instead of at the very start, so it actually fails without the fix the way `test_malformed_bar_that_drops_history_below_minimum_excludes_position` already does.",
+      "done": false
+    }
+  ]
+}
