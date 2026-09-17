@@ -77,5 +77,10 @@
       }
     ],
     "notes": "Full review: npm run test:coverage (35 files/191 tests pass, 99.7%/99.6%/100%/99.7%, no regression vs. the 90% gate), npm run lint (clean), npm run build (tsc -b + vite build, succeeds), npm run build-storybook (succeeds, includes new RiskBreachBanner stories) all re-run and verified directly on the checked-out PR branch. code-review skill (medium effort) found no correctness or reuse/simplification issues. No API/schema touched, so the openapi.json check doesn't apply. No checklist item phrased as 'decide X' was left undecided. One non-blocking finding filed as docs/tasks/frontend-dashboard-page-followups-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T06:03:20Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (35 files, 191 tests, 99.7/99.6/100/99.7%), npm run lint, npm run build, and npm run build-storybook on the checked-out PR #81 branch — all match pr-reviewer's reported numbers exactly, including the new RiskBreachBanner story bundling. Read the full diff: confirmed RiskBreachBanner.tsx takes only a message prop with no portfolio/risk-domain knowledge (correct components/common/ placement), that RiskPanel.tsx and RiskSummaryCard.tsx both now render it with only their own wording and no leftover duplicated markup/unused imports, and that the formatCurrency/formatNullableCurrency consolidation (DashboardPage.tsx, PositionsGlanceTable.tsx, PositionsTable.tsx, utils/format.ts) is complete and correct. The one real behavioral change (PositionsGlanceTable gaining thousands separators for 4+-digit prices) is properly tracked as a non-blocking follow-up task depending on this one. Found nothing pr-reviewer missed or underweighted."
   }
 }
