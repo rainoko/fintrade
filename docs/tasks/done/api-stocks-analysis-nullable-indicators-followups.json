@@ -3,7 +3,7 @@
   "title": "Malformed-daily-bar hygiene: non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-analysis-nullable-indicators"],
   "references": [
     "docs/tasks/done/api-stocks-analysis-nullable-indicators.json#review",
@@ -68,9 +68,9 @@
     "pushed_at": "2026-09-17T02:32:30Z"
   },
   "review": {
-    "reviewed_at": "2026-09-17T03:02:02Z",
+    "reviewed_at": "2026-09-17T03:08:46Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/72",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
         "summary": "Re-review of the stale-close/stop_hit fix (commit 4fb7a41): the fix itself is sound and thoroughly re-verified independently -- (a) verify-elder-signal re-run confirms docs/Analyse.md #7's protective-stop rules are unaffected, since protective_stop is called with daily_ohlcv.iloc[:-1] at both call sites in get_risk (app/api/routers/portfolio.py:295 and app/portfolio/exits.py:145), so the latest bar's open/high/low never enter the swing-low/volatility window; (b) built an independent repro (12-day series, today's close 10.0 vs stop 48.0, NaN open/high/low on today's bar) distinct from the PR's own fixture -- confirmed exit_flags: ['stop_hit'] on this branch, and confirmed it reproduces the original suppression (exit_flags: []) when require_full_ohlc_on_latest_bar=False is reverted to True; (c) confirmed both analyse()/get_analysis call sites still call drop_malformed_daily_bars(daily_ohlcv) with the unchanged True default, and the full hand-computed test_engine.py reference-value suite passes unchanged; (d) traced concretely (not assumed) that every consumer of the latest daily bar in get_risk's pipeline -- protective_stop (excluded via .iloc[:-1]), autoenvelope (close only), evaluate_impulse (daily_ohlcv['close'] only, verified by reading app/indicators/autoenvelope.py and app/signals/impulse.py directly) -- never reads open/high/low of that bar, so the relaxation cannot feed NaN into any risk calculation; (e) reverted the fix locally and confirmed test_malformed_open_high_low_on_latest_bar_does_not_suppress_stop_hit genuinely fails (assert 'stop_hit' in []), restored it and confirmed the full suite (488 passed) is green again. code-review (fresh run against this commit) found no correctness or reuse/simplification issues either.",
@@ -78,11 +78,11 @@
         "line": 44
       },
       {
-        "summary": "Blocking (new, introduced by this fix commit): frontend/src/api/types.ts was not regenerated and is now stale relative to the committed backend/openapi.json. Commit 4fb7a41 updates openapi.json's GET /api/portfolio/risk description (correctly, documenting require_full_ohlc_on_latest_bar=False) but leaves frontend/src/api/types.ts untouched. Running `npm run generate:api-types` from frontend/ against the committed openapi.json produces a genuine, non-trivial diff -- the new require_full_ohlc_on_latest_bar documentation is missing from the committed types.ts. This violates docs/architecture/API.md's Frontend Type Generation contract ('generated from the committed backend/openapi.json snapshot ... to prevent contract drift between the two codebases'); this exact PR's own first commit (f383f7b) correctly regenerated both files together, so this is a straightforward omission in the second commit, not a judgment call. It's a JSDoc/description-only diff (no type-shape change -- tsc -b and eslint . both pass clean either way, frontend suite unaffected: 168 passed, 99.41% coverage), but per this repo's own established practice (verified explicitly as an acceptance criterion in this task's first review round) the two generated files must be regenerated and committed together. Fix: run `npm run generate:api-types` from frontend/ and commit the result alongside this change.",
+        "summary": "Previously blocking, now closed (commit 94523ee): frontend/src/api/types.ts has been regenerated via `npm run generate:api-types` and is confirmed genuinely in sync with the current backend/openapi.json. Independently re-verified this round by regenerating both backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts from a clean tree -- both produced a no-op diff against the committed files. Also diffed `git diff f527160..94523ee -- frontend/src/api/types.ts` directly and confirmed the change is exactly the expected JSDoc addition documenting require_full_ohlc_on_latest_bar=False for GET /api/portfolio/risk, with no type-shape change and no other files touched besides task-JSON bookkeeping. This closes the prior round's blocking finding.",
         "file": "frontend/src/api/types.ts",
         "line": 1
       }
     ],
-    "notes": "Backend suite: 488 passed, 99.84% coverage (100% on both changed files, app/api/routers/portfolio.py and app/signals/engine.py). Frontend suite: 168 passed, 99.41% coverage; tsc -b and eslint . both clean. backend/openapi.json itself confirmed to regenerate to a genuinely no-op diff via python scripts/export_openapi.py -- correctly committed. No new 'decide X' checklist items outstanding; the new decisions entry for this fix (4th entry) is well-reasoned and complete. No frontend UI surface touched by this change (backend-only fix plus a doc-comment-only generated-types diff) -- browser walkthrough not applicable, noted explicitly rather than skipped silently. Posted as a COMMENTED-type gh pr review (not approve/request-changes)."
+    "notes": "Backend suite re-run: 488 passed, 99.84% coverage -- unchanged from the prior round, no regression. Frontend suite re-run: 168 passed, tsc -b clean, eslint . clean, coverage 99.43%/99.21%/100%/99.41% (stmts/branch/funcs/lines) -- unchanged from the prior round's 99.41%, no regression. Scope of this re-review was narrowed per dispatch instructions to (1) confirming the types.ts regeneration genuinely closes the prior gap and (2) confirming no regression from the fix commit -- the require_full_ohlc_on_latest_bar design itself was already thoroughly re-verified in the prior round and not re-litigated here. No new findings this round. No pr_decision existed on this task from a prior pass (expected, since the prior round ended needs_work), so nothing to clear. Posted as a COMMENTED-type gh pr review (not approve/request-changes)."
   }
 }
