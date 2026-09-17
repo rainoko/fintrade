@@ -3,7 +3,7 @@
   "title": "Frontend common component library — non-blocking review follow-ups",
   "area": "frontend/components/common",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-common-components"],
   "references": [
     "docs/tasks/done/frontend-common-components.json#review",
@@ -55,5 +55,12 @@
     "pr_number": 86,
     "pr_url": "https://github.com/rainoko/fintrade/pull/86",
     "pushed_at": "2026-09-17T07:17:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T07:23:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/86",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (488 passed, 99.84% coverage, unaffected by this frontend-only change) and frontend vitest --coverage (203 passed, 99.71%/99.64%/100%/99.71% stmts/branches/funcs/lines) both pass well above the 90% gate; eslint and tsc -b both clean; code-review skill (medium effort) found no correctness/reuse/simplification issues. Browser walkthrough (Playwright driven directly via playwright-core, since no MCP Playwright tool was registered this session) against the real backend+frontend dev servers, using route interception for the analysis endpoint since the backend has no CORS middleware for cross-origin dev-server requests: confirmed the golden path (confidence=82, confidence_band='High' renders '82% · High'), and specifically the edge case this PR exists for (confidence=50, confidence_band='High' from the API renders '50% · High' even though confidenceBand.ts's own client-side rule would locally derive 'Medium' for 50 -- proving SignalSummary/StockDetailPage genuinely forward the API's confidence_band rather than letting ConfidenceGauge silently recompute it), plus a mocked-500 error edge case rendering ErrorState's generic fallback correctly. No console errors or failed network requests. No new components added, so the common-vs-feature placement calls from PR #64's review stand unchanged. No backend route/schema touched, so openapi.json regeneration doesn't apply. All 4 checklist items are done and verified against the actual code; all 3 decisions are well-reasoned and consistent with what's implemented. No blocking or non-blocking findings -- nothing further to track as a follow-up."
   }
 }
