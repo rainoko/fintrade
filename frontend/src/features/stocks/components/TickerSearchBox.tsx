@@ -7,16 +7,18 @@ import { useNavigate } from 'react-router-dom'
 /**
  * Ticker lookup: a text field + submit button that navigates to
  * `/stocks/:ticker` (StockDetailPage). Feature component (not `common/`)
- * since it's tied to this app's ticker-routing convention, not a generic
- * search box.
+ * since it hardcodes this app's `/stocks/:ticker` route and a
+ * ticker-normalization convention (uppercase, trim) — stock-domain
+ * knowledge, not a generic "search box" (see Frontend.md §3's placement
+ * rule).
  *
- * This is the single entry point into stock analysis — built here
- * (frontend-dashboard-page) because frontend-stock-analysis-page, which
- * would otherwise own deciding where this lives, hadn't landed yet when
- * this task needed it. DashboardPage renders it directly; when
- * frontend-stock-analysis-page lands it should reuse this component (e.g.
- * on StockDetailPage itself, or promoted into AppShell) rather than
- * building a second ticker entry point — see this task's `decisions` entry.
+ * This is the app's single entry point into stock analysis, built by
+ * frontend-dashboard-page (before this task existed to decide where it
+ * lived) and reused as-is by both DashboardPage and StockDetailPage
+ * (frontend-stock-analysis-page) rather than each building its own copy —
+ * see frontend-stock-analysis-page's `decisions` entry for why it stayed
+ * under features/stocks/ instead of moving to components/common/ once a
+ * second consumer appeared.
  */
 export default function TickerSearchBox() {
   const navigate = useNavigate()

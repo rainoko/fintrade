@@ -3,7 +3,7 @@
   "title": "Frontend: Stock analysis page (signal, confidence, screens)",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-api-client",
     "frontend-common-components",
@@ -17,31 +17,31 @@
   "checklist": [
     {
       "step": "A ticker entry point (search box navigating to /stocks/:ticker) \u2014 decide and record where this lives (e.g. in AppShell's top bar vs. a dedicated field on this page); either is reasonable, but don't build both.",
-      "done": false
+      "done": true
     },
     {
       "step": "features/stocks/hooks/useStockAnalysis.ts \u2014 useQuery wrapping api/stocks.ts#getStockAnalysis(ticker).",
-      "done": false
+      "done": true
     },
     {
       "step": "features/stocks/components/SignalSummary.tsx: common/SignalBadge for the signal, common/ConfidenceGauge for confidence/confidence_band, and a breakdown table of confidence_breakdown (component, weight, score) per Analyse.md \u00a76.",
-      "done": false
+      "done": true
     },
     {
       "step": "features/stocks/components/ScreensPanel.tsx: structured display of screens.tide (trend, weekly_macd_histogram_slope), screens.impulse, screens.wave (stochastic_k, force_index_2ema, state), screens.trigger (fired, reference) \u2014 readable labels, not a raw JSON dump.",
-      "done": false
+      "done": true
     },
     {
       "step": "features/stocks/components/IndicatorsPanel.tsx: the latest ema_13/ema_26/macd_histogram/bull_power/bear_power values as a small stat grid \u2014 explicitly not a chart overlay, per Frontend.md \u00a75.",
-      "done": false
+      "done": true
     },
     {
       "step": "pages/StockDetailPage.tsx composes the ticker input (if placed here), SignalSummary, ScreensPanel, IndicatorsPanel \u2014 stays thin.",
-      "done": false
+      "done": true
     },
     {
       "step": "Component tests (MSW-mocked) for: BUY/SELL/HOLD happy paths, and every documented error case for this endpoint from API.md (404 unknown ticker, 422 insufficient history, 503 provider unavailable) surfaced via common/ErrorState with the right message per case.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -50,6 +50,20 @@
       "recorded_by": "task-worker (frontend-dashboard-page)",
       "decision": "Note for whoever works this task: the checklist's first item (a ticker entry point) already has an implementation to reuse — `frontend/src/features/stocks/components/TickerSearchBox.tsx`, built by frontend-dashboard-page (which needed a ticker lookup and couldn't wait on this task). It navigates to `/stocks/:ticker` via `useNavigate` and is currently rendered from DashboardPage's PageHeader action.",
       "rationale": "frontend-dashboard-page's checklist explicitly called for reusing this task's entry point 'if that task placed it on a page rather than in AppShell' — but this task hadn't been started yet when frontend-dashboard-page ran, so there was nothing to reuse and it had to build one itself instead. Recording this here so this task reuses TickerSearchBox (e.g. also rendering it on StockDetailPage, or leaving it dashboard-only if a second entry point isn't wanted) rather than building a second, near-duplicate ticker search box — see Frontend.md §3's near-duplicate consolidation rule and this task's own checklist item 1, which still needs an explicit decision recorded here once resolved."
+    },
+    {
+      "timestamp": "2026-09-17T00:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (ticker entry point): reused `features/stocks/components/TickerSearchBox.tsx` as-is on StockDetailPage (rendered in its PageHeader action, same slot pattern DashboardPage already uses), instead of building a second ticker search field on this page or leaving it dashboard-only.",
+      "rationale": "TickerSearchBox already does exactly what this checklist item asks for (a text field + submit navigating to /stocks/:ticker) and Frontend.md §3's near-duplicate rule says a second, near-identical component should be consolidated rather than copy-pasted — building a second field here would be exactly that near-duplicate. Rendering it on StockDetailPage too (not just Dashboard) also gives real product value: a visitor already looking at one ticker's analysis can jump straight to another without navigating back to the Dashboard first. Rejected alternatives: (a) leaving the entry point dashboard-only — rejected because it would leave StockDetailPage as a dead-end (no way to look up a different ticker without back-navigation), a worse user experience than the near-zero cost of reusing an existing component; (b) building a page-local search field on StockDetailPage instead of importing TickerSearchBox — rejected as a straightforward violation of the near-duplicate consolidation rule the standing decisions entry above already flagged.",
+      "alternatives_considered": "Leaving the ticker entry point Dashboard-only (checklist item satisfied by frontend-dashboard-page's existing instance) and not rendering anything equivalent on StockDetailPage; building a second, page-local search field directly on StockDetailPage instead of importing TickerSearchBox."
+    },
+    {
+      "timestamp": "2026-09-17T00:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved frontend-dashboard-page-followups.json's open question about TickerSearchBox's components/common/ vs features/stocks/components/ placement (raised when it had only one consumer): kept it under features/stocks/components/ even now that it has two consumers (DashboardPage, StockDetailPage), rather than promoting it to components/common/ or generalizing it into a common/ `NavigatingSearchBox` (route-builder + input-normalizer props) as that follow-up's checklist item suggested as one option. Updated that follow-up task's checklist item to mark it addressed, pointing back here.",
+      "rationale": "Frontend.md §3's placement test is whether a component references a domain concept, not how many call sites it has — TickerSearchBox still hardcodes the `/stocks/:ticker` route and a ticker-normalization convention (uppercase, trim) in both of its current uses, so it remains stock-domain knowledge by that test regardless of consumer count. Both consumers also want the exact same behavior (look up a ticker, go to its analysis page) rather than two different behaviors sharing a generic shell, so there's no genuine second *use case* driving a generic abstraction yet — extracting a common/ `NavigatingSearchBox` now would be speculative genericization for a hypothetical future unrelated consumer, which Frontend.md §2 explicitly warns against for cross-cutting state ('only introduce ... when a second, unrelated component genuinely needs the same state — not preemptively') and the same reasoning applies to premature component generalization. Rejected alternative: promoting TickerSearchBox to components/common/ unchanged — rejected because it would put a component that still knows the app's ticker-routing convention into the domain-agnostic layer, which is exactly what Frontend.md §3 says doesn't belong there; a future second, genuinely different lookup-and-navigate consumer (e.g. an unrelated entity type) would be the right trigger to extract a generic common/ version, not an identical second use of the same behavior.",
+      "alternatives_considered": "Promoting TickerSearchBox unchanged to components/common/; extracting a generic common/ NavigatingSearchBox (route-builder + input-normalizer props) with TickerSearchBox becoming a thin stock-specific wrapper around it."
     }
   ]
 }

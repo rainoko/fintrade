@@ -432,7 +432,7 @@
       "id": "frontend-stock-analysis-page",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-stock-analysis-page.json"
     },
     {
