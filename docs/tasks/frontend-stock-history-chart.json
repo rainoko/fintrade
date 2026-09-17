@@ -59,5 +59,11 @@
       "decision": "PriceChart's own component tests mock the entire 'lightweight-charts' module (vi.mock) rather than exercising the real library against jsdom's DOM.",
       "rationale": "jsdom has no real <canvas> 2D rendering context and no ResizeObserver, both of which the real library relies on; there is also nothing pixel-level worth asserting on in a unit test. Mocking createChart/addSeries/CandlestickSeries lets the tests assert on what actually matters \u2014 the container mounts, setData receives the right bars shape, the chart is recreated on a genuine range/interval change and left alone on a no-op re-click, and the loading/error/empty states around it render correctly \u2014 without depending on jsdom's incomplete canvas support. The same mock is reused in StockDetailPage.test.tsx (which now renders PriceChart as part of the page) for the same reason."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-stock-history-chart",
+    "pr_number": 69,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/69",
+    "pushed_at": "2026-09-17T00:20:00Z"
+  }
 }
