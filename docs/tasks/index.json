@@ -558,8 +558,8 @@
       "id": "dev-makefile",
       "area": "infra",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/dev-makefile.json"
+      "state": "done",
+      "path": "docs/tasks/done/dev-makefile.json"
     },
     {
       "id": "skill-static-verify",

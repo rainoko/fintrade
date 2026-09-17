@@ -18,6 +18,10 @@
     {
       "step": "README.md's \"Quick start (Makefile)\" section says \"`make backend` (and `make dev`, which depends on it)\" -- `make dev` doesn't actually declare `backend` as a Make prerequisite; it invokes `$(MAKE) backend` as a subprocess from within its own recipe. The described runtime behavior (the venv-missing error surfaces through `make dev` too) is correct, only the \"depends on\" phrasing overstates it as formal Make dependency terminology. Minor wording fix.",
       "done": true
+    },
+    {
+      "step": "`make dev`'s `wait $$bpid $$fpid` only returns once *both* `backend`/`frontend` sub-targets have exited, so if one fails immediately (e.g. `backend/.venv` missing) the other keeps running indefinitely instead of `make dev` exiting or reporting overall failure -- easy to miss in scrolling/non-interactive output (backend's clear error prints, then vite's own startup banner follows right after and looks like everything is fine). Found via PR #96 round-2 review (a backgrounded code-review pass, independently reproduced before filing): with `backend/.venv` temporarily moved aside, `make dev` prints the venv-missing error and `make[1]: *** [Makefile:16: backend] Error 1`, but vite keeps serving on :5173 and `make dev` never exits on its own; requires manual interruption. Distinct from the round-1 orphan bug -- the surviving process is still attached to the trap and cleans up correctly once stopped (verified: no leftover process afterward), so this is a fail-fast/UX gap, not a leak. Consider having the trap (or an explicit check after `wait`'s first return, e.g. `wait -n` then killing the other) treat one sub-target's early failure as a reason to tear down the other and exit non-zero, if `make dev` is ever expected to fail fast rather than keep serving a half-up environment.",
+      "done": false
     }
   ],
   "decisions": [],
