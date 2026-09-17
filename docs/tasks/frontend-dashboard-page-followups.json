@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Dashboard page (PR #67)",
   "area": "frontend/pages/dashboard",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-dashboard-page"],
   "references": [
     "docs/tasks/done/frontend-dashboard-page.json",
@@ -13,20 +13,40 @@
   "checklist": [
     {
       "step": "RiskSummaryCard's 6%-rule-breach banner (Box + WarningAmberIcon + Typography with theme.palette.riskBreach styling) is copy-pasted near-verbatim from RiskPanel.tsx's identical banner — only the warning message text differs. Per Frontend.md's Structure Rules (near-duplicates should be consolidated into one shared component instead of copy-pasted across features), consider extracting a shared `RiskBreachBanner` (message as a prop) used by both RiskPanel and RiskSummaryCard.",
-      "done": false
+      "done": true
     },
     {
       "step": "DashboardPage.tsx defines its own local `formatCurrency` (`toLocaleString(..., {style:'currency',currency:'USD',...})`), identical to PortfolioPage.tsx's own copy — a fourth distinct currency-formatting implementation in the codebase alongside RiskPanel's and PositionsTable's differently-shaped versions (the latter two already flagged in frontend-portfolio-risk-panel-followups). Extract one shared currency formatter so a future formatting change doesn't need updating in four places.",
-      "done": false
+      "done": true
     },
     {
       "step": "PositionsGlanceTable's `formatNullableCurrency` duplicates the null-check logic already in PositionsTable.tsx's identically-named helper (PositionsTable composes its own local `formatCurrency`, while PositionsGlanceTable inlines the `$${value.toFixed(2)}` string directly) — two independent implementations of 'render a nullable price' that can silently drift apart. Worth consolidating alongside the formatCurrency extraction above.",
-      "done": false
+      "done": true
     },
     {
       "step": "TickerSearchBox's placement under features/stocks/components/ (rather than components/common/) is a genuinely arguable call: it hardcodes navigation to `/stocks/:ticker` and uppercases input assuming a stock-ticker convention, which is defensible as stock-domain knowledge per Frontend.md §3's literal rule, but the underlying 'text field + submit button that navigates somewhere on submit' pattern is otherwise generic UI behavior. Worth reconsidering if a second lookup-and-navigate entry point appears elsewhere in the app (e.g. when frontend-stock-analysis-page or a future AppShell search bar reuses/duplicates this pattern) — e.g. a common/ `NavigatingSearchBox` taking a route-builder + input-normalizer prop, with the ticker-specific behavior supplied by the caller.",
       "done": true,
       "note": "Addressed by frontend-stock-analysis-page, which became TickerSearchBox's second consumer (reused as-is on StockDetailPage rather than duplicated) and is therefore better positioned to resolve this placement question than a standalone follow-up. Decision recorded on docs/tasks/frontend-stock-analysis-page.json: kept under features/stocks/components/ — both consumers want the identical ticker-lookup-and-navigate behavior, so there's no genuine second use case driving a generic common/ NavigatingSearchBox yet (Frontend.md §3's placement test is domain-knowledge, not consumer count, and TickerSearchBox still hardcodes the /stocks/:ticker route + ticker-uppercasing convention). Revisit if a genuinely different (non-ticker) lookup-and-navigate consumer appears later."
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted a new `components/common/RiskBreachBanner` (props: `message: ReactNode`) and switched both RiskPanel.tsx and RiskSummaryCard.tsx to render it, passing each caller's own wording as the message. Placed under `components/common/` rather than `features/portfolio/components/`, even though both current consumers are portfolio-risk features.",
+      "rationale": "The banner itself (an icon + a styled Typography wrapped in a Box, using theme.palette.riskBreach) takes no portfolio/risk-domain input beyond a plain message string/node — it doesn't know what a '6% rule' or a 'position' is, which is exactly Frontend.md §3's placement test for common/ (domain-agnostic display primitive), the same reasoning this task's own prior sibling (RiskPercent, frontend-portfolio-risk-panel-followups) was placed under. Rejected keeping it feature-local (e.g. `features/portfolio/components/RiskBreachBanner`): nothing about the component's implementation is portfolio-specific, only its current call sites are, and common/ is the documented home for exactly this 'copy-pasted markup, message text is the only difference' pattern the checklist item flagged. Rejected a lower-level prop surface (e.g. separate `icon`/`title`/`body` props): both current call sites only ever vary the message text, so a single `message` prop matches actual usage without speculative generality. Also rejected leaving the banner inline in both components with only the message text pulled into a shared constant/string-builder function: the checklist item explicitly asks for a shared *component* since the duplication is markup/styling, not just text, and a shared string builder wouldn't touch the actual near-duplicate JSX the review flagged."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Consolidated DashboardPage.tsx's local `formatCurrency` onto the existing `utils/format.ts` implementation (added by frontend-portfolio-risk-panel-followups, PR #77), and added a new `formatNullableCurrency` to `utils/format.ts` that both PositionsGlanceTable.tsx and PositionsTable.tsx now import instead of each defining their own (PositionsTable.tsx's own version was itself a thin `formatCurrency` wrapper with the identical null-check, so it was folded in too even though the checklist item only named PositionsGlanceTable.tsx by name).",
+      "rationale": "utils/format.ts is the codebase's already-established, documented home for exactly this kind of cross-component formatting consolidation (see its own file-header comment tracing the history of this and the two prior formatCurrency/formatNullableNumber consolidations) — adding a fourth ad hoc local copy or a fifth different shared location would contradict that established pattern. Extended it with `formatNullableCurrency` (mirroring the existing `formatNullableNumber` naming/shape) rather than making each caller inline its own null-check around the shared `formatCurrency`, because the checklist item's whole point is that two independent 'render a nullable price' implementations (PositionsGlanceTable's inline `$${value.toFixed(2)}` and PositionsTable's `formatCurrency`-wrapping version) could silently drift apart — folding in PositionsTable.tsx's identical wrapper too (not just PositionsGlanceTable's) removes that latent drift risk entirely rather than leaving one of the two duplicates standing. Rejected leaving PositionsTable.tsx's local wrapper in place just because the checklist item's wording named only PositionsGlanceTable.tsx: PositionsTable.tsx's version was byte-for-byte the same null-check logic wrapping the same shared formatCurrency, so leaving it standing would have re-created the exact 'two independent nullable-price implementations' problem the checklist item is about, just with the names swapped — addressing the underlying issue rather than only the literal checklist wording directly resolves the stated 'can silently drift apart' concern, not scope creep."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Worked all three still-open checklist items (RiskBreachBanner extraction, DashboardPage's formatCurrency, PositionsGlanceTable's formatNullableCurrency) in this PR rather than only the two currency-formatting ones, even though the dispatch instructions for this task run described only the currency cleanups plus the already-`done` placement note as remaining.",
+      "rationale": "Verifying the task JSON's current checklist state directly (per this process's own 'verify current state before redoing anything' step) showed item 1 (RiskBreachBanner) still marked `done: false`, and a codebase search confirmed no such shared component exists yet — RiskPanel.tsx and RiskSummaryCard.tsx still each defined the identical banner markup inline. The task's own checklist, not a dispatch-message summary of it, is this process's source of truth for what remains open; leaving a known-incomplete, already-scoped checklist item unaddressed while opening a PR would leave the task in a state the next reviewer would immediately flag as incomplete. The extraction was small, well-precedented (matches the RiskPercent pattern from the same task family), and squarely within this task's own stated scope, so doing it was not scope creep beyond this task's checklist."
     }
   ]
 }

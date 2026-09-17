@@ -9,18 +9,11 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
-import { formatCurrency } from '../../../utils/format'
+import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
 
 export interface PositionsTableProps {
   positions: PositionOut[]
-}
-
-// current_price/unrealized_pnl_pct are null only when the latest price fetch
-// for that ticker failed (API.md) — rendered as an em dash so it reads as
-// "unknown", not "zero", per this task's checklist item on handling nulls.
-function formatNullableCurrency(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : formatCurrency(value)
 }
 
 /**
