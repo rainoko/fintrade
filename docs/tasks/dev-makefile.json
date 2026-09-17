@@ -33,5 +33,11 @@
       "decision": "`make dev`'s cleanup traps and kills the two `$(MAKE) backend`/`$(MAKE) frontend` child PIDs it captured itself (`kill $$bpid $$fpid`), not the whole process group (`kill 0`).",
       "rationale": "An initial `trap 'kill 0' EXIT INT TERM` implementation was verified to actually clean up both uvicorn and vite with no orphaned processes, but under a live SIGINT it also signalled the trapping shell itself mid-handler and reproducibly crashed bash in this environment (reported by make as 'Segmentation fault (core dumped)' on the `dev` recipe) — alarming output for something that otherwise worked correctly. Switching to killing only the two captured child PIDs produces the same clean-shutdown outcome (verified: `INFO: Shutting down` / `Application shutdown complete` from uvicorn, vite's process group gone, `pgrep -fa 'uvicorn|vite'` empty afterward) with a normal 'Interrupt' exit instead of a spurious crash report. Rejected alternative: keep `kill 0` since it's the more commonly cited idiom for this pattern — rejected once the self-signal crash was reproduced twice under a real SIGINT to the process group (the realistic Ctrl-C scenario), not just under `timeout`."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/dev-makefile",
+    "pr_number": 96,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/96",
+    "pushed_at": "2026-09-17T20:30:00Z"
+  }
 }
