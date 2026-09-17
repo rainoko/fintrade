@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Stock analysis page (PR #68)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-stock-analysis-page"],
   "references": [
     "docs/tasks/frontend-stock-analysis-page.json",
@@ -13,19 +13,42 @@
   "checklist": [
     {
       "step": "StockDetailPage.tsx uses the raw, un-normalized useParams `ticker` (not the backend-normalized analysisQuery.data.ticker) for both the PageHeader title and useStockAnalysis's query key. A direct visit to /stocks/aapl (hand-typed URL, old bookmark, external lowercase link) shows a lowercase heading while the signal/screens/indicators below are for AAPL, an inconsistent display; it also means the query key (['stocks','analysis','aapl']) never matches the cache entry for a later '/stocks/AAPL' visit, causing a redundant refetch of identical data. Use analysisQuery.data?.ticker ?? ticker for the heading and/or normalize `ticker` before using it as the query key, the same normalization TickerSearchBox already applies before navigating.",
-      "done": false
+      "done": true
     },
     {
       "step": "SignalSummary.tsx's `humanizeComponent` and ScreensPanel.tsx's `humanize` duplicate the label-map-plus-fallback pattern already implemented as RiskPanel.tsx's `EXIT_FLAG_LABELS`/`humanizeFlag` (look up in a map, else replace underscores and capitalize) instead of sharing one utility -- three near-identical implementations now exist across the codebase. SignalSummary's own docstring even says it follows 'the same pattern as RiskPanel's EXIT_FLAG_LABELS/humanizeFlag' but reimplements rather than importing a shared helper. Worth extracting a shared `humanizeSnakeCase(value, labelMap?)` utility so a future fix (e.g. handling acronyms like 'macd' -> 'MACD') only needs to be applied once.",
-      "done": false
+      "done": true
     },
     {
       "step": "The null-crash fix (commit cbac925) introduced a second, separate duplication: IndicatorsPanel.tsx's `formatValue` and ScreensPanel.tsx's `formatNullableNumber` are near-identical null/undefined/NaN-to-'—' guards defined independently in each file instead of one shared helper. This is a distinct duplication from the `humanize`/label-map item above (which the fix's own decision record inaccurately implied already covered it) -- a future change to the fallback convention (e.g. '—' -> 'N/A') or a newly-discovered nullable field elsewhere would need both copies updated in lockstep. Worth consolidating into one shared null-safe number formatter (e.g. alongside PositionsTable.tsx's `formatNullableCurrency`, which follows the same pattern for currency values).",
-      "done": false
+      "done": true
     },
     {
       "step": "Found incidentally during pr-reviewer's browser walkthrough of PR #69 (frontend-stock-history-chart), not part of that PR's diff: ScreensPanel.tsx's Impulse `LabeledValue` renders a MUI `Chip` (renders a `<div>`) nested inside a `Typography variant=\"body2\"` (renders a `<p>`), which React logs as 'In HTML, <div> cannot be a descendant of <p>. This will cause a hydration error.' Doesn't crash anything today (client-only render, no SSR in this app yet), but is invalid HTML nesting and would become a real hydration bug if SSR is ever added. Fix by rendering the Chip as a sibling (e.g. in a Stack) rather than as a child of the Typography.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T03:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "StockDetailPage.tsx now normalizes the useParams `ticker` with `.trim().toUpperCase()` (TickerSearchBox's own normalization convention) once, up front, and uses that single normalized value both as useStockAnalysis's query key and as PriceChart's ticker prop, with the heading itself preferring `analysisQuery.data?.ticker ?? ticker` (the backend-returned casing once loaded, the normalized value while loading/on error) rather than only fixing the heading in isolation.",
+      "rationale": "The checklist item's own root cause -- an un-normalized ticker feeding a TanStack Query key -- applies identically to PriceChart's useStockHistory query (added later by frontend-stock-history-chart, after this finding was filed), not just useStockAnalysis's; normalizing once at the top of the page and reusing that value everywhere fixes both call sites with one change and can't drift the two back out of sync the way separately normalizing each call site could. Rejected alternatives: (a) only changing the heading to `analysisQuery.data?.ticker ?? ticker` without normalizing the raw param -- rejected because the query-key mismatch (the more consequential half of the finding, causing a redundant refetch) would remain unfixed; (b) leaving PriceChart's ticker prop as the raw un-normalized param -- rejected because it would leave the exact same latent staleness bug for the history query that this task exists to fix for the analysis query.",
+      "alternatives_considered": "Fixing only the heading (analysisQuery.data?.ticker ?? ticker) without normalizing the query key input; normalizing only the value passed to useStockAnalysis and leaving PriceChart's ticker prop as the raw param."
+    },
+    {
+      "timestamp": "2026-09-17T03:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared `humanizeSnakeCase(value, labelMap?)` and `formatNullableNumber(value, options?)` helpers into a new top-level `frontend/src/utils/format.ts` module (a new folder, sibling to `api/`/`components/`/`features/`) rather than under any single `features/<domain>/` folder or `components/common/`.",
+      "rationale": "Frontend.md §3's placement test for `features/<domain>/` is whether something references that domain's concepts -- both helpers operate on any snake_case string or any nullable number and are already consumed across two unrelated domains (features/stocks' SignalSummary/ScreensPanel/IndicatorsPanel and features/portfolio's RiskPanel), so putting them under either domain's `features/` folder would misrepresent them as domain-specific and reintroduce exactly the kind of near-duplicate-across-features problem this task exists to remove. `components/common/` was also rejected: Frontend.md §3/§4 define that folder as the catalog of reusable *React components*, each required to have a Storybook `.stories.tsx` (§4: 'a new common/ component isn't done until its story exists') -- these are plain functions with no props/rendering/story to write, so forcing them into a component-shaped folder would be a worse fit than a small `utils/` module, which is a common, unobjectionable pattern for exactly this kind of cross-cutting non-component helper. Rejected alternatives: (a) leaving three independent copies across SignalSummary/ScreensPanel/RiskPanel, i.e. not consolidating at all -- rejected because that's precisely the duplication this checklist item asks to remove; (b) putting the shared helpers under `features/stocks/utils/format.ts` (the first feature to need one) with `features/portfolio` importing across a feature boundary -- rejected because Frontend.md's per-feature ownership model (§3: 'this keeps a feature's data layer next to the components that use it, and keeps git blame/navigation scoped to one domain at a time') implies one feature's internals shouldn't be a dependency of another's; (c) `components/common/index.ts`-style barrel re-export of the two functions -- rejected as unnecessary indirection for two functions with obvious single-file import paths, and Frontend.md §3 explicitly discourages a barrel that doesn't demonstrably reduce import noise.",
+      "alternatives_considered": "Not consolidating (status quo, three independent copies); features/stocks/utils/format.ts with features/portfolio importing across the feature boundary; components/common/ placement despite the missing Storybook-component fit; a components/common/index.ts-style barrel re-export."
+    },
+    {
+      "timestamp": "2026-09-17T03:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The consolidated `humanizeSnakeCase` fallback always lowercases the value before capitalizing only its first letter (ScreensPanel's original convention: 'OVERSOLD_PULLBACK' -> 'Oversold pullback'), rather than SignalSummary's/RiskPanel's original fallback convention of capitalizing the first letter without lowercasing the rest.",
+      "rationale": "ScreensPanel actually needs the lowercase step -- its inputs mix UPPER_SNAKE_CASE enum-like values (tide.trend, wave.state) with lowercase_snake_case values (trigger.reference), and capitalizing-without-lowercasing would leave 'OVERSOLD_PULLBACK' as 'OVERSOLD PULLBACK' (still all-caps) rather than the 'Oversold pullback' its own existing test already asserts. SignalSummary's confidence_breakdown component names and RiskPanel's exit_flags values are always already-lowercase snake_case per their respective backend contracts (docs/Analyse.md §6/§7), so always-lowercasing first is a no-op for both and changes no observable behavior for either -- verified this doesn't regress any existing test (full frontend suite re-run green after consolidating). Rejected alternative: making the fallback behavior configurable per call site (e.g. a `lowercaseFirst?: boolean` option) to preserve each caller's original convention exactly -- rejected as needless API surface for a difference that's unobservable given every current caller's actual data shape, and it would leave the door open to genuinely different-behaving fallbacks reappearing later for no real reason.",
+      "alternatives_considered": "A configurable per-call-site option (e.g. `lowercaseFirst?: boolean`) to preserve each of the three original fallback conventions exactly rather than unifying on one."
     }
   ]
 }

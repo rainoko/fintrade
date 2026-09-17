@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Screens } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
 import ScreensPanel from './ScreensPanel'
@@ -12,6 +12,24 @@ const bullishScreens: Screens = {
 }
 
 describe('ScreensPanel', () => {
+  it("doesn't nest Impulse's Chip (a <div>) inside a <p>, which React logs as an invalid-DOM-nesting warning", () => {
+    // Regression test for frontend-stock-analysis-page-followups.json's
+    // DOM-nesting finding: LabeledValue used to always wrap its `children`
+    // in `Typography variant="body2"` (renders a `<p>`), and the Impulse
+    // section passes it a Chip (renders a `<div>`) — invalid HTML that React
+    // warns about via console.error even though nothing crashes today.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    renderWithTheme(<ScreensPanel screens={bullishScreens} />)
+
+    const nestingWarning = errorSpy.mock.calls.find((call) =>
+      String(call[0]).includes('cannot be a descendant of'),
+    )
+    expect(nestingWarning).toBeUndefined()
+
+    errorSpy.mockRestore()
+  })
+
   it('renders Tide, Impulse, Wave, and Trigger sections with humanized labels', () => {
     renderWithTheme(<ScreensPanel screens={bullishScreens} />)
 

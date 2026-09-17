@@ -12,6 +12,7 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
 import StatCard from '../../../components/common/StatCard/StatCard'
+import { humanizeSnakeCase } from '../../../utils/format'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
 export interface RiskPanelProps {
@@ -28,23 +29,14 @@ export interface RiskPanelProps {
 // Human-readable label per known exit_flags value (docs/Analyse.md §7,
 // app.portfolio.exits.evaluate_exit_flags). A value not in this map (e.g. a
 // future flag added on the backend before the frontend catches up) falls
-// back to a humanized version of the raw snake_case string via
-// humanizeFlag below, rather than rendering nothing for it.
+// back to humanizeSnakeCase's fallback (underscores-to-spaces, capitalized)
+// rather than rendering nothing for it.
 const EXIT_FLAG_LABELS: Record<string, string> = {
   stop_hit: 'Stop hit',
   two_percent_rule_breached: '2% rule breached',
   six_percent_rule_contributor: '6% rule contributor',
   profit_zone_impulse_red: 'Profit zone (Impulse red)',
   tide_flipped_bearish: 'Tide flipped bearish',
-}
-
-function humanizeFlag(flag: string): string {
-  const known = EXIT_FLAG_LABELS[flag]
-  if (known) {
-    return known
-  }
-  const words = flag.replace(/_/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 function formatCurrency(value: number): string {
@@ -115,7 +107,11 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
         ) : (
           <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
             {row.exit_flags.map((flag) => (
-              <Chip key={flag} label={humanizeFlag(flag)} size="small" />
+              <Chip
+                key={flag}
+                label={humanizeSnakeCase(flag, EXIT_FLAG_LABELS)}
+                size="small"
+              />
             ))}
           </Stack>
         ),
