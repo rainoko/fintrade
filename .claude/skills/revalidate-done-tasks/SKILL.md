@@ -1,0 +1,65 @@
+---
+name: revalidate-done-tasks
+description: Periodically re-check that tasks already marked "done" in docs/tasks/done/ are still actually true against the current repository state — a done task's checklist is a snapshot from when it was last reviewed, and nothing else in the pipeline re-checks it later. Spot-checks that files/functions each checklist item references still exist, runs the full backend + frontend test/coverage suites once as shared evidence nothing has silently regressed, and flags (never silently fixes) any task whose done-claim no longer holds. Use when asked to audit the done task board, check for regressions in completed work, or run a periodic/scheduled board health check.
+---
+
+# Revalidate Done Tasks
+
+`orchestrate-tasks` only ever moves the board forward: `task-worker` implements, `pr-reviewer`/`pr-decision` confirm, `pr-merger` merges, and the task lands in `docs/tasks/done/`. Nothing in that pipeline goes back and re-checks a `done` task after later, unrelated changes land — a deleted file, a renamed function, a quietly-loosened coverage gate could silently invalidate an earlier task's checklist claims without anything catching it. This skill is that later check. It is read-only over application code: it audits and flags, exactly like `architecture-reviewer` and `elder-signal-reviewer` — it never edits `backend/` or `frontend/` source to fix what it finds.
+
+## Scope and mechanism (design decision)
+
+Two ways to check "is this done task still true": dispatch `task-qa-reviewer` once per done task (thorough — full static analysis, real test run, browser walkthrough per task), or do a single lighter-weight direct pass across all done tasks at once. **This skill uses the lighter-weight direct pass as its default mechanism**, for a reason specific to this project's current scale: the board has ~78 tasks under `docs/tasks/done/`, and `task-qa-reviewer` dispatches a full subagent per task (its own test run, its own coverage run, a browser walkthrough for UI-facing ones) — running it 78 times on every revalidation pass is expensive enough that the skill would rarely actually get run, which defeats the point of a periodic check. A direct pass that (a) spot-checks each task's checklist claims against the repo directly via `Grep`/`Read` rather than re-deriving them from scratch, and (b) runs each project's full test + coverage suite **once**, shared as evidence for every done task rather than once per task, is enough to catch the failure mode this skill exists for — silent regression of previously-verified work — without making a full run intractable.
+
+Reserve a full `task-qa-reviewer` dispatch as an optional deeper dive for one specific task the lightweight pass flags as suspicious (e.g. a referenced function is gone, or a test file that should cover it is missing) — not as the default step for all ~78 tasks every run. This mirrors the project's general pattern of a cheap broad check backed by an expensive targeted one, the same relationship `check-coverage` (report) has to `test-90` (fix), or `architecture-reviewer`/`elder-signal-reviewer` (targeted audits) have to a full task re-verification.
+
+## Steps
+
+0. **Make sure you're auditing current `main`, not a stale or unrelated checkout.** The working tree is shared with `task-worker`/`pr-reviewer`/`pr-decision`/`pr-merger` and can be left on an arbitrary PR branch after a prior run (per `CLAUDE.md`'s "one agent at a time" note). Before enumerating tasks or running any suite, run `git status` to confirm there's no uncommitted work in progress (if there is, stop — another agent may be mid-flight; don't run this skill concurrently with one of them), then `git fetch origin && git checkout main && git pull --ff-only origin main` (or confirm you're already on an up-to-date `main` — `git rev-parse HEAD` matches `git rev-parse origin/main`). Every finding this skill produces — a spot-check result or a suite pass/fail — is only meaningful if it was computed against current `main`; skipping this risks a false clean pass on stale code, or missing a regression that already landed.
+
+1. **Enumerate every done task.** List `docs/tasks/done/*.json`. Cross-check the set against `docs/tasks/index.json`: every entry whose `state == "done"` should have `path` pointing at `docs/tasks/done/<id>.json` and vice versa — a mismatch here is itself a finding (the mirror-drift rule in `CLAUDE.md`), report it even though it's not a checklist-content issue.
+
+2. **Read each done task's `checklist`, `decisions`, and `description`.** For every checklist item that names or clearly implies a concrete repository artifact (a file path, a function/class name, a route, a component, a test name), verify it still exists and is still wired up:
+   - A referenced file path → confirm it exists (`Read` or `ls`).
+   - A referenced function/class/route/component name → `Grep` for its definition (not just any mention) in the area the task's `area` field names.
+   - A "decide X" / "confirm X" checklist item → confirm the task's `decisions` array still has a corresponding entry (per `CLAUDE.md`'s decision-memory rule and `task-qa-reviewer`'s same check) — a decision recorded once shouldn't have quietly disappeared from the JSON either.
+   - This is a spot-check, not a re-implementation review: you're confirming the artifact the checklist claims still exists and is still plugged in (e.g. still imported/routed/exported from where the task said), not re-deriving whether the original implementation was the best possible one. Batch this with scripted `grep`/`find` checks across many tasks at once where possible (e.g. a single pass collecting every file path mentioned across all checklists, then checking existence in one batch) rather than one-by-one manual reads, so the pass stays tractable at ~78 tasks.
+
+3. **Run the full test + coverage suites once, not per task** — this is the shared evidence that nothing has silently regressed, per `check-coverage`. (Assumes step 0's up-to-date-`main` checkout — don't run this against a stale or unrelated branch.):
+   - Backend: `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` from `backend/` (activate `backend/.venv/` first).
+   - Frontend: `vitest run --coverage` from `frontend/`.
+
+   A failure here doesn't automatically indict every done task — trace a failing test back to the task(s) whose area it covers (via the test file's path/name and the failing task's `area`) before treating it as that task's regression. A suite-wide failure unrelated to any specific task's claims (e.g. a broken test fixture) is still worth reporting, just not pinned to a task it doesn't concern.
+
+4. **Compose findings.** For each done task whose claim no longer holds — a referenced file/function is gone, a "decide X" item lost its `decisions` entry, or a test suite failure traces back to that task's area — record what broke and the evidence (file path, grep result, test output excerpt).
+
+5. **Optional deeper dive.** If a finding is ambiguous (unclear whether the referenced code moved vs. was actually removed, or a failing test's root cause isn't obvious from the trace alone), suggest — don't automatically dispatch — a full `task-qa-reviewer` run for that specific task id, rather than guessing. Don't dispatch it by default for tasks the lightweight pass didn't flag.
+
+## Handling a task that no longer holds
+
+Never fix the underlying code from this skill — that's out of scope, matching `architecture-reviewer`/`elder-signal-reviewer`'s read-only pattern. Instead, for each flagged task, make the change on a dedicated branch and land it via a normal PR — `main`'s branch-protection ruleset rejects every direct push, including a bookkeeping-only one (per `CLAUDE.md`), so the git-mv/JSON edits below are never committed straight to `main`:
+
+1. From an up-to-date `main` (per step 0 above), cut a new branch per revalidation run: `git switch -c audit/revalidate-<YYYY-MM-DD>` (one branch covering every task this run reopens, not one branch per task — a single audit pass is one coherent finding-set).
+2. For each flagged task: `git mv docs/tasks/done/<id>.json docs/tasks/<id>.json` (move it back out of `done/`, since its `done` claim is no longer accurate).
+3. Set its `state` back to `"implementing"` if the fix is clearly code work the next `task-worker` pass can pick up on its own, or append a `questions` entry and set `state` to `"waiting_input"` if what broke reflects a genuine ambiguity only a human can resolve (e.g. it's unclear whether the referenced behavior was deliberately removed elsewhere and this task should be closed instead, rather than reopened) — same judgment call `task-worker`/`task-qa-reviewer` already make elsewhere on this board.
+4. Append a `decisions` entry (or a `questions` entry, per the above) explaining exactly what regressed, with evidence — not just "reopened", so the next worker to pick this up doesn't have to re-derive what this skill already found. Get the real current timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ` rather than guessing one.
+5. If the reopened task carries a pre-existing `review` and/or `pr_decision` field, leave the fields themselves untouched (they're the historical record of what was actually reviewed/decided at the time) but make the regression unmissable to a future reader: the `decisions`/`questions` entry from step 4 must say explicitly that this task was previously accepted/merged and has since regressed, so no one mistakes the stale `review.verdict: "accepted"` / `pr_decision.verdict: "merge"` for a current confirmation.
+6. Update `docs/tasks/index.json`'s `state` and `path` for every reopened task in the same change, per `CLAUDE.md`'s mirror rule.
+7. Commit everything from this run together (`git add docs/tasks/... && git commit`), push the branch (`git push -u origin audit/revalidate-<YYYY-MM-DD>`), and open a PR with `gh pr create` whose body lists every task reopened, what broke, and the evidence (i.e. the findings from the Output section below) — this is a direct board-authoring PR the invoking human reviews and merges themselves, the same mechanism used for task-board-entry PRs like #60/#91, not a run through the full task-worker/pr-reviewer/pr-decision/pr-merger pipeline (there's no application code change here for that pipeline to review, only board bookkeeping a human can read and merge directly).
+
+If nothing is found, don't touch any task file, don't create a branch, and don't open a PR — a clean pass is a report, not a board edit.
+
+## Output
+
+Report, for the run as a whole:
+- How many done tasks were checked, and whether that was the full `docs/tasks/done/` set or a representative sample (and why, if not the full set).
+- Backend and frontend test/coverage results (pass/fail, actual coverage numbers), per `check-coverage`'s reporting convention.
+- Every finding, with the task id, what broke, and the evidence — even if it didn't result in reopening the task (e.g. a finding resolved as a false positive on closer look is still worth a line, for auditability).
+- Which tasks (if any) were reopened or moved to `waiting_input`, with the `docs/tasks/` paths touched and the PR URL that carries the change (per "Handling a task that no longer holds" above) — this skill never leaves a board edit uncommitted or unpushed.
+- Any task suggested as a candidate for a follow-up `task-qa-reviewer` deep dive, and why.
+
+## Relationship to other skills/agents
+
+- `check-coverage` — this skill's test/coverage step reuses the exact same commands; `check-coverage` is the right tool when you only want current coverage status, not a full done-task audit.
+- `task-qa-reviewer` — the thorough, per-task alternative this skill deliberately avoids running by default at full board scale; use it directly (not via this skill) for a single task, or as this skill's suggested deeper dive for a specific flagged one.
+- `architecture-reviewer` / `elder-signal-reviewer` — the same read-only-audit-and-report pattern (never edit application code, only report/flag), applied here to the done-task board instead of to structure or signal logic.

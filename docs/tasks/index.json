@@ -572,8 +572,15 @@
       "id": "skill-revalidate-done-tasks",
       "area": "tooling",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/skill-revalidate-done-tasks.json"
+    },
+    {
+      "id": "skill-revalidate-done-tasks-followups",
+      "area": "tooling",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/skill-revalidate-done-tasks.json"
+      "path": "docs/tasks/skill-revalidate-done-tasks-followups.json"
     }
   ]
 }
