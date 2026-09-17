@@ -60,7 +60,7 @@ export const CaughtErrorSubtree: Story = {
     docs: {
       description: {
         story:
-          'Renders the fallback UI scoped to a smaller feature subtree (`fullPage={false}`): no 100vh minimum height and copy that no longer suggests reloading the whole app.',
+          'Renders the fallback UI scoped to a smaller feature subtree (`fullPage={false}`): no 100vh minimum height, copy that no longer suggests reloading the whole app, and a fallback heading demoted to `h2` (instead of `h1`) so it never duplicates the page\'s own `PageHeader` `h1` when this boundary wraps only part of a page.',
       },
     },
   },

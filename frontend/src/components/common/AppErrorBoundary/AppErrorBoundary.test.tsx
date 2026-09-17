@@ -35,6 +35,49 @@ describe('AppErrorBoundary', () => {
     consoleError.mockRestore()
   })
 
+  it('renders the fallback heading as an h1 in the default (fullPage) usage, matching main.tsx replacing the whole page', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    function ThrowingComponent(): never {
+      throw new Error('boom')
+    }
+
+    render(
+      <AppErrorBoundary>
+        <ThrowingComponent />
+      </AppErrorBoundary>,
+    )
+
+    const heading = screen.getByRole('heading', {
+      level: 1,
+      name: /something went wrong/i,
+    })
+    expect(heading.tagName).toBe('H1')
+    consoleError.mockRestore()
+  })
+
+  it('drops the fallback heading to an h2 when fullPage is false, so it never duplicates a page\'s own PageHeader h1', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    function ThrowingComponent(): never {
+      throw new Error('boom')
+    }
+
+    render(
+      <AppErrorBoundary fullPage={false}>
+        <ThrowingComponent />
+      </AppErrorBoundary>,
+    )
+
+    const heading = screen.getByRole('heading', {
+      level: 2,
+      name: /something went wrong/i,
+    })
+    expect(heading.tagName).toBe('H2')
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    consoleError.mockRestore()
+  })
+
   it('defaults to full-page-sized fallback chrome (100vh, whole-app copy)', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 

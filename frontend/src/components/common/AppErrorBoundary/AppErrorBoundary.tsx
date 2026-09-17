@@ -95,7 +95,15 @@ export default class AppErrorBoundary extends Component<
             textAlign: 'center',
           }}
         >
-          <Typography variant="h4" component="h1">
+          {/* Every page already renders its own `<h1>` via PageHeader
+              (components/common/PageHeader/PageHeader.tsx). The default,
+              fullPage usage (main.tsx, wrapping the whole routed app)
+              replaces that page entirely, so `h1` is still correct there —
+              but a fullPage={false} subtree usage renders alongside a
+              page's own `<h1>`, so this must drop to `h2` to keep a single
+              `h1` per document and a sane heading-navigation order for
+              screen readers. */}
+          <Typography variant="h4" component={fullPage ? 'h1' : 'h2'}>
             Something went wrong
           </Typography>
           <Typography color="text.secondary">{fallbackMessage}</Typography>
