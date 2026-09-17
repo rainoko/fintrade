@@ -64,4 +64,33 @@ describe('ScreensPanel', () => {
     expect(screen.getByText('50.0 (Neutral)')).toBeInTheDocument()
     expect(screen.getByText('Ranging')).toBeInTheDocument()
   })
+
+  it('renders a fallback instead of crashing when the API returns null indicator values', () => {
+    // The `Screens`/`WaveScreen` generated types declare stochastic_k/force_index_2ema
+    // as non-optional `number`, but the backend can legitimately serialize them as JSON
+    // `null` when the latest daily bar hasn't settled yet (NaN indicators -> pydantic's
+    // ser_json_inf_nan='null'). Simulate that real-world payload shape here regardless
+    // of what the generated type claims, per this task's fix.
+    const screensWithNullIndicators: Screens = {
+      tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+      impulse: 'BLUE',
+      wave: {
+        stochastic_k: null as unknown as number,
+        force_index_2ema: null as unknown as number,
+        state: 'RANGING',
+      },
+      trigger: { fired: false, reference: 'no_trigger' },
+    }
+
+    expect(() => renderWithTheme(<ScreensPanel screens={screensWithNullIndicators} />)).not.toThrow()
+
+    const stochasticValue = screen.getByText('Stochastic %K').parentElement
+    expect(stochasticValue).toHaveTextContent('—')
+    expect(stochasticValue).not.toHaveTextContent('Oversold')
+    expect(stochasticValue).not.toHaveTextContent('Overbought')
+    expect(stochasticValue).not.toHaveTextContent('Neutral')
+
+    const forceIndexValue = screen.getByText('Force Index (2-EMA)').parentElement
+    expect(forceIndexValue).toHaveTextContent('—')
+  })
 })

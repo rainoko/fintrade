@@ -29,4 +29,25 @@ describe('IndicatorsPanel', () => {
 
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
+
+  it('renders a fallback instead of crashing when the API returns null indicator values', () => {
+    // `Indicators`' fields are declared as non-optional `number`, but the backend can
+    // legitimately serialize them as JSON `null` when the latest daily bar hasn't
+    // settled yet (NaN indicators -> pydantic's ser_json_inf_nan='null'). Simulate that
+    // real-world payload shape here regardless of what the generated type claims, per
+    // this task's fix.
+    const indicatorsWithNulls: Indicators = {
+      ema_13: 226.4,
+      ema_26: 221.7,
+      macd_histogram: 1.82,
+      bull_power: null as unknown as number,
+      bear_power: null as unknown as number,
+    }
+
+    expect(() => renderWithTheme(<IndicatorsPanel indicators={indicatorsWithNulls} />)).not.toThrow()
+
+    expect(screen.getByText('226.40')).toBeInTheDocument()
+    const dashes = screen.getAllByText('—')
+    expect(dashes).toHaveLength(2)
+  })
 })

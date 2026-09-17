@@ -16,6 +16,24 @@ function humanize(value: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+// `wave.stochastic_k`/`wave.force_index_2ema` are typed as non-optional `number`
+// (backend/app/api/schemas.py), but an unsettled latest daily bar (NaN OHLC from the
+// market data provider) makes the backend serialize these as JSON `null` on the wire
+// despite the schema — see docs/tasks/api-stocks-analysis-nullable-indicators.json for
+// the backend-side fix. Treat the generated type as optimistic, not a runtime
+// guarantee, and fall back gracefully rather than crashing, consistent with the
+// nullable-price display pattern used elsewhere (e.g. PositionsTable.tsx's
+// formatNullableCurrency).
+function formatNullableNumber(
+  value: number | null | undefined,
+  options?: Intl.NumberFormatOptions,
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return '—'
+  }
+  return value.toLocaleString(undefined, options)
+}
+
 interface LabeledValueProps {
   label: string
   children: ReactNode
@@ -75,8 +93,16 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
         ? theme.palette.signal.sell
         : theme.palette.signal.hold
 
-  const stochasticNote =
-    wave.stochastic_k < 30 ? 'Oversold' : wave.stochastic_k > 70 ? 'Overbought' : 'Neutral'
+  const stochasticKValue: number | null | undefined = wave.stochastic_k
+  const stochasticIsKnown =
+    stochasticKValue !== null && stochasticKValue !== undefined && !Number.isNaN(stochasticKValue)
+  const stochasticNote = !stochasticIsKnown
+    ? null
+    : stochasticKValue < 30
+      ? 'Oversold'
+      : stochasticKValue > 70
+        ? 'Overbought'
+        : 'Neutral'
 
   return (
     <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
@@ -103,10 +129,14 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
 
       <ScreenSection title="Wave (Screen 2)">
         <LabeledValue label="Stochastic %K">
-          {wave.stochastic_k.toFixed(1)} ({stochasticNote})
+          {formatNullableNumber(stochasticKValue, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })}
+          {stochasticNote ? ` (${stochasticNote})` : ''}
         </LabeledValue>
         <LabeledValue label="Force Index (2-EMA)">
-          {wave.force_index_2ema.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+          {formatNullableNumber(wave.force_index_2ema, { maximumFractionDigits: 1 })}
         </LabeledValue>
         <LabeledValue label="State">{humanize(wave.state)}</LabeledValue>
       </ScreenSection>
