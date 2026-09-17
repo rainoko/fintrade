@@ -27,5 +27,11 @@
       "decision": "Duplicated the five @fontsource/inter weight imports (300/400/500/600/700) directly in .storybook/preview.tsx rather than factoring a shared entry module imported by both main.tsx and preview.tsx.",
       "rationale": "The checklist item itself offers a shared-entry module as a parenthetical alternative ('or a shared entry both main.tsx and preview.tsx import'). A shared module would need to live somewhere both the Vite app build and the Storybook build resolve identically (e.g. src/fonts.ts), which is a small structural addition for two five-line import blocks with an already-explanatory comment in each. Duplicating the same five CSS imports (with a comment pointing at main.tsx as the source of truth for the weight rationale) keeps the fix minimal and consistent with how main.tsx already documents its own weight choice, and avoids introducing a new shared module that touches both the app entry point and the Storybook config for a one-time font registration. Verified the fix with `npm run build-storybook` and confirmed all five Inter weights (300/400/500/600/700, per-subset) are present in storybook-static/assets/*.css, and that document.fonts would now include Inter faces alongside Storybook's own Nunito Sans."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-scaffold-followups-followups",
+    "pr_number": 80,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/80",
+    "pushed_at": "2026-09-17T05:34:54Z"
+  }
 }
