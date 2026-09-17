@@ -411,8 +411,8 @@
       "id": "frontend-portfolio-page-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-portfolio-page-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-portfolio-page-followups.json"
     },
     {
       "id": "frontend-portfolio-risk-panel",

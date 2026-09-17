@@ -1,0 +1,46 @@
+{
+  "id": "frontend-portfolio-page-followups",
+  "title": "Frontend Portfolio page — non-blocking review follow-ups",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-portfolio-page"],
+  "references": [
+    "docs/tasks/done/frontend-portfolio-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/65",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #65 (frontend-portfolio-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PositionsTable.tsx's handleConfirmDelete has a defensive `if (!pendingDelete) return` guard (needed only so TypeScript narrows `pendingDelete` before reading `.id`) that's unreachable in practice — ConfirmDialog's `onConfirm` only fires while `pendingDelete !== null` is what keeps it open. This is the one uncovered branch in an otherwise ~99.5%-covered PR (vitest coverage report: PositionsTable.tsx line 87). Not worth a behavior change, but either add a direct unit test exercising it (e.g. calling the handler with no pending delete via a more invasive test) or leave a short comment noting it's intentionally-defensive dead code for the type-narrowing, so a future coverage-gap sweep doesn't re-flag it as a mystery.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the `if (!pendingDelete) return` guard in PositionsTable.tsx's handleConfirmDelete as intentionally-defensive dead code with an explanatory comment, and added a `/* v8 ignore next 3 */` directive over the guard so it's excluded from the branch-coverage denominator, rather than writing a unit test that reaches it.",
+      "rationale": "ConfirmDialog's onConfirm only fires while the dialog is open, and it's only open while pendingDelete !== null (open={pendingDelete !== null}), so the guard is genuinely unreachable through any real UI interaction — it exists solely for TypeScript's control-flow narrowing of pendingDelete from PositionOut | null before .id is read. A test that reaches it would have to call the internal handler directly or otherwise manipulate component-internal state outside the public props/DOM surface (e.g. via a test-only export or reaching into React internals), which tests nothing a user could ever trigger and would only exist to satisfy a coverage percentage — the exact kind of contrived test docs/architecture/Testing.md's 90% gate isn't meant to encourage. The v8 ignore comment keeps the coverage report honest (this line no longer shows as a real gap) without inventing a fake code path. Rejected alternative: a unit test rendering PositionsTable and invoking the internal onConfirm callback with no prior delete-button click — rejected because it can't be done through RTL's public render/interaction API without reaching past the component boundary, and doing so would make the test brittle to internal refactors (e.g. renaming pendingDelete) for zero behavioral coverage gained."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-page-followups",
+    "pr_number": 76,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/76",
+    "pushed_at": "2026-09-17T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T04:15:55Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/76",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Traced the `if (!pendingDelete) return` guard independently: ConfirmDialog's onConfirm is only wired to the Confirm button's onClick, which only exists in the DOM while MUI Dialog's `open` prop is true, and PositionsTable passes `open={pendingDelete !== null}` — so the guard is genuinely unreachable through any real render/interaction surface, not a papered-over gap. `/* v8 ignore next 3 */` is scoped to exactly the 3 guard lines (94-96), confirmed by PositionsTable.tsx no longer appearing in the coverage report's uncovered-lines list at all. Full suite: `npm run test:coverage` 33 files/179 tests pass, 99.7% lines/99.59% branch/100% funcs/99.7% stmts overall (only remaining gap, PriceChart.tsx:112, is untouched by this diff and pre-existing). `npm run lint` and `npm run build` clean. Backend suite unaffected (no backend files touched) and passes (488 tests, 99.84% coverage). No API/schema change, no new/changed components requiring placement review, no UI behavior change requiring a browser walkthrough. Decision entry present with rationale per CLAUDE.md. No blocking or non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T04:19:10Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `npm run test:coverage` (33 files/179 tests pass, 99.7%/99.59%/100%/99.7% lines/branch/funcs/stmts — PositionsTable.tsx absent from the uncovered list, matching pr-reviewer exactly) plus `npm run lint` and `npm run build`, all clean. Traced ConfirmDialog.tsx myself: its Confirm button (wired to onConfirm) only exists inside MUI's <Dialog open={open}>, and PositionsTable passes open={pendingDelete !== null}, so the `if (!pendingDelete) return` guard at PositionsTable.tsx:94-96 is genuinely unreachable via any UI interaction, confirming it's dead code for type-narrowing only. `/* v8 ignore next 3 */` at line 93 covers exactly those 3 guard lines, not the following mutate/setPendingDelete calls. Skimmed the full diff (PositionsTable.tsx comment+ignore directive, task JSON move to done/, index.json state/path sync) — no other changes."
+  }
+}
