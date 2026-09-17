@@ -3,7 +3,7 @@
   "title": "Follow-up: formatCurrency's system-default locale makes its new unit tests implicitly locale-dependent (PR #78)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-portfolio-risk-panel-followups-followups"],
   "references": [
     "docs/tasks/frontend-portfolio-risk-panel-followups-followups.json#review",
@@ -15,7 +15,15 @@
   "checklist": [
     {
       "step": "PR #78 added direct unit tests for `formatCurrency` (`frontend/src/utils/format.ts`) asserting exact strings like '$1,234.50'. `formatCurrency` implements this via `value.toLocaleString(undefined, {style:'currency', currency:'USD', ...})` -- passing `undefined` as the locale argument means the grouping separator, decimal separator, and currency symbol placement all resolve from the JS runtime's default locale, not a pinned one. The new tests pass in the current dev-container/CI environment (Node's default locale resolves to en-US), but the assertions are implicitly locale-dependent: a future CI image, a contributor's differently-configured machine, or a Node upgrade that changes ICU default-locale resolution could change the rendered separators and break these tests (or worse, silently change what real users see, if the deployed server-rendering/build environment's default locale differs from a developer's). Consider pinning the locale explicitly (e.g. `toLocaleString('en-US', ...)`) in `formatCurrency` itself so both the production behavior and the new tests are deterministic regardless of runtime locale, rather than relying on the environment's default happening to be US English.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T07:28:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned `formatCurrency`'s `toLocaleString` call to the `'en-US'` locale explicitly, per the checklist item's own suggested fix, rather than mocking/setting the locale only in the test file.",
+      "rationale": "`formatCurrency` is already a USD-only formatter (hardcoded `currency: 'USD'`), so there's no legitimate case where its grouping/decimal-separator formatting should vary by runtime locale — pinning the locale in the implementation fixes both the production behavior (real users could otherwise see non-US separators depending on the deployed server/build environment's default locale) and the test assertions in one change. A test-only fix (e.g. mocking `Intl`/setting `process.env.LANG` per-test) was considered and rejected: it would leave the actual runtime behavior of `formatCurrency` still locale-dependent, address only the symptom (flaky tests) and not the underlying issue the finding described. Left `formatNullableNumber` (also `toLocaleString(undefined, ...)`) unchanged: the checklist item names `formatCurrency` specifically, and `formatNullableNumber` genuinely needs the caller-supplied `undefined` locale today since it's used generically (not USD-specific) with caller-supplied `Intl.NumberFormatOptions` across several non-currency fields, so there's no single locale it would be correct to hardcode the way `'en-US'` is correct for a USD-only formatter. Its own grouping-separator test is technically subject to the same latent locale-dependence this task flags for `formatCurrency`, but a PR reviewer already had the opportunity to flag that as a further follow-up on the same PR that introduced it and didn't -- not respawning another link in this followups chain for a not-actually-newly-discovered, already-low-severity nit, per this task's own framing as the last item of real value worth doing here."
     }
   ]
 }

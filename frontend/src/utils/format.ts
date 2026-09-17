@@ -99,9 +99,22 @@ export function formatNullableNumber(
  * `current_price`, which is null when a price fetch failed per API.md) wrap
  * this rather than duplicating it, the same convention `formatNullableNumber`
  * above establishes for numbers.
+ *
+ * The locale is pinned to `'en-US'` rather than passed as `undefined`
+ * (which `formatNullableNumber` above still does): this is a USD-only
+ * formatter (a hardcoded `currency: 'USD'`), so leaving the locale to
+ * resolve from the runtime's default would make the grouping/decimal
+ * separators and currency-symbol placement depend on whatever locale the
+ * Node/browser environment happens to default to — deterministic today
+ * only because the dev-container/CI image's default resolves to en-US, but
+ * not guaranteed to stay that way across a future CI image or Node/ICU
+ * upgrade, and not something real users' browsers are guaranteed to match
+ * either. Pinning it makes both the production output and this file's unit
+ * tests deterministic regardless of runtime locale (see
+ * frontend-portfolio-risk-panel-followups-followups-followups.json).
  */
 export function formatCurrency(value: number): string {
-  return value.toLocaleString(undefined, {
+  return value.toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
