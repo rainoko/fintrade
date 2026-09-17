@@ -3,7 +3,7 @@
   "title": "Frontend API client — non-blocking review follow-ups",
   "area": "frontend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-api-client"],
   "references": [
     "docs/tasks/frontend-api-client.json#review",
@@ -43,5 +43,11 @@
       "decision": "Root-caused the empty text-reporter table to Vitest's std-env `isAgent` detection (true whenever the harness running the command is an AI coding agent, e.g. this dev container under Claude Code): when true, Vitest silently merges `skipFull: true` into the `text` reporter's options unless the reporter config already specifies `skipFull` explicitly, which hides every 100%-covered file/directory row — including the root 'All files' summary row once the whole suite reaches 100%, leaving a table with only a header, a separator, and a footer. Fixed by changing vite.config.ts's `coverage.reporter` entry for 'text' from the bare string to `['text', { skipFull: false }]`, which overrides that default regardless of who invokes the command. Verified by reproducing the empty table (temporarily excluding the one sub-100%-covered file to force whole-suite 100%, matching the state PR #63 was reviewed in) both before and after the fix.",
       "rationale": "This was the least obvious of the three findings, since the underlying coverage data was already correct (per the task's own note) and the config looked unremarkable — the failure only reproduces when (a) the invoking process is agent-detected AND (b) the suite happens to be at or near 100% coverage everywhere, which is exactly the state frontend-api-client's mostly-data-layer PR was in when pr-reviewer (itself an agent) first noticed it. Explicitly setting `skipFull: false` is preferred over pinning std-env's agent detection off (there's no supported way to do that from vite.config.ts) or adding a `text-summary` reporter (which Vitest already auto-adds for agents but doesn't solve the by-eye per-file table use case the finding was about)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-api-client-followups",
+    "pr_number": 85,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/85",
+    "pushed_at": "2026-09-17T07:01:54Z"
+  }
 }
