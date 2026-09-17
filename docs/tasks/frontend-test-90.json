@@ -41,5 +41,11 @@
       "decision": "Closed StockDetailPage.tsx's branch-coverage gap (88.88% \u2192 100%) by adding a test that renders it under a route with no `:ticker` param, asserting the `ticker || 'Stock Detail'` header fallback and that useStockAnalysis's `enabled: ticker.length > 0` guard skips the query (no loading/error UI renders). Left two other pre-existing sub-90%-file lines uncovered on purpose rather than fake-covering them: PositionsTable.tsx:87 (`if (!pendingDelete) return` in handleConfirmDelete) and PriceChart.tsx:112 (`if (finiteBars.length === 0) return` in the chart-creation effect) are both TypeScript-narrowing guards that are provably unreachable through any real user interaction \u2014 MUI's Dialog unmounts its Confirm button while closed (so handleConfirmDelete can only ever fire with pendingDelete already set), and PriceChart's own `hasBars` (identical filter) gates whether the chart container even renders, so the effect's `!container` branch always fires first when there are zero finite bars. Writing a test to hit either would mean fabricating an app state that can't occur, which Testing.md's 'What 90% Coverage Does Not Guarantee' and this skill's step 4 both flag as not meeting the bar in spirit. Both files (94.44%/92.85% and 97.43%/95.83% resp.) and the suite overall (99.43%/99.21%/100%/99.41%) already clear every dimension of the 90% gate by a wide margin, so no coverage shortfall remains that these two lines would need to close.",
       "rationale": "Alternative considered and rejected: deleting the two guards to eliminate the branches entirely. Rejected because they're not dead code in the sense of no code path ever reaching the surrounding function \u2014 they're required for TypeScript's null-narrowing given `useParams`/local nullable state typing, and removing them would trade a harmless always-false guard for a runtime crash risk if the surrounding component's rendering logic is ever refactored in a way that breaks the current invariant. Keeping the defensive guard (undocumented previously) plus this decision entry is safer than deleting real safety code just to chase a per-file number the gate doesn't actually require."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-test-90",
+    "pr_number": 71,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/71",
+    "pushed_at": "2026-09-17T02:07:24Z"
+  }
 }
