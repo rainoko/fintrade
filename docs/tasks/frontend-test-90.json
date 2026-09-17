@@ -3,7 +3,7 @@
   "title": "Frontend: close coverage to 90% gate, verify Storybook + no-network invariants",
   "area": "frontend/testing",
   "skill": "test-90",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-dashboard-page",
     "frontend-stock-history-chart"
@@ -15,23 +15,31 @@
   "checklist": [
     {
       "step": "Run `npm run test:coverage` (vitest --coverage) against the full app; identify every file below the 90% lines/branches/functions/statements threshold from docs/architecture/Testing.md.",
-      "done": false
+      "done": true
     },
     {
       "step": "Write the missing tests to close each gap \u2014 prefer testing real behavior (an interaction, a rendered error state) over trivial assertions that only exist to move a number, per Testing.md's 'What 90% Coverage Does Not Guarantee' section.",
-      "done": false
+      "done": true
     },
     {
       "step": "Grep the whole frontend/ test suite for any accidental real network call (a bare fetch()/axios call not going through MSW, or a test missing its MSW handler) \u2014 fix any found.",
-      "done": false
+      "done": true
     },
     {
       "step": "Confirm `npm run build-storybook` still succeeds and every components/common/ component has both a test and a story (re-verify frontend-common-components' bar holds after all feature work landed, since a later task could have quietly skipped it).",
-      "done": false
+      "done": true
     },
     {
       "step": "Confirm `npm run build` (production build) succeeds with no TypeScript errors.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed StockDetailPage.tsx's branch-coverage gap (88.88% \u2192 100%) by adding a test that renders it under a route with no `:ticker` param, asserting the `ticker || 'Stock Detail'` header fallback and that useStockAnalysis's `enabled: ticker.length > 0` guard skips the query (no loading/error UI renders). Left two other pre-existing sub-90%-file lines uncovered on purpose rather than fake-covering them: PositionsTable.tsx:87 (`if (!pendingDelete) return` in handleConfirmDelete) and PriceChart.tsx:112 (`if (finiteBars.length === 0) return` in the chart-creation effect) are both TypeScript-narrowing guards that are provably unreachable through any real user interaction \u2014 MUI's Dialog unmounts its Confirm button while closed (so handleConfirmDelete can only ever fire with pendingDelete already set), and PriceChart's own `hasBars` (identical filter) gates whether the chart container even renders, so the effect's `!container` branch always fires first when there are zero finite bars. Writing a test to hit either would mean fabricating an app state that can't occur, which Testing.md's 'What 90% Coverage Does Not Guarantee' and this skill's step 4 both flag as not meeting the bar in spirit. Both files (94.44%/92.85% and 97.43%/95.83% resp.) and the suite overall (99.43%/99.21%/100%/99.41%) already clear every dimension of the 90% gate by a wide margin, so no coverage shortfall remains that these two lines would need to close.",
+      "rationale": "Alternative considered and rejected: deleting the two guards to eliminate the branches entirely. Rejected because they're not dead code in the sense of no code path ever reaching the surrounding function \u2014 they're required for TypeScript's null-narrowing given `useParams`/local nullable state typing, and removing them would trade a harmless always-false guard for a runtime crash risk if the surrounding component's rendering logic is ever refactored in a way that breaks the current invariant. Keeping the defensive guard (undocumented previously) plus this decision entry is safer than deleting real safety code just to chase a per-file number the gate doesn't actually require."
     }
   ]
 }
