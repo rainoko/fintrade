@@ -26,6 +26,7 @@ backend/
       stochastic.py
       elder_ray.py
       autoenvelope.py
+      _validation.py   # shared package-internal helpers (e.g. validate_period), no I/O
     signals/
       triple_screen.py   # Screen 1/2/3 evaluation
       impulse.py          # Impulse System gate

@@ -1,0 +1,38 @@
+{
+  "id": "indicator-stochastic-followups-followups",
+  "title": "Indicator: Stochastic follow-ups — non-blocking review follow-ups",
+  "area": "backend/indicators",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["indicator-stochastic-followups"],
+  "references": [
+    "docs/tasks/indicator-stochastic-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/89",
+    "docs/architecture/Backend.md#2-module-layout"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #89 (indicator-stochastic-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #89 added a new shared app/indicators/_validation.py module (validate_period helper used by ema.py and stochastic.py), but docs/architecture/Backend.md §2's module layout listing under indicators/ still only enumerates one-module-per-indicator (ema.py, macd.py, force_index.py, stochastic.py, elder_ray.py, ...) and doesn't mention this shared internal helper module. The placement itself is fine (pure function, no I/O, package-internal via leading underscore), but the doc is now stale relative to the code. Update Backend.md §2's layout listing to include app/indicators/_validation.py.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-stochastic-followups-followups",
+    "pr_number": 90,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/90",
+    "pushed_at": "2026-09-17T17:47:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T17:48:12Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/90",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs-only change (adds app/indicators/_validation.py to Backend.md §2's module layout listing). Verified the addition against the actual file: _validation.py exists, exports validate_period(name, value) as a pure function (no I/O), used by ema.py and stochastic.py, matching the doc's description exactly. Entry follows the existing listing's format/comment style. Backend test suite: 493 passed, 99.84% coverage (well above the 90% gate), no regression. Lint/code-review skill/browser walkthrough/architecture-review skipped as not applicable: no Python/TS source changed (lint/code-review would have nothing to check beyond what was already manually verified above), no UI surface (nothing to click through), and no new module/dependency/layer introduced (architecture-review not triggered). No stale pr_decision was present to clear. No non-blocking findings — no follow-up task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T17:50:12Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend suite myself: 493 passed, 99.84% coverage, matching pr-reviewer's reported numbers exactly. Read git diff origin/main...HEAD directly: only change is the single _validation.py line added to Backend.md §2's module layout listing plus expected task-board bookkeeping (file move to done/, index.json mirror) — no application code touched. Independently confirmed app/indicators/_validation.py exists, exports validate_period(name, value) as a pure no-I/O function, and is actually imported/used by ema.py and stochastic.py, matching the doc line's claim exactly."
+  }
+}
