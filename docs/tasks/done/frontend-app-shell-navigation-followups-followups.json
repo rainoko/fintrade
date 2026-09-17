@@ -3,7 +3,7 @@
   "title": "Follow-up: AppErrorBoundary's fallback UI bakes in a full-page (100vh) layout assumption (PR #83)",
   "area": "frontend/layout",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-app-shell-navigation-followups"],
   "references": [
     "docs/tasks/frontend-app-shell-navigation-followups.json#review",
@@ -31,5 +31,18 @@
     "pr_number": 84,
     "pr_url": "https://github.com/rainoko/fintrade/pull/84",
     "pushed_at": "2026-09-17T06:50:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T06:47:33Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/84",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Fallback heading in AppErrorBoundary is hardcoded to `component=\"h1\"` regardless of the new `fullPage` prop. Every page already renders its own `<h1>` via PageHeader.tsx, so a future `fullPage={false}` subtree usage inside a page would produce a second `<h1>`, an invalid/ambiguous document outline and a screen-reader heading-navigation regression. Not currently triggered (fullPage=false has no real app consumer yet, only Storybook/tests), so non-blocking; tracked as a follow-up task.",
+        "file": "frontend/src/components/common/AppErrorBoundary/AppErrorBoundary.tsx",
+        "line": 98
+      }
+    ],
+    "notes": "Small, well-scoped follow-up to PR #83's review finding. Backend suite: 488 passed, 99.84% coverage (unaffected by this PR, run per check-coverage). Frontend suite: 196 passed, 99.7%/99.62% line/branch coverage (well above the 90% gate). `npm run lint` clean, `npm run build` (tsc -b + vite build) clean, `npm run build-storybook` clean. code-review skill run against the diff found one non-blocking issue (see comments). Placement check (step 7a): AppErrorBoundary was already correctly in components/common/ per PR #83's review; this PR only adds two optional, fully generic props (`fullPage?: boolean`, `message?: ReactNode`) and doesn't introduce any domain concept, so the common/ placement remains correct — no placement finding. Browser walkthrough: ran both Storybook stories (CaughtError and the new CaughtErrorSubtree) in a real Chromium browser (Storybook dev server + Playwright, since no MCP browser tool was available this session) — confirmed the default (fullPage=true) fallback fills the viewport with 'reload the app' copy, the fullPage=false fallback is bounded to its 300px-tall container with 'rendering this section' copy and no 'reload the app' mention, and the retry button works in both without any additional console errors/network failures beyond the story's own intentional simulated throw (which the component logs via console.error by design, matching existing test expectations). Decision record in the task's `decisions` array is thorough and adequately documents the fullPage/message API choice and rejected alternatives — no undocumented 'decide X' checklist items. OpenAPI snapshot not applicable (no backend route/schema touched)."
   }
 }
