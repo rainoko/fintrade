@@ -565,7 +565,7 @@
       "id": "skill-static-verify",
       "area": "tooling",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/skill-static-verify.json"
     },
     {

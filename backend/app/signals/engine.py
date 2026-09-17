@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 import pandas as pd
 
-from app.indicators.ema import ema
 from app.indicators.elder_ray import bear_power as elder_bear_power
 from app.indicators.elder_ray import bull_power as elder_bull_power
+from app.indicators.ema import ema
 from app.indicators.macd import macd_components
 from app.signals.confidence import (
     WEIGHTS,
@@ -33,9 +34,9 @@ _VOLUME_AVERAGE_WINDOW = 20
 
 @dataclass
 class SignalResult:
-    signal: str  # 'BUY' | 'SELL' | 'HOLD'
+    signal: Literal["BUY", "SELL", "HOLD"]
     confidence: int
-    confidence_band: str
+    confidence_band: Literal["Low", "Medium", "High"]
     breakdown: list[ConfidenceComponent]
     screens: dict = field(default_factory=dict)
     indicators: dict = field(default_factory=dict)
@@ -181,7 +182,7 @@ def _wave_lookback(daily_ohlcv: pd.DataFrame, tide: str) -> tuple[dict, bool, bo
 
 def _determine_signal(
     tide: str, impulse: str, wave_showed_pullback: bool, wave_showed_rally: bool, trigger_fired: bool
-) -> str:
+) -> Literal["BUY", "SELL", "HOLD"]:
     """BUY / SELL / HOLD from the four Screen/gate inputs, per docs/Analyse.md §5's rules:
 
     - BUY: Tide BULLISH, Impulse != RED (the gate), Wave shows/showed an oversold pullback,

@@ -23,7 +23,7 @@ You're given a task id and its `git.pr_number` (or PR URL).
 1. Look up the task's current file location in `docs/tasks/index.json`'s `path` field for its id — **never assume `docs/tasks/<id>.json`**; that's wrong for any task already `done` (it lives at `docs/tasks/done/<id>.json`). Read the task JSON at that path — `checklist`, `references`, `area`, `skill`, `decisions` — so you know what this PR is supposed to do and what judgment calls were already made and why.
 2. `gh pr checkout <pr_number>`.
 3. Run the project test suite with coverage (same commands as the `check-coverage` skill) against the checked-out branch. A regression, or a drop below the 90% gate, is review-blocking on its own.
-4. Run static analysis / linting — check `backend/pyproject.toml` (and the frontend's config, once it exists) for whatever's actually configured (ruff, mypy, eslint, tsc, ...) and run it; don't invent tool config that isn't there, but don't skip what is. A lint or type error is review-blocking.
+4. Run static analysis / linting: load and run the `static-verify` skill (backend ruff + mypy, frontend eslint + tsc). A lint or type error is review-blocking.
 5. Load and run the `code-review` skill against the PR's diff for correctness bugs and reuse/simplification/efficiency issues.
 6. If `area` is `backend/signals` or `backend/portfolio`, or `skill` is `verify-elder-signal`, also load `verify-elder-signal` and check the change against `docs/Analyse.md`.
 7. If the change adds a new module/dependency/layer, also load `architecture-review` and check it against `docs/Architecture.md`.

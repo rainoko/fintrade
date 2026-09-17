@@ -99,6 +99,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - `add-frontend-feature` — add/change a frontend page, component, or hook, with an explicit common/-vs-feature-specific placement decision and Storybook/test coverage for anything reusable.
 - `check-coverage` — run backend + frontend coverage together and report against the 90% gate.
 - `test-90` — actively close coverage gaps (the write-tests counterpart to `check-coverage`).
+- `static-verify` — run backend (ruff + mypy) and frontend (eslint + tsc) static analysis together and report pass/fail with findings grouped by file.
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
 - `architecture-review` — review code structure against `docs/Architecture.md` and its sub-docs.
 - `orchestrate-tasks` — run the whole task board autonomously: dispatch `task-worker`, `pr-reviewer`, `pr-decision`, and `pr-merger` in a loop (branch → PR → review → independent double-check → merge) until the board is done or genuinely waiting on user input.

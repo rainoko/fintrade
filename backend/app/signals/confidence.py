@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 
@@ -58,7 +59,7 @@ def compute_confidence(components: list[ConfidenceComponent]) -> int:
     return round(total * 100)
 
 
-def confidence_band(confidence: int) -> str:
+def confidence_band(confidence: int) -> Literal["Low", "Medium", "High"]:
     """'Low' (<40) | 'Medium' (40-70) | 'High' (>70) (docs/Analyse.md §6).
 
     Both band edges (40 and 70) are inclusive to "Medium" per the doc's own "40–70% =
