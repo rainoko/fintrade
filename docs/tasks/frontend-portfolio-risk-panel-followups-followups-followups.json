@@ -1,0 +1,21 @@
+{
+  "id": "frontend-portfolio-risk-panel-followups-followups-followups",
+  "title": "Follow-up: formatCurrency's system-default locale makes its new unit tests implicitly locale-dependent (PR #78)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-portfolio-risk-panel-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-portfolio-risk-panel-followups-followups.json#review",
+    "frontend/src/utils/format.ts",
+    "frontend/src/utils/format.test.ts",
+    "https://github.com/rainoko/fintrade/pull/78"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #78 (frontend-portfolio-risk-panel-followups-followups), tracked so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #78 added direct unit tests for `formatCurrency` (`frontend/src/utils/format.ts`) asserting exact strings like '$1,234.50'. `formatCurrency` implements this via `value.toLocaleString(undefined, {style:'currency', currency:'USD', ...})` -- passing `undefined` as the locale argument means the grouping separator, decimal separator, and currency symbol placement all resolve from the JS runtime's default locale, not a pinned one. The new tests pass in the current dev-container/CI environment (Node's default locale resolves to en-US), but the assertions are implicitly locale-dependent: a future CI image, a contributor's differently-configured machine, or a Node upgrade that changes ICU default-locale resolution could change the rendered separators and break these tests (or worse, silently change what real users see, if the deployed server-rendering/build environment's default locale differs from a developer's). Consider pinning the locale explicitly (e.g. `toLocaleString('en-US', ...)`) in `formatCurrency` itself so both the production behavior and the new tests are deterministic regardless of runtime locale, rather than relying on the environment's default happening to be US English.",
+      "done": false
+    }
+  ]
+}

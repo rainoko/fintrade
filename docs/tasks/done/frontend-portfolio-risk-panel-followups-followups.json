@@ -1,0 +1,39 @@
+{
+  "id": "frontend-portfolio-risk-panel-followups-followups",
+  "title": "Follow-ups: Frontend portfolio risk panel follow-ups (PR #77) — further non-blocking review follow-up",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-portfolio-risk-panel-followups"],
+  "references": [
+    "docs/tasks/frontend-portfolio-risk-panel-followups.json#review",
+    "frontend/src/utils/format.ts",
+    "https://github.com/rainoko/fintrade/pull/77"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #77 (frontend-portfolio-risk-panel-followups), tracked so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #77's new `formatCurrency` (`frontend/src/utils/format.ts`), now consumed by RiskPanel.tsx/PositionsTable.tsx/PortfolioPage.tsx, has no direct unit test in `utils/format.test.ts` — unlike its sibling `formatNullableNumber`, which has explicit test cases (plain number, null, undefined, NaN, negative-with-grouping). `formatCurrency` is currently only exercised indirectly, via component render tests that happen to use values under 1000 (e.g. RiskPanel.test.tsx's/PositionsTable.test.tsx's $150/$300 fixtures), so its thousands-separator behavior for values >= 1000 — the entire reason the richer `toLocaleString` implementation was chosen over the plainer `$${value.toFixed(2)}` per this task's decisions entry — has no direct assertion anywhere in the suite (verified manually via a real browser walkthrough for this review: a $1,234.50 protective_stop correctly rendered as \"$1,234.50\", but that verification doesn't persist as a regression test). Add a `describe('formatCurrency', ...)` block to format.test.ts mirroring formatNullableNumber's style: a plain sub-1000 value, a value >= 1000 (asserting the comma), and a zero value.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel-followups-followups",
+    "pr_number": 78,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/78",
+    "pushed_at": "2026-09-17T04:46:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T04:52:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/78",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: formatCurrency uses toLocaleString(undefined, ...), so the new unit tests' exact-string assertions (e.g. '$1,234.50') are implicitly dependent on the runtime's default locale rather than a pinned one. Passes in the current environment; tracked as a follow-up rather than blocking since it's pre-existing behavior in format.ts, not introduced by this diff.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 83
+      }
+    ],
+    "notes": "Test-only change: confirmed via `git diff main...HEAD --name-only` that only frontend/src/utils/format.test.ts and task-board bookkeeping (this task's JSON + index.json) changed -- no application logic touched. Verified the three new assertions against the real formatCurrency implementation (toLocaleString(undefined, {style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2})): $150 -> '$150.00', $1,234.50 -> '$1,234.50' (thousands separator), $0 -> '$0.00', all matching what's asserted. Frontend: npm run test:coverage (34 files, 186 tests passed; 99.71%/99.61%/100%/99.7%, well above the 90% gate), npm run lint (clean), npm run build (tsc -b && vite build succeeded). Backend re-run for completeness (unaffected by this diff): pytest --cov=app (488 passed, 99.84%). Ran the code-review skill against the diff: no blocking findings; one non-blocking observation (locale-dependence of toLocaleString(undefined, ...), pre-existing in format.ts) filed as a follow-up task rather than left only as a PR comment. No API/schema changes, so no OpenAPI snapshot concern. No new/changed components in this diff (test file only), so the frontend component-placement check (step 7a) doesn't apply. No 'decide X' checklist phrasing here (the parent checklist item was a concrete implementation instruction, already marked done), so no decisions-entry gap. No UI surface touched (test file only, no component/page/endpoint changed), so the browser walkthrough was skipped -- noted explicitly per process rather than silently omitted."
+  }
+}
