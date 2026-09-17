@@ -38,7 +38,17 @@
 // duplicated the null-check PositionsTable.tsx already applied on top of
 // `formatCurrency`. Both are now the same one helper below rather than two
 // independent 'render a nullable price' implementations that could silently
-// drift apart — see this task's `decisions` entry.
+// drift apart — see this task's `decisions` entry. Note that this is not a
+// no-op for PositionsGlanceTable.tsx specifically: unlike PositionsTable.tsx
+// (already wrapping the shared `formatCurrency`) and DashboardPage.tsx
+// (already using `toLocaleString`), PositionsGlanceTable.tsx's own prior
+// `$${value.toFixed(2)}` never applied thousands separators, so any position
+// priced at $1,000+ now renders e.g. `$1,234.50` instead of the old
+// `$1234.50` — an intentional output change per the same "richer formatting
+// is strictly better" rationale above, not a bug (see
+// frontend-dashboard-page-followups-followups.json's `decisions` entry,
+// which also adds the >=$1,000 regression-test fixture this consolidation
+// was previously missing).
 
 /**
  * Humanizes a snake_case domain value (e.g. an Elder Triple Screen field or
