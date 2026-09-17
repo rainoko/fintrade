@@ -26,5 +26,11 @@
       "decision": "Added a >=$1,000-price fixture (`highPricedPosition`, `current_price: 1234.5`) to PositionsGlanceTable.test.tsx with an assertion that it renders as `$1,234.50` (thousands separator present), alongside the existing $228.90 fixture. Also extended `formatNullableCurrency`'s file-header comment in utils/format.ts to explicitly state that PositionsGlanceTable.tsx's rendered output changes for 4+-digit prices (old `$${value.toFixed(2)}` had no thousands separator; the new shared helper does), rather than only implying it via the general formatCurrency-is-strictly-better rationale already present.",
       "rationale": "PR #81's review already correctly identified and accepted this as an intentional, desirable change (matching the PR #77 precedent), not a bug — so the fix here is purely closing the two traceability gaps the review flagged, not reconsidering the formatting choice itself. A new fixture at exactly $1,000+ (chosen as 1234.50, a plausible real per-share price, e.g. BRK.A-style) is the minimal regression test that would have caught this specific change before it shipped, given the existing suite's only priced fixture was $228.90 (3 digits, no separator to lose). Rejected changing the existing $228.90 fixture's value instead of adding a new one: that would remove test coverage for the 3-digit case while gaining 4-digit coverage, when both are worth asserting independently since they exercise different `toLocaleString` formatting paths. Rejected only updating the code comment without adding a test (or vice versa): the checklist item explicitly asks for both a fixture/assertion and a decision record, and the two gaps are independent (one is runtime regression protection, the other is documentation for future readers of utils/format.ts), so both were done."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-page-followups-followups",
+    "pr_number": 82,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/82",
+    "pushed_at": "2026-09-17T06:10:48Z"
+  }
 }
