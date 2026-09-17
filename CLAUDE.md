@@ -102,6 +102,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
 - `architecture-review` — review code structure against `docs/Architecture.md` and its sub-docs.
 - `orchestrate-tasks` — run the whole task board autonomously: dispatch `task-worker`, `pr-reviewer`, `pr-decision`, and `pr-merger` in a loop (branch → PR → review → independent double-check → merge) until the board is done or genuinely waiting on user input.
+- `revalidate-done-tasks` — periodically re-check that tasks already marked `done` are still true against the current repo state: spot-check referenced files/functions still exist, run the full test/coverage suites once as shared evidence, and flag (never silently fix) any task whose done-claim no longer holds.
 
 ## Agents (`.claude/agents/`)
 
