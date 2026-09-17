@@ -593,8 +593,15 @@
       "id": "dev-makefile-followups",
       "area": "infra",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/dev-makefile-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/dev-makefile-followups.json"
+    },
+    {
+      "id": "dev-makefile-followups-followups",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/dev-makefile-followups-followups.json"
     }
   ]
 }

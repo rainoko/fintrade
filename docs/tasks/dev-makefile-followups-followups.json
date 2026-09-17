@@ -1,0 +1,21 @@
+{
+  "id": "dev-makefile-followups-followups",
+  "title": "Root Makefile -- non-blocking review follow-up from PR #97",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["dev-makefile-followups"],
+  "references": [
+    "docs/tasks/dev-makefile-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/97"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #97 (dev-makefile-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`make dev`'s fail-fast fix relies on bash's `wait -n <pids...>` with an explicit pid list, which needs bash >= 5.1 (this repo's devcontainer ships 5.3.9, confirmed fine). The new `SHELL := bash` line resolves `bash` by searching `PATH` (GNU Make's documented behavior for a non-absolute `SHELL` value), not a pinned/absolute path -- so outside the documented devcontainer workflow (e.g. a contributor running `make dev` directly on macOS, which ships an ancient bash 3.2.57 as `/bin/bash` by default for licensing reasons and lacks `wait -n` entirely), the recipe would fail with a bash syntax/option error rather than the old hang, and with a less obvious message than the venv/npm setup errors the other targets already print. Not blocking: the project's documented and supported workflow is the devcontainer (`.devcontainer/post-create.sh` guarantees bash 5.x), and `make backend` already gates on devcontainer-style setup with an explicit error message when things are missing, so this is consistent with existing conventions, not a regression. Worth considering if `make dev` is ever expected to run reliably outside the devcontainer: either document the bash >= 5.1 requirement in README's Quick Start alongside the devcontainer callout, or add a cheap version guard in the recipe with a clearer error than the raw bash syntax error.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
