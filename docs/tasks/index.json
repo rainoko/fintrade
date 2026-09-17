@@ -586,7 +586,7 @@
       "id": "skill-revalidate-done-tasks-followups-followups",
       "area": "tooling",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/skill-revalidate-done-tasks-followups-followups.json"
     }
   ]

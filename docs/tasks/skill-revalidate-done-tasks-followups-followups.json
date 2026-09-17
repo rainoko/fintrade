@@ -3,7 +3,7 @@
   "title": "Skill: revalidate-done-tasks — non-blocking findings from PR #93's review",
   "area": "tooling",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["skill-revalidate-done-tasks-followups"],
   "references": [
     "docs/tasks/skill-revalidate-done-tasks-followups.json#review",
@@ -14,11 +14,19 @@
   "checklist": [
     {
       "step": "`.claude/skills/revalidate-done-tasks/SKILL.md`'s 'Handling a task that no longer holds' step 1 (same-day audit-branch collision handling) contains a self-contradictory sentence: \"If its PR was already merged or closed, the name is free to reuse for a new, unrelated run — fall back to a numeric-suffixed name instead\". The first clause says the name is free to reuse; the second immediately instructs *not* reusing it but falling back to a numeric suffix instead. The actionable instruction (use a numeric suffix) is clear enough to follow, but the preceding clause is confusing and should be reworded or dropped so a future reader/agent isn't left wondering whether literal reuse or suffixing is actually intended.",
-      "done": false
+      "done": true
     },
     {
       "step": "`.claude/skills/revalidate-done-tasks/SKILL.md`'s same-day audit-branch collision handling (step 1 of 'Handling a task that no longer holds') only covers two cases for an existing same-day `audit/revalidate-<YYYY-MM-DD>` branch: one with an open PR (reuse it) and one whose PR was merged/closed (fall back to a numeric suffix). It doesn't address a branch of that name existing (locally or on `origin`) with *no* PR at all — e.g. a prior run that cut the branch but crashed or was interrupted before pushing/opening a PR. Add explicit handling for this case (e.g. treat it the same as the merged/closed case and fall back to a numeric suffix, or reuse the abandoned branch after confirming it's genuinely stale) so the collision-handling logic is exhaustive.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T19:44:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the self-contradictory sentence by removing the \"the name is free to reuse for a new, unrelated run\" clause entirely rather than rewording it to still assert reuse — the actionable instruction was always \"fall back to a numeric-suffixed name\", so the clearest fix is to state only that, without a preceding clause that says the opposite. For the missing no-PR-at-all case, added a third bullet that treats it the same as the merged/closed case (fall back to a numeric-suffixed name) rather than the task's other suggested option (reuse the abandoned branch after confirming it's genuinely stale). Rejected the reuse-after-confirming-staleness option because this skill's collision-handling step has no reliable way to confirm staleness from local/`origin` branch state alone — it can't distinguish 'a prior run crashed after cutting the branch' from 'another instance of this skill is still mid-run on it right now' — so defaulting to a fresh numeric-suffixed branch (the same safe default already used for the merged/closed case) avoids ever building on top of a branch whose state can't be fully accounted for.",
+      "rationale": "Keeps the collision-handling logic simple and consistent (all non-open-PR collision cases fall back to the same numeric-suffix mechanism) and avoids introducing a riskier reuse path that would need its own staleness-verification logic this skill doesn't otherwise have."
     }
   ]
 }
