@@ -69,8 +69,18 @@
         "summary": "Non-blocking: `wait -n` with an explicit pid list needs bash >= 5.1, and the new `SHELL := bash` resolves `bash` via PATH search (GNU Make's documented behavior for a non-absolute SHELL), not a pinned path. Outside the documented devcontainer workflow (e.g. macOS's stock /bin/bash 3.2.57, which lacks `wait -n` entirely), `make dev` would fail with a raw bash syntax error rather than the old hang. Consistent with the project's devcontainer-first convention (not a regression), but worth a README note or a cheap version guard if `make dev` is ever expected to work reliably outside the devcontainer. Filed as docs/tasks/dev-makefile-followups-followups.json.",
         "file": "Makefile",
         "line": 12
+      },
+      {
+        "summary": "Non-blocking (found by a code-review pass, independently re-verified before recording): decisions[1]'s rationale overstates what `wait -n`'s captured status carries -- it says make dev's exit code 'reflects whichever sub-target failed', but GNU Make's own process always exits 2 on any recipe/target failure regardless of the failing command's real exit code (verified: a target whose recipe does `exit 7` still yields `echo $?` -> 2). Since bpid/fpid are sub-`make` invocations, a failure on either side surfaces as that same code-2, not a value distinguishing which side failed. Actual runtime behavior (fail-fast, correct teardown, non-zero exit) is unaffected -- this is a decision-rationale accuracy issue, not a code bug. Filed as docs/tasks/dev-makefile-followups-followups.json.",
+        "file": "docs/tasks/done/dev-makefile-followups.json",
+        "line": 37
+      },
+      {
+        "summary": "Non-blocking (found by the same code-review pass): the 11-line bare-SIGINT-limitation comment above the `dev` recipe is written as individual `@#...` recipe lines rather than a plain `#` Makefile comment above the target -- inconsistent with the adjacent SHELL := bash rationale a few lines earlier, which correctly uses a plain comment (zero runtime cost). GNU Make spawns one shell per recipe line (confirmed via `make -d`), so every `make dev` invocation currently forks ~11 extra no-op shell processes solely to carry comment text. Negligible runtime cost for an interactively-invoked dev tool, but avoidable overhead and a style inconsistency within the same file. Filed as docs/tasks/dev-makefile-followups-followups.json.",
+        "file": "Makefile",
+        "line": 35
       }
     ],
-    "notes": "Small, well-contained infra diff (21 net lines in Makefile). Both fixes verified empirically against the real Makefile (not just described) in addition to a manual trace of the shell logic. Test/coverage suites unaffected (no app code touched) and remain well above the 90% gate. Static analysis clean on both sides. No blocking findings; one non-blocking bash-portability observation filed as a follow-up task."
+    "notes": "Small, well-contained infra diff (21 net lines in Makefile). Both fixes verified empirically against the real Makefile (not just described) in addition to a manual trace of the shell logic. Test/coverage suites unaffected (no app code touched) and remain well above the 90% gate. Static analysis clean on both sides. No blocking findings. Three non-blocking findings (bash-portability of wait -n + SHELL := bash's PATH resolution; a decision-rationale accuracy issue about what make dev's exit code actually carries; unnecessary per-line shell forks for a comment block) filed as docs/tasks/dev-makefile-followups-followups.json -- the first two found directly, the latter two surfaced by a code-review pass that completed after the initial accept was recorded and were folded in before finalizing."
   }
 }
