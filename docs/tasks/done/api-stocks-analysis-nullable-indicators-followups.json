@@ -84,5 +84,10 @@
       }
     ],
     "notes": "Backend suite re-run: 488 passed, 99.84% coverage -- unchanged from the prior round, no regression. Frontend suite re-run: 168 passed, tsc -b clean, eslint . clean, coverage 99.43%/99.21%/100%/99.41% (stmts/branch/funcs/lines) -- unchanged from the prior round's 99.41%, no regression. Scope of this re-review was narrowed per dispatch instructions to (1) confirming the types.ts regeneration genuinely closes the prior gap and (2) confirming no regression from the fix commit -- the require_full_ohlc_on_latest_bar design itself was already thoroughly re-verified in the prior round and not re-litigated here. No new findings this round. No pr_decision existed on this task from a prior pass (expected, since the prior round ended needs_work), so nothing to clear. Posted as a COMMENTED-type gh pr review (not approve/request-changes)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T03:12:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov (488 passed, 99.84% coverage) and frontend vitest/tsc/eslint/build (168 passed, 99.43%/99.21%/100%/99.41% stmts/branch/funcs/lines, all clean) -- both match pr-reviewer's figures exactly. Regenerated backend/openapi.json and frontend/src/api/types.ts from a clean tree: both no-op diffs, confirming genuine sync. Skimmed the full diff across all three commit rounds (engine.py's require_full_ohlc_on_latest_bar, portfolio.py's router wiring, new tests, task-board bookkeeping). Reproduced the original hazard myself with an independent script (11-day series, today's real close 80.0 vs a ~100 stop, NaN open/high/low on today's bar): drop_malformed_daily_bars(default True) drops today's bar entirely, evaluate_exit_flags then tests yesterday's close (100.0) and returns exit_flags=[] (the bug); drop_malformed_daily_bars(require_full_ohlc_on_latest_bar=False) keeps today's real close (80.0) and evaluate_exit_flags correctly returns ['stop_hit']. The accept holds."
   }
 }
