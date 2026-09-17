@@ -460,8 +460,8 @@
       "id": "frontend-portfolio-risk-panel-followups-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-portfolio-risk-panel-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-portfolio-risk-panel-followups-followups-followups.json"
     },
     {
       "id": "frontend-stock-analysis-page",

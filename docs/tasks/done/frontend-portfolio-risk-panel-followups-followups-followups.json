@@ -1,0 +1,53 @@
+{
+  "id": "frontend-portfolio-risk-panel-followups-followups-followups",
+  "title": "Follow-up: formatCurrency's system-default locale makes its new unit tests implicitly locale-dependent (PR #78)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-portfolio-risk-panel-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-portfolio-risk-panel-followups-followups.json#review",
+    "frontend/src/utils/format.ts",
+    "frontend/src/utils/format.test.ts",
+    "https://github.com/rainoko/fintrade/pull/78"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #78 (frontend-portfolio-risk-panel-followups-followups), tracked so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #78 added direct unit tests for `formatCurrency` (`frontend/src/utils/format.ts`) asserting exact strings like '$1,234.50'. `formatCurrency` implements this via `value.toLocaleString(undefined, {style:'currency', currency:'USD', ...})` -- passing `undefined` as the locale argument means the grouping separator, decimal separator, and currency symbol placement all resolve from the JS runtime's default locale, not a pinned one. The new tests pass in the current dev-container/CI environment (Node's default locale resolves to en-US), but the assertions are implicitly locale-dependent: a future CI image, a contributor's differently-configured machine, or a Node upgrade that changes ICU default-locale resolution could change the rendered separators and break these tests (or worse, silently change what real users see, if the deployed server-rendering/build environment's default locale differs from a developer's). Consider pinning the locale explicitly (e.g. `toLocaleString('en-US', ...)`) in `formatCurrency` itself so both the production behavior and the new tests are deterministic regardless of runtime locale, rather than relying on the environment's default happening to be US English.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T07:28:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned `formatCurrency`'s `toLocaleString` call to the `'en-US'` locale explicitly, per the checklist item's own suggested fix, rather than mocking/setting the locale only in the test file.",
+      "rationale": "`formatCurrency` is already a USD-only formatter (hardcoded `currency: 'USD'`), so there's no legitimate case where its grouping/decimal-separator formatting should vary by runtime locale — pinning the locale in the implementation fixes both the production behavior (real users could otherwise see non-US separators depending on the deployed server/build environment's default locale) and the test assertions in one change. A test-only fix (e.g. mocking `Intl`/setting `process.env.LANG` per-test) was considered and rejected: it would leave the actual runtime behavior of `formatCurrency` still locale-dependent, address only the symptom (flaky tests) and not the underlying issue the finding described. Left `formatNullableNumber` (also `toLocaleString(undefined, ...)`) unchanged: the checklist item names `formatCurrency` specifically, and `formatNullableNumber` genuinely needs the caller-supplied `undefined` locale today since it's used generically (not USD-specific) with caller-supplied `Intl.NumberFormatOptions` across several non-currency fields, so there's no single locale it would be correct to hardcode the way `'en-US'` is correct for a USD-only formatter. Its own grouping-separator test is technically subject to the same latent locale-dependence this task flags for `formatCurrency`, but a PR reviewer already had the opportunity to flag that as a further follow-up on the same PR that introduced it and didn't -- not respawning another link in this followups chain for a not-actually-newly-discovered, already-low-severity nit, per this task's own framing as the last item of real value worth doing here."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel-followups-followups-followups",
+    "pr_number": 87,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/87",
+    "pushed_at": "2026-09-17T07:29:23Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T07:31:43Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/87",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Scope decision to leave `formatNullableNumber` unpinned (still `toLocaleString(undefined, ...)`) is reasonable: it's a generic, non-currency formatter used with caller-supplied `Intl.NumberFormatOptions` across several fields, so there's no single locale that would be as unambiguously correct to hardcode as `'en-US'` is for a USD-only `formatCurrency`. Its own grouping-separator test (format.test.ts:50-52) is technically still subject to the same latent locale-dependence this task fixed for `formatCurrency`, but that's a pre-existing, already-low-severity nit from an earlier PR, not something newly introduced here -- not creating a further follow-up link for it, consistent with the task's own reasoning.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 92
+      }
+    ],
+    "notes": "Full backend pytest+coverage (488 passed, 99.84% total, gate 90%) and frontend vitest+coverage (203 passed, 99.71% lines) both green; no regression. Frontend eslint and `tsc -b` clean; no backend lint/type config exists in backend/pyproject.toml to run (not invented). code-review skill (medium, main...HEAD) found zero issues -- diff is a one-line locale pin plus a doc comment and task-board bookkeeping. No API route/schema touched, so no openapi.json snapshot check applies. No new/changed frontend component (format.ts is a plain utility, not a component), so the components/common/ vs features/ placement check (step 7a) doesn't apply. No new module/dependency/layer, so architecture-review wasn't invoked. area is frontend/pages/portfolio, not backend/signals or backend/portfolio, and skill is null (not verify-elder-signal), so verify-elder-signal wasn't invoked. This PR has no UI-facing surface -- format.ts is a non-visual string helper with no new render path exercised by any page differently than before (same output string for en-US-resolving environments, which is what the whole repo already assumes) -- so no browser walkthrough was performed; stating that explicitly per the review process. The checklist item's own `decisions` entry (task-worker, present and well-formed) documents the scope call on formatNullableNumber; no undecided 'decide X' checklist items remain."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T07:34:30Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest+coverage (488 passed, 99.84% total) and frontend vitest+coverage (203 passed, 99.71% lines) -- both match pr-reviewer's reported numbers exactly. Also re-ran eslint and `tsc -b` (both clean) and confirmed no ruff/flake8/black/mypy/pylint config exists in backend/pyproject.toml, matching the review's claim. Read the full diff (git diff origin/main...HEAD): a one-line `toLocaleString(undefined, ...)` -> `toLocaleString('en-US', ...)` pin in formatCurrency plus a doc comment, task file move to done/, and the index.json mirror update -- nothing beyond what review.notes describes. No test file changes were needed since PR #78's existing tests already asserted en-US-formatted strings."
+  }
+}
