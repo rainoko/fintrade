@@ -136,6 +136,12 @@ export interface paths {
          *     separate minimum-history check of its own, matching `app.signals.engine.analyse`'s own
          *     documented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this
          *     task's `decisions` entry).
+         *
+         *     `daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed
+         *     unsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`
+         *     before `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that
+         *     actually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally
+         *     anyway (see that function's own docstring and this task's `decisions` entry).
          */
         get: operations["get_stock_analysis"];
         put?: never;

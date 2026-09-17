@@ -445,8 +445,8 @@
     {
       "id": "api-stocks-analysis-nullable-indicators",
       "area": "backend/api",
-      "skill": null,
-      "state": "planned",
+      "skill": "add-api-endpoint",
+      "state": "testing",
       "path": "docs/tasks/api-stocks-analysis-nullable-indicators.json"
     },
     {
