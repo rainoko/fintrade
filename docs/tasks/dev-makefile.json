@@ -1,0 +1,23 @@
+{
+  "id": "dev-makefile",
+  "title": "Root Makefile to run backend and frontend dev servers",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "README.md",
+    "docs/architecture/Backend.md",
+    "docs/architecture/Frontend.md",
+    ".devcontainer/post-create.sh"
+  ],
+  "description": "Add a root-level Makefile with targets to start the backend (FastAPI/uvicorn) and frontend (Vite) dev servers, individually and together, so contributors don't need to remember each service's own run command. Backend runs `backend/.venv/bin/uvicorn app.main:app --reload` from the `backend/` directory (the venv is provisioned once by `.devcontainer/post-create.sh` inside the dev container); frontend runs `npm run dev` from the `frontend/` directory. Keep this a thin wrapper over existing tooling — no new build system, no reimplementing what `npm`/`uvicorn` already do.",
+  "checklist": [
+    { "step": "Add a `make backend` target that runs `backend/.venv/bin/uvicorn app.main:app --reload` from `backend/`, with a clear error message (not a raw path-not-found failure) if `backend/.venv` doesn't exist yet, pointing at `.devcontainer/post-create.sh` / `pip install -e \".[dev]\"`.", "done": false },
+    { "step": "Add a `make frontend` target that runs `npm run dev` from `frontend/`.", "done": false },
+    { "step": "Add a combined target (e.g. `make dev`) that runs both concurrently and cleans up both processes on Ctrl-C/exit (e.g. background jobs plus a `trap ... EXIT` and `wait`) rather than leaving an orphaned process behind.", "done": false },
+    { "step": "Decide whether to include adjacent convenience targets (e.g. `make install`, `make test`) or keep the Makefile scoped strictly to running the two dev servers as originally requested — record the call as a `decisions` entry either way.", "done": false },
+    { "step": "Document the new `make` targets in README.md's existing run/setup instructions.", "done": false },
+    { "step": "Verify each target actually works: start it, confirm the backend answers on its port and the frontend dev server serves the app, then stop cleanly with no leftover process.", "done": false }
+  ]
+}

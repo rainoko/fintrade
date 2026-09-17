@@ -553,6 +553,27 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-common-components-followups.json"
+    },
+    {
+      "id": "dev-makefile",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/dev-makefile.json"
+    },
+    {
+      "id": "skill-static-verify",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/skill-static-verify.json"
+    },
+    {
+      "id": "skill-revalidate-done-tasks",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/skill-revalidate-done-tasks.json"
     }
   ]
 }
