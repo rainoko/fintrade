@@ -3,7 +3,7 @@
   "title": "Follow-up: formatCurrency's system-default locale makes its new unit tests implicitly locale-dependent (PR #78)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-portfolio-risk-panel-followups-followups"],
   "references": [
     "docs/tasks/frontend-portfolio-risk-panel-followups-followups.json#review",
@@ -31,5 +31,18 @@
     "pr_number": 87,
     "pr_url": "https://github.com/rainoko/fintrade/pull/87",
     "pushed_at": "2026-09-17T07:29:23Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T07:31:43Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/87",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Scope decision to leave `formatNullableNumber` unpinned (still `toLocaleString(undefined, ...)`) is reasonable: it's a generic, non-currency formatter used with caller-supplied `Intl.NumberFormatOptions` across several fields, so there's no single locale that would be as unambiguously correct to hardcode as `'en-US'` is for a USD-only `formatCurrency`. Its own grouping-separator test (format.test.ts:50-52) is technically still subject to the same latent locale-dependence this task fixed for `formatCurrency`, but that's a pre-existing, already-low-severity nit from an earlier PR, not something newly introduced here -- not creating a further follow-up link for it, consistent with the task's own reasoning.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 92
+      }
+    ],
+    "notes": "Full backend pytest+coverage (488 passed, 99.84% total, gate 90%) and frontend vitest+coverage (203 passed, 99.71% lines) both green; no regression. Frontend eslint and `tsc -b` clean; no backend lint/type config exists in backend/pyproject.toml to run (not invented). code-review skill (medium, main...HEAD) found zero issues -- diff is a one-line locale pin plus a doc comment and task-board bookkeeping. No API route/schema touched, so no openapi.json snapshot check applies. No new/changed frontend component (format.ts is a plain utility, not a component), so the components/common/ vs features/ placement check (step 7a) doesn't apply. No new module/dependency/layer, so architecture-review wasn't invoked. area is frontend/pages/portfolio, not backend/signals or backend/portfolio, and skill is null (not verify-elder-signal), so verify-elder-signal wasn't invoked. This PR has no UI-facing surface -- format.ts is a non-visual string helper with no new render path exercised by any page differently than before (same output string for en-US-resolving environments, which is what the whole repo already assumes) -- so no browser walkthrough was performed; stating that explicitly per the review process. The checklist item's own `decisions` entry (task-worker, present and well-formed) documents the scope call on formatNullableNumber; no undecided 'decide X' checklist items remain."
   }
 }
