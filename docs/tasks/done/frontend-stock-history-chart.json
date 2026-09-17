@@ -1,0 +1,93 @@
+{
+  "id": "frontend-stock-history-chart",
+  "title": "Frontend: stock price history chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-stock-analysis-page"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apistocksstickerhistory",
+    "docs/architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports"
+  ],
+  "description": "UI for GET /api/stocks/{ticker}/history \u2014 a candlestick price chart on the Stock Detail page, built on TradingView Lightweight Charts. Per Frontend.md \u00a75, this renders raw OHLCV only (no indicator overlay) since the backend doesn't expose a historical indicator series.",
+  "checklist": [
+    {
+      "step": "features/stocks/hooks/useStockHistory.ts \u2014 useQuery wrapping api/stocks.ts#getStockHistory(ticker, { range, interval }), keyed so changing range/interval refetches rather than reusing stale cached data across different query params.",
+      "done": true
+    },
+    {
+      "step": "features/stocks/components/PriceChart.tsx: lightweight-charts candlestick series from bars; handle empty/short history gracefully (don't render a broken chart for a low-bar-count response).",
+      "done": true
+    },
+    {
+      "step": "A range selector (mapping to the API's <N>d|w|m|y|max grammar, e.g. 1m/3m/6m/1y/max) and a daily/weekly interval toggle, wired to useStockHistory's params.",
+      "done": true
+    },
+    {
+      "step": "Wire PriceChart + its controls into StockDetailPage.tsx, below or beside SignalSummary/ScreensPanel/IndicatorsPanel.",
+      "done": true
+    },
+    {
+      "step": "Component tests (MSW-mocked): populated chart renders, range/interval changes trigger a refetch with the right query params, the unrecognized-range 422 and the interval=weekly insufficient-history 422 (API.md's two distinct 422 cases for this endpoint) are both surfaced distinctly via common/ErrorState.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart.tsx owns its own range/interval selection as local component state (plain useState) and its own useStockHistory call, rather than lifting range/interval up into StockDetailPage or a shared context.",
+      "rationale": "Range/interval are pure UI state scoped to the chart, not server data or cross-cutting state shared with another component (Frontend.md \u00a72), so they belong in the component that owns the control, not lifted further than necessary. Rejected: lifting the selection into StockDetailPage so the page could pass range/interval as props \u2014 no other component on the page needs to read or react to the chart's selected range, so lifting it would only add indirection with no benefit, and would make the page less thin per Frontend.md \u00a73."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:01Z",
+      "recorded_by": "task-worker",
+      "decision": "The range selector is a fixed preset list (1M/3M/6M/1Y/Max, mapping to 1m/3m/6m/1y/max) via a ToggleButtonGroup, not a free-text input accepting any '<N>d|w|m|y' value the API's grammar technically allows.",
+      "rationale": "The task's checklist explicitly calls for 'a range selector' with example presets (1m/3m/6m/1y/max), and a small curated set is simpler to test exhaustively and consistent with how other controls in the app work (MUI ToggleButtonGroup, e.g. the interval toggle). The API's unrecognized-range 422 case is still covered by a component test even though PriceChart's own UI can never produce that value \u2014 the test asserts the handler-level case directly, verifying ErrorState renders it distinctly (same approach a free-text input's validation error would need anyway). Rejected: a free-text/day-count input, which would need its own client-side validation to avoid trivially hitting the 422 case on every keystroke, for no functional benefit over a fixed preset list."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:02Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart recreates the Lightweight Charts chart instance (via useEffect keyed on historyQuery.data, tearing down the previous chart in the cleanup function) on every new history response, rather than creating the chart once and calling series.update()/setData() again on subsequent renders.",
+      "rationale": "Lightweight Charts has no built-in 'replace all data for a different time range' operation that's simpler than recreating the chart, and doing it this way means a stale chart from a previous ticker/range is never shown while a new query is loading \u2014 the container element itself is only rendered once historyQuery.isSuccess && bars.length > 0, so the effect naturally tears down the old chart and skips rendering a new one until the next successful response arrives. Rejected: keeping one long-lived chart instance and only calling setData() on updates \u2014 simpler in the common case but leaves the previous range's candles visible (or a resize glitch) during the brief loading window between two different range/interval selections, and doesn't materially reduce test complexity since the tests already mock the whole module."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:03Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart's own component tests mock the entire 'lightweight-charts' module (vi.mock) rather than exercising the real library against jsdom's DOM.",
+      "rationale": "jsdom has no real <canvas> 2D rendering context and no ResizeObserver, both of which the real library relies on; there is also nothing pixel-level worth asserting on in a unit test. Mocking createChart/addSeries/CandlestickSeries lets the tests assert on what actually matters \u2014 the container mounts, setData receives the right bars shape, the chart is recreated on a genuine range/interval change and left alone on a no-op re-click, and the loading/error/empty states around it render correctly \u2014 without depending on jsdom's incomplete canvas support. The same mock is reused in StockDetailPage.test.tsx (which now renders PriceChart as part of the page) for the same reason."
+    },
+    {
+      "timestamp": "2026-09-17T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart filters out (excludes entirely) any bar with a null/non-finite open/high/low/close before it ever reaches Lightweight Charts \u2014 both in the `bars`/`hasBars` computation used for the empty-state check and in the chart-creation effect \u2014 rather than substituting a placeholder value, clamping, or rendering it some other way.",
+      "rationale": "Per pr-reviewer's needs_work finding on PR #69: GET /api/stocks/{ticker}/history legitimately returns null open/high/low/close for today's still-forming (not yet closed) trading day whenever the query window reaches it \u2014 yfinance reports NaN OHLC for an in-progress session, serialized as JSON null by Pydantic despite OHLCVBar's fields being typed as required non-nullable floats. A candlestick chart can't meaningfully render a bar with no known open/high/low/close anyway (there's no sensible placeholder \u2014 0 or the previous close would draw a fake candle), so exclusion is the only representation that isn't actively misleading; the bar's data simply doesn't exist yet. Rejected: substituting the previous bar's close for all four OHLC fields (would draw a fake zero-range candle, misrepresenting a session that hasn't happened) and clamping to a sentinel (still fabricates values the chart would render as real data). The backend-side contract mismatch (OHLCVBar's schema promises non-nullable floats but the live endpoint already violates that) is a separate, non-blocking concern the reviewer flagged for other attention \u2014 not fixed here, since the chart needs this defensive check regardless of what the backend's declared schema says. Added a `hasFiniteOhlc` helper (frontend/src/features/stocks/components/PriceChart.tsx) used both by the render-time `bars` filter and, recomputed from `historyQuery.data.bars` directly, inside the chart-creation effect (which depends on `historyQuery.data`, not the derived `bars` array, per the existing chart-recreation decision above) \u2014 and two new PriceChart.test.tsx cases (a null-OHLC bar mixed with valid bars, and a response where every bar has null OHLC) using the same lightweight-charts module mock this task's tests already use, since exercising the real library's own null-rejection behavior in jsdom isn't feasible per the existing chart-mocking decision above."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-stock-history-chart",
+    "pr_number": 69,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/69",
+    "pushed_at": "2026-09-17T00:20:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T01:27:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/69",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Re-review of the fix for the prior blocking crash (commit 11ee5ea). Verified sound: `hasFiniteOhlc` correctly rejects a bar if *any* of open/high/low/close is null/non-finite, applied consistently both to the `bars`/`hasBars` empty-state computation and, recomputed independently, inside the chart-creation effect (which intentionally depends on `historyQuery.data` rather than the derived `bars`, per this task's existing chart-recreation decision) — so there's no reachable state where the two disagree. Re-ran the real browser walkthrough that originally reproduced the crash: real uvicorn backend + real Vite dev server, Playwright/Chromium. At the time of this re-review the market was closed and the live yfinance data for both AAPL and MSFT had already finalized (no null bars naturally present), so the crash scenario was reconstructed directly via Playwright request interception on `**/api/stocks/*/history**` (appending a synthetic null-OHLC 'forming' bar after the real last bar, matching the exact shape the original crash report captured) rather than relying on market hours lining up — per the review brief's 'or otherwise construct/verify the scenario' allowance. Result: page loads without crashing, AppErrorBoundary is never triggered, chart renders identically to the golden-path (no forced-null) screenshot with the forming bar simply absent — last plotted candle is the prior real close, no truncation or visual gap. Also checked the edge case where every bar in the response is null-OHLC: EmptyState renders ('No price history available for MSFT.') instead of an empty/broken canvas, matching the new PriceChart.test.tsx coverage for that case. No console errors or failed network requests in any of the three scenarios beyond the pre-existing, already-separately-tracked ScreensPanel DOM-nesting warning (not part of this PR's diff).",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 82
+      }
+    ],
+    "notes": "Re-review after task-worker's fix (commit 11ee5ea) for the prior needs_work verdict. npm run test:coverage: 167/167 pass (165 + 2 new null-OHLC cases), 99.43%/98.82%/100%/99.41% stmts/branch/func/lines — gate met, no regression. npm run lint: clean. npm run build: clean. npm run build-storybook: succeeds. Backend suite re-run for due diligence (untouched by this PR): 472 passed, 99.84% coverage. code-review skill (medium effort, targeted at commit 11ee5ea): no correctness or reuse findings — confirmed hasFiniteOhlc's any-not-all semantics are correct, the render-time and effect-time filters are computed from the same source and always agree, the original zero-bars guard is preserved (folded into finiteBars.length === 0), and the deliberate double-filtering is already justified in the task's existing decisions entry (avoiding a stale closure in an effect keyed only on historyQuery.data). The task's decisions array already records the exclude-vs-substitute-vs-clamp judgment call with rationale, satisfying the 'decide X' cross-check. No new component added and no placement change (PriceChart remains correctly under features/stocks/components/), no API/schema change (openapi.json untouched, correctly), so those checks are unchanged from the prior review pass. Full real-browser re-walkthrough performed (see comments) since PriceChart.test.tsx mocks the lightweight-charts module entirely and unit tests alone can't validate the real library's null-rejection behavior. No blocking findings; no new non-blocking findings either (the one pre-existing non-blocking item, the ScreensPanel DOM-nesting warning, is already tracked on frontend-stock-analysis-page-followups from the prior review pass, not owned by this task). Posted as a `gh pr review --comment` on PR #69. Verdict: accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T01:32:01Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (167/167 pass, 99.43%/98.82%/100%/99.41% stmts/branch/func/lines — matches pr-reviewer's reported numbers exactly), npm run lint (clean), npm run build (clean), npm run build-storybook (succeeds), and the backend suite (472 passed, 99.84% coverage, untouched by this PR). Read PriceChart.tsx directly and confirmed hasFiniteOhlc (any-not-all null/non-finite check) is applied both in the render-time bars/hasBars computation (line 86) and, recomputed independently from historyQuery.data rather than the derived bars array, inside the chart-creation effect (finiteBars, line 110) — no reachable state where the two disagree. Read PriceChart.test.tsx's two null-OHLC cases myself (a forming bar mixed with two valid bars correctly excluded from setData; an all-null-bar response correctly rendering EmptyState instead of a broken canvas) as my own reproduction of the fix, rather than trusting pr-reviewer's browser walkthrough alone. Skimmed the full diff (useStockHistory.ts, queryKeys.ts, StockDetailPage.tsx/test.tsx, the followups task) — page wiring and the tracked non-blocking ScreensPanel Chip-nesting followup both check out. No add-indicator reference-value check applicable (skill is add-frontend-feature)."
+  }
+}

@@ -22,6 +22,10 @@
     {
       "step": "The null-crash fix (commit cbac925) introduced a second, separate duplication: IndicatorsPanel.tsx's `formatValue` and ScreensPanel.tsx's `formatNullableNumber` are near-identical null/undefined/NaN-to-'—' guards defined independently in each file instead of one shared helper. This is a distinct duplication from the `humanize`/label-map item above (which the fix's own decision record inaccurately implied already covered it) -- a future change to the fallback convention (e.g. '—' -> 'N/A') or a newly-discovered nullable field elsewhere would need both copies updated in lockstep. Worth consolidating into one shared null-safe number formatter (e.g. alongside PositionsTable.tsx's `formatNullableCurrency`, which follows the same pattern for currency values).",
       "done": false
+    },
+    {
+      "step": "Found incidentally during pr-reviewer's browser walkthrough of PR #69 (frontend-stock-history-chart), not part of that PR's diff: ScreensPanel.tsx's Impulse `LabeledValue` renders a MUI `Chip` (renders a `<div>`) nested inside a `Typography variant=\"body2\"` (renders a `<p>`), which React logs as 'In HTML, <div> cannot be a descendant of <p>. This will cause a hydration error.' Doesn't crash anything today (client-only render, no SSR in this app yet), but is invalid HTML nesting and would become a real hydration bug if SSR is ever added. Fix by rendering the Chip as a sibling (e.g. in a Stack) rather than as a child of the Typography.",
+      "done": false
     }
   ]
 }

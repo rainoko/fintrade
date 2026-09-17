@@ -1,10 +1,24 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { server } from '../../tests/mocks/server'
 import { renderWithProviders } from '../../tests/renderWithProviders'
 import StockDetailPage from './StockDetailPage'
+
+// PriceChart (rendered below IndicatorsPanel) builds a real Lightweight
+// Charts chart against a DOM container; jsdom has no real <canvas> 2D
+// context, so mock the library the same way PriceChart.test.tsx does — this
+// page's own tests care about page composition (which panels render, in
+// what order, for which signal), not chart internals.
+vi.mock('lightweight-charts', () => ({
+  createChart: () => ({
+    addSeries: () => ({ setData: () => {} }),
+    timeScale: () => ({ fitContent: () => {} }),
+    remove: () => {},
+  }),
+  CandlestickSeries: 'CandlestickSeries-definition',
+}))
 
 function renderStockDetail(ticker: string) {
   return renderWithProviders(
@@ -22,12 +36,16 @@ describe('StockDetailPage', () => {
 
     expect(screen.getByText('Loading analysis for AAPL...')).toBeInTheDocument()
 
-    await waitFor(() => expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'))
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
 
     expect(screen.getByRole('heading', { name: 'AAPL' })).toBeInTheDocument()
     expect(screen.getByText('As of 2026-09-11')).toBeInTheDocument()
     expect(screen.getByText('72% · High')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'Confidence breakdown' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('table', { name: 'Confidence breakdown' }),
+    ).toBeInTheDocument()
 
     expect(screen.getByText('Tide (Screen 1)')).toBeInTheDocument()
     expect(screen.getByText('Bullish')).toBeInTheDocument()
@@ -41,6 +59,13 @@ describe('StockDetailPage', () => {
     // The reused ticker entry point is present so a different ticker can be
     // looked up without navigating back to the Dashboard.
     expect(screen.getByLabelText('Look up a ticker')).toBeInTheDocument()
+
+    // PriceChart (GET /.../history) is wired in below the indicators, per
+    // this task's checklist.
+    expect(screen.getByRole('group', { name: 'Price history range' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+    )
   })
 
   it('renders a SELL signal', async () => {
@@ -78,7 +103,9 @@ describe('StockDetailPage', () => {
 
     renderStockDetail('MSFT')
 
-    await waitFor(() => expect(screen.getByTestId('signal-badge')).toHaveTextContent('SELL'))
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('SELL'),
+    )
     expect(screen.getByText('65% · Medium')).toBeInTheDocument()
     expect(screen.getByText('RED')).toBeInTheDocument()
   })
@@ -98,9 +125,7 @@ describe('StockDetailPage', () => {
             wave: { stochastic_k: 50, force_index_2ema: 0, state: 'RANGING' },
             trigger: { fired: false, reference: 'no_trigger' },
           },
-          confidence_breakdown: [
-            { component: 'tide_alignment', weight: 0.3, score: 0 },
-          ],
+          confidence_breakdown: [{ component: 'tide_alignment', weight: 0.3, score: 0 }],
           indicators: {
             ema_13: 100,
             ema_26: 100,
@@ -114,7 +139,9 @@ describe('StockDetailPage', () => {
 
     renderStockDetail('GOOG')
 
-    await waitFor(() => expect(screen.getByTestId('signal-badge')).toHaveTextContent('HOLD'))
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('HOLD'),
+    )
     expect(screen.getByText('35% · Low')).toBeInTheDocument()
     expect(screen.getByText('BLUE')).toBeInTheDocument()
   })
@@ -145,7 +172,9 @@ describe('StockDetailPage', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Service unavailable')).toBeInTheDocument()
     expect(
-      screen.getByText('Market data provider is currently unavailable. Try again shortly.'),
+      screen.getByText(
+        'Market data provider is currently unavailable. Try again shortly.',
+      ),
     ).toBeInTheDocument()
   })
 })
