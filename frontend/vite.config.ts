@@ -5,6 +5,20 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // The frontend's API client (src/api/client.ts) defaults to a same-origin
+  // base URL ('' — every request path already includes the '/api' prefix),
+  // meant for a deployment behind a single reverse proxy. In dev, "same
+  // origin" is the Vite dev server's own port, which has no knowledge of
+  // '/api/*' routes — proxy those through to the backend so `vite`/`npm run
+  // dev` works out of the box without requiring VITE_API_BASE_URL to be set.
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,
