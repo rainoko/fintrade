@@ -83,6 +83,14 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   ]
 
   const handleConfirmDelete = () => {
+    // ConfirmDialog's onConfirm only fires while it's open, and it's only
+    // open while pendingDelete !== null (see the `open` prop below), so this
+    // guard is unreachable through the UI in practice — it exists purely so
+    // TypeScript narrows `pendingDelete` from `PositionOut | null` before
+    // `.id` is read below. Intentionally-defensive dead code, not a bug;
+    // /* v8 ignore next 3 */ keeps it out of the branch-coverage denominator
+    // instead of it showing up as a real gap on future coverage sweeps.
+    /* v8 ignore next 3 */
     if (!pendingDelete) {
       return
     }
