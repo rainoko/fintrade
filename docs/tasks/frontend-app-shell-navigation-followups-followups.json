@@ -3,7 +3,7 @@
   "title": "Follow-up: AppErrorBoundary's fallback UI bakes in a full-page (100vh) layout assumption (PR #83)",
   "area": "frontend/layout",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-app-shell-navigation-followups"],
   "references": [
     "docs/tasks/frontend-app-shell-navigation-followups.json#review",
@@ -15,7 +15,15 @@
   "checklist": [
     {
       "step": "PR #83's move of AppErrorBoundary from components/layout/ to components/common/AppErrorBoundary/ is a correct call per Frontend.md §3 (it's fully domain-agnostic and its catch-a-render-crash behavior is a generic pattern, not app-shell-specific) — the placement itself isn't in question. However, the fallback UI's own markup still bakes in a whole-app assumption: `minHeight: '100vh'` and copy that says 'reload the app' (AppErrorBoundary.tsx render()). The component's own updated doc comment argues it 'could wrap just a feature subtree' in the future, but if it did today, a subtree-scoped instance would render a fallback that's sized and worded for filling the entire viewport, not the bounds of whatever smaller subtree it actually wraps — undercutting the reusability rationale used to justify the common/ placement. Consider parameterizing the fallback (e.g. an optional `fullPage`/`minHeight` prop, or moving the 100vh sizing to the call site in main.tsx) so a future feature-subtree usage doesn't inherit whole-page-sized chrome by default.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T06:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added two optional props to AppErrorBoundary: `fullPage?: boolean` (default `true`) and `message?: ReactNode`. When `fullPage` is true (the default, preserving main.tsx's existing whole-app usage unchanged), the fallback keeps `minHeight: '100vh'`, `p: 4`, and the original 'reload the app' copy. When `fullPage={false}`, the fallback uses a fixed `minHeight: 200`/`p: 2` sized to a subtree rather than the viewport, and its default copy drops the 'reload the app' wording in favor of 'rendering this section'. `message` lets a caller override the body copy outright regardless of `fullPage`. Added a `CaughtErrorSubtree` Storybook story (a bordered, fixed-height Box standing in for a feature subtree, wrapping the boundary with `fullPage={false}`) alongside the existing whole-page `CaughtError` story, plus three new tests asserting the resolved computed `minHeight` differs between the two modes, the subtree copy omits 'reload the app', and a custom `message` overrides the default text.",
+      "rationale": "Chose boolean-flag-plus-override over a fully custom render-prop fallback (the task's other suggested option) because the two concrete cases (whole-page vs. one feature subtree) are exactly the ones the component's own doc comment and this finding describe, and a boolean keeps the common case (main.tsx, unchanged by default) a no-op call-site change while still letting a future feature subtree opt out of viewport sizing with one prop; a full custom-fallback render prop would let any caller replace the entire UI (heading/button/copy) which is more flexibility than this finding asked for and would leave 'what a reasonable fallback looks like' unencoded anywhere, unlike the parameterized version which still guarantees a consistent heading/retry-button shape across both modes. Rejected a raw `minHeight` prop instead of `fullPage`: a boolean names the actual two use cases (whole page vs. subtree) rather than asking every subtree caller to pick and justify a magic pixel number, and still composes with `message` for copy. main.tsx's own `<AppErrorBoundary>` usage needed no code change since `fullPage` defaults to `true`, matching its existing whole-page behavior exactly (verified via the new default-behavior test and a `npm run build` + `vitest run --coverage` + `npm run lint` + `npm run build-storybook` pass, all clean)."
     }
   ]
 }

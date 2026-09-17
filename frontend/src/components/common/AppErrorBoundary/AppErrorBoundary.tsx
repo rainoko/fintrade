@@ -4,8 +4,23 @@ import Typography from '@mui/material/Typography'
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
-interface AppErrorBoundaryProps {
+export interface AppErrorBoundaryProps {
   children: ReactNode
+  /**
+   * Whether the fallback should assume it's the only thing on the page:
+   * sized to fill the viewport (`minHeight: 100vh`) with copy that mentions
+   * reloading the whole app. Defaults to `true` (today's only usage, in
+   * main.tsx, wrapping the entire routed app). Pass `false` when wrapping a
+   * smaller feature subtree so the fallback sizes itself to that subtree
+   * instead of the full viewport.
+   */
+  fullPage?: boolean
+  /**
+   * Overrides the fallback's body copy. Defaults to page-oriented wording
+   * when `fullPage` is true, and to subtree-oriented wording (no mention of
+   * "the app") when it's false.
+   */
+  message?: ReactNode
 }
 
 interface AppErrorBoundaryState {
@@ -17,8 +32,13 @@ interface AppErrorBoundaryState {
 // down more than the subtree it happens in — currently instantiated once,
 // wrapping the whole routed app (see main.tsx), but nothing about it is
 // app-shell-specific; a future feature could wrap just its own subtree with
-// another instance. See docs/tasks/frontend-app-shell-navigation-followups.json
-// for why this lives under components/common/ rather than components/layout/.
+// another instance (pass `fullPage={false}` so the fallback sizes itself to
+// that subtree rather than assuming it's the whole page). See
+// docs/tasks/frontend-app-shell-navigation-followups.json for why this lives
+// under components/common/ rather than components/layout/, and
+// docs/tasks/frontend-app-shell-navigation-followups-followups.json for why
+// the fallback's sizing/copy became props instead of being hardcoded for the
+// whole-page case only.
 //
 // Deliberately separate from TanStack Query's per-query error state: a
 // query's own `isError`/`error` only covers that one fetch failing, not
@@ -51,6 +71,13 @@ export default class AppErrorBoundary extends Component<
 
   render() {
     if (this.state.error) {
+      const { fullPage = true, message } = this.props
+      const fallbackMessage =
+        message ??
+        (fullPage
+          ? 'An unexpected error occurred while rendering this page. Try again, or reload the app.'
+          : 'An unexpected error occurred while rendering this section. Try again.')
+
       return (
         <Box
           sx={{
@@ -59,18 +86,19 @@ export default class AppErrorBoundary extends Component<
             alignItems: 'center',
             justifyContent: 'center',
             gap: 2,
-            minHeight: '100vh',
-            p: 4,
+            // 100vh only makes sense when this boundary owns the whole page
+            // (main.tsx's usage today); a subtree-scoped instance sizes
+            // itself to its own content instead of forcing full-viewport
+            // height onto whatever smaller area it actually wraps.
+            minHeight: fullPage ? '100vh' : 200,
+            p: fullPage ? 4 : 2,
             textAlign: 'center',
           }}
         >
           <Typography variant="h4" component="h1">
             Something went wrong
           </Typography>
-          <Typography color="text.secondary">
-            An unexpected error occurred while rendering this page. Try again, or reload
-            the app.
-          </Typography>
+          <Typography color="text.secondary">{fallbackMessage}</Typography>
           <Button variant="contained" onClick={this.handleReset}>
             Try again
           </Button>
