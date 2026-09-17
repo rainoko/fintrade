@@ -383,8 +383,8 @@
       "id": "frontend-api-client-followups",
       "area": "frontend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-api-client-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-api-client-followups.json"
     },
     {
       "id": "frontend-common-components",
