@@ -39,5 +39,11 @@
       "decision": "The checklist's final smoke-test step was run as a full pass over all 78 docs/tasks/done/*.json files (not a sample): (1) index.json state/path mirror-consistency check across all 81 tasks — clean, no drift; (2) a scripted regex pass extracting every file-path-shaped and function-call-shaped string across all 78 done tasks' checklist text (114 path refs, 64 function refs) and checking each still exists/is defined in the repo — 4 apparent misses, all confirmed by manual follow-up to be false positives of the regex (two are checklist prose referencing another task's JSON file that has itself since moved into docs/tasks/done/, i.e. a stale literal path to a still-valid logical id-pointer per CLAUDE.md's own note on this; one is a checklist item verifying a value against docs/Analyse.md rather than an open 'decide X' judgment call, already explicitly reasoned through in that task's own review/pr_decision notes; one is an external SQLAlchemy library method (Session.get_bind()) mentioned in review prose, not an in-repo symbol; one is descriptive prose ('_wave_showed_state') paraphrasing behavior rather than naming a real function, and the actual underlying code path (evaluate_wave) was confirmed to still exist); (3) one full backend suite run (pytest --cov=app --cov-fail-under=90: 493 passed, 99.84% coverage) and one full frontend suite run (vitest run --coverage: 35 files/205 tests passed, 99.71% lines) as the shared regression evidence. No task was reopened — the board's ~78 done tasks currently hold up.",
       "rationale": "A full pass across the entire done-task set (rather than a sample) was feasible within this session because the checks are scripted/batched rather than per-task manual reads, exactly as the skill itself is designed to work — so this smoke test doubles as direct evidence the mechanism is efficient enough to actually run at full board scale, not just evidence the board is clean today."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/skill-revalidate-done-tasks",
+    "pr_number": 92,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/92",
+    "pushed_at": "2026-09-17T18:02:12Z"
+  }
 }
