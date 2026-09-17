@@ -1,0 +1,66 @@
+{
+  "id": "indicator-stochastic-followups",
+  "title": "Indicator: Stochastic — non-blocking review follow-ups",
+  "area": "backend/indicators",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["indicator-stochastic"],
+  "references": [
+    "docs/tasks/indicator-stochastic.json#review",
+    "https://github.com/rainoko/fintrade/pull/12"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #12 (indicator-stochastic), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "_validate_period's int/bool/range guard in stochastic.py duplicates the identical inline check in app/indicators/ema.py::ema(). force_index.py avoided this by delegating to ema() directly, but stochastic.py can't (it's SMA-, not EMA-, based) — extract a shared _validate_period-style helper once a third indicator needs the same check, rather than a third copy-paste.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T17:39:12Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the duplicated int/bool/range period-validation guard from app/indicators/ema.py::ema() and app/indicators/stochastic.py::stochastic_oscillator() into a new shared app/indicators/_validation.py::validate_period(name, value) helper, and had both call sites delegate to it. This was done now even though only two duplicates exist, not three as the checklist item's own text said to wait for.",
+      "rationale": "The checklist item's stated precondition ('extract... once a third indicator needs the same check') was explicitly overridden by direct user instruction: a maintained, non-duplicated implementation was judged worth doing immediately rather than waiting for a third copy-paste to accumulate. The refactor is behavior-preserving — same error types, same parametrized error-message wording (stochastic.py's existing _validate_period(name, value) signature was reused as the shared helper's signature so ema.py's call site, which validates a single param literally named 'period', produces byte-identical error text to before) — verified via each indicator's existing test suite plus new direct tests for the helper in tests/unit/indicators/test_validation.py. Rejected keeping the module-level function name with its leading underscore (_validate_period) in the new shared module: the module itself (app/indicators/_validation.py) already signals package-internal-only via its own leading underscore, so the function name didn't need a second one now that it's called from outside its original module."
+    }
+  ],
+  "git": {
+    "branch": "task/indicator-stochastic-followups",
+    "pr_number": 89,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/89",
+    "pushed_at": "2026-09-17T17:39:56Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T17:42:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/89",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed pure, behavior-preserving refactor: diffed against the original PR #12 state and the new shared app/indicators/_validation.py::validate_period() is byte-for-byte identical logic to both call sites' prior inline guards (isinstance(value, bool) / isinstance(value, int) check, value < 1 check, identical error text via the caller-supplied name). ema.py and stochastic.py's actual computation (ewm/rolling math) is untouched. All call sites of ema()/stochastic_oscillator() pass fixed valid literal periods, so this is invisible to every caller.",
+        "file": "backend/app/indicators/_validation.py",
+        "line": 0
+      },
+      {
+        "summary": "Task's decisions entry correctly documents the explicit user override of the checklist item's own stated 'wait for a third indicator' precondition, with rationale covering why (avoid a third copy-paste accumulating) and the rejected alternative (keeping the leading-underscore name in the new module).",
+        "file": "docs/tasks/indicator-stochastic-followups.json",
+        "line": 0
+      },
+      {
+        "summary": "Backend test suite: 493 passed, 0 failed. Coverage 99.84% overall (app/indicators/_validation.py itself at 100%), well above the 90% gate. No ruff/mypy configured in backend/pyproject.toml, so no lint/typecheck step applies.",
+        "file": "backend/app/indicators/_validation.py",
+        "line": 0
+      },
+      {
+        "summary": "No UI-facing changes in this PR (backend-only: two indicator modules, a new validation helper, its unit tests, and task-board JSON) — browser walkthrough is not applicable and was skipped explicitly rather than silently.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md §2's module layout listing under indicators/ doesn't mention the new shared app/indicators/_validation.py helper module (placement itself is fine — pure function, no I/O, package-internal via leading underscore — just a doc-staleness gap). Tracked as a follow-up task (indicator-stochastic-followups-followups) rather than left only in this comment.",
+        "file": "docs/architecture/Backend.md",
+        "line": 0
+      }
+    ],
+    "notes": "Verified this is a genuine behavior-preserving refactor by diffing the pre-refactor state (PR #12, commit adf3b58) directly against the post-refactor state (commit 7b39da4): identical error types, identical error-message wording per call site, identical range check. No indicator math changed, so docs/Analyse.md's methodology sections (tide/wave/trigger/impulse/confidence/risk) don't intersect this change at all. code-review skill (medium effort) found zero findings. architecture-review found the module placement itself sound but flagged the Backend.md §2 doc-staleness gap noted above (tracked as a follow-up, non-blocking). No API/schema changes, so no OpenAPI snapshot concern. No pre-existing pr_decision on this task to clear."
+  }
+}

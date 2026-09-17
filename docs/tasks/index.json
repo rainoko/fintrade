@@ -117,8 +117,15 @@
       "id": "indicator-stochastic-followups",
       "area": "backend/indicators",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/indicator-stochastic-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/indicator-stochastic-followups.json"
+    },
+    {
+      "id": "indicator-stochastic-followups-followups",
+      "area": "backend/indicators",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/indicator-stochastic-followups-followups.json"
     },
     {
       "id": "indicator-elder-ray",
