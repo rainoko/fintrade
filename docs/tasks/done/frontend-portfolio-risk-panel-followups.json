@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend portfolio risk panel (PR #66)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-portfolio-risk-panel"],
   "references": [
     "docs/tasks/done/frontend-portfolio-risk-panel.json",
@@ -59,5 +59,18 @@
     "pr_number": 77,
     "pr_url": "https://github.com/rainoko/fintrade/pull/77",
     "pushed_at": "2026-09-17T04:28:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T04:37:26Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/77",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "`formatCurrency` (new in `utils/format.ts`) has no direct unit test in `format.test.ts`, unlike its sibling `formatNullableNumber` — it's only indirectly exercised via component tests using sub-1000 values, so its thousands-separator behavior for values >= 1000 (the whole point of choosing the richer implementation) has no regression test. Verified manually via a browser walkthrough that it renders correctly ($1,234.50), but that verification doesn't persist. Non-blocking; tracked as docs/tasks/frontend-portfolio-risk-panel-followups-followups.json.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 398
+      }
+    ],
+    "notes": "Checked out PR #77, ran the full verification pass. `npm run test:coverage`: 34 files / 183 tests pass, 99.71%/99.61%/100%/99.7% (statements/branches/functions/lines) — well above the 90% gate, no regressions. `npm run lint`: clean. `npm run build` (tsc -b && vite build): succeeds. `npm run build-storybook`: succeeds, includes the new RiskPercent stories and updated DataTable WithAriaLabel story. Ran the code-review skill against the diff independently: no findings (traced formatCurrency/RiskPercent/isMissingPlural/the new story to every call site, confirmed RiskPosition.position_risk_pct/two_percent_rule_breached are non-nullable so RiskPercent has no null-handling gap, re-ran the relevant vitest suites). §7a placement check on the new components/common/RiskPercent: genuinely domain-agnostic (takes a plain `value`/`breached`/`decimals`, no knowledge of 'position' or 'ticker'), correctly placed under components/common/ (not features/portfolio/), with its own colocated test + 2-state story (WithinLimit/Breached) matching PercentChange's pattern — correct placement, not a near-duplicate of PercentChange (deliberately different contract: no sign, breached-flag-driven not sign-driven, per the task's decisions entry). Verified the 2%-rule color logic against docs/Analyse.md §7 and backend/app/api/routers/portfolio.py's `two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD` (2.0): RiskPercent colors from the backend's own already-computed boolean, no re-derivation of the threshold on the frontend. Did a real browser walkthrough (Playwright + a locally-installed chromium against the actual `npm run dev` server, intercepting /api/portfolio and /api/portfolio/risk with route mocks since this PR has no backend changes) with a breaching scenario (AAPL position_risk_pct=5.00%, two_percent_rule_breached=true): confirmed the Position Risk cell now renders in `riskBreach.main` (#d32f2f / rgb(211,47,47)) instead of the prior misleading green, while the non-breaching MSFT row renders neutral gray (rgba(0,0,0,0.6) = theme.palette.text.secondary) — screenshot matches. Also walked through the formatCurrency consolidation with a >=1000 value (protective_stop=1234.5) and confirmed it now correctly renders '$1,234.50' with the thousands separator across RiskPanel, consistent with the decisions entry's intentional, documented format upgrade (never a regression since RiskPanel/PositionsTable's old plain formatter had no such grouping and PortfolioPage's richer one is unchanged). Confirmed via browser walkthrough with 2 missing tickers (ZZZZINVALID, TSLA) that the pluralization fix covers both pronoun pairs claimed: 'their price ... so they're excluded' (not just the one clause the original checklist item quoted), matching RiskPanel.test.tsx's new assertions. Checked frontend-dashboard-page-followups.json (docs/tasks/frontend-dashboard-page-followups.json): its checklist items about DashboardPage.tsx's/PositionsGlanceTable.tsx's own separate formatCurrency duplicates remain accurate and unaddressed by this PR (neither file was touched) — no update needed there, confirming the task's own decisions entry that scoping this consolidation to the 3 Portfolio-page call sites was not silently abandoning a checklist obligation elsewhere. No backend/API changes in this PR, so no openapi.json snapshot check applies. All 4 checklist items have corresponding decisions entries recording the judgment calls made. One non-blocking finding (missing direct formatCurrency unit test) filed as a follow-up task per process; no blocking findings."
   }
 }
