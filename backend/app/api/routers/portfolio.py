@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
 from app.api.schemas import (
-    ErrorDetail,
     Equity,
+    ErrorDetail,
     PortfolioResponse,
     PositionIn,
     PositionOut,

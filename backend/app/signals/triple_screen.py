@@ -59,13 +59,9 @@ def macd_histogram_slope(histogram: pd.Series, latest_close: float) -> str:
     """
     latest, previous = histogram.iloc[-1], histogram.iloc[-2]
 
-    if latest_close == 0:
-        # Degenerate case (a zero close price) that never occurs with real
-        # market data -- fall back to an absolute-zero comparison instead
-        # of dividing by zero.
-        step = latest - previous
-    else:
-        step = (latest - previous) / abs(latest_close)
+    # Degenerate case (a zero close price) that never occurs with real market
+    # data -- fall back to an absolute-zero comparison instead of dividing by zero.
+    step = latest - previous if latest_close == 0 else (latest - previous) / abs(latest_close)
 
     if step > _FLAT_SLOPE_THRESHOLD_PCT:
         return "rising"
@@ -329,9 +325,6 @@ def evaluate_trigger(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
     prior_high = daily_ohlcv["high"].iloc[-2]
     prior_low = daily_ohlcv["low"].iloc[-2]
 
-    if tide == "BULLISH":
-        fired = today_close > prior_high
-    else:
-        fired = today_close < prior_low
+    fired = today_close > prior_high if tide == "BULLISH" else today_close < prior_low
 
     return {"fired": fired, "reference": reference}

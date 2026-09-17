@@ -7,7 +7,7 @@ the generated OpenAPI schema self-explanatory — see CLAUDE.md's API
 documentation standard.
 """
 
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator

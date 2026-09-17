@@ -24,6 +24,8 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-mock>=3.14",
     "httpx>=0.27",
+    "ruff>=0.7",
+    "mypy>=1.13",
 ]
 
 [tool.pytest.ini_options]
@@ -40,3 +42,42 @@ show_missing = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["app/db/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# E501 (line too long) is off: several Pydantic `Field(description=...)` strings are
+# long, human-readable API docs that shouldn't be mechanically wrapped — see
+# docs/tasks/skill-static-verify.json decisions.
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's own dependency-injection idiom is `param: X = Depends(...)` (and the
+# analogous Query/Body/Path/Header/Cookie) — the call is intentionally evaluated once
+# at route-definition time, not a mutable-default bug. B008 would otherwise flag every
+# route handler in app/api/routers/.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+exclude = ["app/db/migrations/versions"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+ignore_missing_imports = true

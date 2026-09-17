@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +9,9 @@ from app.api.schemas import (
     ConfidenceBreakdownItem,
     ErrorDetail,
     HistoryResponse,
+    Indicators,
     OHLCVBar,
+    Screens,
 )
 from app.data.base import DataProvider
 from app.data.exceptions import (
@@ -234,10 +236,17 @@ def get_analysis(
         signal=result.signal,
         confidence=result.confidence,
         confidence_band=result.confidence_band,
-        screens=result.screens,
+        # `SignalResult.screens`/`.indicators` are typed as plain `dict` in
+        # app.signals.engine (the domain layer deliberately doesn't import the API
+        # schema types, per docs/Architecture.md's layering) but are actually always
+        # built by `analyse()` to match `Screens`/`Indicators`' shape exactly. Pydantic
+        # validates the shape at construction time here regardless, so this `cast` is
+        # a static-typing annotation only, not a runtime assumption -- see this task's
+        # `decisions` entry.
+        screens=cast(Screens, result.screens),
         confidence_breakdown=[
             ConfidenceBreakdownItem(component=c.component, weight=c.weight, score=c.score)
             for c in result.breakdown
         ],
-        indicators=result.indicators,
+        indicators=cast(Indicators, result.indicators),
     )

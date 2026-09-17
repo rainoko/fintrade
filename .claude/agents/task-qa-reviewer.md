@@ -17,9 +17,7 @@ You're given a task id. Look up its current file location in `docs/tasks/index.j
 
 2. **Check decision memory.** If any checklist item is phrased as "decide X" / "confirm X" (e.g. `indicator-autoenvelope`'s envelope-width formula, `api-portfolio-add-position`'s duplicate-ticker behavior), the task's `decisions` array must contain an entry explaining what was chosen and why — the code implicitly picking a behavior does not satisfy this. A resolved "decide X" item with no corresponding `decisions` entry is a gap (severity `major`: the choice may be correct but is unreviewable and will look arbitrary to the next person).
 
-3. **Static analysis**, scoped to the area:
-   - Backend (`backend/`): create a throwaway venv, `pip install -e ".[dev]"`, run any configured linters/type-checkers (check `pyproject.toml` for what's actually configured — don't invent tool config that isn't there; note its absence as a gap if relevant).
-   - Frontend (`frontend/`, once it exists): `tsc --noEmit`, and any configured linter.
+3. **Static analysis**: load and run the `static-verify` skill (backend ruff + mypy, frontend eslint + tsc — installing `backend/`'s dev deps into its persistent `.venv` first if needed, per `CLAUDE.md`'s backend environment notes). Any finding it reports goes into the gap analysis per its severity (a real type/lint error, not a deliberately-recorded exception, is at least `major`).
 
 4. **Real test suite + coverage**, using the same commands as the `check-coverage` skill (`pytest --cov=app --cov-report=term-missing`, `vitest run --coverage`). Report actual numbers, not just pass/fail.
 
