@@ -7,15 +7,7 @@ import PositionsGlanceTable from '../features/portfolio/components/PositionsGlan
 import RiskSummaryCard from '../features/portfolio/components/RiskSummaryCard'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
 import TickerSearchBox from '../features/stocks/components/TickerSearchBox'
-
-function formatCurrency(value: number): string {
-  return value.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
+import { formatCurrency } from '../utils/format'
 
 /**
  * The landing page ('/'): an at-a-glance summary composed entirely from

@@ -1,10 +1,7 @@
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
-import { useTheme } from '@mui/material/styles'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBreachBanner'
 import StatCard from '../../../components/common/StatCard/StatCard'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
@@ -20,7 +17,6 @@ import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
  * stays a thin composition (Frontend.md §3).
  */
 export default function RiskSummaryCard() {
-  const theme = useTheme()
   const riskQuery = usePortfolioRisk()
 
   if (!riskQuery.data) {
@@ -38,25 +34,14 @@ export default function RiskSummaryCard() {
   return (
     <Stack spacing={2}>
       {six_percent_rule_breached && (
-        <Box
-          role="alert"
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            p: 2,
-            borderRadius: 1,
-            border: '1px solid',
-            borderColor: theme.palette.riskBreach.main,
-            backgroundColor: theme.palette.riskBreach.background,
-          }}
-        >
-          <WarningAmberIcon sx={{ color: theme.palette.riskBreach.main }} />
-          <Typography sx={{ color: theme.palette.riskBreach.main, fontWeight: 700 }}>
-            6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
-            equity (limit 6%). See the Portfolio page for details.
-          </Typography>
-        </Box>
+        <RiskBreachBanner
+          message={
+            <>
+              6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
+              equity (limit 6%). See the Portfolio page for details.
+            </>
+          }
+        />
       )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

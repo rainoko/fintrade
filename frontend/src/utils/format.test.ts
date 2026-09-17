@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { formatCurrency, formatNullableNumber, humanizeSnakeCase } from './format'
+import {
+  formatCurrency,
+  formatNullableCurrency,
+  formatNullableNumber,
+  humanizeSnakeCase,
+} from './format'
 
 describe('humanizeSnakeCase', () => {
   it('returns the label map entry when the value is known', () => {
@@ -58,5 +63,19 @@ describe('formatCurrency', () => {
 
   it('formats zero', () => {
     expect(formatCurrency(0)).toBe('$0.00')
+  })
+})
+
+describe('formatNullableCurrency', () => {
+  it('formats a present value the same way formatCurrency does', () => {
+    expect(formatNullableCurrency(1234.5)).toBe('$1,234.50')
+  })
+
+  it("renders '—' for null", () => {
+    expect(formatNullableCurrency(null)).toBe('—')
+  })
+
+  it("renders '—' for undefined", () => {
+    expect(formatNullableCurrency(undefined)).toBe('—')
   })
 })

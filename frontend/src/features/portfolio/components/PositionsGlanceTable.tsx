@@ -5,13 +5,10 @@ import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import { formatNullableCurrency } from '../../../utils/format'
 
 export interface PositionsGlanceTableProps {
   positions: PositionOut[]
-}
-
-function formatNullableCurrency(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : `$${value.toFixed(2)}`
 }
 
 /**

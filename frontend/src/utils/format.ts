@@ -29,6 +29,16 @@
 // better for a finance app's currency display, never worse, so there was no
 // reason to standardize on the plainer of the two — see this task's
 // `decisions` entry.
+//
+// `formatNullableCurrency` below was added later still
+// (frontend-dashboard-page-followups.json) to finish that consolidation:
+// DashboardPage.tsx had its own copy-pasted `formatCurrency`, and
+// PositionsGlanceTable.tsx had its own independent nullable-price formatter
+// (`value === null/undefined ? '—' : \`$${value.toFixed(2)}\``) that
+// duplicated the null-check PositionsTable.tsx already applied on top of
+// `formatCurrency`. Both are now the same one helper below rather than two
+// independent 'render a nullable price' implementations that could silently
+// drift apart — see this task's `decisions` entry.
 
 /**
  * Humanizes a snake_case domain value (e.g. an Elder Triple Screen field or
@@ -87,4 +97,15 @@ export function formatCurrency(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
+}
+
+/**
+ * Formats a nullable price via `formatCurrency`, rendering '—' for
+ * `null`/`undefined` instead — the same "null means unknown, not zero"
+ * convention `formatNullableNumber` establishes for plain numbers. For
+ * fields like `current_price`, which is null when a price fetch failed
+ * (docs/architecture/API.md).
+ */
+export function formatNullableCurrency(value: number | null | undefined): string {
+  return value === null || value === undefined ? '—' : formatCurrency(value)
 }

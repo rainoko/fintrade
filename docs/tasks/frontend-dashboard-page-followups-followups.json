@@ -1,0 +1,22 @@
+{
+  "id": "frontend-dashboard-page-followups-followups",
+  "title": "Follow-up: PositionsGlanceTable's price formatting silently gained thousands separators (PR #81)",
+  "area": "frontend/pages/dashboard",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-dashboard-page-followups"],
+  "references": [
+    "docs/tasks/frontend-dashboard-page-followups.json#review",
+    "frontend/src/utils/format.ts",
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.test.tsx",
+    "https://github.com/rainoko/fintrade/pull/81"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #81 (frontend-dashboard-page-followups), tracked so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #81 switched PositionsGlanceTable.tsx from its own inline `formatNullableCurrency` (`value === null/undefined ? '—' : \\`$${value.toFixed(2)}\\``, no thousands separator) onto the new shared `utils/format.ts` `formatNullableCurrency`, which wraps `formatCurrency`'s `toLocaleString(..., {style:'currency', ...})`. For any price at or above $1,000 (a plausible `current_price`/`avg_cost_basis` for many real tickers), the rendered text on the Dashboard's positions-at-a-glance table now differs from before the consolidation — e.g. `$1234.50` before vs `$1,234.50` after — gaining a thousands separator it previously lacked. This is consistent with the precedent already established in frontend-portfolio-risk-panel-followups (PR #77's `decisions` entry: the richer `toLocaleString` formatting is 'strictly better, never worse' for a finance app, so standardizing on it is intentional and desirable, not a bug), but two gaps are worth closing: (1) PositionsGlanceTable.test.tsx's only priced fixture is $228.90 (see `aaplPosition.current_price`), so no test exercises a 4-digit price and would catch a future regression in this formatting; (2) this PR's own `decisions` entry frames the PositionsGlanceTable/PositionsTable fold-in purely as consolidating null-check logic and doesn't explicitly call out that the numeric formatting itself changes for 4+-digit prices at this specific call site. Consider adding a >=$1,000 price fixture/assertion to PositionsGlanceTable.test.tsx, and noting the intentional formatting-output change explicitly in a future decision record for full traceability.",
+      "done": false
+    }
+  ]
+}
