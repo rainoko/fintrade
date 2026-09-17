@@ -1,0 +1,65 @@
+{
+  "id": "frontend-scaffold-followups",
+  "title": "Frontend scaffold — non-blocking review follow-ups",
+  "area": "frontend/scaffold",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-scaffold"],
+  "references": [
+    "docs/tasks/frontend-scaffold.json#review",
+    "https://github.com/rainoko/fintrade/pull/61"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #61 (frontend-scaffold), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "src/theme/theme.ts's typography.fontFamily lists \"Inter\" first, but the font is never actually loaded anywhere (no <link> in index.html, no @fontsource/inter or Google Fonts import, no @font-face). Every page silently falls through to the next stack entry (system font) instead of Inter. Either load the font (e.g. @fontsource/inter, imported once in main.tsx or index.html) or drop it from the stack if a system font is actually intended.",
+      "done": true
+    },
+    {
+      "step": "docs/architecture/Testing.md's frontend coverage example (§Frontend, the `vite.config.ts` code block) still shows the coverage config without `include: ['src/**/*.{ts,tsx}']` — the fix landed in PR #61's follow-up commit (4bb0676) only in the actual frontend/vite.config.ts, not in this doc, which the original frontend-scaffold checklist named as the config vite.config.ts must match. Update the doc's example to include the `include` field (mirroring the backend example's `source = [\"app\"]`, which already documents the equivalent \"count every file regardless of import\" mechanism) so a future task copying this doc's snippet doesn't silently reintroduce the same silently-broken 90% gate.",
+      "done": true
+    },
+    {
+      "step": "pr-reviewer (PR #79) found: PercentChange.tsx renders via an inline `style={{ fontWeight: 600 }}` (component.tsx line 30), but only Inter weights 300/400/500/700 are imported in main.tsx. Confirmed live in a browser (Storybook's common-percentchange--positive story with the real theme applied) that the computed style requests weight 600 while only 300/400/500/700 @font-face rules exist for Inter — per the CSS Fonts Module Level 4 weight-matching algorithm (target >500 matches the smallest declared weight >= target), this resolves to the Inter 700 (bold) face, not a synthesized/matched 600. PercentChange renders `unrealized_pnl_pct` in both PositionsGlanceTable and PositionsTable on the Portfolio page, so every position's gain/loss percentage now renders visibly bolder (Inter 700) than before this PR (when the system-font fallback rendered true weight 600) — a real visual regression, not just an unused-weight non-issue. Fix by importing the 600 weight (@fontsource/inter/600.css) or otherwise auditing all actually-used inline/sx fontWeight values codebase-wide (not just MUI's default Typography-variant weights) before finalizing the imported weight set.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T05:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Actually load Inter via @fontsource/inter (self-hosted, no external Google Fonts request) rather than dropping it from the font stack. Imported the 300/400/500/700 weight CSS files once in src/main.tsx (the app's single bootstrap entry point) — the four weights MUI's default Typography variants (fontWeightLight/Regular/Medium/Bold) actually render, so no unused weight files bloat the bundle.",
+      "rationale": "The theme was clearly authored with Inter as the intended primary typeface (listed first, with a full system-font fallback stack behind it), so dropping it silently changes the app's visual design as a side effect of a follow-up task, which is out of scope here. @fontsource/inter self-hosts the font (no third-party network request at runtime, consistent with the project's no-live-network-call testing stance and avoiding a render-blocking cross-origin request to Google Fonts). An index.html <link> to Google Fonts was considered and rejected: it would add an external dependency load and a FOUC-prone extra round trip that a bundled @fontsource import avoids entirely."
+    },
+    {
+      "timestamp": "2026-09-17T05:25:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pr-reviewer's PR #79 needs_work finding by importing @fontsource/inter/600.css in src/main.tsx (option (a) from the review) rather than changing PercentChange's inline fontWeight to 500 or 700 (option (b)).",
+      "rationale": "PercentChange.tsx's fontWeight: 600 (semibold) is a deliberate, distinct design choice for gain/loss percentages — visually heavier than body text (400/500) but not as heavy as a true bold (700) — and a `grep -rn fontWeight src` (matching the reviewer's own grep) confirmed it's the only inline usage of 600 in the codebase, so importing the one missing weight file is a minimal, surgical fix with no risk of masking other unaudited weights. Rejected changing the component to 500 or 700: 700 is what the bug was already incorrectly rendering as (no visual fix, just making the wrong result 'intentional'), and 500 would understate the emphasis the component was designed to have versus regular body text, changing the component's visual design as a side effect of a font-loading bug fix. Verified node_modules/@fontsource/inter/600.css declares `font-weight: 600` exactly (not a synthesized/interpolated face), so importing it gives PercentChange a true, exact-match 600 face — matching the pre-PR system-font fallback's true weight 600 — rather than the CSS weight-matching algorithm substituting the nearest heavier face. Confirmed via `npm run build` that the built dist/assets now include the Inter 600 woff2/woff files (e.g. dist/assets/inter-latin-600-normal-*.woff2) alongside 300/400/500/700, i.e. the face is actually shipped, not just declared. Browser automation tools (Playwright) were not available in this environment to reproduce pr-reviewer's exact live getComputedStyle/document.fonts check; verification here relies on the built CSS/font-file evidence above plus the full lint/tsc/test/build/build-storybook suite passing, which is a materially different verification method than the review comment used — flagging this for whoever reviews the fix next."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-scaffold-followups",
+    "pr_number": 79,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/79",
+    "pushed_at": "2026-09-17T05:01:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T05:25:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/79",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Re-review of the fix for the prior round's blocking finding (PercentChange fontWeight:600 resolving to Inter 700). Confirmed sound with a real browser walkthrough (Playwright + Chromium against the actual app, not just build-artifact inspection): started the real backend (uvicorn, seeded fintrade.db with AAPL/MSFT/TSLA/ZZZZINVALID positions) and the Vite dev server with the built frontend, navigated to /portfolio, and inspected the live DOM. Every rendered `+X.XX%`/`X.XX%` PercentChange cell (TSLA +616.16%, AAPL +121.61%, MSFT +63.43%) has computed `font-family: Inter, ...` and `font-weight: 600`, and `document.fonts` now registers a distinct Inter face with `weight: '600'`, `style: 'normal'`, `status: 'loaded'` (previously only 300/400/500/700 were registered) — this is a genuinely separate face, not the 700 face being reused. Network trace confirms `inter-latin-600-normal.woff2` was actually fetched (200) alongside the pre-existing 400/500 files, and console/network logs show zero errors. This directly supersedes the build-artifact-only verification the task-worker flagged as a methodology gap in its decision record — the live getComputedStyle/document.fonts check requested in the prior review has now been redone and passes.",
+        "file": "frontend/src/main.tsx",
+        "line": 17
+      }
+    ],
+    "notes": "Re-ran the full verification suite on the PR branch (commit bd1c9b4): npm run lint (clean), npx tsc -b (clean), npm run test:coverage (186 tests passed, 99.71% statements / 99.61% branches / 100% functions / 99.7% lines — well above the 90% gate, no regression from the prior round), npm run build and npm run build-storybook (both succeed; dist/assets includes the new inter-latin-600-normal woff2/woff alongside 300/400/500/700). Backend suite unaffected (488 passed, 99.84% coverage) since this PR still touches only frontend/docs — confirmed backend/openapi.json needs no regeneration (no API/schema changes in this diff). Browser walkthrough: golden path was /portfolio with real seeded positions (TSLA/AAPL/MSFT all showing positive PercentChange in true Inter 600 per the finding above); edge case was the ZZZZINVALID position (unfetchable price/history), which correctly renders an em-dash and the 'No risk data available' banner instead of a broken PercentChange cell — no console errors or failed requests on either path (verified via Playwright's console/network listeners). Ran the code-review skill (medium effort) against main...HEAD focused on the fix commit: no correctness bugs found; confirmed the fix is minimal (single new @fontsource/inter/600.css import), confirmed via `grep -rn fontWeight src` that PercentChange is still the only inline fontWeight:600 usage (fix is complete, not partial), and confirmed main.tsx is excluded from the coverage gate so this change can't affect the 90% threshold. `npm run format:check` flags 13 pre-existing files with Prettier drift, none of which are touched by this PR's diff (git diff main...HEAD --name-only confirms) — pre-existing, not a regression, and not part of the project's configured lint gate (only `eslint .` is `npm run lint`). Verdict: accepted. The task-worker's decision record is a solid, complete record of the fix rationale and correctly flagged its own verification-method gap (no Playwright available) for this review round to close, which it now has. The two non-blocking findings from the prior round (Storybook not loading Inter; Frontend.md's dependency table missing @fontsource/inter) remain correctly tracked on docs/tasks/frontend-scaffold-followups-followups.json (still state: planned) — no new non-blocking findings surfaced in this round."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T05:29:39Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (186 tests passed, 99.71%/99.61%/100%/99.7%, matching pr-reviewer exactly), npm run lint and npx tsc -b (both clean), npm run build and npm run build-storybook (both succeed, no regressions). Confirmed the font fix at the CSS level, not just the import line: dist/assets/index-*.css contains a genuine, exact @font-face{font-family:Inter;font-weight:600;...} rule (distinct src files, e.g. inter-latin-600-normal-LgqL8muc.woff2) alongside the pre-existing 300/400/500/700 rules — a true 600 face, not a synthesized/interpolated one reusing 700's files. Skimmed the full diff (main.tsx, package.json/package-lock.json, Testing.md, task/index.json bookkeeping) and found nothing pr-reviewer's notes understated; the tracked non-blocking follow-up (Storybook not loading Inter, on frontend-scaffold-followups-followups.json) checks out as accurate and genuinely non-blocking since storybook-static/assets has zero Inter files while the real app (main.tsx) does load it."
+  }
+}
