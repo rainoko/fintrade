@@ -98,12 +98,29 @@ export interface paths {
          *     which only sums positions with a known stop — see `app.portfolio.risk
          *     .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
          *     couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
-         *     task's `decisions` entry), its daily history has fewer than 2 rows (the minimum
-         *     `evaluate_exit_flags` needs to test today's close against yesterday's stop), its weekly
-         *     history couldn't be fetched, or `protective_stop`/`evaluate_exit_flags` raised for a
-         *     malformed frame. `RiskPosition`'s fields are all non-nullable, so a position that can't
-         *     be fully evaluated has no partial representation in this schema — see this task's
-         *     `decisions` entry.
+         *     task's `decisions` entry), its daily history has fewer than 2 rows once any malformed
+         *     bar is dropped (the minimum `evaluate_exit_flags` needs to test today's close against
+         *     yesterday's stop), its weekly history couldn't be fetched, or
+         *     `protective_stop`/`evaluate_exit_flags` raised for a malformed frame. `RiskPosition`'s
+         *     fields are all non-nullable, so a position that can't be fully evaluated has no partial
+         *     representation in this schema — see this task's `decisions` entry.
+         *
+         *     `e.daily_ohlcv` is passed through `app.signals.engine.drop_malformed_daily_bars` before
+         *     `protective_stop`/`evaluate_exit_flags` ever see it — mirroring GET
+         *     /api/stocks/{ticker}/analysis's identical filtering — so a malformed bar anywhere in a
+         *     position's history can't silently suppress an exit flag via a NaN comparison quietly
+         *     evaluating False. Called here with `require_full_ohlc_on_latest_bar=False`, unlike GET
+         *     /api/stocks/{ticker}/analysis's default-`True` call: the *latest* bar is dropped only if
+         *     its own `close` is NaN, matching `app.portfolio.pricing._latest_close`'s own close-only
+         *     validity rule for that exact bar (which is what `position.current_price` was derived
+         *     from), rather than also requiring open/high/low there — a shape `_latest_close` doesn't
+         *     guard against, and one this pipeline's own downstream reads (`evaluate_exit_flags` and
+         *     everything it calls) never touch for the latest bar anyway. Using the stricter default here
+         *     would silently drop a real latest bar whose close is valid but whose open/high/low haven't
+         *     settled yet, desyncing `position.current_price` from `daily_ohlcv`'s last row and making
+         *     `evaluate_exit_flags` test yesterday's close against today's stop instead of today's — see
+         *     the api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
+         *     reasoning and the regression this reconciles.
          */
         get: operations["get_portfolio_risk"];
         put?: never;
