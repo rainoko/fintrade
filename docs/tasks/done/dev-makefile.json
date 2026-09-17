@@ -3,7 +3,7 @@
   "title": "Root Makefile to run backend and frontend dev servers",
   "area": "infra",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "README.md",
@@ -39,5 +39,23 @@
     "pr_number": 96,
     "pr_url": "https://github.com/rainoko/fintrade/pull/96",
     "pushed_at": "2026-09-17T20:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T20:21:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/96",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "`make dev`'s cleanup only reliably works because a real interactive-terminal Ctrl-C delivers SIGINT to the whole process group at once (verified clean with setsid+kill -INT on the negative PGID: uvicorn and vite both shut down, no orphans, no crash). Sending SIGINT to only the top-level `make dev` PID (simulating a non-interactive invocation) does nothing -- GNU Make defers handling the signal until its recipe subshell exits, and that subshell is itself blocked in `wait $bpid $fpid`, which is never interrupted -- full deadlock with uvicorn/vite/npm left running. Outside the checklist's literal ask (Ctrl-C/exit, which works), so non-blocking. Filed as docs/tasks/dev-makefile-followups.json.",
+        "file": "Makefile",
+        "line": 28
+      },
+      {
+        "summary": "README's \"make backend (and make dev, which depends on it)\" overstates the relationship as a formal Make prerequisite; `dev` actually invokes `$(MAKE) backend` as a subprocess within its own recipe. Described behavior is correct, phrasing is imprecise. Filed as docs/tasks/dev-makefile-followups.json.",
+        "file": "README.md",
+        "line": 32
+      }
+    ],
+    "notes": "Checked out PR #96. Backend: pytest --cov=app --cov-fail-under=90 -> 493 passed, 99.84% coverage, no regression (no app code touched by this PR). Frontend: vitest run --coverage -> all passing, 99.71%/99.64%/100%/99.71% (statements/branches/functions/lines), no regression. Static analysis (static-verify): backend ruff + mypy clean, frontend eslint + tsc clean. No API route/schema touched, so openapi.json check N/A. area is infra (not backend/signals or backend/portfolio, skill is null not verify-elder-signal), so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No frontend components touched (Makefile + README only), so the components-placement check (step 7a) doesn't apply. No UI surface for this change at all -- browser walkthrough explicitly skipped as not applicable, not silently omitted. Manually verified the Makefile itself since this PR has no automated tests of its own: `make help` lists all 6 targets, .PHONY covers all of them; `make backend` with backend/.venv temporarily moved aside prints the documented friendly guard error and exits non-zero (restored venv afterward, confirmed uvicorn binary present again); most importantly, independently verified the make-dev SIGINT-cleanup claim rather than trusting the task's decisions entry -- reproduced a real interactive-terminal-style Ctrl-C with setsid (own process group/session) + kill -INT on the negative PGID: uvicorn (including its --reload reloader and multiprocessing spawn/resource-tracker children) and vite/npm both shut down cleanly, pgrep -fa 'uvicorn|vite' empty afterward, make printed a normal '*** [Makefile:29: dev] Interrupt' with no crash -- confirms the kill $$bpid $$fpid vs kill 0 decision's outcome is correct as implemented (did not need to reproduce the reported kill-0 segfault itself to accept that call, since what matters for review is that the current code's behavior is correct, which I verified directly). Also tested the edge case of signalling only the top-level make dev PID (not the process group): this hangs -- GNU Make defers acting on a signal until its currently-running recipe shell exits, and that shell is blocked in `wait $bpid $fpid` which never gets interrupted, so nothing propagates and uvicorn/vite are left running; recorded as a non-blocking follow-up since it's outside the checklist's literal Ctrl-C/exit ask. Ran the code-review skill (medium effort) against the diff in the background for a second pass; my own manual testing (described above) already covered correctness of the shell/process logic in more depth than a diff-only read would for a change this size, so I did not block finalizing the review on its completion. Decision-memory cross-check: checklist item 4 (decide on adjacent convenience targets) has a corresponding decisions entry with rationale (install/test as thin passthroughs, no lint target since static-verify already owns that); the kill-0-vs-kill-pids switch also has its own recorded decision with rationale. Both adequate, no gap. Two non-blocking findings total, filed as docs/tasks/dev-makefile-followups.json (new task, depends_on this one, since none existed yet for this id)."
   }
 }

@@ -1,0 +1,25 @@
+{
+  "id": "dev-makefile-followups",
+  "title": "Root Makefile — non-blocking review follow-ups",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["dev-makefile"],
+  "references": [
+    "docs/tasks/dev-makefile.json#review",
+    "https://github.com/rainoko/fintrade/pull/96"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #96 (dev-makefile), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`make dev`'s cleanup (the `trap 'kill $$bpid $$fpid' EXIT INT TERM` in the `dev` recipe) only reliably cleans up `uvicorn`/`vite` because a real interactive-terminal Ctrl-C delivers SIGINT to the whole process group at once (verified: reproduced with `setsid` + `kill -INT` on the negative PGID -- clean shutdown, no orphans). Sending SIGINT to *only* the top-level `make dev` PID (simulating a non-interactive invocation, e.g. a process supervisor or wrapper script doing `kill <pid>` rather than an interactive Ctrl-C) does nothing at all: GNU Make defers handling the signal until the recipe subshell it's waiting on exits, and that subshell is itself blocked in `wait $bpid $fpid`, which never gets interrupted -- full deadlock, `uvicorn`/`vite`/`npm` left running indefinitely (verified directly: reproduced the hang, then had to clean up the orphaned processes manually). Outside the checklist's literal ask (\"Ctrl-C/exit\", which does work correctly), so non-blocking, but worth hardening (e.g. explicit signal propagation to the process group from within the trap, `set -m` plus targeting `-$$$$`, or similar) or at minimum documenting the interactive-terminal assumption if `make dev` is ever expected to run non-interactively (CI, a supervisor, `timeout`).",
+      "done": false
+    },
+    {
+      "step": "README.md's \"Quick start (Makefile)\" section says \"`make backend` (and `make dev`, which depends on it)\" -- `make dev` doesn't actually declare `backend` as a Make prerequisite; it invokes `$(MAKE) backend` as a subprocess from within its own recipe. The described runtime behavior (the venv-missing error surfaces through `make dev` too) is correct, only the \"depends on\" phrasing overstates it as formal Make dependency terminology. Minor wording fix.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
