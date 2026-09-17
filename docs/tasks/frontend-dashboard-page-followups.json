@@ -1,0 +1,31 @@
+{
+  "id": "frontend-dashboard-page-followups",
+  "title": "Follow-ups: Frontend Dashboard page (PR #67)",
+  "area": "frontend/pages/dashboard",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-dashboard-page"],
+  "references": [
+    "docs/tasks/done/frontend-dashboard-page.json",
+    "https://github.com/rainoko/fintrade/pull/67"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #67 (frontend-dashboard-page), tracked so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "RiskSummaryCard's 6%-rule-breach banner (Box + WarningAmberIcon + Typography with theme.palette.riskBreach styling) is copy-pasted near-verbatim from RiskPanel.tsx's identical banner — only the warning message text differs. Per Frontend.md's Structure Rules (near-duplicates should be consolidated into one shared component instead of copy-pasted across features), consider extracting a shared `RiskBreachBanner` (message as a prop) used by both RiskPanel and RiskSummaryCard.",
+      "done": false
+    },
+    {
+      "step": "DashboardPage.tsx defines its own local `formatCurrency` (`toLocaleString(..., {style:'currency',currency:'USD',...})`), identical to PortfolioPage.tsx's own copy — a fourth distinct currency-formatting implementation in the codebase alongside RiskPanel's and PositionsTable's differently-shaped versions (the latter two already flagged in frontend-portfolio-risk-panel-followups). Extract one shared currency formatter so a future formatting change doesn't need updating in four places.",
+      "done": false
+    },
+    {
+      "step": "PositionsGlanceTable's `formatNullableCurrency` duplicates the null-check logic already in PositionsTable.tsx's identically-named helper (PositionsTable composes its own local `formatCurrency`, while PositionsGlanceTable inlines the `$${value.toFixed(2)}` string directly) — two independent implementations of 'render a nullable price' that can silently drift apart. Worth consolidating alongside the formatCurrency extraction above.",
+      "done": false
+    },
+    {
+      "step": "TickerSearchBox's placement under features/stocks/components/ (rather than components/common/) is a genuinely arguable call: it hardcodes navigation to `/stocks/:ticker` and uppercases input assuming a stock-ticker convention, which is defensible as stock-domain knowledge per Frontend.md §3's literal rule, but the underlying 'text field + submit button that navigates somewhere on submit' pattern is otherwise generic UI behavior. Worth reconsidering if a second lookup-and-navigate entry point appears elsewhere in the app (e.g. when frontend-stock-analysis-page or a future AppShell search bar reuses/duplicates this pattern) — e.g. a common/ `NavigatingSearchBox` taking a route-builder + input-normalizer prop, with the ticker-specific behavior supplied by the caller.",
+      "done": false
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "id": "frontend-dashboard-page",
+  "title": "Frontend: Dashboard page (portfolio + risk summary, ticker lookup)",
+  "area": "frontend/pages/dashboard",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-portfolio-page",
+    "frontend-portfolio-risk-panel"
+  ],
+  "references": [
+    "docs/architecture/Frontend.md#3-module-layout"
+  ],
+  "description": "The landing page — composes existing portfolio/risk data into an at-a-glance summary plus a quick path into stock analysis. Introduces no new API calls beyond what frontend-portfolio-page/frontend-portfolio-risk-panel already wired; this task is composition, not new data-fetching.",
+  "checklist": [
+    {
+      "step": "pages/DashboardPage.tsx: equity summary (reusing common/StatCard + usePortfolio), a risk-warning summary card (reusing usePortfolioRisk — six_percent_rule_breached and count of two_percent_rule_breached positions), and a compact positions-at-a-glance table (a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance).",
+      "done": true
+    },
+    {
+      "step": "A ticker lookup box that navigates to /stocks/:ticker — reuse the same entry point built in frontend-stock-analysis-page rather than building a second one, if that task placed it on a page rather than in AppShell; if it was placed in AppShell, this item is already satisfied and should be marked done with a note explaining why.",
+      "done": true
+    },
+    {
+      "step": "Make DashboardPage the default route ('/') in App.tsx.",
+      "done": true
+    },
+    {
+      "step": "Component tests (MSW-mocked): populated dashboard, empty-portfolio dashboard (no positions yet — first-run state), and a dashboard with an active 6% risk breach showing the warning summary.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "frontend-stock-analysis-page (this task's checklist item 2 defers the ticker-lookup entry point decision to) had not been built yet when this task ran — it's still `planned` in docs/tasks/index.json, with no entry point on a page or in AppShell to reuse. Built a new `features/stocks/components/TickerSearchBox.tsx` (text field + submit button, navigates to `/stocks/:ticker` via `useNavigate`) and rendered it as DashboardPage's PageHeader action, rather than leaving the checklist item unresolved or placing a stub in AppShell.",
+      "rationale": "The task's own depends_on is only frontend-portfolio-page/frontend-portfolio-risk-panel, not frontend-stock-analysis-page — so the board expects this task to be doable without that one being done, and the description explicitly calls for 'a quick path into stock analysis' as part of this page. Placed under features/stocks/components/ (a new feature folder, mirroring the layout Frontend.md §3 already reserves for `features/stocks/`) rather than components/common/, since it's tied to this app's `/stocks/:ticker` routing convention, not a domain-agnostic generic search box. Rejected alternatives: (a) leaving the checklist item undone/blocked on frontend-stock-analysis-page — rejected because depends_on doesn't list it and the description requires this capability now; (b) placing the lookup box directly in AppShell — rejected as a bigger, cross-cutting layout change than this task's scope, and Frontend.md's own AppShell description doesn't mention a search box. When frontend-stock-analysis-page lands, it should reuse this component rather than building a second ticker entry point.",
+      "alternatives_considered": "Leaving the item blocked pending frontend-stock-analysis-page; building the entry point directly inside AppShell/NavDrawer instead of a dedicated feature component."
+    },
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new `features/portfolio/components/RiskSummaryCard.tsx` (its own `usePortfolioRisk` call, a 6%-breach banner reusing the same `theme.riskBreach` styling as RiskPanel, plus two StatCards for total open risk and the 2%-rule-breach count) rather than reusing RiskPanel directly or trimming RiskPanel itself down.",
+      "rationale": "RiskPanel renders a full per-position DataTable of protective stops/exit flags — appropriate for the Portfolio page's detailed view, but too dense for a dashboard 'at-a-glance' summary per this task's checklist wording ('a risk-warning summary card ... six_percent_rule_breached and count of two_percent_rule_breached positions', not the full table). Rejected alternatives: (a) reusing RiskPanel as-is on the dashboard — rejected as duplicating the Portfolio page's detailed table rather than a summary; (b) adding a `compact` prop to RiskPanel to conditionally hide its table — rejected as a more invasive change to an already-shipped, tested component for a single new call site, versus a small new component with its own focused tests.",
+      "alternatives_considered": "Reusing RiskPanel unmodified; adding a compact-mode prop to RiskPanel."
+    },
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new `features/portfolio/components/PositionsGlanceTable.tsx` (trimmed-column common/DataTable instance: ticker/quantity/current price/unrealized P/L only, ticker linking to `/stocks/:ticker`) instead of reusing PositionsTable with props to hide columns/actions.",
+      "rationale": "The checklist explicitly offers either option ('a smaller reuse of PositionsTable or a trimmed-column common/DataTable instance'). PositionsTable owns the delete-position mutation/confirm-dialog flow end to end, which has no place on an at-a-glance dashboard summary; adding a 'hide the delete column and cost-basis/entry-date columns' prop to it would couple an unrelated dashboard concern into the Portfolio page's own component. A new component built directly on common/DataTable keeps both call sites simple and independently testable.",
+      "alternatives_considered": "Adding a column-visibility/action-visibility prop to PositionsTable and reusing it directly on the dashboard."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-page",
+    "pr_number": 67,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/67",
+    "pushed_at": "2026-09-16T23:52:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T00:01:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/67",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RiskSummaryCard's 6%-rule-breach banner (Box + WarningAmberIcon + Typography, theme.palette.riskBreach styling) is copy-pasted near-verbatim from RiskPanel.tsx's identical banner, only the message text differs. Non-blocking per Frontend.md's near-duplicate consolidation rule; tracked as a follow-up rather than blocking this PR since the higher-level decision (a new condensed component instead of reusing/modifying RiskPanel) is itself sound.",
+        "file": "frontend/src/features/portfolio/components/RiskSummaryCard.tsx",
+        "line": 40
+      },
+      {
+        "summary": "DashboardPage.tsx's local formatCurrency duplicates PortfolioPage.tsx's identical helper — a fourth distinct currency-formatting implementation alongside RiskPanel's and PositionsTable's differently-shaped versions (the latter two already tracked in frontend-portfolio-risk-panel-followups). Non-blocking; tracked as a follow-up.",
+        "file": "frontend/src/pages/DashboardPage.tsx",
+        "line": 11
+      },
+      {
+        "summary": "PositionsGlanceTable's formatNullableCurrency duplicates the null-check logic already in PositionsTable.tsx's identically-named helper. Non-blocking; tracked as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
+        "line": 13
+      },
+      {
+        "summary": "TickerSearchBox's placement under features/stocks/components/ (rather than components/common/) is a genuinely arguable call — it hardcodes the /stocks/:ticker route and uppercases input assuming a stock-ticker convention (defensible as stock-domain knowledge per Frontend.md §3's literal rule), but the underlying 'text field + submit button that navigates on submit' pattern is otherwise generic. Treated as non-blocking (arguable, not clear-cut) per review step 7a; tracked as a follow-up to revisit if a second lookup-and-navigate entry point appears elsewhere (e.g. frontend-stock-analysis-page).",
+        "file": "frontend/src/features/stocks/components/TickerSearchBox.tsx",
+        "line": 21
+      }
+    ],
+    "notes": "Checked out PR #67. `npm run test:coverage`: 142/142 tests pass, 99.63%/99.48%/100%/99.62% (stmts/branch/func/lines) — well above the 90% gate, no regression. `npm run lint`: clean. `npm run build` (tsc -b && vite build): clean. `npm run build-storybook`: succeeds (correctly no new stories, since no components/common/ additions). code-review skill run against the diff: no correctness bugs found; three reuse/duplication findings (recorded above and filed as followups). Placement check (7a) on TickerSearchBox, RiskSummaryCard, PositionsGlanceTable: RiskSummaryCard/PositionsGlanceTable are correctly placed under features/portfolio/components/ (own hook calls, portfolio-risk/position domain fields) with sound, well-recorded decisions not to reuse/modify RiskPanel/PositionsTable directly (those own end-to-end concerns — full per-position table, delete-mutation flow — inappropriate for an at-a-glance summary). TickerSearchBox is a genuinely arguable placement call (see comment above) — not clear-cut, so non-blocking per the review instructions, tracked as a follow-up. Verified the cross-task-file edit to docs/tasks/frontend-stock-analysis-page.json: valid JSON, the added `decisions` entry has both `decision` and `rationale`, and it does not mark that task's own checklist item 1 (still `done: false`) as done — sound, no confusion risk for whoever picks that task up. Browser walkthrough (real backend + real Vite dev server, cross-origin CORS enabled via a test-only harness script that wraps app.main:app without modifying any repo file — no application source was edited): exercised populated dashboard, an active 6%-rule-breach scenario (added a large AAPL position via the API to push total_open_risk_pct to 6.61%), and an empty-portfolio first-run state; also exercised TickerSearchBox's navigation (typed 'aapl' → navigated to /stocks/AAPL, case-normalized), the PositionsGlanceTable ticker-link navigation, and the blank-input submit guard (Go button disabled). No console errors or failed/4xx+ network requests in any scenario. Test data was restored to its original state afterward. No API/schema changes in this PR, so the openapi.json staleness check doesn't apply. Checklist item 2 ('decide' the ticker-lookup entry point placement) has a corresponding, well-formed `decisions` entry — no undecided judgment calls. No blocking findings; verdict accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T00:06:15Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (142/142 passed, 99.63%/99.48%/100%/99.62%, matching pr-reviewer exactly), lint (clean), build (clean), build-storybook (succeeds, no new stories). Backend pytest suite also re-run for due diligence (472 passed) though this PR touches no backend files. Skimmed the full diff: RiskSummaryCard/PositionsGlanceTable/TickerSearchBox placement under features/ is sound per their recorded decisions; DashboardPage.test.tsx and the three new component test files genuinely exercise populated, empty-portfolio, and 6%-breach scenarios (not just claimed). Verified docs/tasks/frontend-dashboard-page-followups.json exists and correctly captures all four non-blocking findings, and confirmed the cross-task edit to docs/tasks/frontend-stock-analysis-page.json is valid JSON that leaves that task's checklist item 1 undone and state 'planned'. No issues found; accept holds."
+  }
+}
