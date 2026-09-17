@@ -24,5 +24,11 @@
       "decision": "Documented the `if (!pendingDelete) return` guard in PositionsTable.tsx's handleConfirmDelete as intentionally-defensive dead code with an explanatory comment, and added a `/* v8 ignore next 3 */` directive over the guard so it's excluded from the branch-coverage denominator, rather than writing a unit test that reaches it.",
       "rationale": "ConfirmDialog's onConfirm only fires while the dialog is open, and it's only open while pendingDelete !== null (open={pendingDelete !== null}), so the guard is genuinely unreachable through any real UI interaction — it exists solely for TypeScript's control-flow narrowing of pendingDelete from PositionOut | null before .id is read. A test that reaches it would have to call the internal handler directly or otherwise manipulate component-internal state outside the public props/DOM surface (e.g. via a test-only export or reaching into React internals), which tests nothing a user could ever trigger and would only exist to satisfy a coverage percentage — the exact kind of contrived test docs/architecture/Testing.md's 90% gate isn't meant to encourage. The v8 ignore comment keeps the coverage report honest (this line no longer shows as a real gap) without inventing a fake code path. Rejected alternative: a unit test rendering PositionsTable and invoking the internal onConfirm callback with no prior delete-button click — rejected because it can't be done through RTL's public render/interaction API without reaching past the component boundary, and doing so would make the test brittle to internal refactors (e.g. renaming pendingDelete) for zero behavioral coverage gained."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-page-followups",
+    "pr_number": 76,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/76",
+    "pushed_at": "2026-09-17T00:00:00Z"
+  }
 }
