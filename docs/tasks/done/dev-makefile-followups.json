@@ -82,5 +82,10 @@
       }
     ],
     "notes": "Small, well-contained infra diff (21 net lines in Makefile). Both fixes verified empirically against the real Makefile (not just described) in addition to a manual trace of the shell logic. Test/coverage suites unaffected (no app code touched) and remain well above the 90% gate. Static analysis clean on both sides. No blocking findings. Three non-blocking findings (bash-portability of wait -n + SHELL := bash's PATH resolution; a decision-rationale accuracy issue about what make dev's exit code actually carries; unnecessary per-line shell forks for a comment block) filed as docs/tasks/dev-makefile-followups-followups.json -- the first two found directly, the latter two surfaced by a code-review pass that completed after the initial accept was recorded and were folded in before finalizing."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T21:09:24Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest+coverage myself: 493 passed, 99.84% line coverage, well above the 90% gate -- matches pr-reviewer's numbers exactly. Skimmed the full diff (Makefile + task-board bookkeeping only, no app code). Independently reproduced the key fail-fast claim: with backend/.venv moved aside, `make dev` exited in ~0.1s with status 2, no leftover uvicorn/vite process, ports 8000/5173 free; restored .venv afterward. Also independently ran a full healthy `make dev` and sent SIGTERM to the top-level pid: both uvicorn and vite shut down cleanly (exit 143), no orphaned processes, ports free. Confirmed `SHELL := bash` doesn't change any other target's dry-run output and `make help` still runs correctly. All three of pr-reviewer's non-blocking findings are properly filed on docs/tasks/dev-makefile-followups-followups.json, and index.json's state/path mirror the done move correctly."
   }
 }
