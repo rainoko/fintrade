@@ -25,13 +25,11 @@ backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://127
 frontend: ## Run the frontend dev server (Vite) on http://127.0.0.1:5173
 	cd frontend && npm run dev
 
-dev: ## Run backend and frontend dev servers together; Ctrl-C stops both
-	@( \
-		$(MAKE) backend & bpid=$$!; \
-		$(MAKE) frontend & fpid=$$!; \
-		trap 'kill $$bpid $$fpid 2>/dev/null' EXIT INT TERM; \
-		wait $$bpid $$fpid \
-	)
+dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, including uvicorn's reloader and vite's node process
+	@setsid $(MAKE) backend </dev/null & bpid=$$!; \
+	setsid $(MAKE) frontend </dev/null & fpid=$$!; \
+	trap 'kill -TERM -$$bpid -$$fpid 2>/dev/null' EXIT INT TERM; \
+	wait $$bpid $$fpid
 
 install: ## Install backend (venv + pip) and frontend (npm) dependencies
 	cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]"

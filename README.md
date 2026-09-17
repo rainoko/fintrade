@@ -29,9 +29,10 @@ make help      # list all targets
 
 It's a thin wrapper, not a new build system — every target just shells out to the same
 commands documented below and in `docs/architecture/{Backend,Frontend}.md`. `make
-backend` (and `make dev`, which depends on it) prints a clear error pointing at
-`.devcontainer/post-create.sh` / `pip install -e ".[dev]"` if `backend/.venv` doesn't
-exist yet, instead of a raw path-not-found failure.
+backend` prints a clear error pointing at `.devcontainer/post-create.sh` / `pip install
+-e ".[dev]"` if `backend/.venv` doesn't exist yet, instead of a raw path-not-found
+failure; `make dev` invokes `make backend` as a subprocess of its own recipe (not a
+formal Make prerequisite), so that same error surfaces through `make dev` too.
 
 ## Backend
 
