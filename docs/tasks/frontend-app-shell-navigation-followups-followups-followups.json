@@ -3,7 +3,7 @@
   "title": "Follow-up: AppErrorBoundary fallback heading stays h1 even in fullPage={false} (subtree) mode (PR #84)",
   "area": "frontend/layout",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-app-shell-navigation-followups-followups"],
   "references": [
     "docs/tasks/frontend-app-shell-navigation-followups-followups.json#review",
@@ -25,5 +25,11 @@
       "decision": "Made the fallback heading's component conditional on fullPage (component={fullPage ? 'h1' : 'h2'}), keeping variant=\"h4\" (visual size) unchanged in both cases, rather than adding a separate headingLevel/component override prop.",
       "rationale": "The task's own description offered this as the preferred option ('e.g. component={fullPage ? 'h1' : 'h2'}'), and the only two real usages are main.tsx (fullPage=true, replacing the whole page — h1 is correct) and a future fullPage=false subtree usage (which needs to sit below a page's own PageHeader h1, so h2 is correct). A caller-supplied override prop would add API surface with no current consumer needing anything other than the fullPage-derived level; can be added later if a real subtree usage needs a different level than h2."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-app-shell-navigation-followups-followups-followups",
+    "pr_number": 88,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/88",
+    "pushed_at": "2026-09-17T07:37:58Z"
+  }
 }
