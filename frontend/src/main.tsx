@@ -8,12 +8,14 @@ import App from './App.tsx'
 import AppErrorBoundary from './components/layout/AppErrorBoundary.tsx'
 import './index.css'
 // Self-hosted Inter, the theme's primary font family (src/theme/theme.ts).
-// Only the weights MUI's default Typography variants actually use (see
-// createTheme's fontWeightLight/Regular/Medium/Bold defaults) — importing
-// every weight would bloat the bundle for weights nothing renders.
+// Weights: 300/400/500/700 cover MUI's default Typography variants (see
+// createTheme's fontWeightLight/Regular/Medium/Bold defaults); 600 covers
+// PercentChange's own inline fontWeight: 600 (components/common/PercentChange).
+// Importing every weight would bloat the bundle for weights nothing renders.
 import '@fontsource/inter/300.css'
 import '@fontsource/inter/400.css'
 import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 import { theme } from './theme/theme.ts'
 

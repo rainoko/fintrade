@@ -3,7 +3,7 @@
   "title": "Frontend scaffold — non-blocking review follow-ups",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-scaffold"],
   "references": [
     "docs/tasks/frontend-scaffold.json#review",
@@ -21,7 +21,7 @@
     },
     {
       "step": "pr-reviewer (PR #79) found: PercentChange.tsx renders via an inline `style={{ fontWeight: 600 }}` (component.tsx line 30), but only Inter weights 300/400/500/700 are imported in main.tsx. Confirmed live in a browser (Storybook's common-percentchange--positive story with the real theme applied) that the computed style requests weight 600 while only 300/400/500/700 @font-face rules exist for Inter — per the CSS Fonts Module Level 4 weight-matching algorithm (target >500 matches the smallest declared weight >= target), this resolves to the Inter 700 (bold) face, not a synthesized/matched 600. PercentChange renders `unrealized_pnl_pct` in both PositionsGlanceTable and PositionsTable on the Portfolio page, so every position's gain/loss percentage now renders visibly bolder (Inter 700) than before this PR (when the system-font fallback rendered true weight 600) — a real visual regression, not just an unused-weight non-issue. Fix by importing the 600 weight (@fontsource/inter/600.css) or otherwise auditing all actually-used inline/sx fontWeight values codebase-wide (not just MUI's default Typography-variant weights) before finalizing the imported weight set.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -30,6 +30,12 @@
       "recorded_by": "task-worker",
       "decision": "Actually load Inter via @fontsource/inter (self-hosted, no external Google Fonts request) rather than dropping it from the font stack. Imported the 300/400/500/700 weight CSS files once in src/main.tsx (the app's single bootstrap entry point) — the four weights MUI's default Typography variants (fontWeightLight/Regular/Medium/Bold) actually render, so no unused weight files bloat the bundle.",
       "rationale": "The theme was clearly authored with Inter as the intended primary typeface (listed first, with a full system-font fallback stack behind it), so dropping it silently changes the app's visual design as a side effect of a follow-up task, which is out of scope here. @fontsource/inter self-hosts the font (no third-party network request at runtime, consistent with the project's no-live-network-call testing stance and avoiding a render-blocking cross-origin request to Google Fonts). An index.html <link> to Google Fonts was considered and rejected: it would add an external dependency load and a FOUC-prone extra round trip that a bundled @fontsource import avoids entirely."
+    },
+    {
+      "timestamp": "2026-09-17T05:25:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pr-reviewer's PR #79 needs_work finding by importing @fontsource/inter/600.css in src/main.tsx (option (a) from the review) rather than changing PercentChange's inline fontWeight to 500 or 700 (option (b)).",
+      "rationale": "PercentChange.tsx's fontWeight: 600 (semibold) is a deliberate, distinct design choice for gain/loss percentages — visually heavier than body text (400/500) but not as heavy as a true bold (700) — and a `grep -rn fontWeight src` (matching the reviewer's own grep) confirmed it's the only inline usage of 600 in the codebase, so importing the one missing weight file is a minimal, surgical fix with no risk of masking other unaudited weights. Rejected changing the component to 500 or 700: 700 is what the bug was already incorrectly rendering as (no visual fix, just making the wrong result 'intentional'), and 500 would understate the emphasis the component was designed to have versus regular body text, changing the component's visual design as a side effect of a font-loading bug fix. Verified node_modules/@fontsource/inter/600.css declares `font-weight: 600` exactly (not a synthesized/interpolated face), so importing it gives PercentChange a true, exact-match 600 face — matching the pre-PR system-font fallback's true weight 600 — rather than the CSS weight-matching algorithm substituting the nearest heavier face. Confirmed via `npm run build` that the built dist/assets now include the Inter 600 woff2/woff files (e.g. dist/assets/inter-latin-600-normal-*.woff2) alongside 300/400/500/700, i.e. the face is actually shipped, not just declared. Browser automation tools (Playwright) were not available in this environment to reproduce pr-reviewer's exact live getComputedStyle/document.fonts check; verification here relies on the built CSS/font-file evidence above plus the full lint/tsc/test/build/build-storybook suite passing, which is a materially different verification method than the review comment used — flagging this for whoever reviews the fix next."
     }
   ],
   "git": {
