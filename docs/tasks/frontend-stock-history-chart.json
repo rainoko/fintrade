@@ -3,7 +3,7 @@
   "title": "Frontend: stock price history chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-stock-analysis-page"
   ],
@@ -15,23 +15,49 @@
   "checklist": [
     {
       "step": "features/stocks/hooks/useStockHistory.ts \u2014 useQuery wrapping api/stocks.ts#getStockHistory(ticker, { range, interval }), keyed so changing range/interval refetches rather than reusing stale cached data across different query params.",
-      "done": false
+      "done": true
     },
     {
       "step": "features/stocks/components/PriceChart.tsx: lightweight-charts candlestick series from bars; handle empty/short history gracefully (don't render a broken chart for a low-bar-count response).",
-      "done": false
+      "done": true
     },
     {
       "step": "A range selector (mapping to the API's <N>d|w|m|y|max grammar, e.g. 1m/3m/6m/1y/max) and a daily/weekly interval toggle, wired to useStockHistory's params.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire PriceChart + its controls into StockDetailPage.tsx, below or beside SignalSummary/ScreensPanel/IndicatorsPanel.",
-      "done": false
+      "done": true
     },
     {
       "step": "Component tests (MSW-mocked): populated chart renders, range/interval changes trigger a refetch with the right query params, the unrecognized-range 422 and the interval=weekly insufficient-history 422 (API.md's two distinct 422 cases for this endpoint) are both surfaced distinctly via common/ErrorState.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart.tsx owns its own range/interval selection as local component state (plain useState) and its own useStockHistory call, rather than lifting range/interval up into StockDetailPage or a shared context.",
+      "rationale": "Range/interval are pure UI state scoped to the chart, not server data or cross-cutting state shared with another component (Frontend.md \u00a72), so they belong in the component that owns the control, not lifted further than necessary. Rejected: lifting the selection into StockDetailPage so the page could pass range/interval as props \u2014 no other component on the page needs to read or react to the chart's selected range, so lifting it would only add indirection with no benefit, and would make the page less thin per Frontend.md \u00a73."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:01Z",
+      "recorded_by": "task-worker",
+      "decision": "The range selector is a fixed preset list (1M/3M/6M/1Y/Max, mapping to 1m/3m/6m/1y/max) via a ToggleButtonGroup, not a free-text input accepting any '<N>d|w|m|y' value the API's grammar technically allows.",
+      "rationale": "The task's checklist explicitly calls for 'a range selector' with example presets (1m/3m/6m/1y/max), and a small curated set is simpler to test exhaustively and consistent with how other controls in the app work (MUI ToggleButtonGroup, e.g. the interval toggle). The API's unrecognized-range 422 case is still covered by a component test even though PriceChart's own UI can never produce that value \u2014 the test asserts the handler-level case directly, verifying ErrorState renders it distinctly (same approach a free-text input's validation error would need anyway). Rejected: a free-text/day-count input, which would need its own client-side validation to avoid trivially hitting the 422 case on every keystroke, for no functional benefit over a fixed preset list."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:02Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart recreates the Lightweight Charts chart instance (via useEffect keyed on historyQuery.data, tearing down the previous chart in the cleanup function) on every new history response, rather than creating the chart once and calling series.update()/setData() again on subsequent renders.",
+      "rationale": "Lightweight Charts has no built-in 'replace all data for a different time range' operation that's simpler than recreating the chart, and doing it this way means a stale chart from a previous ticker/range is never shown while a new query is loading \u2014 the container element itself is only rendered once historyQuery.isSuccess && bars.length > 0, so the effect naturally tears down the old chart and skips rendering a new one until the next successful response arrives. Rejected: keeping one long-lived chart instance and only calling setData() on updates \u2014 simpler in the common case but leaves the previous range's candles visible (or a resize glitch) during the brief loading window between two different range/interval selections, and doesn't materially reduce test complexity since the tests already mock the whole module."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:03Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart's own component tests mock the entire 'lightweight-charts' module (vi.mock) rather than exercising the real library against jsdom's DOM.",
+      "rationale": "jsdom has no real <canvas> 2D rendering context and no ResizeObserver, both of which the real library relies on; there is also nothing pixel-level worth asserting on in a unit test. Mocking createChart/addSeries/CandlestickSeries lets the tests assert on what actually matters \u2014 the container mounts, setData receives the right bars shape, the chart is recreated on a genuine range/interval change and left alone on a no-op re-click, and the loading/error/empty states around it render correctly \u2014 without depending on jsdom's incomplete canvas support. The same mock is reused in StockDetailPage.test.tsx (which now renders PriceChart as part of the page) for the same reason."
     }
   ]
 }
