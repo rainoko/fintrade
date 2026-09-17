@@ -602,6 +602,34 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/dev-makefile-followups-followups.json"
+    },
+    {
+      "id": "frontend-e2e-tests",
+      "area": "frontend/testing",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-e2e-tests.json"
+    },
+    {
+      "id": "skill-e2e-testing",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/skill-e2e-testing.json"
+    },
+    {
+      "id": "frontend-verify-npm-install",
+      "area": "frontend/tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-verify-npm-install.json"
+    },
+    {
+      "id": "migrate-yarn2",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/migrate-yarn2.json"
     }
   ]
 }

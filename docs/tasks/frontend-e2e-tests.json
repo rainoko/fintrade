@@ -1,0 +1,24 @@
+{
+  "id": "frontend-e2e-tests",
+  "title": "Frontend: full end-to-end browser test suite covering all app functionality",
+  "area": "frontend/testing",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/architecture/Testing.md",
+    "docs/architecture/Frontend.md",
+    ".claude/agents/task-qa-reviewer.md"
+  ],
+  "description": "Add a real, automated, repeatable browser-driven end-to-end test suite (e.g. Playwright Test, since the Playwright MCP tools are already used elsewhere in this project's pipeline for ad hoc manual walkthroughs by task-qa-reviewer/pr-reviewer — reusing the same library keeps tooling consistent, though this should be a decisions entry, not assumed) that exercises every user-facing flow of the app end-to-end against the real running frontend+backend, not the MSW-mocked vitest suite. This is a NEW, SEPARATE test category from the existing vitest/pytest suites and must NOT be folded into the 90%-coverage-gated suite or its own no-live-network-call invariant (docs/architecture/Testing.md, CLAUDE.md's Testing standard) — that rule governs the existing unit/component/integration suite specifically. Record as a decisions entry how the e2e suite gets deterministic, offline-friendly data (e.g. a seeded/fixture market-data provider or backend mode) rather than depending on live external market-data APIs, since that would make the suite flaky/slow/rate-limited and require live internet access to run — unless a real live-data run is deliberately chosen and justified instead.",
+  "checklist": [
+    { "step": "Decide the e2e tooling (Playwright Test recommended per the description's reasoning, but record the actual choice and alternatives considered) and where test files live (e.g. frontend/tests/e2e/); record as a decisions entry.", "done": false },
+    { "step": "Decide how the suite gets a runnable backend+frontend stack and realistic, deterministic data without live external market-data calls (e.g. a test/dev data-provider fixture, a seeded DB/portfolio); record as a decisions entry.", "done": false },
+    { "step": "Write e2e specs covering the dashboard page, stock analysis page (search, indicators, signal/confidence display, history chart), portfolio page (view positions, add position, delete position, risk panel), and app-shell navigation between all pages.", "done": false },
+    { "step": "Add an npm script (e.g. npm run test:e2e) and wire it into the root Makefile if appropriate, without folding it into the existing `make test`/coverage gate.", "done": false },
+    { "step": "Document how to run the e2e suite in README.md and/or docs/architecture/Testing.md.", "done": false },
+    { "step": "Confirm the suite passes against a freshly-started dev stack (`make dev` or equivalent) before considering this done.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}
