@@ -432,8 +432,22 @@
       "id": "frontend-stock-analysis-page",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-analysis-page.json"
+    },
+    {
+      "id": "frontend-stock-analysis-page-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-stock-analysis-page.json"
+      "path": "docs/tasks/frontend-stock-analysis-page-followups.json"
+    },
+    {
+      "id": "api-stocks-analysis-nullable-indicators",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-analysis-nullable-indicators.json"
     },
     {
       "id": "frontend-stock-history-chart",

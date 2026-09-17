@@ -25,7 +25,8 @@
     },
     {
       "step": "TickerSearchBox's placement under features/stocks/components/ (rather than components/common/) is a genuinely arguable call: it hardcodes navigation to `/stocks/:ticker` and uppercases input assuming a stock-ticker convention, which is defensible as stock-domain knowledge per Frontend.md §3's literal rule, but the underlying 'text field + submit button that navigates somewhere on submit' pattern is otherwise generic UI behavior. Worth reconsidering if a second lookup-and-navigate entry point appears elsewhere in the app (e.g. when frontend-stock-analysis-page or a future AppShell search bar reuses/duplicates this pattern) — e.g. a common/ `NavigatingSearchBox` taking a route-builder + input-normalizer prop, with the ticker-specific behavior supplied by the caller.",
-      "done": false
+      "done": true,
+      "note": "Addressed by frontend-stock-analysis-page, which became TickerSearchBox's second consumer (reused as-is on StockDetailPage rather than duplicated) and is therefore better positioned to resolve this placement question than a standalone follow-up. Decision recorded on docs/tasks/frontend-stock-analysis-page.json: kept under features/stocks/components/ — both consumers want the identical ticker-lookup-and-navigate behavior, so there's no genuine second use case driving a generic common/ NavigatingSearchBox yet (Frontend.md §3's placement test is domain-knowledge, not consumer count, and TickerSearchBox still hardcodes the /stocks/:ticker route + ticker-uppercasing convention). Revisit if a genuinely different (non-ticker) lookup-and-navigate consumer appears later."
     }
   ]
 }

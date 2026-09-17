@@ -1,0 +1,120 @@
+{
+  "id": "frontend-stock-analysis-page",
+  "title": "Frontend: Stock analysis page (signal, confidence, screens)",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "frontend-api-client",
+    "frontend-common-components",
+    "frontend-app-shell-navigation"
+  ],
+  "references": [
+    "docs/architecture/API.md#get-apistocksstickeranalysis",
+    "docs/Analyse.md#6"
+  ],
+  "description": "UI for GET /api/stocks/{ticker}/analysis \u2014 the Triple Screen signal, confidence score/breakdown, and per-screen detail for one ticker. Chart integration is a separate task (frontend-stock-history-chart) since it's a distinct backend endpoint with its own loading/error lifecycle.",
+  "checklist": [
+    {
+      "step": "A ticker entry point (search box navigating to /stocks/:ticker) \u2014 decide and record where this lives (e.g. in AppShell's top bar vs. a dedicated field on this page); either is reasonable, but don't build both.",
+      "done": true
+    },
+    {
+      "step": "features/stocks/hooks/useStockAnalysis.ts \u2014 useQuery wrapping api/stocks.ts#getStockAnalysis(ticker).",
+      "done": true
+    },
+    {
+      "step": "features/stocks/components/SignalSummary.tsx: common/SignalBadge for the signal, common/ConfidenceGauge for confidence/confidence_band, and a breakdown table of confidence_breakdown (component, weight, score) per Analyse.md \u00a76.",
+      "done": true
+    },
+    {
+      "step": "features/stocks/components/ScreensPanel.tsx: structured display of screens.tide (trend, weekly_macd_histogram_slope), screens.impulse, screens.wave (stochastic_k, force_index_2ema, state), screens.trigger (fired, reference) \u2014 readable labels, not a raw JSON dump.",
+      "done": true
+    },
+    {
+      "step": "features/stocks/components/IndicatorsPanel.tsx: the latest ema_13/ema_26/macd_histogram/bull_power/bear_power values as a small stat grid \u2014 explicitly not a chart overlay, per Frontend.md \u00a75.",
+      "done": true
+    },
+    {
+      "step": "pages/StockDetailPage.tsx composes the ticker input (if placed here), SignalSummary, ScreensPanel, IndicatorsPanel \u2014 stays thin.",
+      "done": true
+    },
+    {
+      "step": "Component tests (MSW-mocked) for: BUY/SELL/HOLD happy paths, and every documented error case for this endpoint from API.md (404 unknown ticker, 422 insufficient history, 503 provider unavailable) surfaced via common/ErrorState with the right message per case.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-16T23:30:00Z",
+      "recorded_by": "task-worker (frontend-dashboard-page)",
+      "decision": "Note for whoever works this task: the checklist's first item (a ticker entry point) already has an implementation to reuse — `frontend/src/features/stocks/components/TickerSearchBox.tsx`, built by frontend-dashboard-page (which needed a ticker lookup and couldn't wait on this task). It navigates to `/stocks/:ticker` via `useNavigate` and is currently rendered from DashboardPage's PageHeader action.",
+      "rationale": "frontend-dashboard-page's checklist explicitly called for reusing this task's entry point 'if that task placed it on a page rather than in AppShell' — but this task hadn't been started yet when frontend-dashboard-page ran, so there was nothing to reuse and it had to build one itself instead. Recording this here so this task reuses TickerSearchBox (e.g. also rendering it on StockDetailPage, or leaving it dashboard-only if a second entry point isn't wanted) rather than building a second, near-duplicate ticker search box — see Frontend.md §3's near-duplicate consolidation rule and this task's own checklist item 1, which still needs an explicit decision recorded here once resolved."
+    },
+    {
+      "timestamp": "2026-09-17T00:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (ticker entry point): reused `features/stocks/components/TickerSearchBox.tsx` as-is on StockDetailPage (rendered in its PageHeader action, same slot pattern DashboardPage already uses), instead of building a second ticker search field on this page or leaving it dashboard-only.",
+      "rationale": "TickerSearchBox already does exactly what this checklist item asks for (a text field + submit navigating to /stocks/:ticker) and Frontend.md §3's near-duplicate rule says a second, near-identical component should be consolidated rather than copy-pasted — building a second field here would be exactly that near-duplicate. Rendering it on StockDetailPage too (not just Dashboard) also gives real product value: a visitor already looking at one ticker's analysis can jump straight to another without navigating back to the Dashboard first. Rejected alternatives: (a) leaving the entry point dashboard-only — rejected because it would leave StockDetailPage as a dead-end (no way to look up a different ticker without back-navigation), a worse user experience than the near-zero cost of reusing an existing component; (b) building a page-local search field on StockDetailPage instead of importing TickerSearchBox — rejected as a straightforward violation of the near-duplicate consolidation rule the standing decisions entry above already flagged.",
+      "alternatives_considered": "Leaving the ticker entry point Dashboard-only (checklist item satisfied by frontend-dashboard-page's existing instance) and not rendering anything equivalent on StockDetailPage; building a second, page-local search field directly on StockDetailPage instead of importing TickerSearchBox."
+    },
+    {
+      "timestamp": "2026-09-17T00:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved frontend-dashboard-page-followups.json's open question about TickerSearchBox's components/common/ vs features/stocks/components/ placement (raised when it had only one consumer): kept it under features/stocks/components/ even now that it has two consumers (DashboardPage, StockDetailPage), rather than promoting it to components/common/ or generalizing it into a common/ `NavigatingSearchBox` (route-builder + input-normalizer props) as that follow-up's checklist item suggested as one option. Updated that follow-up task's checklist item to mark it addressed, pointing back here.",
+      "rationale": "Frontend.md §3's placement test is whether a component references a domain concept, not how many call sites it has — TickerSearchBox still hardcodes the `/stocks/:ticker` route and a ticker-normalization convention (uppercase, trim) in both of its current uses, so it remains stock-domain knowledge by that test regardless of consumer count. Both consumers also want the exact same behavior (look up a ticker, go to its analysis page) rather than two different behaviors sharing a generic shell, so there's no genuine second *use case* driving a generic abstraction yet — extracting a common/ `NavigatingSearchBox` now would be speculative genericization for a hypothetical future unrelated consumer, which Frontend.md §2 explicitly warns against for cross-cutting state ('only introduce ... when a second, unrelated component genuinely needs the same state — not preemptively') and the same reasoning applies to premature component generalization. Rejected alternative: promoting TickerSearchBox to components/common/ unchanged — rejected because it would put a component that still knows the app's ticker-routing convention into the domain-agnostic layer, which is exactly what Frontend.md §3 says doesn't belong there; a future second, genuinely different lookup-and-navigate consumer (e.g. an unrelated entity type) would be the right trigger to extract a generic common/ version, not an identical second use of the same behavior.",
+      "alternatives_considered": "Promoting TickerSearchBox unchanged to components/common/; extracting a generic common/ NavigatingSearchBox (route-builder + input-normalizer props) with TickerSearchBox becoming a thin stock-specific wrapper around it."
+    },
+    {
+      "timestamp": "2026-09-17T00:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the pr-reviewer needs_work blocker: ScreensPanel.tsx's stochastic_k/force_index_2ema and IndicatorsPanel.tsx's bull_power/bear_power (and, for consistency, ema_13/ema_26/macd_histogram) now go through a local null-safe formatter (`formatNullableNumber`/`formatValue`) that renders '—' instead of calling `.toFixed()`/`.toLocaleString()` on `null`, matching the existing nullable-price display convention (PositionsTable.tsx's formatNullableCurrency). The formatter treats the generated TypeScript type (`number`) as optimistic rather than a runtime guarantee, since the backend can legitimately serialize NaN indicators as JSON `null` for an unsettled latest daily bar despite the schema declaring non-Optional `float`. Also guarded the stochastic Oversold/Overbought/Neutral note so it's omitted (not miscomputed via `null < 30`) when the value is unknown. Added a null-value test case to both ScreensPanel.test.tsx and IndicatorsPanel.test.tsx. Did not touch backend/app/api/schemas.py or api/types.ts — that's api-stocks-analysis-nullable-indicators' scope, not this task's.",
+      "rationale": "A local, per-file helper (rather than extracting a new shared frontend/src/utils formatter) matches this codebase's existing pattern of small format helpers defined next to their one or two call sites (formatNullableCurrency is itself duplicated across PositionsTable.tsx and PositionsGlanceTable.tsx rather than centralized) — introducing a new shared util here would be a scope-creeping refactor beyond this fix, and the review's non-blocking humanize-duplication finding already tracks the broader 'de-duplicate small formatting/labeling helpers' cleanup on frontend-stock-analysis-page-followups.json without asking for it here. Rejected alternatives: (a) only guarding the three fields the reviewer explicitly reproduced null for (bull_power/bear_power/stochastic_k) and leaving ema_13/ema_26/macd_histogram/force_index_2ema as-is — rejected because the task instructions explicitly said to guard every place formatting a value that could be null/undefined at runtime regardless of which fields were actually observed null live, and all of these come from the same NaN-propagation root cause; (b) making the fallback silently render '0'/'0.00' instead of a visible placeholder — rejected because it would misrepresent an unknown reading as a real zero value, which is worse UX than an explicit '—'.",
+      "alternatives_considered": "Guarding only the three fields the reviewer reproduced as null (bull_power, bear_power, stochastic_k) and leaving the rest untouched; extracting a new shared frontend/src/utils null-safe-number-format helper instead of a local per-file one; rendering '0'/'0.00' as the fallback instead of '—'."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-stock-analysis-page",
+    "pr_number": 68,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/68",
+    "pushed_at": "2026-09-17T00:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T00:38:46Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/68",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RE-VERIFIED FIXED (commit cbac925): ScreensPanel.tsx's stochastic_k/force_index_2ema now go through formatNullableNumber, and IndicatorsPanel.tsx's formatValue is null/undefined/NaN-safe across all five stat fields, both rendering '—' instead of crashing. Independently reproduced the original crash scenario myself (not just re-reading the worker's own tests): rendered StockDetailPage end-to-end via MSW with a payload matching the real degraded-bar shape (stochastic_k, force_index_2ema, macd_histogram, bull_power, bear_power all null) -- no crash, five '—' fallbacks rendered, signal badge and rest of the page rendered normally. Also confirmed the stochasticNote (Oversold/Overbought/Neutral) is correctly omitted rather than miscomputed on null: the fix gates the comparison on a stochasticIsKnown check before any `< 30`/`> 70` comparison, so 'null < 30' can no longer silently evaluate true. My scratch reproduction test was not committed (throwaway verification only).",
+        "file": "frontend/src/features/stocks/components/ScreensPanel.tsx",
+        "line": 96
+      },
+      {
+        "summary": "RE-VERIFIED FIXED (commit cbac925): same root cause and fix as above, formatValue now null-safe for all five stat fields including the three not previously observed null (ema_13, ema_26, macd_histogram), consistent with what the original finding asked for.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
+        "line": 16
+      },
+      {
+        "summary": "Not re-fixed and not expected to be -- still correctly tracked as non-blocking on frontend-stock-analysis-page-followups.json (StockDetailPage.tsx raw useParams ticker vs. backend-normalized ticker).",
+        "file": "frontend/src/pages/StockDetailPage.tsx",
+        "line": 34
+      },
+      {
+        "summary": "Not re-fixed and not expected to be -- still correctly tracked as non-blocking on frontend-stock-analysis-page-followups.json (humanize/label-map duplication across SignalSummary/ScreensPanel/RiskPanel).",
+        "file": "frontend/src/features/stocks/components/SignalSummary.tsx",
+        "line": 20
+      },
+      {
+        "summary": "New non-blocking finding (code-review skill, this pass): the fix itself introduces a second, separate duplication -- IndicatorsPanel.tsx's formatValue and ScreensPanel.tsx's formatNullableNumber are near-identical null/NaN-to-'—' guards defined independently per file. The fix's own decision record claims this is 'already tracked' by the existing humanize-duplication follow-up item, but that item only covers label-map humanization, not numeric null-formatting -- so this would have fallen through the cracks uncaught. Added as a new checklist item on frontend-stock-analysis-page-followups.json.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
+        "line": 16
+      }
+    ],
+    "notes": "Re-review of commit cbac925 (the fix for this task's prior needs_work verdict). Full re-run: npm run test:coverage (158 passed, up from 156; 99.67%/99.13%/100%/99.66%, above the 90% gate, no regression), npm run lint (clean), npm run build (clean), npm run build-storybook (clean); backend pytest --cov unaffected (472 passed, 99.84%) since the fix commit touches no backend files, so backend/openapi.json correctly stays untouched (confirmed via `git diff main...HEAD --stat`, which shows zero backend/ files across the whole PR). code-review skill (medium) run specifically against commit cbac925's diff; it independently confirmed the fix is correct and complete (traced every other call site of the affected Indicators/Screens/WaveScreen fields in frontend/src and found none unguarded) and surfaced the one new finding folded into review.comments above. Independently reproduced the original crash scenario end-to-end via a throwaway MSW+jsdom test rendering the full StockDetailPage (not just the two components in isolation) with a payload shaped exactly like the real degraded-bar response -- confirmed no crash and correct '—' fallbacks, then deleted the scratch test (not part of the committed diff). Re-checked the Oversold/Overbought/Neutral note logic specifically: it now gates on stochasticIsKnown before comparing, so it's omitted (not miscomputed) on null, matching what was asked. No other blocking findings. Not re-run: architecture-review/verify-elder-signal skills, since this fix touches no new module/dependency/layer and area is frontend/pages/stocks (not backend/signals or backend/portfolio) -- same scoping as the prior review. Placement check (step 7a) not redone since no new components were added or substantially changed by this fix, only existing formatter logic inside already-placed components; the prior review's placement conclusions for ScreensPanel/IndicatorsPanel/SignalSummary/TickerSearchBox stand. Browser walkthrough: Playwright tools were not present in this review session's toolset (same as the prior review), so I substituted the MSW+jsdom full-page reproduction described above per this re-review's own instructions, which explicitly called for that method rather than a live browser. Filed one new non-blocking finding (formatValue/formatNullableNumber duplication) as a checklist item on the existing frontend-stock-analysis-page-followups.json task rather than a new followups task, since one already exists for this task id and is still planned."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T00:44:12Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran npm run test:coverage (158 passed; 99.67%/99.13%/100%/99.66%, matching pr-reviewer exactly), lint, build, and build-storybook, all clean. Confirmed zero backend/ files in the diff, so no backend re-run needed. Wrote and ran my own throwaway MSW+jsdom test rendering the full StockDetailPage with all seven nullable fields (stochastic_k, force_index_2ema, ema_13, ema_26, macd_histogram, bull_power, bear_power) null: no crash, all seven render '—', and the Oversold/Overbought/Neutral note is correctly omitted (not miscomputed) since stochasticIsKnown gates the comparison before any `< 30`/`> 70`. Skimmed the full diff (StockDetailPage.tsx, SignalSummary.tsx, useStockAnalysis.ts, TickerSearchBox.tsx, api/stocks.ts, followups/index.json changes) -- all consistent with the recorded decisions. One minor, non-blocking bookkeeping slip noted but not actioned: the new api-stocks-analysis-nullable-indicators.json task file declares skill:'add-api-endpoint' but its index.json mirror entry has skill:null (the only skill mismatch across all 68 index.json entries) -- doesn't affect this PR's correctness or mergeability."
+  }
+}

@@ -9,6 +9,12 @@ import type { components } from './types'
 export type AnalysisResponse = components['schemas']['AnalysisResponse']
 export type HistoryResponse = components['schemas']['HistoryResponse']
 export type HistoryInterval = components['schemas']['HistoryResponse']['interval']
+export type ConfidenceBreakdownItem = components['schemas']['ConfidenceBreakdownItem']
+export type Indicators = components['schemas']['Indicators']
+export type Screens = components['schemas']['Screens']
+export type TideScreen = components['schemas']['TideScreen']
+export type WaveScreen = components['schemas']['WaveScreen']
+export type TriggerScreen = components['schemas']['TriggerScreen']
 
 export interface GetStockHistoryParams {
   /**
