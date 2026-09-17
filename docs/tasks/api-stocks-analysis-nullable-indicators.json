@@ -47,5 +47,11 @@
       "rationale": "CLAUDE.md documents index.json's per-task fields (it specifically calls out `state`) as 'a mirror, not a separate source of truth' -- the same principle applies to `skill`, which is otherwise only ever set once at task creation and shouldn't silently diverge from the task file itself. Fixing the one-entry drift now (while already touching this task's bookkeeping for the state-transition edits below) is lower-risk than leaving a known, previously-flagged inconsistency in place for a future reader to trip over again.",
       "alternatives_considered": "Leaving the mismatch as-is since it was already flagged as non-blocking and doesn't affect this PR's mergeability; setting this task file's own `skill` to null instead of syncing index.json to 'add-api-endpoint' -- rejected because this task's diff genuinely does touch backend/app/api/schemas.py-adjacent contract concerns (the router docstring/OpenAPI snapshot) and follows the add-api-endpoint skill's contract-sync convention (regenerating openapi.json + types.ts), so 'add-api-endpoint' is the more accurate label of the two."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/api-stocks-analysis-nullable-indicators",
+    "pr_number": 70,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/70",
+    "pushed_at": "2026-09-17T01:46:02Z"
+  }
 }
