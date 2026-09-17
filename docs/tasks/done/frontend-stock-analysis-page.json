@@ -3,7 +3,7 @@
   "title": "Frontend: Stock analysis page (signal, confidence, screens)",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-api-client",
     "frontend-common-components",
@@ -80,31 +80,36 @@
     "pushed_at": "2026-09-17T00:30:00Z"
   },
   "review": {
-    "reviewed_at": "2026-09-17T00:28:41Z",
+    "reviewed_at": "2026-09-17T00:38:46Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/68",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "ScreensPanel.tsx's `wave.stochastic_k.toFixed(1)` and IndicatorsPanel.tsx's `formatValue` (`.toLocaleString()` on bull_power/bear_power) crash the whole page (caught only by the top-level AppErrorBoundary) when the API returns `null` for these fields, which it legitimately can and does: reproduced live by running the real backend against live yfinance data for AAPL, whose most recent daily bar currently has NaN OHLC (unsettled bar, only volume populated), which propagates into bull_power/bear_power/stochastic_k as NaN -> pydantic's default `ser_json_inf_nan='null'` serializes that as JSON `null` on the wire despite backend/app/api/schemas.py declaring these fields as non-Optional `float` (and api/types.ts inheriting that). Confirmed the crash directly via a component render with an MSW payload shaped like the real response: `TypeError: Cannot read properties of null (reading 'toFixed')`. None of this PR's tests exercise a null indicator value. Minimum fix: null-safe fallback rendering (e.g. 'N/A') for these three fields, consistent with the codebase's existing nullable-price display pattern.",
+        "summary": "RE-VERIFIED FIXED (commit cbac925): ScreensPanel.tsx's stochastic_k/force_index_2ema now go through formatNullableNumber, and IndicatorsPanel.tsx's formatValue is null/undefined/NaN-safe across all five stat fields, both rendering '—' instead of crashing. Independently reproduced the original crash scenario myself (not just re-reading the worker's own tests): rendered StockDetailPage end-to-end via MSW with a payload matching the real degraded-bar shape (stochastic_k, force_index_2ema, macd_histogram, bull_power, bear_power all null) -- no crash, five '—' fallbacks rendered, signal badge and rest of the page rendered normally. Also confirmed the stochasticNote (Oversold/Overbought/Neutral) is correctly omitted rather than miscomputed on null: the fix gates the comparison on a stochasticIsKnown check before any `< 30`/`> 70` comparison, so 'null < 30' can no longer silently evaluate true. My scratch reproduction test was not committed (throwaway verification only).",
         "file": "frontend/src/features/stocks/components/ScreensPanel.tsx",
-        "line": 106
+        "line": 96
       },
       {
-        "summary": "IndicatorsPanel.tsx's formatValue has the same null-unsafe assumption for bull_power/bear_power (and ema_13/ema_26/macd_histogram, though those weren't observed null) — same root cause and fix as the ScreensPanel finding.",
+        "summary": "RE-VERIFIED FIXED (commit cbac925): same root cause and fix as above, formatValue now null-safe for all five stat fields including the three not previously observed null (ema_13, ema_26, macd_histogram), consistent with what the original finding asked for.",
         "file": "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
-        "line": 9
+        "line": 16
       },
       {
-        "summary": "StockDetailPage.tsx uses the raw, un-normalized useParams `ticker` (not the backend-normalized analysisQuery.data.ticker) for both the PageHeader title and useStockAnalysis's query key. A direct visit to /stocks/aapl shows a lowercase heading while the data is for AAPL, and creates a query-key that never matches a later /stocks/AAPL visit. Non-blocking; tracked on frontend-stock-analysis-page-followups.",
+        "summary": "Not re-fixed and not expected to be -- still correctly tracked as non-blocking on frontend-stock-analysis-page-followups.json (StockDetailPage.tsx raw useParams ticker vs. backend-normalized ticker).",
         "file": "frontend/src/pages/StockDetailPage.tsx",
         "line": 34
       },
       {
-        "summary": "SignalSummary.tsx's humanizeComponent and ScreensPanel.tsx's humanize duplicate the label-map-plus-fallback pattern already implemented as RiskPanel.tsx's EXIT_FLAG_LABELS/humanizeFlag — three near-identical implementations now exist. Non-blocking; tracked on frontend-stock-analysis-page-followups.",
+        "summary": "Not re-fixed and not expected to be -- still correctly tracked as non-blocking on frontend-stock-analysis-page-followups.json (humanize/label-map duplication across SignalSummary/ScreensPanel/RiskPanel).",
         "file": "frontend/src/features/stocks/components/SignalSummary.tsx",
         "line": 20
+      },
+      {
+        "summary": "New non-blocking finding (code-review skill, this pass): the fix itself introduces a second, separate duplication -- IndicatorsPanel.tsx's formatValue and ScreensPanel.tsx's formatNullableNumber are near-identical null/NaN-to-'—' guards defined independently per file. The fix's own decision record claims this is 'already tracked' by the existing humanize-duplication follow-up item, but that item only covers label-map humanization, not numeric null-formatting -- so this would have fallen through the cracks uncaught. Added as a new checklist item on frontend-stock-analysis-page-followups.json.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
+        "line": 16
       }
     ],
-    "notes": "npm run test:coverage (156 passed, 99.66%/99.06%/100%/99.65%, above the 90% gate), npm run lint (clean), npm run build (clean), npm run build-storybook (clean); backend pytest --cov unaffected (472 passed, 99.84%) since no backend files are touched by this PR, so backend/openapi.json correctly stays untouched. code-review skill (medium) run against the diff; its two findings (ticker normalization, humanize duplication) are folded into review.comments above. Confirmed against docs/Analyse.md §6: confidence-breakdown component labels/weights (30/20/25/15/10, sum to 1.0) and Low/Medium/High band thresholds (<40 / 40-70 / >70) all match exactly; ConfidenceGauge's band derivation is pre-existing and correct. Placement check (step 7a): agree with keeping TickerSearchBox under features/stocks/components/ even with two consumers now -- it still hardcodes the /stocks/:ticker route and ticker uppercase/trim normalization (domain knowledge per Frontend.md §3's actual test), and both consumers want identical behavior, so there's no second genuine use case yet to justify a generic common/NavigatingSearchBox; SignalSummary/ScreensPanel/IndicatorsPanel are correctly under features/stocks/ too. The cross-task edit to docs/tasks/frontend-dashboard-page-followups.json is valid JSON and genuinely resolves that follow-up's open question with a specific, sound rationale, not just an assertion. Browser walkthrough: the Playwright browser tool wasn't available in this review session's toolset, so I substituted a live backend (real YFinanceProvider, live market data) plus jsdom-rendered React with MSW payloads shaped exactly like the real API responses -- this is how blocking finding #1 was found and confirmed reproducible. Did not get a live BUY/SELL example (current live AAPL response degrades to HOLD under the same unsettled-bar condition as the blocking finding), but the PR's own component tests already cover BUY/SELL/HOLD and all three documented error cases (404/422/503) with well-formed mocked payloads and those pass. Also filed a separate backend follow-up (api-stocks-analysis-nullable-indicators) for the root schema/engine contract mismatch, since that's a distinct already-merged-task issue this PR isn't responsible for fixing itself."
+    "notes": "Re-review of commit cbac925 (the fix for this task's prior needs_work verdict). Full re-run: npm run test:coverage (158 passed, up from 156; 99.67%/99.13%/100%/99.66%, above the 90% gate, no regression), npm run lint (clean), npm run build (clean), npm run build-storybook (clean); backend pytest --cov unaffected (472 passed, 99.84%) since the fix commit touches no backend files, so backend/openapi.json correctly stays untouched (confirmed via `git diff main...HEAD --stat`, which shows zero backend/ files across the whole PR). code-review skill (medium) run specifically against commit cbac925's diff; it independently confirmed the fix is correct and complete (traced every other call site of the affected Indicators/Screens/WaveScreen fields in frontend/src and found none unguarded) and surfaced the one new finding folded into review.comments above. Independently reproduced the original crash scenario end-to-end via a throwaway MSW+jsdom test rendering the full StockDetailPage (not just the two components in isolation) with a payload shaped exactly like the real degraded-bar response -- confirmed no crash and correct '—' fallbacks, then deleted the scratch test (not part of the committed diff). Re-checked the Oversold/Overbought/Neutral note logic specifically: it now gates on stochasticIsKnown before comparing, so it's omitted (not miscomputed) on null, matching what was asked. No other blocking findings. Not re-run: architecture-review/verify-elder-signal skills, since this fix touches no new module/dependency/layer and area is frontend/pages/stocks (not backend/signals or backend/portfolio) -- same scoping as the prior review. Placement check (step 7a) not redone since no new components were added or substantially changed by this fix, only existing formatter logic inside already-placed components; the prior review's placement conclusions for ScreensPanel/IndicatorsPanel/SignalSummary/TickerSearchBox stand. Browser walkthrough: Playwright tools were not present in this review session's toolset (same as the prior review), so I substituted the MSW+jsdom full-page reproduction described above per this re-review's own instructions, which explicitly called for that method rather than a live browser. Filed one new non-blocking finding (formatValue/formatNullableNumber duplication) as a checklist item on the existing frontend-stock-analysis-page-followups.json task rather than a new followups task, since one already exists for this task id and is still planned."
   }
 }

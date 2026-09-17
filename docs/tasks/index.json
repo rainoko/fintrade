@@ -432,8 +432,8 @@
       "id": "frontend-stock-analysis-page",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-stock-analysis-page.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-analysis-page.json"
     },
     {
       "id": "frontend-stock-analysis-page-followups",
