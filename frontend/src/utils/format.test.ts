@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatNullableNumber, humanizeSnakeCase } from './format'
+import { formatCurrency, formatNullableNumber, humanizeSnakeCase } from './format'
 
 describe('humanizeSnakeCase', () => {
   it('returns the label map entry when the value is known', () => {
@@ -44,5 +44,19 @@ describe('formatNullableNumber', () => {
 
   it('formats negative numbers with grouping when no fraction-digit options are given', () => {
     expect(formatNullableNumber(-18234.5)).toBe('-18,234.5')
+  })
+})
+
+describe('formatCurrency', () => {
+  it('formats a sub-1000 value as USD with two decimal places', () => {
+    expect(formatCurrency(150)).toBe('$150.00')
+  })
+
+  it('formats a value >= 1000 with a thousands separator', () => {
+    expect(formatCurrency(1234.5)).toBe('$1,234.50')
+  })
+
+  it('formats zero', () => {
+    expect(formatCurrency(0)).toBe('$0.00')
   })
 })

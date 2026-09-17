@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend portfolio risk panel follow-ups (PR #77) — further non-blocking review follow-up",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-portfolio-risk-panel-followups"],
   "references": [
     "docs/tasks/frontend-portfolio-risk-panel-followups.json#review",
@@ -14,7 +14,7 @@
   "checklist": [
     {
       "step": "PR #77's new `formatCurrency` (`frontend/src/utils/format.ts`), now consumed by RiskPanel.tsx/PositionsTable.tsx/PortfolioPage.tsx, has no direct unit test in `utils/format.test.ts` — unlike its sibling `formatNullableNumber`, which has explicit test cases (plain number, null, undefined, NaN, negative-with-grouping). `formatCurrency` is currently only exercised indirectly, via component render tests that happen to use values under 1000 (e.g. RiskPanel.test.tsx's/PositionsTable.test.tsx's $150/$300 fixtures), so its thousands-separator behavior for values >= 1000 — the entire reason the richer `toLocaleString` implementation was chosen over the plainer `$${value.toFixed(2)}` per this task's decisions entry — has no direct assertion anywhere in the suite (verified manually via a real browser walkthrough for this review: a $1,234.50 protective_stop correctly rendered as \"$1,234.50\", but that verification doesn't persist as a regression test). Add a `describe('formatCurrency', ...)` block to format.test.ts mirroring formatNullableNumber's style: a plain sub-1000 value, a value >= 1000 (asserting the comma), and a zero value.",
-      "done": false
+      "done": true
     }
   ]
 }
