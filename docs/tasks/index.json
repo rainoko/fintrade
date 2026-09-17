@@ -558,8 +558,8 @@
       "id": "dev-makefile",
       "area": "infra",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/dev-makefile.json"
+      "state": "done",
+      "path": "docs/tasks/done/dev-makefile.json"
     },
     {
       "id": "skill-static-verify",
@@ -588,6 +588,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/skill-revalidate-done-tasks-followups-followups.json"
+    },
+    {
+      "id": "dev-makefile-followups",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/dev-makefile-followups.json"
     }
   ]
 }
