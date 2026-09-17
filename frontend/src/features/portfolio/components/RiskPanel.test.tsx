@@ -115,6 +115,17 @@ describe('RiskPanel', () => {
       backgroundColor: theme.palette.riskBreach.background,
     })
 
+    // The breaching row's own Position Risk number renders as a risk warning
+    // (riskBreach.main), not success-green — a 5%/1.4% risk magnitude isn't
+    // a "gain", and PR #66's review flagged the prior PercentChange reuse as
+    // misleadingly green on a breaching row.
+    const aaplRisk = screen.getByText('2.50%')
+    expect(aaplRisk).toHaveStyle({ color: theme.palette.riskBreach.main })
+    expect(aaplRisk).not.toHaveStyle({ color: theme.palette.success.main })
+    const msftRisk = screen.getByText('1.40%')
+    expect(msftRisk).toHaveStyle({ color: theme.palette.text.secondary })
+    expect(msftRisk).not.toHaveStyle({ color: theme.palette.success.main })
+
     // No portfolio-level 6%-rule banner for a per-position-only breach.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -166,10 +177,29 @@ describe('RiskPanel', () => {
 
     const note = await screen.findByRole('status')
     expect(note).toHaveTextContent('MSFT')
+    // Singular pronoun agreement for exactly one missing ticker.
+    expect(note).toHaveTextContent("its price or history couldn't be fetched, so it's excluded")
 
     // MSFT never appears as a misleading zero-risk row in the risk table.
     const table = screen.getByRole('table', { name: 'Portfolio risk' })
     expect(table.textContent).not.toContain('MSFT')
+  })
+
+  it('pluralizes the silent-exclusion note when more than one held position is missing', async () => {
+    mockRisk({
+      total_open_risk_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [],
+    })
+
+    // Both AAPL and MSFT are held but absent from the risk response.
+    renderWithProviders(<RiskPanel positions={[aaplPosition, msftPosition]} />)
+
+    const note = await screen.findByRole('status')
+    expect(note).toHaveTextContent('AAPL, MSFT')
+    expect(note).toHaveTextContent(
+      "their price or history couldn't be fetched, so they're excluded",
+    )
   })
 
   it('falls back to a humanized label for an exit flag not in the known label map', async () => {

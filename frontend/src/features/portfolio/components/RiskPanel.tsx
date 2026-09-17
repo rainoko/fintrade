@@ -10,9 +10,9 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
-import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
 import StatCard from '../../../components/common/StatCard/StatCard'
-import { humanizeSnakeCase } from '../../../utils/format'
+import { formatCurrency, humanizeSnakeCase } from '../../../utils/format'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
 export interface RiskPanelProps {
@@ -37,10 +37,6 @@ const EXIT_FLAG_LABELS: Record<string, string> = {
   six_percent_rule_contributor: '6% rule contributor',
   profit_zone_impulse_red: 'Profit zone (Impulse red)',
   tide_flipped_bearish: 'Tide flipped bearish',
-}
-
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(2)}`
 }
 
 /**
@@ -81,6 +77,10 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
   const missingTickers = positions
     .map((position) => position.ticker)
     .filter((ticker) => !riskTickers.has(ticker))
+  // Plural pronoun agreement for the note below: "its"/"it's" reads wrong
+  // once more than one ticker is joined into the list (e.g. "ZZZZINVALID,
+  // TSLA — its price..."). See this task's `decisions` entry.
+  const isMissingPlural = missingTickers.length > 1
 
   const columns: DataTableColumn<RiskPosition>[] = [
     { key: 'ticker', header: 'Ticker', sortable: true },
@@ -96,7 +96,9 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
       header: 'Position Risk',
       align: 'right',
       sortable: true,
-      render: (row) => <PercentChange value={row.position_risk_pct} />,
+      render: (row) => (
+        <RiskPercent value={row.position_risk_pct} breached={row.two_percent_rule_breached} />
+      ),
     },
     {
       key: 'exit_flags',
@@ -157,8 +159,9 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            No risk data available for {missingTickers.join(', ')} — its price or history
-            couldn't be fetched, so it's excluded from the risk table and total below.
+            No risk data available for {missingTickers.join(', ')} —{' '}
+            {isMissingPlural ? 'their price' : 'its price'} or history couldn't be fetched, so{' '}
+            {isMissingPlural ? "they're" : "it's"} excluded from the risk table and total below.
           </Typography>
         </Box>
       )}
