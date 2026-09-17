@@ -6,6 +6,7 @@ import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
+import { humanizeSnakeCase } from '../../../utils/format'
 
 export interface SignalSummaryProps {
   signal: AnalysisResponse['signal']
@@ -15,23 +16,15 @@ export interface SignalSummaryProps {
 
 // Human-readable label per known confidence_breakdown component name
 // (docs/Analyse.md §6). A future component name not in this map still
-// renders via a humanized fallback of the raw snake_case string, same
-// pattern as RiskPanel's EXIT_FLAG_LABELS/humanizeFlag.
+// renders via humanizeSnakeCase's fallback (underscores-to-spaces,
+// capitalized), same shared helper RiskPanel's EXIT_FLAG_LABELS and
+// ScreensPanel use.
 const COMPONENT_LABELS: Record<string, string> = {
   tide_alignment: 'Tide alignment (Screen 1)',
   impulse_gate: 'Impulse gate',
   oscillator_extremity: 'Oscillator extremity (Screen 2)',
   elder_ray_confirmation: 'Elder-Ray confirmation',
   volume_confirmation: 'Volume confirmation',
-}
-
-function humanizeComponent(component: string): string {
-  const known = COMPONENT_LABELS[component]
-  if (known) {
-    return known
-  }
-  const words = component.replace(/_/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 function formatPercent(fraction: number): string {
@@ -58,7 +51,7 @@ export default function SignalSummary({
     {
       key: 'component',
       header: 'Component',
-      render: (row) => humanizeComponent(row.component),
+      render: (row) => humanizeSnakeCase(row.component, COMPONENT_LABELS),
     },
     {
       key: 'weight',

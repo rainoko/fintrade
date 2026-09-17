@@ -1,6 +1,7 @@
 import Stack from '@mui/material/Stack'
 import type { Indicators } from '../../../api/stocks'
 import StatCard from '../../../components/common/StatCard/StatCard'
+import { formatNullableNumber } from '../../../utils/format'
 
 export interface IndicatorsPanelProps {
   indicators: Indicators
@@ -13,12 +14,11 @@ export interface IndicatorsPanelProps {
 // the wire), so this guard shouldn't be reachable against a real backend response
 // anymore — kept as defense-in-depth (treating the generated type as optimistic, not a
 // runtime guarantee) rather than removed, consistent with the nullable-price display
-// pattern used elsewhere (e.g. PositionsTable.tsx's formatNullableCurrency).
+// pattern used elsewhere (e.g. PositionsTable.tsx's formatNullableCurrency). Uses the
+// shared formatNullableNumber (utils/format.ts) with this panel's own two-decimal
+// formatting convention, rather than ScreensPanel's independent copy of the same guard.
 function formatValue(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return '—'
-  }
-  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatNullableNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 /**

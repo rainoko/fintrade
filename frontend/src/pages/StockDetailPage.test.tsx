@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '../../tests/mocks/server'
-import { renderWithProviders } from '../../tests/renderWithProviders'
+import { createTestQueryClient, renderWithProviders } from '../../tests/renderWithProviders'
 import StockDetailPage from './StockDetailPage'
 
 // PriceChart (rendered below IndicatorsPanel) builds a real Lightweight
@@ -176,6 +176,71 @@ describe('StockDetailPage', () => {
         'Market data provider is currently unavailable. Try again shortly.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('normalizes a lowercase URL ticker to uppercase for both the heading and the query cache key', async () => {
+    let requestCount = 0
+    server.use(
+      http.get('/api/stocks/:ticker/analysis', ({ params }) => {
+        requestCount += 1
+        return HttpResponse.json({
+          ticker: String(params.ticker).toUpperCase(),
+          as_of: '2026-09-11',
+          signal: 'BUY',
+          confidence: 72,
+          confidence_band: 'High',
+          screens: {
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+            impulse: 'GREEN',
+            wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+            trigger: { fired: true, reference: 'close_above_prior_high' },
+          },
+          confidence_breakdown: [{ component: 'tide_alignment', weight: 0.3, score: 1.0 }],
+          indicators: {
+            ema_13: 226.4,
+            ema_26: 220.1,
+            macd_histogram: 1.2,
+            bull_power: 3.4,
+            bear_power: -1.1,
+          },
+        })
+      }),
+    )
+    const queryClient = createTestQueryClient()
+
+    // A hand-typed/bookmarked/externally-linked lowercase URL shows the
+    // normalized uppercase heading immediately, not the raw lowercase param.
+    const { rerender } = renderWithProviders(
+      <MemoryRouter initialEntries={['/stocks/aapl']}>
+        <Routes>
+          <Route path="/stocks/:ticker" element={<StockDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+      { queryClient },
+    )
+
+    expect(screen.getByRole('heading', { name: 'AAPL' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+    expect(requestCount).toBe(1)
+
+    // A later visit to the uppercase form of the same ticker addresses the
+    // same normalized query-cache key, so it's served from cache instead of
+    // triggering a second, redundant fetch of identical data.
+    rerender(
+      <MemoryRouter initialEntries={['/stocks/AAPL']}>
+        <Routes>
+          <Route path="/stocks/:ticker" element={<StockDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'AAPL' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+    expect(requestCount).toBe(1)
   })
 
   it("falls back to a 'Stock Detail' header and skips the query when the route has no ticker param", () => {

@@ -1,3 +1,4 @@
+import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Chip from '@mui/material/Chip'
@@ -6,33 +7,10 @@ import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import type { ReactNode } from 'react'
 import type { Screens } from '../../../api/stocks'
+import { formatNullableNumber, humanizeSnakeCase } from '../../../utils/format'
 
 export interface ScreensPanelProps {
   screens: Screens
-}
-
-function humanize(value: string): string {
-  const words = value.replace(/_/g, ' ').toLowerCase()
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
-// `wave.stochastic_k`/`wave.force_index_2ema` are typed as non-optional `number`
-// (backend/app/api/schemas.py). docs/tasks/api-stocks-analysis-nullable-indicators.json
-// fixed the backend-side root cause (an unsettled latest daily bar with NaN OHLC is now
-// excluded from analysis via `app.signals.engine.drop_malformed_daily_bars` rather than
-// leaking a JSON `null` onto the wire), so this guard shouldn't be reachable against a
-// real backend response anymore — kept as defense-in-depth (treating the generated type
-// as optimistic, not a runtime guarantee) rather than removed, consistent with the
-// nullable-price display pattern used elsewhere (e.g. PositionsTable.tsx's
-// formatNullableCurrency).
-function formatNullableNumber(
-  value: number | null | undefined,
-  options?: Intl.NumberFormatOptions,
-): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return '—'
-  }
-  return value.toLocaleString(undefined, options)
 }
 
 interface LabeledValueProps {
@@ -46,7 +24,12 @@ function LabeledValue({ label, children }: LabeledValueProps) {
       <Typography variant="caption" color="text.secondary">
         {label}
       </Typography>
-      <Typography variant="body2">{children}</Typography>
+      {/* A `<div>` (e.g. Impulse's Chip below) is invalid HTML nested inside
+          a `<p>`, which is what `Typography variant="body2"` renders as by
+          default — Box with an `sx.typography` style applies the same body2
+          font styling via a `<div>` instead, so any child (plain text or a
+          Chip) is always valid regardless of what a given caller passes. */}
+      <Box sx={{ typography: 'body2' }}>{children}</Box>
     </Stack>
   )
 }
@@ -108,9 +91,9 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
   return (
     <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
       <ScreenSection title="Tide (Screen 1)">
-        <LabeledValue label="Trend">{humanize(tide.trend)}</LabeledValue>
+        <LabeledValue label="Trend">{humanizeSnakeCase(tide.trend)}</LabeledValue>
         <LabeledValue label="Weekly MACD-H slope">
-          {humanize(tide.weekly_macd_histogram_slope)}
+          {humanizeSnakeCase(tide.weekly_macd_histogram_slope)}
         </LabeledValue>
       </ScreenSection>
 
@@ -139,12 +122,12 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
         <LabeledValue label="Force Index (2-EMA)">
           {formatNullableNumber(wave.force_index_2ema, { maximumFractionDigits: 1 })}
         </LabeledValue>
-        <LabeledValue label="State">{humanize(wave.state)}</LabeledValue>
+        <LabeledValue label="State">{humanizeSnakeCase(wave.state)}</LabeledValue>
       </ScreenSection>
 
       <ScreenSection title="Trigger (Screen 3)">
         <LabeledValue label="Fired">{trigger.fired ? 'Yes' : 'No'}</LabeledValue>
-        <LabeledValue label="Reference">{humanize(trigger.reference)}</LabeledValue>
+        <LabeledValue label="Reference">{humanizeSnakeCase(trigger.reference)}</LabeledValue>
       </ScreenSection>
     </Stack>
   )

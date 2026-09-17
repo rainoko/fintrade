@@ -27,12 +27,21 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * duplicates that component.
  */
 export default function StockDetailPage() {
-  const { ticker = '' } = useParams<{ ticker: string }>()
+  const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
+  // Normalize the URL param the same way TickerSearchBox normalizes it
+  // before navigating (trim + uppercase) so a hand-typed/bookmarked/
+  // externally-linked lowercase URL (e.g. /stocks/aapl) addresses the same
+  // query-cache entry as a later /stocks/AAPL visit instead of triggering a
+  // redundant refetch of identical data. The heading itself prefers the
+  // backend-returned `ticker` once loaded (it's the authoritative casing),
+  // falling back to this normalized value while loading/on error.
+  const ticker = rawTicker.trim().toUpperCase()
   const analysisQuery = useStockAnalysis(ticker)
+  const displayTicker = analysisQuery.data?.ticker ?? ticker
 
   return (
     <>
-      <PageHeader title={ticker || 'Stock Detail'} action={<TickerSearchBox />} />
+      <PageHeader title={displayTicker || 'Stock Detail'} action={<TickerSearchBox />} />
 
       {analysisQuery.isLoading && (
         <LoadingState message={`Loading analysis for ${ticker}...`} />
