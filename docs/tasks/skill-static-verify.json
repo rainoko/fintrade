@@ -3,7 +3,7 @@
   "title": "New skill: static-verify — backend (ruff+mypy) and frontend (eslint+tsc) static analysis",
   "area": "tooling",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     ".claude/skills/architecture-review/SKILL.md",
@@ -42,5 +42,11 @@
       "decision": "Updated both `.claude/agents/pr-reviewer.md` (step 4) and `.claude/agents/task-qa-reviewer.md` (step 3) to explicitly load and run the new `static-verify` skill, replacing their prior 'check pyproject.toml for whatever's configured, don't invent tool config that isn't there' language.",
       "rationale": "That inline language existed specifically because there was no backend lint/type config to run -- every prior pr-reviewer/task-qa-reviewer pass this session had to fall back to 'nothing to run' for the backend half of static analysis, which is precisely the gap this task exists to close. Now that real, reusable config plus a dedicated skill exist, leaving the agents' own inline ad hoc instructions in place would mean the new skill and the two agents' actual behavior silently drift apart over time (e.g. if static-verify's commands or scope change later, both agent files would need a separate, easy-to-forget update) -- pointing them at the skill keeps one source of truth, matching how they already load `code-review`/`verify-elder-signal`/`architecture-review` by reference rather than re-describing those skills' steps inline. Considered leaving the agents unchanged and only relying on someone thinking to invoke static-verify manually -- rejected because that's exactly the ad hoc, easy-to-skip pattern the task description calls out as the problem."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/skill-static-verify",
+    "pr_number": 95,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/95",
+    "pushed_at": "2026-09-17T20:02:37Z"
+  }
 }
