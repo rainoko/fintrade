@@ -37,5 +37,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Traced the `if (!pendingDelete) return` guard independently: ConfirmDialog's onConfirm is only wired to the Confirm button's onClick, which only exists in the DOM while MUI Dialog's `open` prop is true, and PositionsTable passes `open={pendingDelete !== null}` — so the guard is genuinely unreachable through any real render/interaction surface, not a papered-over gap. `/* v8 ignore next 3 */` is scoped to exactly the 3 guard lines (94-96), confirmed by PositionsTable.tsx no longer appearing in the coverage report's uncovered-lines list at all. Full suite: `npm run test:coverage` 33 files/179 tests pass, 99.7% lines/99.59% branch/100% funcs/99.7% stmts overall (only remaining gap, PriceChart.tsx:112, is untouched by this diff and pre-existing). `npm run lint` and `npm run build` clean. Backend suite unaffected (no backend files touched) and passes (488 tests, 99.84% coverage). No API/schema change, no new/changed components requiring placement review, no UI behavior change requiring a browser walkthrough. Decision entry present with rationale per CLAUDE.md. No blocking or non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T04:19:10Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `npm run test:coverage` (33 files/179 tests pass, 99.7%/99.59%/100%/99.7% lines/branch/funcs/stmts — PositionsTable.tsx absent from the uncovered list, matching pr-reviewer exactly) plus `npm run lint` and `npm run build`, all clean. Traced ConfirmDialog.tsx myself: its Confirm button (wired to onConfirm) only exists inside MUI's <Dialog open={open}>, and PositionsTable passes open={pendingDelete !== null}, so the `if (!pendingDelete) return` guard at PositionsTable.tsx:94-96 is genuinely unreachable via any UI interaction, confirming it's dead code for type-narrowing only. `/* v8 ignore next 3 */` at line 93 covers exactly those 3 guard lines, not the following mutate/setPendingDelete calls. Skimmed the full diff (PositionsTable.tsx comment+ignore directive, task JSON move to done/, index.json state/path sync) — no other changes."
   }
 }
