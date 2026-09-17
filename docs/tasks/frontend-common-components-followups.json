@@ -49,5 +49,11 @@
       "decision": "DataTable's sort comparator now checks for null/undefined values before calling compareValues(), and always sorts missing values last regardless of the current ascending/descending direction (returned directly, without being negated for 'desc' the way a normal comparison result is).",
       "rationale": "The checklist item's own suggested fix ('missing values sorting last') implies a fixed position independent of sort direction — otherwise clicking a sortable header a second time (desc) would flip missing values to sort first, which is a worse UX than a stable 'always last' rule most table UIs use. Implemented as a separate compareForSort() wrapper (rather than baking the direction-aware negation into compareValues() itself) so compareValues() stays a pure value-vs-value comparator, independently testable and unaffected by direction."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-common-components-followups",
+    "pr_number": 86,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/86",
+    "pushed_at": "2026-09-17T07:17:45Z"
+  }
 }
