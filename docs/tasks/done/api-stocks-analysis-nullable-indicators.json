@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/analysis: Indicators/WaveScreen schema declares non-optional fields the engine can legitimately emit as null",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-analysis"],
   "references": [
     "docs/tasks/done/api-stocks-analysis.json",
@@ -53,5 +53,43 @@
     "pr_number": 70,
     "pr_url": "https://github.com/rainoko/fintrade/pull/70",
     "pushed_at": "2026-09-17T01:46:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T01:53:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/70",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently verified: evaluate_trigger's `today_close > prior_high`/`< prior_low` silently evaluates False for a NaN today_close (a NaN comparison, not an error) -- the claimed rationale for choosing the engine-side fix is real, confirmed by tracing app/signals/triple_screen.py directly and by the new test_malformed_latest_bar_is_excluded_and_does_not_change_signal regression test.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 333
+      },
+      {
+        "summary": "drop_malformed_daily_bars verified as a pure no-op on well-formed data: all pre-existing hand-computed reference-value tests in test_engine.py are unchanged and still pass, and new tests explicitly assert a clean/empty frame passes through unaffected.",
+        "file": "backend/tests/unit/signals/test_engine.py",
+        "line": 63
+      },
+      {
+        "summary": "backend/openapi.json regeneration confirmed a genuine no-op: re-ran scripts/export_openapi.py myself and diffed against the committed file -- empty diff. The committed change itself is docstring-only.",
+        "file": "backend/openapi.json",
+        "line": 729
+      },
+      {
+        "summary": "docs/tasks/index.json's skill-field self-correction verified accurate: synced from null to 'add-api-endpoint' to match this task file's own long-standing skill field (plus state synced to 'testing' to mirror this file at the time), with nothing else in index.json touched.",
+        "file": "docs/tasks/index.json",
+        "line": 448
+      },
+      {
+        "summary": "Non-blocking: GET /api/portfolio/risk's evaluate_exit_flags/protective_stop/autoenvelope/evaluate_impulse pipeline reads daily_ohlcv from app/portfolio/pricing.py without ever passing it through drop_malformed_daily_bars. pricing.py's _latest_close already excludes a position when the very latest bar's close is NaN (the one observed failure mode), but a malformed bar earlier in the history, or one with NaN open/high/low but a real close, would still flow through unfiltered into evaluate_exit_flags' EMA/MACD/autoenvelope math and its own latest_close < stop comparison -- same class of NaN-silently-False hazard this PR fixed for /analysis. Tracked as a follow-up rather than blocking since it's pre-existing behavior outside this task's stated /analysis-specific scope and the one reported failure mode is already indirectly guarded.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 296
+      },
+      {
+        "summary": "Non-blocking: weekly_ohlcv is never filtered for malformed bars anywhere (evaluate_tide reads weekly_ohlcv['close'] with no NaN guard). Speculative -- the observed malformed-bar condition has so far only been reported on daily data -- tracked to revisit if ever actually observed on the weekly interval.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 162
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (478 passed, 99.84% coverage), frontend vitest run --coverage (167 passed, 99.4%+), npm run lint/build/build-storybook all clean. No ruff/mypy config exists in backend/pyproject.toml, so nothing further to lint there. verify-elder-signal skill run: no divergence from docs/Analyse.md -- this change only affects which daily bars reach existing, unmodified Triple Screen/Impulse/Confidence computations. code-review skill run against the diff: no correctness bugs or reuse/efficiency findings. No new module/dependency/layer added, so architecture-review wasn't triggered. Frontend files touched (IndicatorsPanel.tsx/ScreensPanel.tsx) are comment-only updates to pre-existing defensive-rendering code, not new UI logic or new components, so the frontend-component-placement check (step 7a) doesn't apply. This PR is backend-only in substance with no new UI-facing behavior; I smoke-tested the live /api/stocks/{ticker}/analysis endpoint via a locally-run backend and confirmed the response shape is unaffected for a real ticker. This session's toolset did not expose a Playwright browser tool, so I could not additionally drive the frontend page live in a browser -- noting this limitation explicitly rather than silently skipping it, though given the change's backend-only substance I don't consider it a gap that should block this PR. Two non-blocking findings filed as checklist items on docs/tasks/api-stocks-analysis-nullable-indicators-followups.json (new task)."
   }
 }

@@ -446,8 +446,15 @@
       "id": "api-stocks-analysis-nullable-indicators",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/api-stocks-analysis-nullable-indicators.json"
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-analysis-nullable-indicators.json"
+    },
+    {
+      "id": "api-stocks-analysis-nullable-indicators-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-analysis-nullable-indicators-followups.json"
     },
     {
       "id": "frontend-stock-history-chart",
