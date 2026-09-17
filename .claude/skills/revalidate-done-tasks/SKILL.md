@@ -15,6 +15,8 @@ Reserve a full `task-qa-reviewer` dispatch as an optional deeper dive for one sp
 
 ## Steps
 
+0. **Make sure you're auditing current `main`, not a stale or unrelated checkout.** The working tree is shared with `task-worker`/`pr-reviewer`/`pr-decision`/`pr-merger` and can be left on an arbitrary PR branch after a prior run (per `CLAUDE.md`'s "one agent at a time" note). Before enumerating tasks or running any suite, run `git status` to confirm there's no uncommitted work in progress (if there is, stop — another agent may be mid-flight; don't run this skill concurrently with one of them), then `git fetch origin && git checkout main && git pull --ff-only origin main` (or confirm you're already on an up-to-date `main` — `git rev-parse HEAD` matches `git rev-parse origin/main`). Every finding this skill produces — a spot-check result or a suite pass/fail — is only meaningful if it was computed against current `main`; skipping this risks a false clean pass on stale code, or missing a regression that already landed.
+
 1. **Enumerate every done task.** List `docs/tasks/done/*.json`. Cross-check the set against `docs/tasks/index.json`: every entry whose `state == "done"` should have `path` pointing at `docs/tasks/done/<id>.json` and vice versa — a mismatch here is itself a finding (the mirror-drift rule in `CLAUDE.md`), report it even though it's not a checklist-content issue.
 
 2. **Read each done task's `checklist`, `decisions`, and `description`.** For every checklist item that names or clearly implies a concrete repository artifact (a file path, a function/class name, a route, a component, a test name), verify it still exists and is still wired up:
@@ -23,7 +25,7 @@ Reserve a full `task-qa-reviewer` dispatch as an optional deeper dive for one sp
    - A "decide X" / "confirm X" checklist item → confirm the task's `decisions` array still has a corresponding entry (per `CLAUDE.md`'s decision-memory rule and `task-qa-reviewer`'s same check) — a decision recorded once shouldn't have quietly disappeared from the JSON either.
    - This is a spot-check, not a re-implementation review: you're confirming the artifact the checklist claims still exists and is still plugged in (e.g. still imported/routed/exported from where the task said), not re-deriving whether the original implementation was the best possible one. Batch this with scripted `grep`/`find` checks across many tasks at once where possible (e.g. a single pass collecting every file path mentioned across all checklists, then checking existence in one batch) rather than one-by-one manual reads, so the pass stays tractable at ~78 tasks.
 
-3. **Run the full test + coverage suites once, not per task** — this is the shared evidence that nothing has silently regressed, per `check-coverage`:
+3. **Run the full test + coverage suites once, not per task** — this is the shared evidence that nothing has silently regressed, per `check-coverage`. (Assumes step 0's up-to-date-`main` checkout — don't run this against a stale or unrelated branch.):
    - Backend: `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` from `backend/` (activate `backend/.venv/` first).
    - Frontend: `vitest run --coverage` from `frontend/`.
 
@@ -35,14 +37,17 @@ Reserve a full `task-qa-reviewer` dispatch as an optional deeper dive for one sp
 
 ## Handling a task that no longer holds
 
-Never fix the underlying code from this skill — that's out of scope, matching `architecture-reviewer`/`elder-signal-reviewer`'s read-only pattern. Instead, for each flagged task:
+Never fix the underlying code from this skill — that's out of scope, matching `architecture-reviewer`/`elder-signal-reviewer`'s read-only pattern. Instead, for each flagged task, make the change on a dedicated branch and land it via a normal PR — `main`'s branch-protection ruleset rejects every direct push, including a bookkeeping-only one (per `CLAUDE.md`), so the git-mv/JSON edits below are never committed straight to `main`:
 
-1. `git mv docs/tasks/done/<id>.json docs/tasks/<id>.json` (move it back out of `done/`, since its `done` claim is no longer accurate).
-2. Set its `state` back to `"implementing"` if the fix is clearly code work the next `task-worker` pass can pick up on its own, or append a `questions` entry and set `state` to `"waiting_input"` if what broke reflects a genuine ambiguity only a human can resolve (e.g. it's unclear whether the referenced behavior was deliberately removed elsewhere and this task should be closed instead, rather than reopened) — same judgment call `task-worker`/`task-qa-reviewer` already make elsewhere on this board.
-3. Append a `decisions` entry (or a `questions` entry, per the above) explaining exactly what regressed, with evidence — not just "reopened", so the next worker to pick this up doesn't have to re-derive what this skill already found.
-4. Update `docs/tasks/index.json`'s `state` and `path` for that task in the same change, per `CLAUDE.md`'s mirror rule.
+1. From an up-to-date `main` (per step 0 above), cut a new branch per revalidation run: `git switch -c audit/revalidate-<YYYY-MM-DD>` (one branch covering every task this run reopens, not one branch per task — a single audit pass is one coherent finding-set).
+2. For each flagged task: `git mv docs/tasks/done/<id>.json docs/tasks/<id>.json` (move it back out of `done/`, since its `done` claim is no longer accurate).
+3. Set its `state` back to `"implementing"` if the fix is clearly code work the next `task-worker` pass can pick up on its own, or append a `questions` entry and set `state` to `"waiting_input"` if what broke reflects a genuine ambiguity only a human can resolve (e.g. it's unclear whether the referenced behavior was deliberately removed elsewhere and this task should be closed instead, rather than reopened) — same judgment call `task-worker`/`task-qa-reviewer` already make elsewhere on this board.
+4. Append a `decisions` entry (or a `questions` entry, per the above) explaining exactly what regressed, with evidence — not just "reopened", so the next worker to pick this up doesn't have to re-derive what this skill already found. Get the real current timestamp via `date -u +%Y-%m-%dT%H:%M:%SZ` rather than guessing one.
+5. If the reopened task carries a pre-existing `review` and/or `pr_decision` field, leave the fields themselves untouched (they're the historical record of what was actually reviewed/decided at the time) but make the regression unmissable to a future reader: the `decisions`/`questions` entry from step 4 must say explicitly that this task was previously accepted/merged and has since regressed, so no one mistakes the stale `review.verdict: "accepted"` / `pr_decision.verdict: "merge"` for a current confirmation.
+6. Update `docs/tasks/index.json`'s `state` and `path` for every reopened task in the same change, per `CLAUDE.md`'s mirror rule.
+7. Commit everything from this run together (`git add docs/tasks/... && git commit`), push the branch (`git push -u origin audit/revalidate-<YYYY-MM-DD>`), and open a PR with `gh pr create` whose body lists every task reopened, what broke, and the evidence (i.e. the findings from the Output section below) — this is a direct board-authoring PR the invoking human reviews and merges themselves, the same mechanism used for task-board-entry PRs like #60/#91, not a run through the full task-worker/pr-reviewer/pr-decision/pr-merger pipeline (there's no application code change here for that pipeline to review, only board bookkeeping a human can read and merge directly).
 
-If nothing is found, don't touch any task file — a clean pass is a report, not a board edit.
+If nothing is found, don't touch any task file, don't create a branch, and don't open a PR — a clean pass is a report, not a board edit.
 
 ## Output
 
@@ -50,7 +55,7 @@ Report, for the run as a whole:
 - How many done tasks were checked, and whether that was the full `docs/tasks/done/` set or a representative sample (and why, if not the full set).
 - Backend and frontend test/coverage results (pass/fail, actual coverage numbers), per `check-coverage`'s reporting convention.
 - Every finding, with the task id, what broke, and the evidence — even if it didn't result in reopening the task (e.g. a finding resolved as a false positive on closer look is still worth a line, for auditability).
-- Which tasks (if any) were reopened or moved to `waiting_input`, with the `docs/tasks/` paths touched.
+- Which tasks (if any) were reopened or moved to `waiting_input`, with the `docs/tasks/` paths touched and the PR URL that carries the change (per "Handling a task that no longer holds" above) — this skill never leaves a board edit uncommitted or unpushed.
 - Any task suggested as a candidate for a follow-up `task-qa-reviewer` deep dive, and why.
 
 ## Relationship to other skills/agents
