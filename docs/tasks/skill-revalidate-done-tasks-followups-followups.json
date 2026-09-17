@@ -3,7 +3,7 @@
   "title": "Skill: revalidate-done-tasks — non-blocking findings from PR #93's review",
   "area": "tooling",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["skill-revalidate-done-tasks-followups"],
   "references": [
     "docs/tasks/skill-revalidate-done-tasks-followups.json#review",
@@ -28,5 +28,11 @@
       "decision": "Fixed the self-contradictory sentence by removing the \"the name is free to reuse for a new, unrelated run\" clause entirely rather than rewording it to still assert reuse — the actionable instruction was always \"fall back to a numeric-suffixed name\", so the clearest fix is to state only that, without a preceding clause that says the opposite. For the missing no-PR-at-all case, added a third bullet that treats it the same as the merged/closed case (fall back to a numeric-suffixed name) rather than the task's other suggested option (reuse the abandoned branch after confirming it's genuinely stale). Rejected the reuse-after-confirming-staleness option because this skill's collision-handling step has no reliable way to confirm staleness from local/`origin` branch state alone — it can't distinguish 'a prior run crashed after cutting the branch' from 'another instance of this skill is still mid-run on it right now' — so defaulting to a fresh numeric-suffixed branch (the same safe default already used for the merged/closed case) avoids ever building on top of a branch whose state can't be fully accounted for.",
       "rationale": "Keeps the collision-handling logic simple and consistent (all non-open-PR collision cases fall back to the same numeric-suffix mechanism) and avoids introducing a riskier reuse path that would need its own staleness-verification logic this skill doesn't otherwise have."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/skill-revalidate-done-tasks-followups-followups",
+    "pr_number": 94,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/94",
+    "pushed_at": "2026-09-17T19:46:05Z"
+  }
 }
