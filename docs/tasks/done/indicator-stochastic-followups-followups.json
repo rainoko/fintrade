@@ -29,5 +29,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Docs-only change (adds app/indicators/_validation.py to Backend.md §2's module layout listing). Verified the addition against the actual file: _validation.py exists, exports validate_period(name, value) as a pure function (no I/O), used by ema.py and stochastic.py, matching the doc's description exactly. Entry follows the existing listing's format/comment style. Backend test suite: 493 passed, 99.84% coverage (well above the 90% gate), no regression. Lint/code-review skill/browser walkthrough/architecture-review skipped as not applicable: no Python/TS source changed (lint/code-review would have nothing to check beyond what was already manually verified above), no UI surface (nothing to click through), and no new module/dependency/layer introduced (architecture-review not triggered). No stale pr_decision was present to clear. No non-blocking findings — no follow-up task created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T17:50:12Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend suite myself: 493 passed, 99.84% coverage, matching pr-reviewer's reported numbers exactly. Read git diff origin/main...HEAD directly: only change is the single _validation.py line added to Backend.md §2's module layout listing plus expected task-board bookkeeping (file move to done/, index.json mirror) — no application code touched. Independently confirmed app/indicators/_validation.py exists, exports validate_period(name, value) as a pure no-I/O function, and is actually imported/used by ema.py and stochastic.py, matching the doc line's claim exactly."
   }
 }
