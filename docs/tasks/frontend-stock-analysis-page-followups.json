@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Stock analysis page (PR #68)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-stock-analysis-page"],
   "references": [
     "docs/tasks/frontend-stock-analysis-page.json",
@@ -50,5 +50,11 @@
       "rationale": "ScreensPanel actually needs the lowercase step -- its inputs mix UPPER_SNAKE_CASE enum-like values (tide.trend, wave.state) with lowercase_snake_case values (trigger.reference), and capitalizing-without-lowercasing would leave 'OVERSOLD_PULLBACK' as 'OVERSOLD PULLBACK' (still all-caps) rather than the 'Oversold pullback' its own existing test already asserts. SignalSummary's confidence_breakdown component names and RiskPanel's exit_flags values are always already-lowercase snake_case per their respective backend contracts (docs/Analyse.md §6/§7), so always-lowercasing first is a no-op for both and changes no observable behavior for either -- verified this doesn't regress any existing test (full frontend suite re-run green after consolidating). Rejected alternative: making the fallback behavior configurable per call site (e.g. a `lowercaseFirst?: boolean` option) to preserve each caller's original convention exactly -- rejected as needless API surface for a difference that's unobservable given every current caller's actual data shape, and it would leave the door open to genuinely different-behaving fallbacks reappearing later for no real reason.",
       "alternatives_considered": "A configurable per-call-site option (e.g. `lowercaseFirst?: boolean`) to preserve each of the three original fallback conventions exactly rather than unifying on one."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-stock-analysis-page-followups",
+    "pr_number": 74,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/74",
+    "pushed_at": "2026-09-17T03:41:39Z"
+  }
 }
