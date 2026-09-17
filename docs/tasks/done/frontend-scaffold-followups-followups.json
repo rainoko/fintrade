@@ -3,7 +3,7 @@
   "title": "Frontend scaffold follow-ups — further non-blocking review follow-ups (PR #79)",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-scaffold-followups"],
   "references": [
     "docs/tasks/frontend-scaffold-followups.json#review",
@@ -33,5 +33,12 @@
     "pr_number": 80,
     "pr_url": "https://github.com/rainoko/fintrade/pull/80",
     "pushed_at": "2026-09-17T05:34:54Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T05:39:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/80",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: checked out PR #80, ran frontend test:coverage (34 files/186 tests passed, 99.71% stmts/99.61% branch/100% funcs/99.7% lines), backend pytest --cov (488 passed, 99.84%, run for completeness though this PR doesn't touch backend), npm run lint (clean), npm run build (succeeds, pre-existing >500kB chunk warning unrelated), npm run build-storybook (succeeds). code-review skill (medium effort) against diff 9fb7e65..d775f08 found no issues. Verified item (a) via built assets rather than a live browser (Playwright tooling unavailable this pass): storybook-static/assets/iframe-*.css (the stylesheet iframe.html itself links) contains 35 @font-face rules for Inter (5 weights x 7 subsets) plus font-family:Inter declarations applied to elements -- identical count (35/35) to frontend/dist/assets/index-*.css from the real app build, confirming Storybook's font setup now matches production exactly. Verified item (b): the new @fontsource/inter row in Frontend.md Sec.6 is accurate and consistent with the existing table's format/placement. No new module/dependency/layer introduced (the dependency itself was added in the parent PR #79), so architecture-review not triggered; no API/schema change, so no OpenAPI snapshot concern; no unresolved 'decide X' checklist items. No non-blocking findings this round, so no new followups task created."
   }
 }
