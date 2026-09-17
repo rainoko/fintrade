@@ -3,7 +3,7 @@
   "title": "Frontend: stock price history chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-stock-analysis-page"
   ],
@@ -58,6 +58,12 @@
       "recorded_by": "task-worker",
       "decision": "PriceChart's own component tests mock the entire 'lightweight-charts' module (vi.mock) rather than exercising the real library against jsdom's DOM.",
       "rationale": "jsdom has no real <canvas> 2D rendering context and no ResizeObserver, both of which the real library relies on; there is also nothing pixel-level worth asserting on in a unit test. Mocking createChart/addSeries/CandlestickSeries lets the tests assert on what actually matters \u2014 the container mounts, setData receives the right bars shape, the chart is recreated on a genuine range/interval change and left alone on a no-op re-click, and the loading/error/empty states around it render correctly \u2014 without depending on jsdom's incomplete canvas support. The same mock is reused in StockDetailPage.test.tsx (which now renders PriceChart as part of the page) for the same reason."
+    },
+    {
+      "timestamp": "2026-09-17T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PriceChart filters out (excludes entirely) any bar with a null/non-finite open/high/low/close before it ever reaches Lightweight Charts \u2014 both in the `bars`/`hasBars` computation used for the empty-state check and in the chart-creation effect \u2014 rather than substituting a placeholder value, clamping, or rendering it some other way.",
+      "rationale": "Per pr-reviewer's needs_work finding on PR #69: GET /api/stocks/{ticker}/history legitimately returns null open/high/low/close for today's still-forming (not yet closed) trading day whenever the query window reaches it \u2014 yfinance reports NaN OHLC for an in-progress session, serialized as JSON null by Pydantic despite OHLCVBar's fields being typed as required non-nullable floats. A candlestick chart can't meaningfully render a bar with no known open/high/low/close anyway (there's no sensible placeholder \u2014 0 or the previous close would draw a fake candle), so exclusion is the only representation that isn't actively misleading; the bar's data simply doesn't exist yet. Rejected: substituting the previous bar's close for all four OHLC fields (would draw a fake zero-range candle, misrepresenting a session that hasn't happened) and clamping to a sentinel (still fabricates values the chart would render as real data). The backend-side contract mismatch (OHLCVBar's schema promises non-nullable floats but the live endpoint already violates that) is a separate, non-blocking concern the reviewer flagged for other attention \u2014 not fixed here, since the chart needs this defensive check regardless of what the backend's declared schema says. Added a `hasFiniteOhlc` helper (frontend/src/features/stocks/components/PriceChart.tsx) used both by the render-time `bars` filter and, recomputed from `historyQuery.data.bars` directly, inside the chart-creation effect (which depends on `historyQuery.data`, not the derived `bars` array, per the existing chart-recreation decision above) \u2014 and two new PriceChart.test.tsx cases (a null-OHLC bar mixed with valid bars, and a response where every bar has null OHLC) using the same lightweight-charts module mock this task's tests already use, since exercising the real library's own null-rejection behavior in jsdom isn't feasible per the existing chart-mocking decision above."
     }
   ],
   "git": {

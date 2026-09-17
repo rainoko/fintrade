@@ -9,7 +9,7 @@ import {
   type ISeriesApi,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import type { HistoryInterval } from '../../../api/stocks'
+import type { HistoryInterval, HistoryResponse } from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -39,6 +39,25 @@ const DEFAULT_INTERVAL: HistoryInterval = 'daily'
 const CHART_HEIGHT = 320
 
 /**
+ * `GET /api/stocks/{ticker}/history` legitimately returns `null` for
+ * open/high/low/close on a still-forming (not yet closed) trading day's bar
+ * whenever the query window reaches today — yfinance reports NaN OHLC for an
+ * in-progress session, which Pydantic serializes as JSON `null` even though
+ * `OHLCVBar`'s fields are typed as required non-nullable floats (a backend
+ * contract mismatch worth separate attention, tracked as a review comment on
+ * this task — not fixed here, since the chart needs to defend against a
+ * malformed bar regardless of what the backend's declared schema promises).
+ * The generated `OHLCVBar` type says `number`, but the runtime value can be
+ * `null` (or, in principle, `NaN`/`Infinity`), so this checks at the value
+ * level rather than trusting the type.
+ */
+function hasFiniteOhlc(bar: HistoryResponse['bars'][number]): boolean {
+  return [bar.open, bar.high, bar.low, bar.close].every(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  )
+}
+
+/**
  * Candlestick price chart for `GET /api/stocks/{ticker}/history`, built on
  * TradingView Lightweight Charts. Owns its own range/interval selection as
  * local UI state (Frontend.md §2 — not server data, so plain `useState`
@@ -60,7 +79,11 @@ export default function PriceChart({ ticker }: PriceChartProps) {
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
 
   const historyQuery = useStockHistory(ticker, { range, interval })
-  const bars = historyQuery.data?.bars ?? []
+  // Exclude any bar with a null/non-finite OHLC value (a still-forming
+  // latest trading day — see hasFiniteOhlc above) rather than passing it to
+  // Lightweight Charts, which throws synchronously on a non-numeric value
+  // and would otherwise crash the whole page, not just this chart.
+  const bars = (historyQuery.data?.bars ?? []).filter(hasFiniteOhlc)
   const hasBars = bars.length > 0
 
   // Create the chart once a container is mounted and there are bars to
@@ -77,7 +100,15 @@ export default function PriceChart({ ticker }: PriceChartProps) {
   useEffect(() => {
     const container = containerRef.current
     const data = historyQuery.data
-    if (!container || !data || data.bars.length === 0) {
+    if (!container || !data) {
+      return
+    }
+    // Recompute rather than close over the `bars` above: this effect only
+    // depends on `historyQuery.data` (see below), so it must derive
+    // everything it needs from `data` directly rather than from a value
+    // computed in a possibly-stale render.
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    if (finiteBars.length === 0) {
       return
     }
 
@@ -87,7 +118,7 @@ export default function PriceChart({ ticker }: PriceChartProps) {
     })
     const series = chart.addSeries(CandlestickSeries)
     series.setData(
-      data.bars.map((bar) => ({
+      finiteBars.map((bar) => ({
         time: bar.date,
         open: bar.open,
         high: bar.high,

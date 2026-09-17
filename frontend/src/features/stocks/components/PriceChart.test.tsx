@@ -34,6 +34,22 @@ function mockHistory(response: HistoryResponse) {
   server.use(http.get('/api/stocks/:ticker/history', () => HttpResponse.json(response)))
 }
 
+// GET /api/stocks/{ticker}/history legitimately returns null
+// open/high/low/close for today's still-forming (not yet closed) trading
+// day whenever the query window reaches it (yfinance NaN OHLC, serialized
+// as JSON null) — even though the generated `HistoryResponse['bars']` type
+// says `number`, since that's what the real backend does. Built via a
+// single cast (rather than `as any` on each of the four fields) to
+// construct that real-world shape for tests despite the type.
+const formingBar = {
+  date: '2026-09-03',
+  open: null,
+  high: null,
+  low: null,
+  close: null,
+  volume: 12345,
+} as unknown as HistoryResponse['bars'][number]
+
 const twoBars: HistoryResponse = {
   ticker: 'AAPL',
   interval: 'daily',
@@ -83,6 +99,47 @@ describe('PriceChart', () => {
       { time: '2026-09-02', open: 228.9, high: 230.1, low: 227.5, close: 229.7 },
     ])
     expect(fitContentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('filters out a still-forming bar with null OHLC values before calling setData', async () => {
+    // The chart must drop the forming bar rather than pass it straight to
+    // Lightweight Charts, which throws synchronously on a non-numeric value
+    // and would otherwise crash the whole page (see hasFiniteOhlc in
+    // PriceChart.tsx).
+    mockHistory({
+      ticker: 'AAPL',
+      interval: 'daily',
+      bars: [...twoBars.bars, formingBar],
+    })
+
+    renderWithProviders(<PriceChart ticker="AAPL" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+    )
+
+    expect(setDataMock).toHaveBeenCalledWith([
+      { time: '2026-09-01', open: 227.1, high: 229.4, low: 226.8, close: 228.9 },
+      { time: '2026-09-02', open: 228.9, high: 230.1, low: 227.5, close: 229.7 },
+    ])
+  })
+
+  it('shows an EmptyState instead of a broken chart when every bar has null OHLC values', async () => {
+    mockHistory({
+      ticker: 'AAPL',
+      interval: 'daily',
+      bars: [formingBar],
+    })
+
+    renderWithProviders(<PriceChart ticker="AAPL" />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('No price history available for AAPL.'),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('price-chart-canvas')).not.toBeInTheDocument()
+    expect(createChartMock).not.toHaveBeenCalled()
   })
 
   it('shows an EmptyState instead of a broken chart when the API returns zero bars', async () => {
