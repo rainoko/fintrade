@@ -1,0 +1,28 @@
+{
+  "id": "api-stocks-analysis-nullable-indicators",
+  "title": "GET /api/stocks/{ticker}/analysis: Indicators/WaveScreen schema declares non-optional fields the engine can legitimately emit as null",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["api-stocks-analysis"],
+  "references": [
+    "docs/tasks/done/api-stocks-analysis.json",
+    "docs/tasks/frontend-stock-analysis-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/68"
+  ],
+  "description": "Discovered while reviewing PR #68 (frontend-stock-analysis-page), which is the first frontend consumer to actually render these fields and crashed on it (see that task's review.comments) -- a backend-side contract bug in an already-merged task (api-stocks-analysis), not something the frontend PR could or should fix itself beyond adding a defensive fallback.\n\nbackend/app/api/schemas.py declares Indicators.bull_power/bear_power and WaveScreen.stochastic_k as plain, non-Optional `float`. In practice, app.signals.engine.analyse can compute these as NaN when the most recent daily bar has incomplete/unsettled OHLC data (a real, observed yfinance condition: the latest bar can have NaN open/high/low/close with only volume populated, e.g. before a session's data has fully settled). Pydantic's default `ser_json_inf_nan='null'` config then serializes that NaN as literal JSON `null` on the wire -- silently violating the schema's own declared (non-nullable) type, and the generated backend/openapi.json + frontend api/types.ts inherit that same non-nullable typing, so nothing in the contract documents that this can happen.",
+  "checklist": [
+    {
+      "step": "Decide the fix: either (a) mark bull_power/bear_power/stochastic_k Optional in schemas.py (documenting when null occurs, mirroring the existing PositionOut.current_price 'null only if...' pattern) and regenerate backend/openapi.json + frontend api/types.ts, with frontend consumers updated to handle null; or (b) have the engine/route handler avoid using a bar with NaN OHLC as the 'latest' bar for indicator computation in the first place (e.g. fall back to the prior complete bar), so the documented non-nullable contract stays true. Record the choice as a decisions entry.",
+      "done": false
+    },
+    {
+      "step": "Add a regression test reproducing the observed condition (a daily OHLCV series whose last row has NaN open/high/low/close) and asserting the endpoint's behavior matches whichever fix was chosen above.",
+      "done": false
+    },
+    {
+      "step": "If option (a) is chosen, coordinate with (or file a follow-up for) frontend-stock-analysis-page's own null-safe-rendering fix so the two don't duplicate/contradict each other.",
+      "done": false
+    }
+  ]
+}

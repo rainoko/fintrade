@@ -3,7 +3,7 @@
   "title": "Frontend: Stock analysis page (signal, confidence, screens)",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "frontend-api-client",
     "frontend-common-components",
@@ -71,5 +71,33 @@
     "pr_number": 68,
     "pr_url": "https://github.com/rainoko/fintrade/pull/68",
     "pushed_at": "2026-09-17T00:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T00:28:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/68",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "ScreensPanel.tsx's `wave.stochastic_k.toFixed(1)` and IndicatorsPanel.tsx's `formatValue` (`.toLocaleString()` on bull_power/bear_power) crash the whole page (caught only by the top-level AppErrorBoundary) when the API returns `null` for these fields, which it legitimately can and does: reproduced live by running the real backend against live yfinance data for AAPL, whose most recent daily bar currently has NaN OHLC (unsettled bar, only volume populated), which propagates into bull_power/bear_power/stochastic_k as NaN -> pydantic's default `ser_json_inf_nan='null'` serializes that as JSON `null` on the wire despite backend/app/api/schemas.py declaring these fields as non-Optional `float` (and api/types.ts inheriting that). Confirmed the crash directly via a component render with an MSW payload shaped like the real response: `TypeError: Cannot read properties of null (reading 'toFixed')`. None of this PR's tests exercise a null indicator value. Minimum fix: null-safe fallback rendering (e.g. 'N/A') for these three fields, consistent with the codebase's existing nullable-price display pattern.",
+        "file": "frontend/src/features/stocks/components/ScreensPanel.tsx",
+        "line": 106
+      },
+      {
+        "summary": "IndicatorsPanel.tsx's formatValue has the same null-unsafe assumption for bull_power/bear_power (and ema_13/ema_26/macd_histogram, though those weren't observed null) — same root cause and fix as the ScreensPanel finding.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
+        "line": 9
+      },
+      {
+        "summary": "StockDetailPage.tsx uses the raw, un-normalized useParams `ticker` (not the backend-normalized analysisQuery.data.ticker) for both the PageHeader title and useStockAnalysis's query key. A direct visit to /stocks/aapl shows a lowercase heading while the data is for AAPL, and creates a query-key that never matches a later /stocks/AAPL visit. Non-blocking; tracked on frontend-stock-analysis-page-followups.",
+        "file": "frontend/src/pages/StockDetailPage.tsx",
+        "line": 34
+      },
+      {
+        "summary": "SignalSummary.tsx's humanizeComponent and ScreensPanel.tsx's humanize duplicate the label-map-plus-fallback pattern already implemented as RiskPanel.tsx's EXIT_FLAG_LABELS/humanizeFlag — three near-identical implementations now exist. Non-blocking; tracked on frontend-stock-analysis-page-followups.",
+        "file": "frontend/src/features/stocks/components/SignalSummary.tsx",
+        "line": 20
+      }
+    ],
+    "notes": "npm run test:coverage (156 passed, 99.66%/99.06%/100%/99.65%, above the 90% gate), npm run lint (clean), npm run build (clean), npm run build-storybook (clean); backend pytest --cov unaffected (472 passed, 99.84%) since no backend files are touched by this PR, so backend/openapi.json correctly stays untouched. code-review skill (medium) run against the diff; its two findings (ticker normalization, humanize duplication) are folded into review.comments above. Confirmed against docs/Analyse.md §6: confidence-breakdown component labels/weights (30/20/25/15/10, sum to 1.0) and Low/Medium/High band thresholds (<40 / 40-70 / >70) all match exactly; ConfidenceGauge's band derivation is pre-existing and correct. Placement check (step 7a): agree with keeping TickerSearchBox under features/stocks/components/ even with two consumers now -- it still hardcodes the /stocks/:ticker route and ticker uppercase/trim normalization (domain knowledge per Frontend.md §3's actual test), and both consumers want identical behavior, so there's no second genuine use case yet to justify a generic common/NavigatingSearchBox; SignalSummary/ScreensPanel/IndicatorsPanel are correctly under features/stocks/ too. The cross-task edit to docs/tasks/frontend-dashboard-page-followups.json is valid JSON and genuinely resolves that follow-up's open question with a specific, sound rationale, not just an assertion. Browser walkthrough: the Playwright browser tool wasn't available in this review session's toolset, so I substituted a live backend (real YFinanceProvider, live market data) plus jsdom-rendered React with MSW payloads shaped exactly like the real API responses -- this is how blocking finding #1 was found and confirmed reproducible. Did not get a live BUY/SELL example (current live AAPL response degrades to HOLD under the same unsettled-bar condition as the blocking finding), but the PR's own component tests already cover BUY/SELL/HOLD and all three documented error cases (404/422/503) with well-formed mocked payloads and those pass. Also filed a separate backend follow-up (api-stocks-analysis-nullable-indicators) for the root schema/engine contract mismatch, since that's a distinct already-merged-task issue this PR isn't responsible for fixing itself."
   }
 }

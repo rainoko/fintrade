@@ -1,0 +1,23 @@
+{
+  "id": "frontend-stock-analysis-page-followups",
+  "title": "Follow-ups: Frontend Stock analysis page (PR #68)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-stock-analysis-page"],
+  "references": [
+    "docs/tasks/frontend-stock-analysis-page.json",
+    "https://github.com/rainoko/fintrade/pull/68"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #68 (frontend-stock-analysis-page), tracked so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "StockDetailPage.tsx uses the raw, un-normalized useParams `ticker` (not the backend-normalized analysisQuery.data.ticker) for both the PageHeader title and useStockAnalysis's query key. A direct visit to /stocks/aapl (hand-typed URL, old bookmark, external lowercase link) shows a lowercase heading while the signal/screens/indicators below are for AAPL, an inconsistent display; it also means the query key (['stocks','analysis','aapl']) never matches the cache entry for a later '/stocks/AAPL' visit, causing a redundant refetch of identical data. Use analysisQuery.data?.ticker ?? ticker for the heading and/or normalize `ticker` before using it as the query key, the same normalization TickerSearchBox already applies before navigating.",
+      "done": false
+    },
+    {
+      "step": "SignalSummary.tsx's `humanizeComponent` and ScreensPanel.tsx's `humanize` duplicate the label-map-plus-fallback pattern already implemented as RiskPanel.tsx's `EXIT_FLAG_LABELS`/`humanizeFlag` (look up in a map, else replace underscores and capitalize) instead of sharing one utility -- three near-identical implementations now exist across the codebase. SignalSummary's own docstring even says it follows 'the same pattern as RiskPanel's EXIT_FLAG_LABELS/humanizeFlag' but reimplements rather than importing a shared helper. Worth extracting a shared `humanizeSnakeCase(value, labelMap?)` utility so a future fix (e.g. handling acronyms like 'macd' -> 'MACD') only needs to be applied once.",
+      "done": false
+    }
+  ]
+}
