@@ -53,5 +53,11 @@
       "decision": "Added a DataTable `WithAriaLabel` Storybook story rather than adding a code comment explaining why `ariaLabel` doesn't need one.",
       "rationale": "`ariaLabel` is a real, documented prop on a common/ component whose only effect (the underlying <table>'s accessible name) is otherwise invisible in Storybook's canvas — a story with it set makes the prop visible/controllable in the docs/controls panel, satisfying Frontend.md §4's 'every meaningful variant' bar the same way WithFlaggedRow does for getRowStyle, rather than carving out an exception for accessibility-only props."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel-followups",
+    "pr_number": 77,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/77",
+    "pushed_at": "2026-09-17T04:28:53Z"
+  }
 }
