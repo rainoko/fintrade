@@ -13,6 +13,26 @@ Development happens inside the dev container in `.devcontainer/` — it has ever
 
 On first creation it prints setup instructions for the GitHub MCP server and generating an SSH key, and it **automatically configures git commit signing** (`gpg.format`, `user.signingkey`, `commit.gpgsign`, `allowed_signers`) as soon as a key exists — it can't generate the key or register it on GitHub for you (both need a human decision), but the local git config itself is done for you, not just printed. Re-run any time with `fintrade-help`; see `.devcontainer/setup-help.sh` for the exact logic.
 
+## Quick start (Makefile)
+
+A root-level `Makefile` wraps the backend and frontend dev commands below so you don't
+need to remember each service's own invocation:
+
+```bash
+make backend   # run the backend dev server (FastAPI/uvicorn --reload) on :8000
+make frontend  # run the frontend dev server (Vite) on :5173
+make dev       # run both together; Ctrl-C stops both cleanly
+make install   # set up backend/.venv and frontend/node_modules
+make test      # run backend (pytest) and frontend (vitest) test suites
+make help      # list all targets
+```
+
+It's a thin wrapper, not a new build system — every target just shells out to the same
+commands documented below and in `docs/architecture/{Backend,Frontend}.md`. `make
+backend` (and `make dev`, which depends on it) prints a clear error pointing at
+`.devcontainer/post-create.sh` / `pip install -e ".[dev]"` if `backend/.venv` doesn't
+exist yet, instead of a raw path-not-found failure.
+
 ## Backend
 
 Python 3.12+, FastAPI. From `backend/`:

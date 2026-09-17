@@ -3,7 +3,7 @@
   "title": "Root Makefile to run backend and frontend dev servers",
   "area": "infra",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "README.md",
@@ -13,11 +13,25 @@
   ],
   "description": "Add a root-level Makefile with targets to start the backend (FastAPI/uvicorn) and frontend (Vite) dev servers, individually and together, so contributors don't need to remember each service's own run command. Backend runs `backend/.venv/bin/uvicorn app.main:app --reload` from the `backend/` directory (the venv is provisioned once by `.devcontainer/post-create.sh` inside the dev container); frontend runs `npm run dev` from the `frontend/` directory. Keep this a thin wrapper over existing tooling — no new build system, no reimplementing what `npm`/`uvicorn` already do.",
   "checklist": [
-    { "step": "Add a `make backend` target that runs `backend/.venv/bin/uvicorn app.main:app --reload` from `backend/`, with a clear error message (not a raw path-not-found failure) if `backend/.venv` doesn't exist yet, pointing at `.devcontainer/post-create.sh` / `pip install -e \".[dev]\"`.", "done": false },
-    { "step": "Add a `make frontend` target that runs `npm run dev` from `frontend/`.", "done": false },
-    { "step": "Add a combined target (e.g. `make dev`) that runs both concurrently and cleans up both processes on Ctrl-C/exit (e.g. background jobs plus a `trap ... EXIT` and `wait`) rather than leaving an orphaned process behind.", "done": false },
-    { "step": "Decide whether to include adjacent convenience targets (e.g. `make install`, `make test`) or keep the Makefile scoped strictly to running the two dev servers as originally requested — record the call as a `decisions` entry either way.", "done": false },
-    { "step": "Document the new `make` targets in README.md's existing run/setup instructions.", "done": false },
-    { "step": "Verify each target actually works: start it, confirm the backend answers on its port and the frontend dev server serves the app, then stop cleanly with no leftover process.", "done": false }
+    { "step": "Add a `make backend` target that runs `backend/.venv/bin/uvicorn app.main:app --reload` from `backend/`, with a clear error message (not a raw path-not-found failure) if `backend/.venv` doesn't exist yet, pointing at `.devcontainer/post-create.sh` / `pip install -e \".[dev]\"`.", "done": true },
+    { "step": "Add a `make frontend` target that runs `npm run dev` from `frontend/`.", "done": true },
+    { "step": "Add a combined target (e.g. `make dev`) that runs both concurrently and cleans up both processes on Ctrl-C/exit (e.g. background jobs plus a `trap ... EXIT` and `wait`) rather than leaving an orphaned process behind.", "done": true },
+    { "step": "Decide whether to include adjacent convenience targets (e.g. `make install`, `make test`) or keep the Makefile scoped strictly to running the two dev servers as originally requested — record the call as a `decisions` entry either way.", "done": true },
+    { "step": "Document the new `make` targets in README.md's existing run/setup instructions.", "done": true },
+    { "step": "Verify each target actually works: start it, confirm the backend answers on its port and the frontend dev server serves the app, then stop cleanly with no leftover process.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `make install` and `make test` as thin wrapper convenience targets alongside `backend`/`frontend`/`dev`, plus a self-documenting `make help` (also the `.DEFAULT_GOAL`). Did not add a `make lint` target.",
+      "rationale": "`install` and `test` are exactly the two examples the checklist itself suggested, and each is a one-line passthrough to the same commands already documented in README.md (`pip install -e \".[dev]\"`, `npm install`, `pytest`, `npm test`) — no new logic, so they don't violate the 'no new build system' framing in the task description. `make test` intentionally runs plain `pytest`/`vitest run` rather than the coverage-gated variants, since the dedicated `check-coverage`/`test-90` skills already own the 90% gate and duplicating that here would just create two sources of truth for the same check. Skipped a `lint`/static-analysis target for the same reason: the `static-verify` skill already owns running ruff/mypy/eslint/tsc together with its own reporting conventions (grouping findings, distinguishing type errors from style nits) that a bare Makefile passthrough would flatten. `help` was added because a Makefile with six targets is easy to forget the names of; it's a standard `grep`-the-`## comment` pattern, not a build-system addition. Rejected alternative: keeping the Makefile to only `backend`/`frontend`/`dev` (strict scope) — rejected as under-serving the checklist's explicit prompt to decide on `install`/`test`. Also rejected: a `lint` target mirroring `static-verify` — rejected as duplicating an existing skill's job."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:01Z",
+      "recorded_by": "task-worker",
+      "decision": "`make dev`'s cleanup traps and kills the two `$(MAKE) backend`/`$(MAKE) frontend` child PIDs it captured itself (`kill $$bpid $$fpid`), not the whole process group (`kill 0`).",
+      "rationale": "An initial `trap 'kill 0' EXIT INT TERM` implementation was verified to actually clean up both uvicorn and vite with no orphaned processes, but under a live SIGINT it also signalled the trapping shell itself mid-handler and reproducibly crashed bash in this environment (reported by make as 'Segmentation fault (core dumped)' on the `dev` recipe) — alarming output for something that otherwise worked correctly. Switching to killing only the two captured child PIDs produces the same clean-shutdown outcome (verified: `INFO: Shutting down` / `Application shutdown complete` from uvicorn, vite's process group gone, `pgrep -fa 'uvicorn|vite'` empty afterward) with a normal 'Interrupt' exit instead of a spurious crash report. Rejected alternative: keep `kill 0` since it's the more commonly cited idiom for this pattern — rejected once the self-signal crash was reproduced twice under a real SIGINT to the process group (the realistic Ctrl-C scenario), not just under `timeout`."
+    }
   ]
 }

@@ -1,0 +1,42 @@
+# Root Makefile -- thin wrappers over the backend (FastAPI/uvicorn) and
+# frontend (Vite) dev tooling, so contributors don't need to remember each
+# service's own run command. Deliberately not a build system: every target
+# just shells out to the same commands documented in README.md.
+
+.DEFAULT_GOAL := help
+
+.PHONY: help backend frontend dev install test
+
+help: ## Show this help
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+
+backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://127.0.0.1:8000
+	@if [ ! -x backend/.venv/bin/uvicorn ]; then \
+		echo "error: backend/.venv not found (or missing uvicorn)."; \
+		echo "  Inside the dev container it's created automatically by .devcontainer/post-create.sh."; \
+		echo "  Elsewhere, set it up with:"; \
+		echo "    cd backend && python3 -m venv .venv && .venv/bin/pip install -e \".[dev]\""; \
+		exit 1; \
+	fi
+	cd backend && .venv/bin/uvicorn app.main:app --reload
+
+frontend: ## Run the frontend dev server (Vite) on http://127.0.0.1:5173
+	cd frontend && npm run dev
+
+dev: ## Run backend and frontend dev servers together; Ctrl-C stops both
+	@( \
+		$(MAKE) backend & bpid=$$!; \
+		$(MAKE) frontend & fpid=$$!; \
+		trap 'kill $$bpid $$fpid 2>/dev/null' EXIT INT TERM; \
+		wait $$bpid $$fpid \
+	)
+
+install: ## Install backend (venv + pip) and frontend (npm) dependencies
+	cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]"
+	cd frontend && npm install
+
+test: ## Run backend (pytest) and frontend (vitest) test suites
+	cd backend && .venv/bin/pytest
+	cd frontend && npm test
