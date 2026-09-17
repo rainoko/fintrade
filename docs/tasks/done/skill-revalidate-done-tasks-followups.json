@@ -3,7 +3,7 @@
   "title": "Skill: revalidate-done-tasks — non-blocking review follow-ups",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["skill-revalidate-done-tasks"],
   "references": [
     "docs/tasks/skill-revalidate-done-tasks.json#review",
@@ -52,5 +52,28 @@
     "pr_number": 93,
     "pr_url": "https://github.com/rainoko/fintrade/pull/93",
     "pushed_at": "2026-09-17T19:18:14Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T19:21:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/93",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "All five checklist items verified done=true against the actual current text of `.claude/skills/revalidate-done-tasks/SKILL.md` and `CLAUDE.md` — each fix (timestamp instruction, review/pr_decision handling note, coordination-caveat extension in both SKILL.md step 0 and CLAUDE.md's 'one agent at a time' rule, same-day branch-collision fallback, pre-branch-cut staleness re-check) is textually present and matches what the task's `decisions` entries describe. No application code touched (docs/process-only PR); backend pytest-cov (99.84%) and frontend vitest --coverage (~99.7%) both pass well above the 90% gate, `eslint .` and `tsc -b` are clean, `ruff`/`mypy` aren't configured in this repo so were correctly not invoked. No API/schema or frontend-component changes, so the OpenAPI-snapshot and component-placement checks don't apply; no UI surface, so the browser walkthrough is explicitly skipped. `docs/tasks/index.json` mirror consistency (state vs. path vs. done/ location) verified clean across the whole board, not just this entry.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (nit): SKILL.md 'Handling a task that no longer holds' step 1's same-day branch-collision text is self-contradictory — \"the name is free to reuse for a new, unrelated run — fall back to a numeric-suffixed name instead\" says both that the name is free to reuse and, in the same breath, that it should not be reused but suffixed instead. The actionable instruction (use a numeric suffix) is followable as written, but the wording should be tightened so a future reader isn't confused about the actual intent. Tracked as a follow-up (not blocking, since the executable instruction itself is clear).",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 50
+      },
+      {
+        "summary": "Non-blocking: the same-day audit-branch collision handling only covers a branch with an open PR (reuse it) or a merged/closed PR (numeric-suffix fallback) — it doesn't say what to do if a same-named branch exists (locally or on origin) with no PR at all, e.g. a prior run that cut the branch but crashed before pushing/opening a PR. Tracked as a follow-up.",
+        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
+        "line": 48
+      }
+    ],
+    "notes": "Docs/process-only PR (SKILL.md + CLAUDE.md + task-board JSON) closing out the three remaining non-blocking checklist items from PR #92's re-review. Ran full backend+frontend test/coverage suites (both well above the 90% gate) and lint/typecheck even though no application code changed, per the standard review process. code-review skill was launched against PR #93 (medium effort) in addition to a manual line-by-line read of the diff for correctness/consistency; two minor wording/coverage gaps were found, both non-blocking, and filed as a new follow-up task (skill-revalidate-done-tasks-followups-followups) rather than left only in this comment. No decide-X checklist items lacked a corresponding decisions entry — both are present and were independently verified against the current file content rather than taken at face value. area is 'tooling' with skill: null, so verify-elder-signal and architecture-review don't apply (no new module/dependency/layer); no frontend components touched, so the placement check (step 7a) doesn't apply either; no API/schema change, so no OpenAPI-snapshot check needed; no UI surface, so the browser walkthrough is explicitly skipped rather than silently omitted."
   }
 }
