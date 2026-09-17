@@ -3,7 +3,7 @@
   "title": "Skill: revalidate-done-tasks — non-blocking findings from PR #93's review",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["skill-revalidate-done-tasks-followups"],
   "references": [
     "docs/tasks/skill-revalidate-done-tasks-followups.json#review",
@@ -34,5 +34,12 @@
     "pr_number": 94,
     "pr_url": "https://github.com/rainoko/fintrade/pull/94",
     "pushed_at": "2026-09-17T19:46:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T19:50:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/94",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs-only fix to SKILL.md's same-day branch-collision handling: removed the self-contradictory 'free to reuse' clause and added the missing no-PR-at-all case, falling back to the numeric-suffix mechanism. Verified against the diff manually and via the code-review skill (medium effort, no findings). Backend suite: 493 passed, 99.84% coverage. Frontend suite: 205 passed (35 files), 99.71%/99.64%/100%/99.71% stmts/branches/funcs/lines. No lint config applicable (no ruff/mypy config in backend/pyproject.toml; no frontend source touched). Not applicable: architecture-review, verify-elder-signal (area is tooling, no backend/signals or backend/portfolio code), OpenAPI snapshot check (no API changes), browser walkthrough (no UI surface in this PR). No blocking or non-blocking findings; no follow-up task filed."
   }
 }
