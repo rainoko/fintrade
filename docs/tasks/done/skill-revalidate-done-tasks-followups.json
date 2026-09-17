@@ -3,7 +3,7 @@
   "title": "Skill: revalidate-done-tasks — non-blocking review follow-ups",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["skill-revalidate-done-tasks"],
   "references": [
     "docs/tasks/skill-revalidate-done-tasks.json#review",
@@ -78,31 +78,26 @@
     "pushed_at": "2026-09-17T19:36:27Z"
   },
   "review": {
-    "reviewed_at": "2026-09-17T19:33:18Z",
+    "reviewed_at": "2026-09-17T19:38:44Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/93",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Re-review of task-worker's item-6 fix (same-day branch-reuse reconciliation with freshly-confirmed `main`): confirmed directly against the current SKILL.md text (not taken on the task-worker report's word) that the fix is real and correctly composes — the reused-branch path now does `git merge origin/main` before adding new findings, notes picked-up commits in the PR body, and prefers merge over rebase to avoid rewriting commits an open PR's reviewers may already have seen. The originally-flagged composition bug (item 6) is closed.",
-        "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
-        "line": 49
-      },
-      {
-        "summary": "BLOCKING (new, surfaced by the `code-review` skill's fuller pass, which I waited for this round rather than skipping per the lesson from this PR's own prior round): step 0's mid-flight guard (also added this PR, for checklist item 3) says a clean tree can't rule out an agent \"about to make its next commit with no diff yet on disk\", then two sentences later says it's safe to \"proceed past a non-`main` branch... when no PR exists for it at all\" — exactly the state a `task-worker` session is in for its entire run, from switching to `task/<id>` until its final commit+push+`gh pr create`. Running this skill concurrently in that window would check out `main` out from under an in-flight `task-worker`. Added as checklist item 7.",
+        "summary": "Round 3 re-review of checklist items 7 and 8 (both blocking findings from the prior re-review round). Verified directly against the current SKILL.md text (commit fe223e8), not task-worker's report: (7) step 0's mid-flight guard no longer has the 'no PR exists at all' carve-out — the text now reads 'Only proceed past a non-`main` branch when its PR is already merged/closed ... for every other case (open PR, or no PR at all), stop and report'. This closes the exact task-worker-mid-flight collision scenario the finding described. (8) The item-6 same-day branch-reuse reconciliation's merge-conflict path now runs `git merge --abort` before 'stop and report the conflict rather than resolving it silently', closing the gap where a conflict would previously leave a live unresolved merge on the shared working tree. Both fixes are minimal, correctly scoped to exactly the described failure scenarios, and read as internally consistent with the surrounding text (no leftover contradictory sentences, no stray references to the old 'no PR at all is safe' wording elsewhere in the file — confirmed via grep across the whole SKILL.md).",
         "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
         "line": 20
       },
       {
-        "summary": "BLOCKING (new, same `code-review` pass): the item-6 fix's merge-conflict path (\"stop and report it rather than resolving it silently\") has no `git merge --abort` before stopping, so a conflict leaves the shared working tree in a live, unresolved mid-merge state for whatever agent touches the checkout next — a correctness gap in the very fix this re-review round exists to confirm. Added as checklist item 8.",
+        "summary": "Checked the round-3 fixes for new composition problems with the rest of the flow (per this round's explicit brief) rather than only checking they close the two cited gaps in isolation: the step-0 narrowing doesn't conflict with step 0's own later caveat about a still-uncaught main-itself mid-flight race (that caveat already disclaimed full coverage, and remains accurate); the tightened guard's practical effect (a genuinely abandoned no-PR branch now also stops the run, requiring human intervention rather than silently proceeding) is a deliberate, reasoned tradeoff recorded in this task's own `decisions` array (2026-09-17T19:35:37Z entry) rather than an accidental new bug — no reliable signal distinguishes 'abandoned' from 'task-worker mid-flight' from branch/PR state alone, so collapsing both to 'stop' matches the skill's existing conservative posture elsewhere (e.g. the merge-conflict case). The `git merge --abort` addition sits on the conflict-only branch of an if/else already gated correctly (the no-new-commits-to-report path and the conflict-abort path don't overlap), so it doesn't affect the PR-body-update instructions for the clean-merge case.",
         "file": ".claude/skills/revalidate-done-tasks/SKILL.md",
         "line": 49
       },
       {
-        "summary": "Tests/coverage/lint re-run and unaffected (docs-only diff, no backend/frontend source touched): backend pytest-cov 493 passed, 99.84% coverage; frontend vitest --coverage 99.71% statements/99.64% branches; frontend eslint and tsc -b clean; backend ruff/mypy correctly not configured/invoked. No API/schema, frontend-component, signals/portfolio, or new-module change, so those checks don't apply; no UI surface, so the browser walkthrough is explicitly skipped. The two previously-tracked non-blocking findings (self-contradictory branch-reuse wording; no-PR-at-all collision case) remain correctly tracked on `skill-revalidate-done-tasks-followups-followups` and are unchanged by this round.",
+        "summary": "Confirmed the diff for this round (and the PR as a whole, `git diff origin/main...HEAD --name-only`) touches only `.claude/skills/revalidate-done-tasks/SKILL.md`, `CLAUDE.md`, `docs/tasks/index.json`, and the two task JSON files — no `backend/` or `frontend/` files. Prior rounds' backend pytest-cov (493 passed, 99.84%) and frontend vitest --coverage (99.71%/99.64%) results, plus eslint/tsc, therefore remain valid evidence for this round; re-running them would reproduce the identical result, so I didn't re-run the full suites, only re-confirmed via the file list that nothing in scope for them changed. All touched JSON files (`docs/tasks/index.json`, both task files) parse as valid JSON. No API/schema, frontend-component, signals/portfolio, or new-module change, so those review steps don't apply; no UI surface, so the browser walkthrough is explicitly skipped (not silently omitted). `docs/tasks/index.json`'s `state`/`path` mirror the task JSON correctly. All 8 checklist items are now `done: true` with corresponding `decisions` entries recorded for every judgment call made along the way, per CLAUDE.md's decision-memory rule. The two still-open non-blocking findings on `skill-revalidate-done-tasks-followups-followups` (self-contradictory branch-reuse wording; same-day-branch-with-no-PR-at-all collision case) are unaffected by this round's changes and remain correctly tracked there rather than needing a new follow-up task.",
         "file": null,
         "line": null
       }
     ],
-    "notes": "This re-review verified the item-6 composition-bug fix directly against SKILL.md's current text rather than trusting task-worker's report, and confirmed it genuinely closes the originally-flagged gap. However, the `code-review` skill's fuller pass (run this time, unlike my initial pass on the prior round) surfaced two more genuine, newly-introduced logic bugs in this same diff, unrelated to item 6: the step-0 mid-flight guard's no-PR bypass, and the missing `git merge --abort` on the item-6 fix's own conflict path. Both are real correctness gaps in safety-critical coordination text (this skill's whole purpose), not nits, so verdict stays needs_work. Added both as new checklist items (7, 8) with the exact failure scenario and fix direction, following the pattern set by item 6 on the prior round. State reverted to `implementing`; file was already outside `docs/tasks/done/` so no move needed. No stale `pr_decision` existed on this task to clear."
+    "notes": "Round 3 (final retry) accepted. Read the current SKILL.md content directly (not the task-worker's report) and confirmed both round-3 fixes genuinely close the two blocking gaps from the prior re-review: the step-0 no-PR-bypass removal, and the missing `git merge --abort` on the item-6 conflict path. Checked both fixes against the rest of the flow for new composition problems (this round's explicit ask) and found none — the guard's stricter behavior is a deliberate, recorded tradeoff rather than an accidental regression, and the abort sits cleanly on an already-correctly-gated conditional branch. Diff remains docs/task-board-only; no backend/frontend files touched, so this round's coverage/lint status is unchanged from the prior round's confirmed pass. All 8 checklist items done, decisions recorded for every judgment call, `index.json` mirrors state/path correctly, no stale `pr_decision` existed to clear. Moving task to `done/`."
   }
 }
