@@ -1,0 +1,61 @@
+{
+  "id": "dev-makefile",
+  "title": "Root Makefile to run backend and frontend dev servers",
+  "area": "infra",
+  "skill": null,
+  "state": "implementing",
+  "depends_on": [],
+  "references": [
+    "README.md",
+    "docs/architecture/Backend.md",
+    "docs/architecture/Frontend.md",
+    ".devcontainer/post-create.sh"
+  ],
+  "description": "Add a root-level Makefile with targets to start the backend (FastAPI/uvicorn) and frontend (Vite) dev servers, individually and together, so contributors don't need to remember each service's own run command. Backend runs `backend/.venv/bin/uvicorn app.main:app --reload` from the `backend/` directory (the venv is provisioned once by `.devcontainer/post-create.sh` inside the dev container); frontend runs `npm run dev` from the `frontend/` directory. Keep this a thin wrapper over existing tooling — no new build system, no reimplementing what `npm`/`uvicorn` already do.",
+  "checklist": [
+    { "step": "Add a `make backend` target that runs `backend/.venv/bin/uvicorn app.main:app --reload` from `backend/`, with a clear error message (not a raw path-not-found failure) if `backend/.venv` doesn't exist yet, pointing at `.devcontainer/post-create.sh` / `pip install -e \".[dev]\"`.", "done": true },
+    { "step": "Add a `make frontend` target that runs `npm run dev` from `frontend/`.", "done": true },
+    { "step": "Add a combined target (e.g. `make dev`) that runs both concurrently and cleans up both processes on Ctrl-C/exit (e.g. background jobs plus a `trap ... EXIT` and `wait`) rather than leaving an orphaned process behind.", "done": false },
+    { "step": "Decide whether to include adjacent convenience targets (e.g. `make install`, `make test`) or keep the Makefile scoped strictly to running the two dev servers as originally requested — record the call as a `decisions` entry either way.", "done": true },
+    { "step": "Document the new `make` targets in README.md's existing run/setup instructions.", "done": true },
+    { "step": "Verify each target actually works: start it, confirm the backend answers on its port and the frontend dev server serves the app, then stop cleanly with no leftover process.", "done": false }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `make install` and `make test` as thin wrapper convenience targets alongside `backend`/`frontend`/`dev`, plus a self-documenting `make help` (also the `.DEFAULT_GOAL`). Did not add a `make lint` target.",
+      "rationale": "`install` and `test` are exactly the two examples the checklist itself suggested, and each is a one-line passthrough to the same commands already documented in README.md (`pip install -e \".[dev]\"`, `npm install`, `pytest`, `npm test`) — no new logic, so they don't violate the 'no new build system' framing in the task description. `make test` intentionally runs plain `pytest`/`vitest run` rather than the coverage-gated variants, since the dedicated `check-coverage`/`test-90` skills already own the 90% gate and duplicating that here would just create two sources of truth for the same check. Skipped a `lint`/static-analysis target for the same reason: the `static-verify` skill already owns running ruff/mypy/eslint/tsc together with its own reporting conventions (grouping findings, distinguishing type errors from style nits) that a bare Makefile passthrough would flatten. `help` was added because a Makefile with six targets is easy to forget the names of; it's a standard `grep`-the-`## comment` pattern, not a build-system addition. Rejected alternative: keeping the Makefile to only `backend`/`frontend`/`dev` (strict scope) — rejected as under-serving the checklist's explicit prompt to decide on `install`/`test`. Also rejected: a `lint` target mirroring `static-verify` — rejected as duplicating an existing skill's job."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:01Z",
+      "recorded_by": "task-worker",
+      "decision": "`make dev`'s cleanup traps and kills the two `$(MAKE) backend`/`$(MAKE) frontend` child PIDs it captured itself (`kill $$bpid $$fpid`), not the whole process group (`kill 0`).",
+      "rationale": "An initial `trap 'kill 0' EXIT INT TERM` implementation was verified to actually clean up both uvicorn and vite with no orphaned processes, but under a live SIGINT it also signalled the trapping shell itself mid-handler and reproducibly crashed bash in this environment (reported by make as 'Segmentation fault (core dumped)' on the `dev` recipe) — alarming output for something that otherwise worked correctly. Switching to killing only the two captured child PIDs produces the same clean-shutdown outcome (verified: `INFO: Shutting down` / `Application shutdown complete` from uvicorn, vite's process group gone, `pgrep -fa 'uvicorn|vite'` empty afterward) with a normal 'Interrupt' exit instead of a spurious crash report. Rejected alternative: keep `kill 0` since it's the more commonly cited idiom for this pattern — rejected once the self-signal crash was reproduced twice under a real SIGINT to the process group (the realistic Ctrl-C scenario), not just under `timeout`."
+    }
+  ],
+  "git": {
+    "branch": "task/dev-makefile",
+    "pr_number": 96,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/96",
+    "pushed_at": "2026-09-17T20:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T20:47:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/96",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING (supersedes an earlier accepted pass on this same PR -- see notes): `make dev`'s cleanup trap (`kill $$bpid $$fpid`) only kills the two immediate `$(MAKE) backend`/`$(MAKE) frontend` sub-make PIDs it captured, not the actual uvicorn/vite processes further down the tree (uvicorn's --reload spawns a separate reloader subprocess that is forked, not exec'd, by the recipe shell; npm's `run dev` similarly forks into vite via node). A live interactive-terminal Ctrl-C still works (verified: the terminal signals the whole foreground process group at once, so uvicorn/vite receive SIGINT directly, independent of the trap), but a plain `kill <pid>` on just the top-level `make dev` process -- the single most standard way to stop a backgrounded process (systemd ExecStop, most process supervisors' default stop signal, Docker sending SIGTERM to PID 1, `pkill -f 'make dev'` without `-g`, an IDE's \"stop task\" button) -- reproducibly makes `make dev` itself exit (`make: *** [Makefile:29: dev] Terminated`) while leaving uvicorn and vite running as orphans, still bound to :8000/:5173. Reproduced twice: once against `make backend` alone (SIGTERM to the top pid left the uvicorn reloader process orphaned with ppid 1), and once against the full `make dev` (SIGTERM to the top pid left both the uvicorn reloader and the vite/node process orphaned, `pgrep -fa 'uvicorn|vite'` non-empty after `make dev`'s own process had already exited and been reaped). This directly fails checklist item 3's requirement (\"cleans up both processes on Ctrl-C/exit ... rather than leaving an orphaned process behind\") and item 6's verification requirement (\"stop cleanly with no leftover process\") for the exit case, not just the interactive-Ctrl-C case. Fix needs to actually reach the uvicorn/vite descendants, not just the immediate `$(MAKE)` children -- e.g. `kill` targeting each sub-make's own process group (`kill -- -$$bpid -$$fpid`, which requires those sub-makes to be started with their own pgid via `setsid`/`set -m`), or an explicit `pkill -P`/pgrep-by-port cleanup, or propagating the trap through to a `pkill -f` scoped to the exact uvicorn/vite invocations.",
+        "file": "Makefile",
+        "line": 30
+      },
+      {
+        "summary": "Non-blocking: README's \"make backend (and make dev, which depends on it)\" overstates the relationship as a formal Make prerequisite; `dev` actually invokes `$(MAKE) backend` as a subprocess within its own recipe. Described runtime behavior (the venv-missing error surfaces through `make dev` too) is correct, only the \"depends on\" phrasing is imprecise. Filed as docs/tasks/dev-makefile-followups.json.",
+        "file": "README.md",
+        "line": 32
+      }
+    ],
+    "notes": "CORRECTION to an earlier pass on this same review: I initially posted an ACCEPTED review (gh pr review 96 --comment) after verifying make dev's cleanup under a real interactive-terminal-style Ctrl-C (setsid + kill -INT on the negative process group -- confirmed clean, no orphans, no crash) and, separately, that sending SIGINT to only the top-level make dev PID causes a full hang/deadlock (GNU Make ignores SIGINT while a recipe is running, so nothing propagates) -- I judged that hang to be a narrow, non-blocking edge case since the process doesn't silently vanish, it visibly stays stuck. While that ACCEPTED pass was in flight, a backgrounded code-review skill run (dispatched during the same review, medium effort) finished afterward and reproduced a materially different and more serious failure: sending SIGTERM (not SIGINT) to only the top-level make dev PID does NOT hang -- make itself exits cleanly and reports 'Terminated' -- while the uvicorn and vite processes are left running as unsupervised orphans. I independently reproduced this myself (twice, per the blocking comment above) before revising the verdict, rather than taking the code-review skill's output on faith. SIGTERM-to-a-single-pid is a far more mainstream stop path than the SIGINT-hang case I'd already dismissed as non-blocking (it's the default signal for bare `kill`, and what most process managers/supervisors send), so this is now a checklist-blocking finding, not a follow-up. Corrected verdict from accepted to needs_work; flipped checklist items 3 and 6 back to done:false to reflect that the combined dev target's cleanup and the 'no leftover process' verification are not actually satisfied for the exit path. Test/coverage/static-analysis results from the first pass still stand (no regression there, unaffected by this finding): backend pytest --cov=app --cov-fail-under=90 -> 493 passed, 99.84% coverage; frontend vitest run --coverage -> 99.71%/99.64%/100%/99.71%; static-verify clean on both sides (ruff, mypy, eslint, tsc). No API/OpenAPI change, no new module/dependency/layer, no frontend components, no other UI surface -- those checks remain not-applicable as originally assessed. The `kill 0` vs `kill $$bpid $$fpid` decision recorded in this task's own decisions array is not wrong on its own terms (kill 0's self-signal-during-SIGINT crash was a real, distinct problem worth avoiding), but the replacement it landed on doesn't fully solve the underlying cleanup requirement either -- both need revisiting together when this task resumes. Posted a follow-up PR comment (not a new review) explaining the reversal, since I'd already posted the (now-superseded) ACCEPTED comment and cannot delete/edit another account's or my own already-posted GitHub review. Two non-blocking findings (SIGINT-to-top-pid hang for a non-interactive invocation, and the README 'depends on' wording) remain filed on docs/tasks/dev-makefile-followups.json; the SIGTERM-orphan finding that was originally going to be item 1 on that follow-up list has been removed from there and promoted into this review's blocking comments instead, since it now blocks this task directly rather than being deferred."
+  }
+}
