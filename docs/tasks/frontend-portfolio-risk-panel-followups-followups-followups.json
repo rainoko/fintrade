@@ -25,5 +25,11 @@
       "decision": "Pinned `formatCurrency`'s `toLocaleString` call to the `'en-US'` locale explicitly, per the checklist item's own suggested fix, rather than mocking/setting the locale only in the test file.",
       "rationale": "`formatCurrency` is already a USD-only formatter (hardcoded `currency: 'USD'`), so there's no legitimate case where its grouping/decimal-separator formatting should vary by runtime locale — pinning the locale in the implementation fixes both the production behavior (real users could otherwise see non-US separators depending on the deployed server/build environment's default locale) and the test assertions in one change. A test-only fix (e.g. mocking `Intl`/setting `process.env.LANG` per-test) was considered and rejected: it would leave the actual runtime behavior of `formatCurrency` still locale-dependent, address only the symptom (flaky tests) and not the underlying issue the finding described. Left `formatNullableNumber` (also `toLocaleString(undefined, ...)`) unchanged: the checklist item names `formatCurrency` specifically, and `formatNullableNumber` genuinely needs the caller-supplied `undefined` locale today since it's used generically (not USD-specific) with caller-supplied `Intl.NumberFormatOptions` across several non-currency fields, so there's no single locale it would be correct to hardcode the way `'en-US'` is correct for a USD-only formatter. Its own grouping-separator test is technically subject to the same latent locale-dependence this task flags for `formatCurrency`, but a PR reviewer already had the opportunity to flag that as a further follow-up on the same PR that introduced it and didn't -- not respawning another link in this followups chain for a not-actually-newly-discovered, already-low-severity nit, per this task's own framing as the last item of real value worth doing here."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-portfolio-risk-panel-followups-followups-followups",
+    "pr_number": 87,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/87",
+    "pushed_at": "2026-09-17T07:29:23Z"
+  }
 }
