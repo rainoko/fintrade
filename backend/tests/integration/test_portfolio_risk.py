@@ -439,9 +439,24 @@ class TestGetRisk:
         very latest bar `app.portfolio.pricing._latest_close` already excludes a position
         outright for -- is dropped via `drop_malformed_daily_bars` before
         `protective_stop`/`evaluate_exit_flags` ever see it, so the response is identical to
-        what it would be had that malformed bar simply never been fetched. Prepending it ahead
-        of the same quiet history `test_oversized_position_breaches_two_percent_rule_only`
-        uses confirms the filtered frame reduces to exactly that reference scenario."""
+        what it would be had that malformed bar simply never been fetched. Inserting it inside
+        the `_SWING_LOW_WINDOW_DAYS`/EMA(13) lookback window (rather than at the very front,
+        the oldest position) of the same quiet history
+        `test_oversized_position_breaches_two_percent_rule_only` uses confirms the filtered
+        frame reduces to exactly that reference scenario.
+
+        The insertion position matters for this test to actually discriminate: a malformed
+        row at the very front is a structural no-op for both `Series.ewm(adjust=False).mean()`
+        (pandas treats a leading NaN as "not yet started" and skips it, producing the same
+        EMA(13) values as if it had simply been dropped) and for the `.min()`/`.mean()`
+        aggregations `protective_stop` uses internally (both `skipna=True` by default, so a
+        NaN anywhere doesn't shift them) -- so a front-inserted malformed bar would pass this
+        test even with `drop_malformed_daily_bars` never called at all. Inserted after the 2nd
+        row instead (still well inside the 10-day window), it genuinely perturbs every later
+        EMA(13) value computed on the undropped frame (hand-verified: `protective_stop`
+        evaluates to 98.4624584717608 on the undropped frame vs. the reference
+        98.46530612244898 below, a difference far outside `pytest.approx`'s default
+        tolerance), so this test now fails without the fix and passes with it."""
         db_session.add(AccountORM(id=1, cash=6_700.0))
         db_session.add(
             PositionORM(id="pos_1", ticker="AAPL", quantity=30.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
@@ -458,7 +473,9 @@ class TestGetRisk:
                 "volume": [1_000_000.0],
             }
         )
-        daily_with_malformed_bar = pd.concat([malformed_row, clean_daily], ignore_index=True)
+        daily_with_malformed_bar = pd.concat(
+            [clean_daily.iloc[:2], malformed_row, clean_daily.iloc[2:]], ignore_index=True
+        )
         weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
         provider = _StubProvider(daily={"AAPL": daily_with_malformed_bar}, weekly={"AAPL": weekly})
 
