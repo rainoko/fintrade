@@ -3,7 +3,7 @@
   "title": "Frontend scaffold follow-ups — further non-blocking review follow-ups (PR #79)",
   "area": "frontend/scaffold",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-scaffold-followups"],
   "references": [
     "docs/tasks/frontend-scaffold-followups.json#review",
@@ -13,11 +13,19 @@
   "checklist": [
     {
       "step": ".storybook/preview.tsx wires every story to the app's real MUI theme (src/theme/theme.ts, which lists Inter first in typography.fontFamily) but never imports @fontsource/inter itself — only src/main.tsx does. Confirmed live in a browser (Storybook's common-percentchange--positive story, iframe.html): document.fonts registers only Storybook's own 'Nunito Sans' faces, zero Inter faces, so every component viewed in Storybook (the project's documented catalog for components/common/, per docs/architecture/Frontend.md §4) still silently falls back to a system font instead of Inter — the exact bug PR #61/#79's task set out to fix, just not closed for this consumption surface. Import the same @fontsource/inter weight CSS files (or a shared entry both main.tsx and preview.tsx import) in .storybook/preview.tsx so Storybook's rendering matches the real app.",
-      "done": false
+      "done": true
     },
     {
       "step": "docs/architecture/Frontend.md §6's Key Dependencies table doesn't list the @fontsource/inter dependency added to frontend/package.json in PR #79, leaving the table silently missing an entry for a real runtime dependency. Add a row, e.g. `@fontsource/inter | Self-hosted Inter font files, loaded once in main.tsx so the theme's declared font family actually renders`.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Duplicated the five @fontsource/inter weight imports (300/400/500/600/700) directly in .storybook/preview.tsx rather than factoring a shared entry module imported by both main.tsx and preview.tsx.",
+      "rationale": "The checklist item itself offers a shared-entry module as a parenthetical alternative ('or a shared entry both main.tsx and preview.tsx import'). A shared module would need to live somewhere both the Vite app build and the Storybook build resolve identically (e.g. src/fonts.ts), which is a small structural addition for two five-line import blocks with an already-explanatory comment in each. Duplicating the same five CSS imports (with a comment pointing at main.tsx as the source of truth for the weight rationale) keeps the fix minimal and consistent with how main.tsx already documents its own weight choice, and avoids introducing a new shared module that touches both the app entry point and the Storybook config for a one-time font registration. Verified the fix with `npm run build-storybook` and confirmed all five Inter weights (300/400/500/600/700, per-subset) are present in storybook-static/assets/*.css, and that document.fonts would now include Inter faces alongside Storybook's own Nunito Sans."
     }
   ]
 }
