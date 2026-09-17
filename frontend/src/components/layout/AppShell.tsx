@@ -61,7 +61,13 @@ export default function AppShell() {
           </Typography>
         </Toolbar>
       </AppBar>
-      <Box component="nav" sx={{ width: { sm: DRAWER_WIDTH }, flexShrink: { sm: 0 } }}>
+      {/* Plain layout wrapper only — the semantic <nav> landmark lives on
+          NavDrawer's own <List component="nav">. Giving this Box the same
+          role too would nest two <nav> landmarks inside each other, which
+          ARIA authoring practices discourage and which reads as
+          duplicate/confusing navigation to a screen-reader user jumping by
+          landmark. */}
+      <Box sx={{ width: { sm: DRAWER_WIDTH }, flexShrink: { sm: 0 } }}>
         {isNarrow ? (
           <Drawer
             variant="temporary"

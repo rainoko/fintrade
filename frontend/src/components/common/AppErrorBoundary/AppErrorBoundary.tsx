@@ -12,12 +12,19 @@ interface AppErrorBoundaryState {
   error: Error | null
 }
 
-// Top-level React error boundary, wrapping the whole routed app (see
-// main.tsx). Deliberately separate from TanStack Query's per-query error
-// state: a query's own `isError`/`error` only covers that one fetch
-// failing, not e.g. a bug in how an already-successful response gets
-// rendered — a render-time throw anywhere below this still needs to be
-// caught somewhere, or the whole app unmounts to a blank page.
+// Generic React error boundary: fully domain-agnostic (no position/ticker/
+// signal knowledge) and reusable anywhere a render-time crash shouldn't take
+// down more than the subtree it happens in — currently instantiated once,
+// wrapping the whole routed app (see main.tsx), but nothing about it is
+// app-shell-specific; a future feature could wrap just its own subtree with
+// another instance. See docs/tasks/frontend-app-shell-navigation-followups.json
+// for why this lives under components/common/ rather than components/layout/.
+//
+// Deliberately separate from TanStack Query's per-query error state: a
+// query's own `isError`/`error` only covers that one fetch failing, not
+// e.g. a bug in how an already-successful response gets rendered — a
+// render-time throw anywhere below this still needs to be caught
+// somewhere, or the whole app unmounts to a blank page.
 //
 // React only supports error boundaries as class components (no hook
 // equivalent exists), so this is the one class component in the app by

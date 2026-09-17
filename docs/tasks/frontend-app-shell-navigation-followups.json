@@ -3,7 +3,7 @@
   "title": "Frontend app shell/navigation — non-blocking review follow-ups",
   "area": "frontend/layout",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-app-shell-navigation"],
   "references": [
     "docs/tasks/done/frontend-app-shell-navigation.json#review",
@@ -14,15 +14,35 @@
   "checklist": [
     {
       "step": "AppShell.tsx wraps a `<Box component=\"nav\">` around NavDrawer, whose own root is `<List component=\"nav\" aria-label=\"main navigation\">` — this nests two `<nav>` landmarks inside each other on every render (desktop and mobile), which is discouraged by ARIA authoring practices and reads as duplicate/confusing navigation to a screen-reader user jumping by landmark. Drop `component=\"nav\"` from one of the two (the outer Box is only a layout wrapper for width/flex sizing; the semantic `<nav>` belongs on NavDrawer's List).",
-      "done": false
+      "done": true
     },
     {
       "step": "AppShell.test.tsx re-declares its own `mockMatchMedia` MediaQueryList mock object almost field-for-field identical to the default mock already installed in tests/setup.ts. Extract a shared helper (e.g. exported from tests/setup.ts or a small test-utils module) so future tests needing the narrow-width override don't have to keep two copies in sync.",
-      "done": false
+      "done": true
     },
     {
       "step": "Reconsider AppErrorBoundary's placement under components/layout/ vs components/common/. It satisfies Frontend.md §3's common/ criterion (doesn't reference a position/ticker/signal — fully domain-agnostic), and an error-boundary wrapper is a generically reusable pattern in its own right (could later wrap an individual feature subtree, not just the whole app) even though it's only instantiated once today — the task's own decisions entry leaned on 'used once, same pattern as AppShell' as the rationale for layout/, which is exactly the instantiation-count reasoning that doesn't establish non-reusability. Revisit once frontend-common-components lands and common/'s Storybook conventions (including a story that deliberately throws to exercise the fallback) are established, to decide with those conventions in hand rather than pre-empting them.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T06:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the nested `<nav>` landmark by removing `component=\"nav\"` from AppShell.tsx's outer Box (now a plain layout Box/div), keeping the semantic `<nav>` role solely on NavDrawer's own `<List component=\"nav\" aria-label=\"main navigation\">`.",
+      "rationale": "The outer Box exists purely for width/flex layout sizing around the responsive Drawer (permanent vs. temporary variant) and never itself needs to be discoverable as a landmark; NavDrawer's List is the actual semantic navigation content and already carries an aria-label. Removing the role from the Drawer-wrapper (rather than from NavDrawer's List) keeps the more descriptive, already-labeled landmark. Added a regression test (`AppShell.test.tsx`: 'exposes exactly one nav landmark, not a nested pair', asserting `getAllByRole('navigation')` has length 1) so this can't silently regress."
+    },
+    {
+      "timestamp": "2026-09-17T06:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the matchMedia mock into a new frontend/tests/mockMatchMedia.ts with two exports: `installDefaultMatchMedia(matches)` (a one-time property assignment, used by tests/setup.ts to provide jsdom's missing `window.matchMedia` globally) and `mockMatchMedia(matches)` (a `vi.spyOn`-based per-test override, used by AppShell.test.tsx to force the narrow/wide branch). Both share one private `createMatchMediaMock(query, matches)` object factory.",
+      "rationale": "The two call sites have genuinely different needs, not just duplicated literals: the global default must work before any `matchMedia` property exists on `window` (jsdom doesn't implement it), which rules out `vi.spyOn` there since spyOn requires an existing method to wrap — hence a plain conditional assignment. A per-test override, by contrast, needs `vi.spyOn` so it composes with the existing `afterEach(() => vi.restoreAllMocks())` in AppShell.test.tsx and cleanly reverts between tests. Splitting into two thin functions over one shared object-factory keeps both call sites correct without hand-rolling the `MediaQueryList` shape (matches/media/onchange/add-remove-listener variants/dispatchEvent) more than once, which was the actual duplication the review flagged. Rejected alternative: a single function that always uses `vi.spyOn` — rejected because it can't run before jsdom exposes the property in the first place, which setup.ts needs."
+    },
+    {
+      "timestamp": "2026-09-17T06:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Moved AppErrorBoundary from components/layout/ to components/common/AppErrorBoundary/ (colocated .tsx + .test.tsx, unchanged, plus a new .stories.tsx with a 'renders children' story and a 'deliberately throws to exercise the fallback' story), and updated main.tsx's import accordingly.",
+      "rationale": "Re-examined the two original candidate placements now that frontend-common-components has landed and established common/'s actual conventions (colocated test+story per component, one folder per component, no barrel yet). AppErrorBoundary passes Frontend.md §3's common/ test cleanly: it is fully domain-agnostic (no position/ticker/signal knowledge) and its behavior — catch a render-time throw in its subtree, show a fallback, offer a reset — is a generic pattern that could just as validly wrap a single feature subtree in the future as it currently wraps the whole app; single-instantiation-today was the prior task's stated rationale for layout/, and pr-reviewer's own review of PR #62 already flagged that reasoning as conflating current call-site count with actual reusability, which this task exists to resolve. The remaining candidate reason to keep it in layout/ (Frontend.md §3 lists AppShell.tsx/NavDrawer.tsx there) doesn't extend to AppErrorBoundary: that list isn't stated as closed, but more importantly layout/'s own definition in Frontend.md §3 is 'app shell, not reusable outside this app' — AppErrorBoundary is exactly not that, since nothing about it is app-shell- or routing-specific the way AppShell/NavDrawer's chrome and nav-item list are. Writing the 'deliberately throws' story turned out to be straightforward (a component whose render body just throws, passed as `children`), which was the concrete precedent this task was waiting on frontend-common-components to establish. Rejected alternative: leave it in layout/ on the grounds that it's still only instantiated once today — rejected for the reason above (that's an instantiation-count argument, not a reusability one, and is the exact reasoning PR #62's review called out as weak)."
     }
   ]
 }
