@@ -5,7 +5,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.tsx'
-import AppErrorBoundary from './components/layout/AppErrorBoundary.tsx'
+import AppErrorBoundary from './components/common/AppErrorBoundary/AppErrorBoundary.tsx'
 import './index.css'
 // Self-hosted Inter, the theme's primary font family (src/theme/theme.ts).
 // Weights: 300/400/500/700 cover MUI's default Typography variants (see

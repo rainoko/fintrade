@@ -3,24 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mockMatchMedia } from '../../../tests/mockMatchMedia'
 import { theme } from '../../theme/theme'
 import AppShell from './AppShell'
-
-function mockMatchMedia(matches: boolean) {
-  vi.spyOn(window, 'matchMedia').mockImplementation(
-    (query: string) =>
-      ({
-        matches,
-        media: query,
-        onchange: null,
-        addListener: () => {},
-        removeListener: () => {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        dispatchEvent: () => false,
-      }) as unknown as MediaQueryList,
-  )
-}
 
 function renderShell(initialPath = '/') {
   return render(
@@ -49,6 +34,17 @@ describe('AppShell', () => {
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /portfolio/i })).toBeInTheDocument()
     expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+  })
+
+  it('exposes exactly one nav landmark, not a nested pair', () => {
+    // Regression test for the nested <nav> ARIA violation: AppShell's own
+    // layout Box used to also carry `component="nav"` around NavDrawer's
+    // <List component="nav">, producing two landmarks. Exactly one should
+    // exist regardless of drawer variant.
+    mockMatchMedia(false)
+    renderShell('/')
+
+    expect(screen.getAllByRole('navigation')).toHaveLength(1)
   })
 
   it('shows a permanent drawer with no hamburger toggle at desktop width', () => {

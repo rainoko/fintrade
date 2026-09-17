@@ -404,8 +404,15 @@
       "id": "frontend-app-shell-navigation-followups",
       "area": "frontend/layout",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-app-shell-navigation-followups.json"
+    },
+    {
+      "id": "frontend-app-shell-navigation-followups-followups",
+      "area": "frontend/layout",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-app-shell-navigation-followups.json"
+      "path": "docs/tasks/frontend-app-shell-navigation-followups-followups.json"
     },
     {
       "id": "frontend-portfolio-page",
