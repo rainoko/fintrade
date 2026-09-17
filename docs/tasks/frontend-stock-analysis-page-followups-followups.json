@@ -1,0 +1,24 @@
+{
+  "id": "frontend-stock-analysis-page-followups-followups",
+  "title": "Follow-ups: Frontend Stock analysis page follow-ups (PR #74) — further non-blocking review follow-up",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-stock-analysis-page-followups"],
+  "references": [
+    "docs/tasks/frontend-stock-analysis-page-followups.json#review",
+    "docs/architecture/Frontend.md#3-module-layout",
+    "https://github.com/rainoko/fintrade/pull/74"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #74 (frontend-stock-analysis-page-followups), tracked so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #74 added a new top-level `frontend/src/utils/format.ts` module (sibling to `api/`/`theme/`/`components/`/`features/`/`pages/`) for domain-agnostic, non-component helpers (`humanizeSnakeCase`, `formatNullableNumber`). The task's own `decisions` entry justifies the placement soundly against Frontend.md §3's placement test (cross-feature, not a component, doesn't fit components/common/'s Storybook-backed component catalog), and pr-reviewer independently agrees it's the right home -- but docs/architecture/Frontend.md §3's Module Layout tree and Structure Rules don't mention a `utils/` folder at all, so the next worker who needs a similar cross-cutting pure-function helper has no doc signal that this pattern already exists and is sanctioned, only one task's decisions entry to stumble onto. Update Frontend.md §3 to add `utils/` to the module layout tree (with a one-line description matching components/common/'s style) and a Structure Rule sentence establishing the placement test for it (domain-agnostic pure function, not a component -> `utils/`; domain-agnostic and a component -> `components/common/`; references a feature's domain concepts -> `features/<domain>/`).",
+      "done": false
+    },
+    {
+      "step": "Minor doc-comment inconsistency flagged by the code-review skill during PR #74's review (not a functional bug): `IndicatorsPanel.tsx`'s comment on its `formatValue` wrapper says the nullable-indicator guard 'shouldn't be reachable... anymore' now that the backend excludes malformed daily bars (api-stocks-analysis-nullable-indicators), while `utils/format.ts`'s doc comment for the same `formatNullableNumber` helper it now wraps says 'the backend can legitimately serialize a NaN indicator as JSON null' -- a materially different framing of the same defense-in-depth rationale, in two places that now sit right next to each other via the shared helper. Worth reconciling the wording (e.g. both should say defense-in-depth against the generated type being optimistic, not a runtime guarantee, rather than one implying the null case is still expected).",
+      "done": false
+    }
+  ]
+}
