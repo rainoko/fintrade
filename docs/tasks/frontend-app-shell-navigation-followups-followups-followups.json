@@ -3,7 +3,7 @@
   "title": "Follow-up: AppErrorBoundary fallback heading stays h1 even in fullPage={false} (subtree) mode (PR #84)",
   "area": "frontend/layout",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-app-shell-navigation-followups-followups"],
   "references": [
     "docs/tasks/frontend-app-shell-navigation-followups-followups.json#review",
@@ -15,7 +15,15 @@
   "checklist": [
     {
       "step": "PR #84 parameterized AppErrorBoundary's fallback sizing/copy for fullPage=true vs. fullPage=false (subtree) usage, but the fallback heading is still hardcoded to `<Typography variant=\"h4\" component=\"h1\">` (AppErrorBoundary.tsx render()) regardless of `fullPage`. Every page already renders its own `<h1>` via `components/common/PageHeader/PageHeader.tsx` (`component=\"h1\"`). If a future feature wraps just its own subtree with `<AppErrorBoundary fullPage={false}>` inside such a page — the exact scenario this PR and its parent follow-up were built to support — the fallback would render a second `<h1>Something went wrong</h1>` alongside the page's own `<h1>` title, producing an invalid/ambiguous document outline and breaking screen-reader heading navigation. Consider making the heading level conditional on `fullPage` (e.g. `component={fullPage ? 'h1' : 'h2'}`) or otherwise letting a subtree caller override it, so the sizing/copy parameterization this PR added is matched by correct heading semantics too.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Made the fallback heading's component conditional on fullPage (component={fullPage ? 'h1' : 'h2'}), keeping variant=\"h4\" (visual size) unchanged in both cases, rather than adding a separate headingLevel/component override prop.",
+      "rationale": "The task's own description offered this as the preferred option ('e.g. component={fullPage ? 'h1' : 'h2'}'), and the only two real usages are main.tsx (fullPage=true, replacing the whole page — h1 is correct) and a future fullPage=false subtree usage (which needs to sit below a page's own PageHeader h1, so h2 is correct). A caller-supplied override prop would add API surface with no current consumer needing anything other than the fullPage-derived level; can be added later if a real subtree usage needs a different level than h2."
     }
   ]
 }
