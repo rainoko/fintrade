@@ -41,5 +41,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Docs-only fix to SKILL.md's same-day branch-collision handling: removed the self-contradictory 'free to reuse' clause and added the missing no-PR-at-all case, falling back to the numeric-suffix mechanism. Verified against the diff manually and via the code-review skill (medium effort, no findings). Backend suite: 493 passed, 99.84% coverage. Frontend suite: 205 passed (35 files), 99.71%/99.64%/100%/99.71% stmts/branches/funcs/lines. No lint config applicable (no ruff/mypy config in backend/pyproject.toml; no frontend source touched). Not applicable: architecture-review, verify-elder-signal (area is tooling, no backend/signals or backend/portfolio code), OpenAPI snapshot check (no API changes), browser walkthrough (no UI surface in this PR). No blocking or non-blocking findings; no follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T19:53:39Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite from origin/main...HEAD checkout: 493 passed, 99.84% coverage (matches review.notes exactly). Skimmed the full diff (git diff origin/main...HEAD): docs-only, touches only .claude/skills/revalidate-done-tasks/SKILL.md plus the task-board JSON move/index update — confirmed both checklist items are actually resolved in the new SKILL.md text (self-contradictory 'free to reuse' clause removed; new third bullet explicitly handles the no-PR-at-all branch-collision case) with no remaining self-contradiction. Verified the review's 'no lint config exists' claim directly: no [tool.ruff]/[tool.mypy] section or ruff/mypy dependency in backend/pyproject.toml (the present backend/.mypy_cache/ is gitignored ad hoc residue, not a checked-in config). skill is null so no add-indicator reference-value spot-check applies; no frontend files changed so frontend suite re-run wasn't relevant to this diff."
   }
 }
