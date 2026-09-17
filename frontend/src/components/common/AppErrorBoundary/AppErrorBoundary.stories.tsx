@@ -1,3 +1,4 @@
+import Box from '@mui/material/Box'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import AppErrorBoundary from './AppErrorBoundary'
 
@@ -33,7 +34,33 @@ export const CaughtError: Story = {
     // noise for this story, not a real failure.
     docs: {
       description: {
-        story: 'Renders the fallback UI when a child throws during render.',
+        story:
+          'Renders the fallback UI when a child throws during render, sized to fill the viewport (the default `fullPage` usage — see main.tsx).',
+      },
+    },
+  },
+}
+
+// The `fullPage={false}` usage this component argues for in its own doc
+// comment: wrapping just a feature subtree rather than the whole page. The
+// surrounding fixed-height Box stands in for that subtree's own layout —
+// the fallback must size itself to it, not force a 100vh minHeight the way
+// the default (CaughtError) story does.
+export const CaughtErrorSubtree: Story = {
+  render: (args) => (
+    <Box sx={{ border: '1px dashed', borderColor: 'divider', height: 300 }}>
+      <AppErrorBoundary {...args} />
+    </Box>
+  ),
+  args: {
+    fullPage: false,
+    children: <ThrowsOnRender />,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Renders the fallback UI scoped to a smaller feature subtree (`fullPage={false}`): no 100vh minimum height and copy that no longer suggests reloading the whole app.',
       },
     },
   },

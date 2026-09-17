@@ -1,0 +1,21 @@
+{
+  "id": "frontend-app-shell-navigation-followups-followups-followups",
+  "title": "Follow-up: AppErrorBoundary fallback heading stays h1 even in fullPage={false} (subtree) mode (PR #84)",
+  "area": "frontend/layout",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-app-shell-navigation-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-app-shell-navigation-followups-followups.json#review",
+    "frontend/src/components/common/AppErrorBoundary/AppErrorBoundary.tsx",
+    "frontend/src/components/common/PageHeader/PageHeader.tsx",
+    "https://github.com/rainoko/fintrade/pull/84"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #84 (frontend-app-shell-navigation-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #84 parameterized AppErrorBoundary's fallback sizing/copy for fullPage=true vs. fullPage=false (subtree) usage, but the fallback heading is still hardcoded to `<Typography variant=\"h4\" component=\"h1\">` (AppErrorBoundary.tsx render()) regardless of `fullPage`. Every page already renders its own `<h1>` via `components/common/PageHeader/PageHeader.tsx` (`component=\"h1\"`). If a future feature wraps just its own subtree with `<AppErrorBoundary fullPage={false}>` inside such a page — the exact scenario this PR and its parent follow-up were built to support — the fallback would render a second `<h1>Something went wrong</h1>` alongside the page's own `<h1>` title, producing an invalid/ambiguous document outline and breaking screen-reader heading navigation. Consider making the heading level conditional on `fullPage` (e.g. `component={fullPage ? 'h1' : 'h2'}`) or otherwise letting a subtree caller override it, so the sizing/copy parameterization this PR added is matched by correct heading semantics too.",
+      "done": false
+    }
+  ]
+}
