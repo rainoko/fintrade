@@ -41,6 +41,35 @@ class SignalResult:
     indicators: dict = field(default_factory=dict)
 
 
+def drop_malformed_daily_bars(daily_ohlcv: pd.DataFrame) -> pd.DataFrame:
+    """Drop any daily bar whose open/high/low/close aren't all real numbers.
+
+    A real, observed yfinance condition: the most recent daily bar can come back with NaN
+    open/high/low/close and only ``volume`` populated, before that session's data has fully
+    settled on the provider's end (see this task's `decisions` entry on
+    docs/tasks/api-stocks-analysis-nullable-indicators.json, which discovered this via a
+    frontend crash on the resulting null ``Indicators``/``WaveScreen`` fields). Treating such
+    a bar as "not yet arrived" -- excluded outright, not merely NaN-tolerated -- rather than
+    letting it flow into every daily-resolution computation matters for more than just
+    ``indicators``/``screens.wave``'s leaf fields: ``evaluate_trigger``'s
+    ``today_close > prior_high`` silently evaluates to ``False`` for a NaN ``today_close``
+    (a NaN comparison, not an error), so a malformed latest bar could silently suppress a
+    real BUY/SELL signal without ever surfacing as a visible null anywhere in the response --
+    a worse, harder-to-detect bug than a null indicator would be. Excluding the bar up front
+    keeps both the signal computation itself and the ``Indicators``/``WaveScreen`` schema's
+    non-Optional ``float`` contract honest, and mirrors the existing
+    ``app.data.stooq_provider.StooqProvider._resample_weekly``
+    ``dropna(subset=["open", "high", "low", "close"])`` precedent for the same kind of
+    malformed-bar hygiene.
+
+    Applied across the whole frame, not just the trailing bar -- a malformed bar anywhere in
+    history is equally unfit to feed into the rolling/EMA computations that read across the
+    full series, not just the ones that read a single latest bar. An empty (0-row) or
+    already-clean frame passes through unchanged (``dropna`` is a no-op in both cases).
+    """
+    return daily_ohlcv.dropna(subset=["open", "high", "low", "close"])
+
+
 def _latest(series: pd.Series) -> float:
     """The last value of ``series`` as a plain float, or NaN if ``series`` is empty.
 
@@ -173,7 +202,16 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
     handled by the respective Screen/gate function) with ``indicators`` values of NaN, rather
     than raising; this module adds no additional minimum-history check of its own beyond what
     Screens 1-3/Impulse already enforce individually.
+
+    ``daily_ohlcv`` has any malformed bar (NaN open/high/low/close, a real observed
+    unsettled-latest-bar condition) dropped via ``drop_malformed_daily_bars`` before anything
+    else reads it, so a malformed bar can neither leak NaN into ``indicators``/``screens.wave``
+    nor silently corrupt Screen 2/3's or the Impulse gate's own comparisons -- see this task's
+    `decisions` entry and ``drop_malformed_daily_bars``'s own docstring for why this lives here
+    rather than only being tolerated downstream.
     """
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+
     tide_result = evaluate_tide(weekly_ohlcv)
     tide = tide_result.trend
 

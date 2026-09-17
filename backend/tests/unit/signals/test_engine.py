@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 
 from app.signals.confidence import ConfidenceComponent
-from app.signals.engine import _determine_signal, _wave_lookback, analyse
+from app.signals.engine import _determine_signal, _wave_lookback, analyse, drop_malformed_daily_bars
 from app.signals.triple_screen import TideResult
 
 
@@ -61,6 +61,44 @@ def _weekly_ohlcv(n: int) -> pd.DataFrame:
             "volume": 1_000_000,
         }
     )
+
+
+class TestDropMalformedDailyBars:
+    """Direct unit coverage of drop_malformed_daily_bars, independent of analyse()'s own
+    end-to-end regression test below."""
+
+    def test_drops_only_rows_with_nan_ohlc(self) -> None:
+        daily_ohlcv = _daily_ohlcv(5)
+        daily_ohlcv.loc[daily_ohlcv.index[-1], ["open", "high", "low", "close"]] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv)
+
+        assert len(result) == 4
+        assert not result.isna().any().any()
+
+    def test_volume_only_nan_does_not_drop_the_row(self) -> None:
+        """A NaN volume alone (with real OHLC) isn't the malformed condition this guards
+        against -- only open/high/low/close are checked."""
+        daily_ohlcv = _daily_ohlcv(5)
+        daily_ohlcv.loc[daily_ohlcv.index[-1], "volume"] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv)
+
+        assert len(result) == 5
+
+    def test_clean_frame_passes_through_unchanged(self) -> None:
+        daily_ohlcv = _daily_ohlcv(5)
+
+        result = drop_malformed_daily_bars(daily_ohlcv)
+
+        pd.testing.assert_frame_equal(result, daily_ohlcv)
+
+    def test_empty_frame_passes_through_unchanged(self) -> None:
+        daily_ohlcv = _daily_ohlcv(0)
+
+        result = drop_malformed_daily_bars(daily_ohlcv)
+
+        assert len(result) == 0
 
 
 class TestDetermineSignal:
@@ -454,6 +492,64 @@ class TestAnalyseEndToEnd:
         assert result.signal == "BUY"
         assert 0 <= result.confidence <= 100
         assert len(result.breakdown) == 5
+
+    def test_malformed_latest_bar_is_excluded_and_does_not_change_signal(self) -> None:
+        """Regression test for the real, observed yfinance condition (see
+        drop_malformed_daily_bars's docstring and this task's `decisions` entry): the most
+        recent daily bar can come back with NaN open/high/low/close and only volume populated.
+        Appending such a bar on top of the BUY fixture above must not change the signal,
+        must not leak NaN into `indicators`/`screens.wave`, and -- the sharper regression --
+        must not silently flip `screens.trigger.fired` to False (which a NaN `today_close`
+        would otherwise do via `today_close > prior_high` quietly evaluating False, not
+        raising).
+        """
+        closes = [100 + i * 0.5 for i in range(20)]
+        closes += [closes[-1] - 3 * i for i in range(1, 6)]
+        closes.append(closes[-1] + 8.0)
+        volumes = [1_000_000] * 24 + [9_000_000, 3_000_000]
+        daily_ohlcv = pd.DataFrame(
+            {
+                "open": closes,
+                "high": [c + 0.3 for c in closes],
+                "low": [c - 0.3 for c in closes],
+                "close": closes,
+                "volume": volumes,
+            }
+        )
+        weekly_closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = pd.DataFrame(
+            {
+                "open": weekly_closes,
+                "high": weekly_closes * 1.01,
+                "low": weekly_closes * 0.99,
+                "close": weekly_closes,
+                "volume": 1_000_000,
+            }
+        )
+        expected = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        malformed_row = pd.DataFrame(
+            {
+                "open": [float("nan")],
+                "high": [float("nan")],
+                "low": [float("nan")],
+                "close": [float("nan")],
+                "volume": [500_000],
+            }
+        )
+        daily_with_malformed_latest_bar = pd.concat(
+            [daily_ohlcv, malformed_row], ignore_index=True
+        )
+
+        result = analyse("TEST", daily_with_malformed_latest_bar, weekly_ohlcv)
+
+        assert result.signal == expected.signal == "BUY"
+        assert result.screens["trigger"] == expected.screens["trigger"]
+        assert bool(result.screens["trigger"]["fired"]) is True
+        assert result.screens == expected.screens
+        assert result.indicators == expected.indicators
+        assert not any(pd.isna(v) for v in result.indicators.values())
+        assert result.confidence == expected.confidence
 
     def test_end_to_end_sell_after_rally_and_trigger(self) -> None:
         # Mirror image: gentle downtrend, then a 5-day steep rebound rally on elevated

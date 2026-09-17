@@ -6,13 +6,14 @@ export interface IndicatorsPanelProps {
   indicators: Indicators
 }
 
-// `Indicators`' fields are typed as non-optional `number` (backend/app/api/schemas.py),
-// but an unsettled latest daily bar (NaN OHLC from the market data provider) makes the
-// backend serialize these as JSON `null` on the wire despite the schema — see
-// docs/tasks/api-stocks-analysis-nullable-indicators.json for the backend-side fix.
-// Treat the generated type as optimistic, not a runtime guarantee, and fall back
-// gracefully rather than crashing, consistent with the nullable-price display pattern
-// used elsewhere (e.g. PositionsTable.tsx's formatNullableCurrency).
+// `Indicators`' fields are typed as non-optional `number` (backend/app/api/schemas.py).
+// docs/tasks/api-stocks-analysis-nullable-indicators.json fixed the backend-side root
+// cause (an unsettled latest daily bar with NaN OHLC is now excluded from analysis via
+// `app.signals.engine.drop_malformed_daily_bars` rather than leaking a JSON `null` onto
+// the wire), so this guard shouldn't be reachable against a real backend response
+// anymore — kept as defense-in-depth (treating the generated type as optimistic, not a
+// runtime guarantee) rather than removed, consistent with the nullable-price display
+// pattern used elsewhere (e.g. PositionsTable.tsx's formatNullableCurrency).
 function formatValue(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return '—'

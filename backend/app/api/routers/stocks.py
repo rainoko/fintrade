@@ -17,7 +17,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.signals.engine import analyse
+from app.signals.engine import analyse, drop_malformed_daily_bars
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
 # or the literal 'max' for full available history. Matches the one example API.md gives
@@ -204,7 +204,13 @@ def get_analysis(
     (`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no
     separate minimum-history check of its own, matching `app.signals.engine.analyse`'s own
     documented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this
-    task's `decisions` entry)."""
+    task's `decisions` entry).
+
+    `daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed
+    unsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`
+    before `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that
+    actually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally
+    anyway (see that function's own docstring and this task's `decisions` entry)."""
     ticker = ticker.upper()
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
@@ -216,6 +222,7 @@ def get_analysis(
     except DataProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
     result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
 
     latest_bar = daily_ohlcv.index[-1] if len(daily_ohlcv) > 0 else weekly_ohlcv.index[-1]

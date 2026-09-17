@@ -1,0 +1,100 @@
+{
+  "id": "api-stocks-analysis-nullable-indicators",
+  "title": "GET /api/stocks/{ticker}/analysis: Indicators/WaveScreen schema declares non-optional fields the engine can legitimately emit as null",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": ["api-stocks-analysis"],
+  "references": [
+    "docs/tasks/done/api-stocks-analysis.json",
+    "docs/tasks/frontend-stock-analysis-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/68"
+  ],
+  "description": "Discovered while reviewing PR #68 (frontend-stock-analysis-page), which is the first frontend consumer to actually render these fields and crashed on it (see that task's review.comments) -- a backend-side contract bug in an already-merged task (api-stocks-analysis), not something the frontend PR could or should fix itself beyond adding a defensive fallback.\n\nbackend/app/api/schemas.py declares Indicators.bull_power/bear_power and WaveScreen.stochastic_k as plain, non-Optional `float`. In practice, app.signals.engine.analyse can compute these as NaN when the most recent daily bar has incomplete/unsettled OHLC data (a real, observed yfinance condition: the latest bar can have NaN open/high/low/close with only volume populated, e.g. before a session's data has fully settled). Pydantic's default `ser_json_inf_nan='null'` config then serializes that NaN as literal JSON `null` on the wire -- silently violating the schema's own declared (non-nullable) type, and the generated backend/openapi.json + frontend api/types.ts inherit that same non-nullable typing, so nothing in the contract documents that this can happen.",
+  "checklist": [
+    {
+      "step": "Decide the fix: either (a) mark bull_power/bear_power/stochastic_k Optional in schemas.py (documenting when null occurs, mirroring the existing PositionOut.current_price 'null only if...' pattern) and regenerate backend/openapi.json + frontend api/types.ts, with frontend consumers updated to handle null; or (b) have the engine/route handler avoid using a bar with NaN OHLC as the 'latest' bar for indicator computation in the first place (e.g. fall back to the prior complete bar), so the documented non-nullable contract stays true. Record the choice as a decisions entry.",
+      "done": true
+    },
+    {
+      "step": "Add a regression test reproducing the observed condition (a daily OHLCV series whose last row has NaN open/high/low/close) and asserting the endpoint's behavior matches whichever fix was chosen above.",
+      "done": true
+    },
+    {
+      "step": "If option (a) is chosen, coordinate with (or file a follow-up for) frontend-stock-analysis-page's own null-safe-rendering fix so the two don't duplicate/contradict each other.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T01:43:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Chose option (b): an engine-side fix (app.signals.engine.drop_malformed_daily_bars, applied at the top of analyse() and again in the stocks router before deriving `as_of`) that drops any daily bar whose open/high/low/close aren't all real numbers, rather than option (a) (marking Indicators.bull_power/bear_power and WaveScreen.stochastic_k/force_index_2ema Optional in schemas.py). No changes to backend/app/api/schemas.py were needed as a result -- the non-Optional float contract stays true because the malformed bar is now excluded before anything reads it, not merely tolerated as NaN downstream. backend/openapi.json was still regenerated (and frontend/src/api/types.ts re-generated from it per the add-api-endpoint skill's contract-sync rule) because get_analysis's docstring changed, which openapi-typescript embeds as a JSDoc comment on the `paths` interface -- confirmed via `git diff --stat` that no schema/type shape actually changed, only that one comment.",
+      "rationale": "Reading app/signals/triple_screen.py's evaluate_trigger showed the malformed-bar bug is worse than just a leaked null: `today_close > prior_high` silently evaluates to False (not an error) when today_close is NaN, so a malformed latest bar could silently suppress a real BUY/SELL signal (screens.trigger.fired flips to False) without ever surfacing as a visible null anywhere in the response -- a harder-to-detect correctness bug than a null indicator would be. Option (a) alone (widening the schema to Optional) would leave that deeper problem completely unaddressed: the trigger/wave/impulse computations would still silently run against the malformed bar, just with the resulting NaN indicators now honestly typed instead of contract-violating. Excluding the malformed bar up front fixes both the display-layer null-leak and the signal-correctness bug in one place, and matches an existing precedent already in this codebase: app.data.stooq_provider.StooqProvider._resample_weekly already does `dropna(subset=['open','high','low','close'])` for the analogous malformed/duplicate-source-row problem on the weekly side. It's also consistent with this API's own stated design philosophy (docs/architecture/API.md's portfolio/risk section: a position whose data can't be computed is 'silently excluded ... rather than appearing with partial/null fields -- every field ... is required'), rather than introducing the first genuinely-nullable analysis field. Rejected: option (a) (schema Optional + regenerate + update frontend) -- correct as far as it goes (and the existing frontend defensive null-handling from PR #68 would have kept working against it unmodified, verified: ScreensPanel.tsx's formatNullableNumber/IndicatorsPanel.tsx's formatValue already guard null/undefined/NaN at runtime regardless of the declared TS type), but it leaves the router/engine silently computing a real (non-null, but wrong) trigger/wave/impulse result off garbage data, which is a worse bug than the one being fixed and would still need a follow-up engine-side fix later anyway. Also rejected: fixing this only at the yfinance provider's _normalize (dropping NaN OHLC rows at fetch time, before caching) instead of at the engine/router -- would also work and stop the row from ever reaching the cache, but wouldn't defend against a malformed row already sitting in the SQLite cache from before this fix shipped (app.data.cache.CachedDataProvider's TTL-based staleness check doesn't re-validate previously-cached row content), whereas filtering at analyse()'s own entry point protects every caller unconditionally regardless of how the malformed row got into daily_ohlcv. Filtering happens in two places (drop_malformed_daily_bars called once in the router before `as_of` is derived, and again -- redundantly but cheaply -- inside analyse() itself) rather than only once: analyse() needs to be safe on its own since it's a public, independently-tested function with a documented contract, and the router separately needs the same filtered view so `as_of` reflects the actual bar that drove the analysis rather than a later-dated malformed one analyse() would silently drop internally.",
+      "alternatives_considered": "Option (a): mark bull_power/bear_power/stochastic_k/force_index_2ema Optional in schemas.py, regenerate the OpenAPI snapshot and frontend types, update frontend consumers. Filtering only at app.data.yfinance_provider.YFinanceProvider._normalize (source-level fix) instead of at the engine/router. Filtering only once (inside analyse()) and leaving the router's `as_of` derivation reading the raw, unfiltered daily_ohlcv."
+    },
+    {
+      "timestamp": "2026-09-17T01:43:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Left GET /api/stocks/{ticker}/history's OHLCVBar schema (open/high/low/close/volume, also non-Optional float) untouched, and did not extend drop_malformed_daily_bars filtering to that endpoint's raw bar list.",
+      "rationale": "This task's description and checklist scope the bug specifically to Indicators.bull_power/bear_power and WaveScreen.stochastic_k (plus force_index_2ema, explicitly named as similarly-affected) -- all computed/derived fields from /analysis, not the raw OHLCV bars /history returns as-is for charting. Silently dropping a malformed raw bar from a price-history chart would hide a real (if malformed) data point from the user rather than correctly computing around it, which is a different tradeoff than excluding it from signal computation -- and no crash or contract violation on /history was reported or reproduced during this task, unlike /analysis's PR #68 crash. Deliberately left as an out-of-scope observation rather than silently expanding this task's diff; a follow-up task should be filed if a malformed bar is ever actually observed leaking through /history.",
+      "alternatives_considered": "Proactively applying the same drop_malformed_daily_bars filter to GET /api/stocks/{ticker}/history's returned bars for consistency, even without an observed bug there."
+    },
+    {
+      "timestamp": "2026-09-17T01:43:54Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed a bookkeeping inconsistency noticed while reading this task's own history: docs/tasks/index.json's mirror entry for this task had `skill: null` while this task's own JSON file (the source of truth per CLAUDE.md's decision-memory section) has always declared `skill: 'add-api-endpoint'` -- flagged as a non-blocking, unactioned observation in frontend-stock-analysis-page's pr_decision.notes. Synced index.json's entry to `add-api-endpoint` to match this file.",
+      "rationale": "CLAUDE.md documents index.json's per-task fields (it specifically calls out `state`) as 'a mirror, not a separate source of truth' -- the same principle applies to `skill`, which is otherwise only ever set once at task creation and shouldn't silently diverge from the task file itself. Fixing the one-entry drift now (while already touching this task's bookkeeping for the state-transition edits below) is lower-risk than leaving a known, previously-flagged inconsistency in place for a future reader to trip over again.",
+      "alternatives_considered": "Leaving the mismatch as-is since it was already flagged as non-blocking and doesn't affect this PR's mergeability; setting this task file's own `skill` to null instead of syncing index.json to 'add-api-endpoint' -- rejected because this task's diff genuinely does touch backend/app/api/schemas.py-adjacent contract concerns (the router docstring/OpenAPI snapshot) and follows the add-api-endpoint skill's contract-sync convention (regenerating openapi.json + types.ts), so 'add-api-endpoint' is the more accurate label of the two."
+    }
+  ],
+  "git": {
+    "branch": "task/api-stocks-analysis-nullable-indicators",
+    "pr_number": 70,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/70",
+    "pushed_at": "2026-09-17T01:46:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T01:53:58Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/70",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently verified: evaluate_trigger's `today_close > prior_high`/`< prior_low` silently evaluates False for a NaN today_close (a NaN comparison, not an error) -- the claimed rationale for choosing the engine-side fix is real, confirmed by tracing app/signals/triple_screen.py directly and by the new test_malformed_latest_bar_is_excluded_and_does_not_change_signal regression test.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 333
+      },
+      {
+        "summary": "drop_malformed_daily_bars verified as a pure no-op on well-formed data: all pre-existing hand-computed reference-value tests in test_engine.py are unchanged and still pass, and new tests explicitly assert a clean/empty frame passes through unaffected.",
+        "file": "backend/tests/unit/signals/test_engine.py",
+        "line": 63
+      },
+      {
+        "summary": "backend/openapi.json regeneration confirmed a genuine no-op: re-ran scripts/export_openapi.py myself and diffed against the committed file -- empty diff. The committed change itself is docstring-only.",
+        "file": "backend/openapi.json",
+        "line": 729
+      },
+      {
+        "summary": "docs/tasks/index.json's skill-field self-correction verified accurate: synced from null to 'add-api-endpoint' to match this task file's own long-standing skill field (plus state synced to 'testing' to mirror this file at the time), with nothing else in index.json touched.",
+        "file": "docs/tasks/index.json",
+        "line": 448
+      },
+      {
+        "summary": "Non-blocking: GET /api/portfolio/risk's evaluate_exit_flags/protective_stop/autoenvelope/evaluate_impulse pipeline reads daily_ohlcv from app/portfolio/pricing.py without ever passing it through drop_malformed_daily_bars. pricing.py's _latest_close already excludes a position when the very latest bar's close is NaN (the one observed failure mode), but a malformed bar earlier in the history, or one with NaN open/high/low but a real close, would still flow through unfiltered into evaluate_exit_flags' EMA/MACD/autoenvelope math and its own latest_close < stop comparison -- same class of NaN-silently-False hazard this PR fixed for /analysis. Tracked as a follow-up rather than blocking since it's pre-existing behavior outside this task's stated /analysis-specific scope and the one reported failure mode is already indirectly guarded.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 296
+      },
+      {
+        "summary": "Non-blocking: weekly_ohlcv is never filtered for malformed bars anywhere (evaluate_tide reads weekly_ohlcv['close'] with no NaN guard). Speculative -- the observed malformed-bar condition has so far only been reported on daily data -- tracked to revisit if ever actually observed on the weekly interval.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 162
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (478 passed, 99.84% coverage), frontend vitest run --coverage (167 passed, 99.4%+), npm run lint/build/build-storybook all clean. No ruff/mypy config exists in backend/pyproject.toml, so nothing further to lint there. verify-elder-signal skill run: no divergence from docs/Analyse.md -- this change only affects which daily bars reach existing, unmodified Triple Screen/Impulse/Confidence computations. code-review skill run against the diff: no correctness bugs or reuse/efficiency findings. No new module/dependency/layer added, so architecture-review wasn't triggered. Frontend files touched (IndicatorsPanel.tsx/ScreensPanel.tsx) are comment-only updates to pre-existing defensive-rendering code, not new UI logic or new components, so the frontend-component-placement check (step 7a) doesn't apply. This PR is backend-only in substance with no new UI-facing behavior; I smoke-tested the live /api/stocks/{ticker}/analysis endpoint via a locally-run backend and confirmed the response shape is unaffected for a real ticker. This session's toolset did not expose a Playwright browser tool, so I could not additionally drive the frontend page live in a browser -- noting this limitation explicitly rather than silently skipping it, though given the change's backend-only substance I don't consider it a gap that should block this PR. Two non-blocking findings filed as checklist items on docs/tasks/api-stocks-analysis-nullable-indicators-followups.json (new task)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T01:58:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything: backend pytest --cov=app (478 passed, 99.84% coverage, matches review exactly), frontend vitest run --coverage (167 passed, 99.4%+), npm run lint/build/build-storybook all clean. Independently traced evaluate_trigger in backend/app/signals/triple_screen.py:328-335 and confirmed in a live Python REPL that a NaN today_close makes `today_close > prior_high` / `< prior_low` evaluate to plain `False` (numpy.bool, no exception) -- the claimed latent bug is real. Confirmed drop_malformed_daily_bars is a genuine no-op on well-formed data: all pre-existing hand-computed reference-value assertions in test_engine.py are byte-for-byte unchanged in the diff (only an added import), plus the new test_clean_frame_passes_through_unchanged uses pd.testing.assert_frame_equal. Re-ran scripts/export_openapi.py myself against this branch and confirmed git diff --stat backend/openapi.json is empty after regeneration -- true no-op. Skimmed the full diff (engine.py, stocks.py, both test files, frontend types.ts/IndicatorsPanel.tsx/ScreensPanel.tsx comment updates, followups task, index.json) -- nothing pr-reviewer's findings underweighted; the portfolio/risk non-blocking follow-up is accurate (pricing.py's _latest_close already excludes the one observed failure mode, NaN close on the latest bar). No ruff/mypy config confirmed absent via grep/find. Accept holds."
+  }
+}

@@ -188,6 +188,45 @@ class TestGetAnalysis:
             "bear_power",
         }
 
+    def test_malformed_latest_daily_bar_is_excluded_not_nulled(self) -> None:
+        """Regression test for the real, observed yfinance condition this task fixes: the
+        most recent daily bar can come back with NaN open/high/low/close and only volume
+        populated. `app.signals.engine.drop_malformed_daily_bars` excludes such a bar before
+        analysis rather than letting it leak `null` into the (non-Optional)
+        `Indicators`/`WaveScreen` schema fields, so `as_of` should reflect the last *real*
+        bar's date, not the malformed one, and every indicator field should still be a real
+        number.
+        """
+        clean_daily = _buy_daily_ohlcv()
+        malformed_row = pd.DataFrame(
+            {
+                "open": [float("nan")],
+                "high": [float("nan")],
+                "low": [float("nan")],
+                "close": [float("nan")],
+                "volume": [500_000],
+            },
+            index=pd.DatetimeIndex(
+                [clean_daily.index[-1] + pd.DateOffset(days=1)], name="date"
+            ),
+        )
+        daily_with_malformed_latest_bar = pd.concat([clean_daily, malformed_row])
+        provider = _StubProvider(
+            daily={"AAPL": daily_with_malformed_latest_bar}, weekly={"AAPL": _buy_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["signal"] == "BUY"
+        # as_of reflects the last real bar, not the malformed (later-dated) one.
+        assert body["as_of"] == clean_daily.index[-1].date().isoformat()
+        for field, value in body["indicators"].items():
+            assert isinstance(value, (int, float)), f"indicators.{field} was {value!r}, not a number"
+        assert body["screens"]["wave"]["stochastic_k"] is not None
+        assert body["screens"]["wave"]["force_index_2ema"] is not None
+
     def test_sell_signal_response_shape(self) -> None:
         provider = _StubProvider(
             daily={"AAPL": _sell_daily_ohlcv()}, weekly={"AAPL": _sell_weekly_ohlcv()}
