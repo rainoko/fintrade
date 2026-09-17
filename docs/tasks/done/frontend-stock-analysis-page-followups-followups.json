@@ -1,0 +1,51 @@
+{
+  "id": "frontend-stock-analysis-page-followups-followups",
+  "title": "Follow-ups: Frontend Stock analysis page follow-ups (PR #74) — further non-blocking review follow-up",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-stock-analysis-page-followups"],
+  "references": [
+    "docs/tasks/frontend-stock-analysis-page-followups.json#review",
+    "docs/architecture/Frontend.md#3-module-layout",
+    "https://github.com/rainoko/fintrade/pull/74"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #74 (frontend-stock-analysis-page-followups), tracked so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #74 added a new top-level `frontend/src/utils/format.ts` module (sibling to `api/`/`theme/`/`components/`/`features/`/`pages/`) for domain-agnostic, non-component helpers (`humanizeSnakeCase`, `formatNullableNumber`). The task's own `decisions` entry justifies the placement soundly against Frontend.md §3's placement test (cross-feature, not a component, doesn't fit components/common/'s Storybook-backed component catalog), and pr-reviewer independently agrees it's the right home -- but docs/architecture/Frontend.md §3's Module Layout tree and Structure Rules don't mention a `utils/` folder at all, so the next worker who needs a similar cross-cutting pure-function helper has no doc signal that this pattern already exists and is sanctioned, only one task's decisions entry to stumble onto. Update Frontend.md §3 to add `utils/` to the module layout tree (with a one-line description matching components/common/'s style) and a Structure Rule sentence establishing the placement test for it (domain-agnostic pure function, not a component -> `utils/`; domain-agnostic and a component -> `components/common/`; references a feature's domain concepts -> `features/<domain>/`).",
+      "done": true
+    },
+    {
+      "step": "Minor doc-comment inconsistency flagged by the code-review skill during PR #74's review (not a functional bug): `IndicatorsPanel.tsx`'s comment on its `formatValue` wrapper says the nullable-indicator guard 'shouldn't be reachable... anymore' now that the backend excludes malformed daily bars (api-stocks-analysis-nullable-indicators), while `utils/format.ts`'s doc comment for the same `formatNullableNumber` helper it now wraps says 'the backend can legitimately serialize a NaN indicator as JSON null' -- a materially different framing of the same defense-in-depth rationale, in two places that now sit right next to each other via the shared helper. Worth reconciling the wording (e.g. both should say defense-in-depth against the generated type being optimistic, not a runtime guarantee, rather than one implying the null case is still expected).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled `utils/format.ts`'s `formatNullableNumber` doc comment to match `IndicatorsPanel.tsx`'s framing rather than the reverse: it now states that `docs/tasks/api-stocks-analysis-nullable-indicators.json` fixed the backend-side root cause (unsettled malformed daily bars are excluded via `drop_malformed_daily_bars` rather than leaking a JSON `null`), so the guard 'shouldn't be reachable against a real backend response anymore' and is kept only as defense-in-depth (generated type treated as optimistic, not a runtime guarantee). Also added `utils/` to Frontend.md §3's module layout tree and a Structure Rule sentence giving it the same domain-agnostic-component-vs-non-component placement test already implicit in the `components/common/` rule.",
+      "rationale": "IndicatorsPanel.tsx's framing is the factually current one (the nullable-indicators fix landed and shipped in api-stocks-analysis-nullable-indicators), while format.ts's original wording ('the backend can legitimately serialize a NaN indicator as JSON null') was written to describe the pre-fix behavior and is now stale -- rewriting IndicatorsPanel.tsx to match format.ts instead would have re-introduced an inaccurate claim into the codebase. Rejected alternatives: (a) rewriting IndicatorsPanel.tsx's comment to drop the 'shouldn't be reachable anymore' framing and match format.ts instead -- rejected because that direction moves the more accurate comment toward the less accurate one; (b) leaving both comments as-is on the grounds that the finding was explicitly non-blocking -- rejected because this is exactly the kind of cheap, mechanical fix a follow-up task exists to close before it drifts further via more call sites.",
+      "alternatives_considered": "Rewriting IndicatorsPanel.tsx's comment to match format.ts's original (now-stale) framing instead; leaving the inconsistency unresolved since it was filed as non-blocking."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-stock-analysis-page-followups-followups",
+    "pr_number": 75,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/75",
+    "pushed_at": "2026-09-17T04:05:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T04:04:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/75",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Doc/comment-only change (adds `utils/` to Frontend.md §3's module layout + Structure Rules, reconciles formatNullableNumber's doc comment with IndicatorsPanel.tsx's framing). Confirmed via `git diff main...HEAD --stat` that no application logic changed. Frontend: npm run test:coverage (179 tests pass, 99.41%/99.2%/100%/99.4%), npm run lint (clean), npm run build (tsc -b && vite build succeeds). Backend (unaffected, re-run for completeness): pytest --cov=app --cov-fail-under=90 (488 passed, 99.84%). Verified the reworded comment's factual claim against backend/app/signals/engine.py's drop_malformed_daily_bars, which exists and does exactly what's claimed. New utils/ Structure Rule reads naturally alongside the existing components/common/ rule (same shape: definition, placement test, motivating example) and is internally consistent. No new/changed components in this diff, so no §7a placement check applies. No API/schema changes. No UI-facing surface, so browser walkthrough was skipped (noted explicitly). Ran the code-review skill against the diff independently: no findings. No blocking issues; no non-blocking findings either, so no follow-up task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T04:07:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything pr-reviewer reported and got identical numbers: frontend npm run test:coverage (33 files, 179 tests passed, 99.41%/99.2%/100%/99.4%), npm run lint (clean), npm run build (tsc -b && vite build succeeded); backend pytest --cov=app (488 passed, 99.84%, well above the 90% gate). Confirmed via git diff origin/main...HEAD that the only substantive changes are docs/architecture/Frontend.md's new utils/ module-layout entry + Structure Rule sentence and a JSDoc comment reword in frontend/src/utils/format.ts (formatNullableNumber) -- no function signatures, logic, or tests touched. Verified drop_malformed_daily_bars actually exists in backend/app/signals/engine.py and is called from the analysis pipeline, matching the comment's factual claim, and confirmed IndicatorsPanel.tsx's existing comment and the reworded format.ts comment now state the same defense-in-depth framing rather than conflicting. Also confirmed via grep that utils/format.ts is genuinely consumed by both features/stocks and features/portfolio components, matching the new doc's motivating example."
+  }
+}

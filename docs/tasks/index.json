@@ -446,8 +446,8 @@
       "id": "frontend-stock-analysis-page-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-stock-analysis-page-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-analysis-page-followups-followups.json"
     },
     {
       "id": "api-stocks-analysis-nullable-indicators",

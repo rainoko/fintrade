@@ -38,6 +38,8 @@ frontend/
       portfolio.ts
     theme/
       theme.ts              # MUI theme: palette (incl. semantic BUY/SELL/HOLD + risk-breach colors), typography
+    utils/
+      format.ts             # domain-agnostic pure-function display helpers (humanizeSnakeCase, formatNullableNumber) shared across features
     components/
       common/                # generic, reusable, presentational, domain-agnostic — every one exposed via Storybook
         PageHeader/
@@ -95,6 +97,7 @@ frontend/
 
 - **Pages are thin.** A page file composes hooks + components and handles routing concerns (URL params, navigation) — it does not contain fetch logic, business rules, or markup beyond layout. If a page file is doing real work, that work belongs in a `features/<domain>/` hook or component instead.
 - **`components/common/` is domain-agnostic.** A component belongs there only if it doesn't know what a "position" or a "signal" is — `SignalBadge` takes a `signal: 'BUY' | 'SELL' | 'HOLD'` prop, it doesn't fetch or know about the Triple Screen. Anything that references portfolio/stock domain concepts belongs under `features/<domain>/components/`, not `common/`. This isn't just a build-time aspiration — `pr-reviewer` explicitly checks every new/changed component's placement at review time (see `.claude/agents/pr-reviewer.md`), flagging both a domain-agnostic component stuck under `features/` and a near-duplicate that should have been consolidated into one shared `common/` component instead of copy-pasted across features.
+- **`utils/` is for domain-agnostic *non-component* helpers.** The placement test mirrors `components/common/`'s but for plain functions: domain-agnostic (doesn't reference a feature's domain concepts) and not a component (no props, no rendering, no Storybook story) → `utils/`; domain-agnostic and a component → `components/common/`; references a feature's domain concepts (a "position", a "signal", a Triple Screen field) → `features/<domain>/`, colocated with the components/hooks that use it. `utils/format.ts`'s `humanizeSnakeCase`/`formatNullableNumber` are the motivating example: pure display helpers consumed by both `features/stocks` and `features/portfolio`, with no props/rendering to give them a Storybook story, so neither `features/<domain>/` nor `components/common/` fit.
 - **One component per file**, named the same as the file, default-exported. A component's test and (for `common/`) story file are colocated in the same folder, not in a parallel `__tests__/`/`stories/` tree.
 - **Hooks wrap exactly one API concern each** and live under the feature they serve (`features/portfolio/hooks/usePortfolio.ts`), not in a single catch-all `hooks/` folder — this keeps a feature's data layer next to the components that use it, and keeps `git blame`/navigation scoped to one domain at a time.
 - **No default barrel-exporting `index.ts` re-exports for the sake of it** — import components/hooks from their actual file. A barrel is fine only where it demonstrably reduces real import noise (e.g. `components/common/index.ts` re-exporting every common component, since those are meant to be reused broadly).
