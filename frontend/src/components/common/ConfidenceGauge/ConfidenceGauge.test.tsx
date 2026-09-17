@@ -70,4 +70,27 @@ describe('ConfidenceGauge', () => {
 
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '65')
   })
+
+  it('uses a pre-computed band prop instead of re-deriving one, when provided', () => {
+    // confidence=50 would locally re-derive to Medium; passing band="High"
+    // proves the prop takes precedence over confidenceBand.ts's own rule.
+    renderWithTheme(<ConfidenceGauge confidence={50} band="High" />)
+
+    expect(screen.getByText(/50%/)).toBeInTheDocument()
+    expect(screen.getByText(/High/)).toBeInTheDocument()
+  })
+
+  it('clamps the printed percentage (not just the progress bar) to 100 when confidence exceeds 100', () => {
+    renderWithTheme(<ConfidenceGauge confidence={105} />)
+
+    expect(screen.getByText('100% · High')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
+  })
+
+  it('clamps the printed percentage (not just the progress bar) to 0 when confidence is negative', () => {
+    renderWithTheme(<ConfidenceGauge confidence={-10} />)
+
+    expect(screen.getByText('0% · Low')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
+  })
 })

@@ -52,11 +52,36 @@ export interface DataTableProps<T> {
 
 type SortDirection = 'asc' | 'desc'
 
+function isMissing(value: unknown): boolean {
+  return value === null || value === undefined
+}
+
 function compareValues(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b
   }
   return String(a).localeCompare(String(b))
+}
+
+/**
+ * Comparator used for sorting: missing values (null/undefined, e.g. an
+ * optional numeric column with some rows unset) always sort last regardless
+ * of ascending/descending direction, rather than falling back to
+ * String(undefined)='undefined' lexicographic comparison (which would sort
+ * '10' before '9' once any row's value is missing, since compareValues only
+ * special-cases number/number pairs).
+ */
+function compareForSort(a: unknown, b: unknown, direction: SortDirection): number {
+  const aMissing = isMissing(a)
+  const bMissing = isMissing(b)
+  if (aMissing || bMissing) {
+    if (aMissing && bMissing) {
+      return 0
+    }
+    return aMissing ? 1 : -1
+  }
+  const result = compareValues(a, b)
+  return direction === 'asc' ? result : -result
 }
 
 /**
@@ -81,10 +106,7 @@ export default function DataTable<T>({
       return rows
     }
     const copy = [...rows]
-    copy.sort((a, b) => {
-      const result = compareValues(a[sortKey], b[sortKey])
-      return sortDirection === 'asc' ? result : -result
-    })
+    copy.sort((a, b) => compareForSort(a[sortKey], b[sortKey], sortDirection))
     return copy
   }, [rows, sortKey, sortDirection])
 

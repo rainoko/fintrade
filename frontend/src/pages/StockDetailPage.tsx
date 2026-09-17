@@ -57,6 +57,7 @@ export default function StockDetailPage() {
           <SignalSummary
             signal={analysisQuery.data.signal}
             confidence={analysisQuery.data.confidence}
+            confidenceBand={analysisQuery.data.confidence_band}
             confidenceBreakdown={analysisQuery.data.confidence_breakdown}
           />
 

@@ -11,6 +11,7 @@ import { humanizeSnakeCase } from '../../../utils/format'
 export interface SignalSummaryProps {
   signal: AnalysisResponse['signal']
   confidence: AnalysisResponse['confidence']
+  confidenceBand: AnalysisResponse['confidence_band']
   confidenceBreakdown: ConfidenceBreakdownItem[]
 }
 
@@ -35,16 +36,18 @@ function formatPercent(fraction: number): string {
  * Signal + confidence summary for `GET /api/stocks/{ticker}/analysis`
  * (docs/Analyse.md §6): the BUY/SELL/HOLD signal (common/SignalBadge), the
  * 0-100 confidence score with its Low/Medium/High band (common/ConfidenceGauge,
- * which derives the band from the score itself using the same thresholds
- * Analyse.md §6 documents — so the backend's own `confidence_band` field
- * doesn't need a second prop), and an auditable per-component breakdown
- * table (weight/score) behind that score. Feature component (not `common/`)
- * since confidence_breakdown's component names are Analyse.md §6 domain
- * concepts.
+ * passed the API's own `confidence_band` field directly rather than letting
+ * ConfidenceGauge re-derive it client-side, so the two can't silently drift
+ * if Analyse.md §6's banding rule is ever revised — see
+ * docs/tasks/frontend-common-components-followups.json), and an auditable
+ * per-component breakdown table (weight/score) behind that score. Feature
+ * component (not `common/`) since confidence_breakdown's component names
+ * are Analyse.md §6 domain concepts.
  */
 export default function SignalSummary({
   signal,
   confidence,
+  confidenceBand,
   confidenceBreakdown,
 }: SignalSummaryProps) {
   const columns: DataTableColumn<ConfidenceBreakdownItem>[] = [
@@ -71,7 +74,7 @@ export default function SignalSummary({
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
         <SignalBadge signal={signal} />
-        <ConfidenceGauge confidence={confidence} />
+        <ConfidenceGauge confidence={confidence} band={confidenceBand} />
       </Stack>
 
       <Typography variant="subtitle2" color="text.secondary">

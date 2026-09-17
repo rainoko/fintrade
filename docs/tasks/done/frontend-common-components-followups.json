@@ -1,0 +1,71 @@
+{
+  "id": "frontend-common-components-followups",
+  "title": "Frontend common component library — non-blocking review follow-ups",
+  "area": "frontend/components/common",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-common-components"],
+  "references": [
+    "docs/tasks/done/frontend-common-components.json#review",
+    "https://github.com/rainoko/fintrade/pull/64",
+    "docs/Analyse.md#6",
+    "docs/architecture/Frontend.md#4-storybook-the-common-component-library"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #64 (frontend-common-components), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "ConfidenceGauge re-derives the Low/Medium/High band client-side (confidenceBand.ts) from a raw `confidence: number`, duplicating the exact same <40/40-70/>70 rule already computed server-side in backend/app/signals/confidence.py#confidence_band and already exposed on the API response as `confidence_band: 'Low'|'Medium'|'High'` (see frontend/src/api/types.ts). The two copies agree today, but if Analyse.md's banding rule is ever revised and only the backend is updated, the frontend would silently keep showing a stale band next to a confidence value the API says is in a different band, with no test able to catch the drift since ConfidenceGauge's own boundary tests just re-assert its own copy of the rule. Consider having ConfidenceGauge accept an optional pre-computed `band` prop (falling back to local computation only when absent) so a feature component wired to real Signal data can pass the API's own `confidence_band` through instead of recomputing it.",
+      "done": true
+    },
+    {
+      "step": "ConfidenceGauge clamps the LinearProgress bar value to [0,100] but not the printed percentage text, so an out-of-range confidence (e.g. 105, from a future caller that doesn't respect the 0-100 contract) would render an inconsistent bar-vs-label (bar at 100%, text reading '105% · High'). Clamp (or validate/guard) the displayed number the same way as the bar value.",
+      "done": true
+    },
+    {
+      "step": "DataTable's compareValues() only special-cases number/number pairs for numeric sort; a column with an optional/nullable numeric value (e.g. a future `quantity?: number` with some rows `undefined`) would silently fall back to lexicographic string comparison once any row's value is missing, sorting '10' before '9'. No current column exercises this, but worth handling explicitly (e.g. treating missing values as sorting last) before a feature table adds an optional numeric column.",
+      "done": true
+    },
+    {
+      "step": "ErrorState.tsx's default/fallback case (any HTTP status other than 404/422/503/0) has a unit test but no corresponding Storybook story, unlike the four explicitly-handled cases which each get one. Frontend.md §4 asks for a story per case a component renders; add a 'GenericFallback' (or similarly named) story using e.g. `new ApiError(500, ...)` for completeness.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ConfidenceGauge gains an optional `band?: ConfidenceBand` prop. When provided it's used as-is; when omitted, ConfidenceGauge still falls back to its own confidenceBand.ts computation (now run against the clamped value, see next decision) so Storybook stories/tests that only have a raw number keep working. SignalSummary — the only real feature-facing consumer — now takes a `confidenceBand: AnalysisResponse['confidence_band']` prop and forwards it straight through, and StockDetailPage passes `analysisQuery.data.confidence_band` into it, so the real app path never recomputes the band from the number anymore.",
+      "rationale": "This is exactly the fix pr-reviewer suggested in the checklist item. Considered instead making `band` required (no fallback) to force every caller to supply it, but rejected that since it would needlessly break ConfidenceGauge's own Storybook stories/tests that intentionally exercise it as a standalone, self-contained component with just a raw percentage — the drift risk the finding is about only exists once a real confidence_band value is available from the API, which is exactly the case SignalSummary/StockDetailPage now cover."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Clamped the printed percentage text to use the same `clamped` value already computed for the LinearProgress bar (Math.min(100, Math.max(0, confidence))), instead of the raw `confidence` prop. Also switched the local band-fallback computation (confidenceBand(confidence)) to run against `clamped` rather than the raw value, so an out-of-range confidence can't produce a band inconsistent with the now-clamped displayed number either (e.g. confidence=105 clamped to 100 always reads 'High', never a band computed from the unclamped 105).",
+      "rationale": "The checklist item only asked to clamp the printed number, but leaving the band's own fallback computation keyed to the raw unclamped value would reopen the same bar/label inconsistency the fix is meant to close, just one level up (a clamped '100%' label next to a band computed from 105). Rejected leaving confidenceBand(confidence) as-is since it would be inconsistent with the newly-clamped label for the same reason."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "DataTable's sort comparator now checks for null/undefined values before calling compareValues(), and always sorts missing values last regardless of the current ascending/descending direction (returned directly, without being negated for 'desc' the way a normal comparison result is).",
+      "rationale": "The checklist item's own suggested fix ('missing values sorting last') implies a fixed position independent of sort direction — otherwise clicking a sortable header a second time (desc) would flip missing values to sort first, which is a worse UX than a stable 'always last' rule most table UIs use. Implemented as a separate compareForSort() wrapper (rather than baking the direction-aware negation into compareValues() itself) so compareValues() stays a pure value-vs-value comparator, independently testable and unaffected by direction."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-common-components-followups",
+    "pr_number": 86,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/86",
+    "pushed_at": "2026-09-17T07:17:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T07:23:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/86",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (488 passed, 99.84% coverage, unaffected by this frontend-only change) and frontend vitest --coverage (203 passed, 99.71%/99.64%/100%/99.71% stmts/branches/funcs/lines) both pass well above the 90% gate; eslint and tsc -b both clean; code-review skill (medium effort) found no correctness/reuse/simplification issues. Browser walkthrough (Playwright driven directly via playwright-core, since no MCP Playwright tool was registered this session) against the real backend+frontend dev servers, using route interception for the analysis endpoint since the backend has no CORS middleware for cross-origin dev-server requests: confirmed the golden path (confidence=82, confidence_band='High' renders '82% · High'), and specifically the edge case this PR exists for (confidence=50, confidence_band='High' from the API renders '50% · High' even though confidenceBand.ts's own client-side rule would locally derive 'Medium' for 50 -- proving SignalSummary/StockDetailPage genuinely forward the API's confidence_band rather than letting ConfidenceGauge silently recompute it), plus a mocked-500 error edge case rendering ErrorState's generic fallback correctly. No console errors or failed network requests. No new components added, so the common-vs-feature placement calls from PR #64's review stand unchanged. No backend route/schema touched, so openapi.json regeneration doesn't apply. All 4 checklist items are done and verified against the actual code; all 3 decisions are well-reasoned and consistent with what's implemented. No blocking or non-blocking findings -- nothing further to track as a follow-up."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T07:25:42Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: backend pytest 488 passed / 99.84% coverage, frontend vitest 203 passed / 99.71%/99.64%/100%/99.71% stmts/branches/funcs/lines -- matches pr-reviewer's numbers exactly. Also reran eslint (clean, --max-warnings=0) and tsc -b (clean). Read the full diff: ConfidenceGauge.tsx now takes optional `band?: ConfidenceBand`, falls back to confidenceBand(clamped) only when omitted, and clamps the printed percentage to match the bar; SignalSummary.tsx takes a new confidenceBand prop and forwards it straight into ConfidenceGauge (band={confidenceBand}); StockDetailPage.tsx passes analysisQuery.data.confidence_band into SignalSummary -- confirmed via grep that SignalSummary is ConfidenceGauge's only real (non-story/non-test) consumer, so the API's confidence_band genuinely reaches the gauge end-to-end with no other call site left recomputing it. DataTable's compareForSort and the ErrorState GenericFallback story also match their checklist items and decisions entries. Accept holds."
+  }
+}

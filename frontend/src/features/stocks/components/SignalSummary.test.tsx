@@ -15,7 +15,12 @@ const breakdown: ConfidenceBreakdownItem[] = [
 describe('SignalSummary', () => {
   it('renders a BUY signal, confidence gauge, and the breakdown table', () => {
     renderWithTheme(
-      <SignalSummary signal="BUY" confidence={72} confidenceBreakdown={breakdown} />,
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+      />,
     )
 
     expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY')
@@ -38,6 +43,7 @@ describe('SignalSummary', () => {
       <SignalSummary
         signal="SELL"
         confidence={22}
+        confidenceBand="Low"
         confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0 }]}
       />,
     )
@@ -46,11 +52,29 @@ describe('SignalSummary', () => {
     expect(screen.getByText('22% · Low')).toBeInTheDocument()
   })
 
+  it("passes the API's confidence_band through to ConfidenceGauge instead of re-deriving it", () => {
+    // confidence=50 would locally re-derive to Medium (confidenceBand.ts's own
+    // 40-70 rule); passing band="High" here proves SignalSummary forwards the
+    // API's own confidence_band rather than letting ConfidenceGauge recompute
+    // it, so the two can't silently disagree.
+    renderWithTheme(
+      <SignalSummary
+        signal="HOLD"
+        confidence={50}
+        confidenceBand="High"
+        confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0.5 }]}
+      />,
+    )
+
+    expect(screen.getByText('50% · High')).toBeInTheDocument()
+  })
+
   it('humanizes an unrecognized confidence_breakdown component name', () => {
     renderWithTheme(
       <SignalSummary
         signal="HOLD"
         confidence={50}
+        confidenceBand="Medium"
         confidenceBreakdown={[{ component: 'future_component', weight: 0.5, score: 0.5 }]}
       />,
     )
@@ -60,7 +84,14 @@ describe('SignalSummary', () => {
   })
 
   it('shows the empty-breakdown state when confidence_breakdown is empty', () => {
-    renderWithTheme(<SignalSummary signal="HOLD" confidence={50} confidenceBreakdown={[]} />)
+    renderWithTheme(
+      <SignalSummary
+        signal="HOLD"
+        confidence={50}
+        confidenceBand="Medium"
+        confidenceBreakdown={[]}
+      />,
+    )
 
     expect(screen.getByText('No confidence breakdown available.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()

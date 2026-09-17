@@ -32,3 +32,11 @@ export const High: Story = {
 export const Full: Story = {
   args: { confidence: 100 },
 }
+
+export const OutOfRangeClamped: Story = {
+  args: { confidence: 105 },
+}
+
+export const PreComputedBand: Story = {
+  args: { confidence: 50, band: 'High' },
+}
