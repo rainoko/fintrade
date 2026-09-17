@@ -9,14 +9,11 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import { formatCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
 
 export interface PositionsTableProps {
   positions: PositionOut[]
-}
-
-function formatCurrency(value: number): string {
-  return `$${value.toFixed(2)}`
 }
 
 // current_price/unrealized_pnl_pct are null only when the latest price fetch

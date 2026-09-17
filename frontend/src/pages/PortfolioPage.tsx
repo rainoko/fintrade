@@ -10,15 +10,7 @@ import AddPositionDialog from '../features/portfolio/components/AddPositionDialo
 import PositionsTable from '../features/portfolio/components/PositionsTable'
 import RiskPanel from '../features/portfolio/components/RiskPanel'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
-
-function formatCurrency(value: number): string {
-  return value.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
+import { formatCurrency } from '../utils/format'
 
 /**
  * Portfolio page: GET /api/portfolio's equity summary + positions table, and

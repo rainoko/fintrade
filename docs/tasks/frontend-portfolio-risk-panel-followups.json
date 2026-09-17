@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend portfolio risk panel (PR #66)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-portfolio-risk-panel"],
   "references": [
     "docs/tasks/done/frontend-portfolio-risk-panel.json",
@@ -13,19 +13,45 @@
   "checklist": [
     {
       "step": "RiskPanel's per-position risk table renders `position_risk_pct` via common/PercentChange, whose green/+ vs. red/- coloring is designed for a gain/loss metric (unrealized_pnl_pct). position_risk_pct is a risk-exposure magnitude that's always >= 0, where higher is worse, not better — confirmed live (browser walkthrough with a mocked 6% breach) that a 2%-rule-breaching row (position_risk_pct=5.00%) still renders its number in green, working against the row's own red breach highlight. Consider a dedicated risk-magnitude display (e.g. red past the 2% threshold, neutral/muted below it) instead of reusing PercentChange for this field.",
-      "done": false
+      "done": true
     },
     {
       "step": "RiskPanel.tsx defines its own local `formatCurrency` (`$${value.toFixed(2)}`), a near-duplicate of the identical helper already in PositionsTable.tsx, and a third distinct currency format on the same page (PortfolioPage.tsx's StatCards use `toLocaleString(..., {style:'currency'})`, which adds thousands separators the other two lack). Extract one shared currency formatter (e.g. into common/ or a small format utility) so a future change to currency formatting doesn't need to be applied in three places.",
-      "done": false
+      "done": true
     },
     {
       "step": "The silent-exclusion status note's wording doesn't pluralize correctly when more than one held position is missing from the risk response: 'No risk data available for ZZZZINVALID, TSLA — its price or history couldn't be fetched...' should read 'their price' for a joined multi-ticker list. Minor copy fix.",
-      "done": false
+      "done": true
     },
     {
       "step": "DataTable's new `getRowStyle` prop got a dedicated Storybook story (`WithFlaggedRow`), but the other new prop, `ariaLabel`, has test coverage only and no story variant. Consider whether it's worth a minimal story (e.g. showing the `aria-label` in the docs/controls panel) to fully match Frontend.md §4's 'every meaningful variant' bar for common/ components, or explicitly note why an accessibility-only prop doesn't need one.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new dedicated `components/common/RiskPercent` component for position_risk_pct instead of extending PercentChange with a mode/variant, or reusing theme.riskBreach.main directly inline in RiskPanel. It takes the raw value plus the row's own `two_percent_rule_breached` boolean (already on RiskPosition — no re-derivation of the 2% threshold on the frontend) and renders in `riskBreach.main` when breached, `text.secondary` otherwise, with no leading '+' sign (a risk magnitude is never a \"gain\").",
+      "rationale": "Rejected extending PercentChange: its entire contract is sign-driven gain/loss coloring (positive=green/+, negative=red, zero=neutral) plus a leading '+' — bolting an unrelated breached-flag-driven risk mode onto it would mean two independent coloring strategies gated by a mode prop, complicating its single-responsibility tests/stories for a case that shares almost nothing with the gain/loss one. Rejected inlining the color logic directly in RiskPanel.tsx: it's exactly the kind of small, presentational, domain-agnostic (takes a plain number + boolean, no knowledge of 'position'/'portfolio') display primitive Frontend.md's common/ placement test calls out, the same rationale PercentChange itself was built under, so it gets its own component + story + tests rather than being inline JSX in a feature component."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Consolidated the currency formatter into `utils/format.ts`'s new `formatCurrency`, using the richer `toLocaleString(..., {style:'currency'})` implementation (thousands separators) that PortfolioPage.tsx already had, rather than the plainer `$${value.toFixed(2)}` from RiskPanel.tsx/PositionsTable.tsx. Updated RiskPanel.tsx, PositionsTable.tsx, and PortfolioPage.tsx to import it instead of each defining their own.",
+      "rationale": "Standardizing on the richer formatter is strictly better for a finance app (correct thousands-separator display) and never worse, so there was no reason to keep the plainer one or introduce a third hybrid. Scoped the consolidation to the three formatters this task's checklist item actually names (all on the Portfolio page) rather than also touching DashboardPage.tsx's/PositionsGlanceTable.tsx's separate near-identical formatters on the Dashboard page, which are out of this task's stated scope — left as a candidate for a future follow-up rather than scope creep here."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pluralization for both halves of the silent-exclusion sentence ('its price' -> 'their price' *and* the previously-unflagged \"so it's excluded\" -> \"so they're excluded\") when 2+ tickers are missing, not just the one clause the checklist item quoted.",
+      "rationale": "The checklist item's example sentence contains two singular pronouns tied to the same missing-ticker count ('its price' and \"it's excluded\"); fixing only the first would leave an equally-wrong \"so it's excluded\" for a 2+-ticker case, which is the same bug the checklist item is about, not a separate one."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a DataTable `WithAriaLabel` Storybook story rather than adding a code comment explaining why `ariaLabel` doesn't need one.",
+      "rationale": "`ariaLabel` is a real, documented prop on a common/ component whose only effect (the underlying <table>'s accessible name) is otherwise invisible in Storybook's canvas — a story with it set makes the prop visible/controllable in the docs/controls panel, satisfying Frontend.md §4's 'every meaningful variant' bar the same way WithFlaggedRow does for getRowStyle, rather than carving out an exception for accessibility-only props."
     }
   ]
 }

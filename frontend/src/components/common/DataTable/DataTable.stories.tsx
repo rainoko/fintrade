@@ -60,3 +60,17 @@ export const WithFlaggedRow: Story = {
       row.ticker === 'NVDA' ? { backgroundColor: '#fdecea' } : undefined,
   },
 }
+
+// `ariaLabel` has no visible rendering of its own (it sets the underlying
+// <table>'s aria-label, which only assistive tech and accessible-name
+// queries observe) — this story exists so the prop is still visible and
+// controllable in Storybook's docs/controls panel, per Frontend.md §4's
+// "every meaningful variant" bar, rather than being covered by tests alone.
+export const WithAriaLabel: Story = {
+  args: {
+    columns,
+    rows,
+    getRowKey: (row) => row.id,
+    ariaLabel: 'Positions',
+  },
+}

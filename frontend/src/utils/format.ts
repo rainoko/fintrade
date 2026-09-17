@@ -17,6 +17,18 @@
 // humanize, RiskPanel.tsx's humanizeFlag) and two independent null-safe
 // number formatters (IndicatorsPanel.tsx's formatValue, ScreensPanel.tsx's
 // formatNullableNumber) into one implementation each.
+//
+// `formatCurrency` below was added later (frontend-portfolio-risk-panel-
+// followups.json) to consolidate a third case of the same pattern: three
+// independent USD formatters on the Portfolio page alone (RiskPanel.tsx's
+// and PositionsTable.tsx's identical `$${value.toFixed(2)}`, and
+// PortfolioPage.tsx's richer `toLocaleString(..., {style:'currency'})` for
+// its equity stat cards, which additionally applies thousands separators).
+// The richer `toLocaleString` version was kept as the one canonical
+// implementation — correct thousands-separator formatting is strictly
+// better for a finance app's currency display, never worse, so there was no
+// reason to standardize on the plainer of the two — see this task's
+// `decisions` entry.
 
 /**
  * Humanizes a snake_case domain value (e.g. an Elder Triple Screen field or
@@ -58,4 +70,21 @@ export function formatNullableNumber(
     return '—'
   }
   return value.toLocaleString(undefined, options)
+}
+
+/**
+ * Formats a plain number as USD currency with thousands separators (e.g.
+ * `1234.5` -> `"$1,234.50"`), for values assumed to always be present (cash,
+ * cost basis, protective stop, ...). Callers with a nullable price (e.g.
+ * `current_price`, which is null when a price fetch failed per API.md) wrap
+ * this rather than duplicating it, the same convention `formatNullableNumber`
+ * above establishes for numbers.
+ */
+export function formatCurrency(value: number): string {
+  return value.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
