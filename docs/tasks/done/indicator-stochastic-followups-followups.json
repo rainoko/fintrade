@@ -3,7 +3,7 @@
   "title": "Indicator: Stochastic follow-ups — non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["indicator-stochastic-followups"],
   "references": [
     "docs/tasks/indicator-stochastic-followups.json#review",
@@ -22,5 +22,12 @@
     "pr_number": 90,
     "pr_url": "https://github.com/rainoko/fintrade/pull/90",
     "pushed_at": "2026-09-17T17:47:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T17:48:12Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/90",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs-only change (adds app/indicators/_validation.py to Backend.md §2's module layout listing). Verified the addition against the actual file: _validation.py exists, exports validate_period(name, value) as a pure function (no I/O), used by ema.py and stochastic.py, matching the doc's description exactly. Entry follows the existing listing's format/comment style. Backend test suite: 493 passed, 99.84% coverage (well above the 90% gate), no regression. Lint/code-review skill/browser walkthrough/architecture-review skipped as not applicable: no Python/TS source changed (lint/code-review would have nothing to check beyond what was already manually verified above), no UI surface (nothing to click through), and no new module/dependency/layer introduced (architecture-review not triggered). No stale pr_decision was present to clear. No non-blocking findings — no follow-up task created."
   }
 }
