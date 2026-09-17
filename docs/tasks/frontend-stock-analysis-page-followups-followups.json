@@ -3,7 +3,7 @@
   "title": "Follow-ups: Frontend Stock analysis page follow-ups (PR #74) — further non-blocking review follow-up",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-stock-analysis-page-followups"],
   "references": [
     "docs/tasks/frontend-stock-analysis-page-followups.json#review",
@@ -14,11 +14,20 @@
   "checklist": [
     {
       "step": "PR #74 added a new top-level `frontend/src/utils/format.ts` module (sibling to `api/`/`theme/`/`components/`/`features/`/`pages/`) for domain-agnostic, non-component helpers (`humanizeSnakeCase`, `formatNullableNumber`). The task's own `decisions` entry justifies the placement soundly against Frontend.md §3's placement test (cross-feature, not a component, doesn't fit components/common/'s Storybook-backed component catalog), and pr-reviewer independently agrees it's the right home -- but docs/architecture/Frontend.md §3's Module Layout tree and Structure Rules don't mention a `utils/` folder at all, so the next worker who needs a similar cross-cutting pure-function helper has no doc signal that this pattern already exists and is sanctioned, only one task's decisions entry to stumble onto. Update Frontend.md §3 to add `utils/` to the module layout tree (with a one-line description matching components/common/'s style) and a Structure Rule sentence establishing the placement test for it (domain-agnostic pure function, not a component -> `utils/`; domain-agnostic and a component -> `components/common/`; references a feature's domain concepts -> `features/<domain>/`).",
-      "done": false
+      "done": true
     },
     {
       "step": "Minor doc-comment inconsistency flagged by the code-review skill during PR #74's review (not a functional bug): `IndicatorsPanel.tsx`'s comment on its `formatValue` wrapper says the nullable-indicator guard 'shouldn't be reachable... anymore' now that the backend excludes malformed daily bars (api-stocks-analysis-nullable-indicators), while `utils/format.ts`'s doc comment for the same `formatNullableNumber` helper it now wraps says 'the backend can legitimately serialize a NaN indicator as JSON null' -- a materially different framing of the same defense-in-depth rationale, in two places that now sit right next to each other via the shared helper. Worth reconciling the wording (e.g. both should say defense-in-depth against the generated type being optimistic, not a runtime guarantee, rather than one implying the null case is still expected).",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled `utils/format.ts`'s `formatNullableNumber` doc comment to match `IndicatorsPanel.tsx`'s framing rather than the reverse: it now states that `docs/tasks/api-stocks-analysis-nullable-indicators.json` fixed the backend-side root cause (unsettled malformed daily bars are excluded via `drop_malformed_daily_bars` rather than leaking a JSON `null`), so the guard 'shouldn't be reachable against a real backend response anymore' and is kept only as defense-in-depth (generated type treated as optimistic, not a runtime guarantee). Also added `utils/` to Frontend.md §3's module layout tree and a Structure Rule sentence giving it the same domain-agnostic-component-vs-non-component placement test already implicit in the `components/common/` rule.",
+      "rationale": "IndicatorsPanel.tsx's framing is the factually current one (the nullable-indicators fix landed and shipped in api-stocks-analysis-nullable-indicators), while format.ts's original wording ('the backend can legitimately serialize a NaN indicator as JSON null') was written to describe the pre-fix behavior and is now stale -- rewriting IndicatorsPanel.tsx to match format.ts instead would have re-introduced an inaccurate claim into the codebase. Rejected alternatives: (a) rewriting IndicatorsPanel.tsx's comment to drop the 'shouldn't be reachable anymore' framing and match format.ts instead -- rejected because that direction moves the more accurate comment toward the less accurate one; (b) leaving both comments as-is on the grounds that the finding was explicitly non-blocking -- rejected because this is exactly the kind of cheap, mechanical fix a follow-up task exists to close before it drifts further via more call sites.",
+      "alternatives_considered": "Rewriting IndicatorsPanel.tsx's comment to match format.ts's original (now-stale) framing instead; leaving the inconsistency unresolved since it was filed as non-blocking."
     }
   ]
 }

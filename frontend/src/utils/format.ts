@@ -40,11 +40,15 @@ export function humanizeSnakeCase(value: string, labelMap?: Record<string, strin
  * instead of calling `.toLocaleString()` on a non-number. Several
  * `AnalysisResponse` fields (`indicators.*`, `screens.wave.stochastic_k`/
  * `force_index_2ema`) are typed as non-optional `number` in the generated
- * client but the backend can legitimately serialize a NaN indicator as JSON
- * `null` for an unsettled latest daily bar — this treats that generated
- * type as optimistic, not a runtime guarantee, the same convention
- * PositionsTable.tsx's/PositionsGlanceTable.tsx's `formatNullableCurrency`
- * apply to nullable prices.
+ * client. `docs/tasks/api-stocks-analysis-nullable-indicators.json` fixed the
+ * backend-side root cause (an unsettled latest daily bar with NaN OHLC is now
+ * excluded from analysis via `app.signals.engine.drop_malformed_daily_bars`
+ * rather than leaking a JSON `null` onto the wire), so this guard shouldn't be
+ * reachable against a real backend response anymore — kept as defense-in-depth
+ * (treating the generated type as optimistic, not a runtime guarantee) rather
+ * than removed, the same convention PositionsTable.tsx's/
+ * PositionsGlanceTable.tsx's `formatNullableCurrency` apply to nullable
+ * prices.
  */
 export function formatNullableNumber(
   value: number | null | undefined,
