@@ -1,0 +1,66 @@
+{
+  "id": "frontend-api-client-followups",
+  "title": "Frontend API client — non-blocking review follow-ups",
+  "area": "frontend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-api-client"],
+  "references": [
+    "docs/tasks/frontend-api-client.json#review",
+    "https://github.com/rainoko/fintrade/pull/63"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #63 (frontend-api-client), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "tests/mocks/handlers.ts's POST /api/portfolio/positions OVERFLOW-sentinel check compares `body.ticker.toUpperCase() === 'OVERFLOW'` without trimming, unlike the merge path two lines later (`body.ticker.trim().toUpperCase()`) and unlike PositionIn's own documented whitespace-stripping normalization. A whitespace-padded ' OVERFLOW ' ticker silently skips the intended 422 merge-overflow response and creates a real position instead. Trim before comparing.",
+      "done": true
+    },
+    {
+      "step": "tests/mocks/handlers.ts's per-field validation-error branch (quantity/avg_cost_basis <= 0) only ever reports one invalid field, even when both are simultaneously invalid, unlike real FastAPI/pydantic which lists every failing field in one HTTPValidationError. Report all failing fields so a test exercising the multi-field case doesn't pass against the mock while diverging from the real backend's response shape.",
+      "done": true
+    },
+    {
+      "step": "`vitest run --coverage`'s text reporter prints an empty per-file table (no rows, no 'All files' summary row) even though the underlying v8/lcov data and the 90% threshold gate both work correctly (verified against coverage/lcov.info directly). This predates frontend-api-client (vite.config.ts's coverage config is from frontend-scaffold) but makes the console output impossible to sanity-check by eye when investigating a future coverage regression. Investigate the vitest/coverage-v8 reporter config (e.g. an interaction between the `include` glob and the `text` reporter) and fix so the per-file table actually renders.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the OVERFLOW-sentinel check by trimming before comparing (`body.ticker.trim().toUpperCase() === 'OVERFLOW'`), matching the merge path two lines later. Added a regression test (portfolio.test.ts) that POSTs a whitespace-padded ' overflow ' ticker and asserts it still surfaces the 422 merge-overflow ApiError rather than silently creating a position.",
+      "rationale": "Directly matches the checklist's specified fix; a same-shape sibling check two lines below already does this correctly, so this is the mock's only inconsistency, not a design choice."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Rewrote the per-field validation-error branch to push one HTTPValidationError entry per failing field (quantity and/or avg_cost_basis) into a shared `detail` array, instead of a single ternary picking one field name. Added a regression test asserting the joined multi-field message (client.ts's extractDetail joins every entry's `msg` with '; ') when both fields are simultaneously invalid.",
+      "rationale": "Matches real FastAPI/pydantic's behavior of reporting every failing field in one HTTPValidationError list, which is what the checklist item and PR #63's review comment called for. Rejected leaving it as a single representative error, which the review explicitly flagged as a real mock/backend response-shape divergence a multi-field test could pass against while being wrong."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Root-caused the empty text-reporter table to Vitest's std-env `isAgent` detection (true whenever the harness running the command is an AI coding agent, e.g. this dev container under Claude Code): when true, Vitest silently merges `skipFull: true` into the `text` reporter's options unless the reporter config already specifies `skipFull` explicitly, which hides every 100%-covered file/directory row — including the root 'All files' summary row once the whole suite reaches 100%, leaving a table with only a header, a separator, and a footer. Fixed by changing vite.config.ts's `coverage.reporter` entry for 'text' from the bare string to `['text', { skipFull: false }]`, which overrides that default regardless of who invokes the command. Verified by reproducing the empty table (temporarily excluding the one sub-100%-covered file to force whole-suite 100%, matching the state PR #63 was reviewed in) both before and after the fix.",
+      "rationale": "This was the least obvious of the three findings, since the underlying coverage data was already correct (per the task's own note) and the config looked unremarkable — the failure only reproduces when (a) the invoking process is agent-detected AND (b) the suite happens to be at or near 100% coverage everywhere, which is exactly the state frontend-api-client's mostly-data-layer PR was in when pr-reviewer (itself an agent) first noticed it. Explicitly setting `skipFull: false` is preferred over pinning std-env's agent detection off (there's no supported way to do that from vite.config.ts) or adding a `text-summary` reporter (which Vitest already auto-adds for agents but doesn't solve the by-eye per-file table use case the finding was about)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-api-client-followups",
+    "pr_number": 85,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/85",
+    "pushed_at": "2026-09-17T07:01:54Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T07:08:05Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/85",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: frontend test:coverage (35 files/198 tests, 99.71%/99.62%/100%/99.7%, no regression) and backend pytest --cov (488 passed, 99.84%, no regression), eslint clean, tsc -b --noEmit clean, prettier --check clean on touched files. code-review skill (medium, single-pass) found zero issues, matching my own manual diff review. Independently verified the vite.config.ts skipFull root-cause claim by reading the actual vitest/std-env/@vitest-istanbul-lib-report source in node_modules (isAgent-gated default merge in vitest's config resolution; tableRow()'s skipFull check applies to the root 'All files' summary node too) and by reproducing both the empty-table bug (pre-fix reporter config + coverage.include narrowed to force whole-suite 100%) and the fix (full table renders, including the summary row) directly with vitest, then reverting the experiment. No side effects: only the text reporter's own options are touched; html/lcov and the threshold gate are unaffected. Not applicable: browser walkthrough (no UI/component/route change — mocks, tests, and coverage config only), verify-elder-signal (area is frontend/api, skill is null), architecture-review (no new module/dependency/layer), frontend component placement (no components touched), OpenAPI snapshot (no API route/schema touched). All three checklist items were bug-fix instructions, not 'decide X' items; the decisions array documents the judgment calls anyway and each was verified accurate. Zero findings, blocking or non-blocking; no follow-up task filed.",
+    "browser_walkthrough": "not_applicable — PR touches only tests/mocks/handlers.ts, frontend/src/api/portfolio.test.ts, and frontend/vite.config.ts (coverage reporter config); no component/page/API route or schema changed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-17T07:11:38Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: frontend `test:coverage` 35 files/198 tests passed, 99.71%/99.62%/100%/99.7% coverage with the per-file table (including the 'All files' row) actually rendering; backend `pytest --cov` 488 passed, 99.84% — matches review's reported numbers exactly. Re-read the full diff (handlers.ts, portfolio.test.ts, vite.config.ts) and confirmed eslint/tsc/prettier clean on touched files. Independently spot-checked the skipFull root-cause claim by reading node_modules source directly: vitest's chunks/index.DzobfTyw.js resolveConfig does `if (isAgent) { text[1] = { skipFull: true, ...text[1] } }` (std-env's isAgent keys off CLAUDECODE/CLAUDE_CODE), and @vitest/istanbul-lib-report's text reporter (dist/reports/text/index.mjs) applies `o && isFull(l)` in tableRow for both onSummary and onDetail, which covers the root 'All files' node too — exactly matching the claim. provider.js threads skipFull per-reporter-instance (`createAsync(reporter[0], {skipFull, ...reporter[1]})`), so html/lcov and the separate threshold-gate check are unaffected. No human PR comments found. Accept holds."
+  }
+}

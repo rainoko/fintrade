@@ -12,7 +12,17 @@ export default defineConfig({
     css: true,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
+      // 'text' is given explicit options (not just the bare 'text' string)
+      // to force `skipFull: false`. Vitest's std-env `isAgent` detection
+      // (true in this dev container, since Claude Code sets CLAUDECODE)
+      // otherwise silently defaults the text reporter to `skipFull: true`
+      // for agent-run sessions, which hides every 100%-covered file/dir —
+      // including the root "All files" summary row itself once the whole
+      // suite reaches 100%, leaving a header/footer with zero rows between
+      // them. That defeats the point of a by-eye per-file table when
+      // investigating a future coverage regression, so this project always
+      // wants the full table regardless of who's running the command.
+      reporter: [['text', { skipFull: false }], 'html', 'lcov'],
       // Matches docs/architecture/Testing.md exactly: the frontend coverage
       // gate is 90% on all four dimensions, enforced by vitest itself (a
       // `vitest run --coverage` that drops below any threshold exits non-zero).
