@@ -48,5 +48,11 @@
       "decision": "Worked all three still-open checklist items (RiskBreachBanner extraction, DashboardPage's formatCurrency, PositionsGlanceTable's formatNullableCurrency) in this PR rather than only the two currency-formatting ones, even though the dispatch instructions for this task run described only the currency cleanups plus the already-`done` placement note as remaining.",
       "rationale": "Verifying the task JSON's current checklist state directly (per this process's own 'verify current state before redoing anything' step) showed item 1 (RiskBreachBanner) still marked `done: false`, and a codebase search confirmed no such shared component exists yet — RiskPanel.tsx and RiskSummaryCard.tsx still each defined the identical banner markup inline. The task's own checklist, not a dispatch-message summary of it, is this process's source of truth for what remains open; leaving a known-incomplete, already-scoped checklist item unaddressed while opening a PR would leave the task in a state the next reviewer would immediately flag as incomplete. The extraction was small, well-precedented (matches the RiskPercent pattern from the same task family), and squarely within this task's own stated scope, so doing it was not scope creep beyond this task's checklist."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-page-followups",
+    "pr_number": 81,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/81",
+    "pushed_at": "2026-09-17T05:53:22Z"
+  }
 }
