@@ -100,6 +100,25 @@ class TestDropMalformedDailyBars:
 
         assert len(result) == 0
 
+    def test_missing_column_does_not_raise_and_still_drops_nan_rows_on_remaining_columns(
+        self,
+    ) -> None:
+        """A frame missing one of open/high/low/close entirely (e.g. a stub test double, or
+        any other caller's malformed-frame fixture) is a distinct, pre-existing failure mode
+        from the NaN-*value* one this function targets -- it must not raise a bare KeyError
+        from dropna(subset=...) naming a column that was never there, leaving that case for
+        the caller's own column-presence check (e.g.
+        app.portfolio.risk.validate_daily_ohlcv_columns) to raise its documented ValueError
+        for instead. See the api-stocks-analysis-nullable-indicators-followups task's
+        `decisions` entry."""
+        daily_ohlcv = _daily_ohlcv(5).drop(columns=["low"])
+        daily_ohlcv.loc[daily_ohlcv.index[-1], ["open", "high", "close"]] = float("nan")
+
+        result = drop_malformed_daily_bars(daily_ohlcv)
+
+        assert len(result) == 4
+        assert "low" not in result.columns
+
 
 class TestDetermineSignal:
     """Isolates the pure BUY/SELL/HOLD combination table from every Screen/gate function."""

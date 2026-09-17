@@ -66,8 +66,20 @@ def drop_malformed_daily_bars(daily_ohlcv: pd.DataFrame) -> pd.DataFrame:
     history is equally unfit to feed into the rolling/EMA computations that read across the
     full series, not just the ones that read a single latest bar. An empty (0-row) or
     already-clean frame passes through unchanged (``dropna`` is a no-op in both cases).
+
+    Only checks whichever of ``open``/``high``/``low``/``close`` are actually present in
+    ``daily_ohlcv`` -- a frame missing one of those columns entirely (a distinct, pre-existing
+    failure mode from the NaN-*value* one this function targets) is left for the caller's own
+    column-presence check (e.g. ``app.portfolio.risk.validate_daily_ohlcv_columns``) to raise
+    its documented ``ValueError`` for, rather than this function raising a bare ``KeyError``
+    from ``dropna(subset=...)`` naming a column that was never there -- see the
+    api-stocks-analysis-nullable-indicators-followups task's `decisions` entry (found via
+    GET /api/portfolio/risk's malformed-daily-frame test fixtures, which simulate a
+    missing-column frame to exercise exactly that downstream check).
     """
-    return daily_ohlcv.dropna(subset=["open", "high", "low", "close"])
+    required_columns = ["open", "high", "low", "close"]
+    present_columns = [column for column in required_columns if column in daily_ohlcv.columns]
+    return daily_ohlcv.dropna(subset=present_columns)
 
 
 def _latest(series: pd.Series) -> float:

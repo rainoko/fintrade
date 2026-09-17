@@ -25,6 +25,7 @@ from app.portfolio.models import Account
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import enrich_positions_with_price, positions_value
 from app.portfolio.risk import position_risk_pct, protective_stop, total_open_risk_pct
+from app.signals.engine import drop_malformed_daily_bars
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -234,12 +235,20 @@ def get_risk(
     which only sums positions with a known stop — see `app.portfolio.risk
     .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
     couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
-    task's `decisions` entry), its daily history has fewer than 2 rows (the minimum
-    `evaluate_exit_flags` needs to test today's close against yesterday's stop), its weekly
-    history couldn't be fetched, or `protective_stop`/`evaluate_exit_flags` raised for a
-    malformed frame. `RiskPosition`'s fields are all non-nullable, so a position that can't
-    be fully evaluated has no partial representation in this schema — see this task's
-    `decisions` entry."""
+    task's `decisions` entry), its daily history has fewer than 2 rows once any malformed
+    bar is dropped (the minimum `evaluate_exit_flags` needs to test today's close against
+    yesterday's stop), its weekly history couldn't be fetched, or
+    `protective_stop`/`evaluate_exit_flags` raised for a malformed frame. `RiskPosition`'s
+    fields are all non-nullable, so a position that can't be fully evaluated has no partial
+    representation in this schema — see this task's `decisions` entry.
+
+    `e.daily_ohlcv` is passed through `app.signals.engine.drop_malformed_daily_bars` before
+    `protective_stop`/`evaluate_exit_flags` ever see it — mirroring GET
+    /api/stocks/{ticker}/analysis's identical filtering — so a malformed bar anywhere in a
+    position's history (not just the very latest one `app.portfolio.pricing._latest_close`
+    already excludes a position outright for) can't silently suppress an exit flag via a NaN
+    comparison quietly evaluating False. See the api-stocks-analysis-nullable-indicators-
+    followups task's `decisions` entry."""
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
@@ -257,13 +266,24 @@ def get_risk(
     # computation over the frame we already have in hand, so a position excluded on the
     # daily side (missing column, too short) never pays for a weekly network/cache round
     # trip that would just get thrown away.
+    #
+    # e.daily_ohlcv is filtered through drop_malformed_daily_bars up front, before the
+    # length check and every downstream use (protective_stop here, evaluate_exit_flags in
+    # the second pass below) -- see this handler's own docstring and the
+    # api-stocks-analysis-nullable-indicators-followups task's `decisions` entry. The
+    # filtered frame is cached per position (daily_by_id) alongside stops/weekly_by_id so
+    # the second pass reuses it rather than re-filtering.
     stops: dict[str, float] = {}
     weekly_by_id: dict[str, pd.DataFrame] = {}
+    daily_by_id: dict[str, pd.DataFrame] = {}
     for e in enriched:
-        if e.position.current_price is None or e.daily_ohlcv is None or len(e.daily_ohlcv) < 2:
+        if e.position.current_price is None or e.daily_ohlcv is None:
+            continue
+        daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)
+        if len(daily_ohlcv) < 2:
             continue
         try:
-            stop = protective_stop(e.position, e.daily_ohlcv.iloc[:-1])
+            stop = protective_stop(e.position, daily_ohlcv.iloc[:-1])
         except ValueError:
             continue
         try:
@@ -272,6 +292,7 @@ def get_risk(
             continue
         stops[e.position.id] = stop
         weekly_by_id[e.position.id] = weekly_ohlcv
+        daily_by_id[e.position.id] = daily_ohlcv
 
     # account.equity.total <= 0 (e.g. cash deep enough negative to outweigh positions_value)
     # makes position_risk_pct -- called internally by total_open_risk_pct for every position
@@ -294,7 +315,7 @@ def get_risk(
         try:
             risk_pct = position_risk_pct(e.position, stop, account)
             exit_flags = evaluate_exit_flags(
-                e.position, account, e.daily_ohlcv, weekly_by_id[e.position.id], total_risk
+                e.position, account, daily_by_id[e.position.id], weekly_by_id[e.position.id], total_risk
             )
         except ValueError:
             continue

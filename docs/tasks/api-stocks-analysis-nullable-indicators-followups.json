@@ -3,7 +3,7 @@
   "title": "Malformed-daily-bar hygiene: non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-stocks-analysis-nullable-indicators"],
   "references": [
     "docs/tasks/done/api-stocks-analysis-nullable-indicators.json#review",
@@ -17,11 +17,34 @@
   "checklist": [
     {
       "step": "GET /api/portfolio/risk's exit-flag pipeline (app/api/routers/portfolio.py::get_risk -> app/portfolio/exits.py::evaluate_exit_flags, which internally calls protective_stop/autoenvelope/evaluate_impulse and does its own `latest_close < stop` comparison) reads `e.daily_ohlcv` from app/portfolio/pricing.py without ever passing it through drop_malformed_daily_bars (or an equivalent). app/portfolio/pricing.py::_latest_close already excludes a position outright when the very latest bar's `close` is NaN (the one specific failure mode observed so far), so that exact case can't reach evaluate_exit_flags today -- but a malformed bar earlier in the history, or one with NaN open/high/low but a real close, would still flow through unfiltered, risking the same NaN-silently-evaluates-False hazard this PR just fixed for /analysis (e.g. a silently suppressed 'stop_hit' flag via `latest_close < stop` on a NaN-poisoned EMA/autoenvelope computation). Extend the same filtering to this path for consistency.",
-      "done": false
+      "done": true
     },
     {
       "step": "Neither this PR's fix nor any pre-existing code filters `weekly_ohlcv` for malformed bars anywhere (evaluate_tide, used by both /analysis and /risk's tide_flipped_bearish flag, reads weekly_ohlcv['close'] directly with no NaN guard). The observed malformed-bar condition has so far only been reported on daily data from yfinance, so this is speculative -- track it and revisit if a malformed weekly bar is ever actually observed, mirroring the already-documented decision to leave GET /api/stocks/{ticker}/history's raw daily bars unfiltered absent an observed bug there.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended `app.signals.engine.drop_malformed_daily_bars` filtering to GET /api/portfolio/risk's pipeline by importing and calling the existing function directly in `app/api/routers/portfolio.py::get_risk`, rather than moving it to a new shared module or duplicating it in `app.portfolio`.",
+      "rationale": "`app.portfolio.exits` already imports from `app.signals` (`triple_screen.evaluate_tide`/`validate_weekly_ohlcv_columns`, `impulse.evaluate_impulse`) for the exact same kind of shared domain logic, so `portfolio` -> `signals` is an established, non-circular dependency direction in this codebase -- there's no existing prohibition on it that a move would be working around. `drop_malformed_daily_bars` is also already public (not underscore-prefixed) and already imported directly from `app.signals.engine` by `app/api/routers/stocks.py`, so calling it the same way from `app/api/routers/portfolio.py` matches an existing, working precedent at the same architectural layer (API router) rather than introducing a new one. A move to a standalone module (e.g. `app.data` or a new `app.signals.ohlcv_hygiene`) was considered and rejected: it would touch more call sites/imports for no behavioral benefit, and the function's docstring and rationale are already tightly coupled to the specific `analyse()`/Screen 2-3 hazard it was written for, which is still accurate context even when reused from the risk pipeline. Filtering is applied at the router level (mirroring `app/api/routers/stocks.py::get_analysis`'s identical pattern) rather than inside `app.portfolio.exits.evaluate_exit_flags` itself, since `protective_stop` is also called directly from the router (before `evaluate_exit_flags`) and needs the same filtered frame.",
+      "alternatives_considered": "Filtering inside `evaluate_exit_flags`/`protective_stop` themselves (rejected: `protective_stop` is called twice per position in `get_risk` -- once directly, once inside `evaluate_exit_flags` -- so filtering at the router once and reusing the filtered frame avoids a redundant `dropna` pass and keeps both call sites demonstrably fed the same corrected history, the same reasoning already used for the EMA(13)-sharing between them)."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Hardened `drop_malformed_daily_bars` itself to only `dropna(subset=...)` over whichever of open/high/low/close columns are actually present in the input frame, instead of unconditionally naming all four.",
+      "rationale": "Extending the filter into `get_risk` surfaced a latent bug: `pandas.DataFrame.dropna(subset=[...])` raises a bare `KeyError` (not the documented `ValueError`) when a named subset column doesn't exist in the frame at all -- a distinct failure mode from the NaN-*value* one this function targets. Two of `tests/integration/test_portfolio_risk.py`'s existing fixtures intentionally construct a daily frame missing the `low` column outright to exercise `app.portfolio.risk.validate_daily_ohlcv_columns`'s documented `ValueError` -> exclude-the-position path; calling `drop_malformed_daily_bars` before that validation (as this task's router change now does) broke both, replacing the intended graceful 200-with-empty-positions response with an unhandled 500. Restricting the `dropna` subset to columns that actually exist preserves this function's own NaN-row-dropping behavior unchanged for every existing caller (whose frames always have all four columns) while leaving a genuinely missing column for the caller's own column-presence check to raise its documented error for, matching the same division of responsibility `validate_daily_ohlcv_columns`/`validate_weekly_ohlcv_columns` already establish elsewhere in this codebase (validate columns before touching them; let a NaN *value* rather than a missing column be this function's own concern).",
+      "alternatives_considered": "Reordering the router so column validation ran before `drop_malformed_daily_bars` was considered and rejected: `drop_malformed_daily_bars` needs to run on the *full* frame before `protective_stop`'s own internal `.iloc[:-1]` slicing and length check for correctness (see the other decision entry on this task), so a pre-check would have to duplicate `validate_daily_ohlcv_columns`'s exact column set at the router layer instead of fixing the one place (`drop_malformed_daily_bars`) that was actually fragile."
+    },
+    {
+      "timestamp": "2026-09-17T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Deferred applying `drop_malformed_daily_bars` (or an equivalent) to `weekly_ohlcv` rather than proactively filtering it now.",
+      "rationale": "The malformed-bar condition this whole task's filtering defends against is a specific, *observed* yfinance behavior (an unsettled latest daily bar coming back with NaN OHLC) discovered via a real frontend crash on `api-stocks-analysis-nullable-indicators` -- it has never been observed on weekly data. The checklist item itself frames this as speculative and explicitly points at the existing precedent of leaving GET /api/stocks/{ticker}/history's raw daily bars unfiltered absent an observed bug there (docs/tasks/api-stocks-history-followups.json) as the model to mirror. Proactively filtering `weekly_ohlcv` everywhere `evaluate_tide` is called (`app.signals.engine.analyse`, `app.portfolio.exits.evaluate_exit_flags`'s two calls) would also be materially more invasive than the daily-side fix: `evaluate_tide`'s current-vs-previous-tide comparison in `evaluate_exit_flags` relies on precomputed MACD/EMA series staying index-aligned with `weekly_ohlcv` across a `.iloc[:-1]` slice (see that function's own docstring), so dropping rows from `weekly_ohlcv` without also re-deriving those series consistently risks introducing a subtler alignment bug in defense of a condition that has never actually occurred. Tracking it here (this checklist item, left in the task board rather than closed as literally 'not applicable') means it will actually get picked up if a malformed weekly bar is ever observed in practice, per CLAUDE.md's decision-memory rule.",
+      "alternatives_considered": "Proactively filtering `weekly_ohlcv` the same way as `daily_ohlcv` (rejected per the rationale above: speculative fix for an unobserved condition, non-trivial to do correctly given the precomputed-series-sharing between `evaluate_tide` calls in `evaluate_exit_flags`, and against this codebase's own established precedent of fixing observed problems rather than every theoretically-possible one)."
     }
   ]
 }

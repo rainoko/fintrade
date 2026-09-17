@@ -98,12 +98,20 @@ export interface paths {
          *     which only sums positions with a known stop — see `app.portfolio.risk
          *     .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
          *     couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
-         *     task's `decisions` entry), its daily history has fewer than 2 rows (the minimum
-         *     `evaluate_exit_flags` needs to test today's close against yesterday's stop), its weekly
-         *     history couldn't be fetched, or `protective_stop`/`evaluate_exit_flags` raised for a
-         *     malformed frame. `RiskPosition`'s fields are all non-nullable, so a position that can't
-         *     be fully evaluated has no partial representation in this schema — see this task's
-         *     `decisions` entry.
+         *     task's `decisions` entry), its daily history has fewer than 2 rows once any malformed
+         *     bar is dropped (the minimum `evaluate_exit_flags` needs to test today's close against
+         *     yesterday's stop), its weekly history couldn't be fetched, or
+         *     `protective_stop`/`evaluate_exit_flags` raised for a malformed frame. `RiskPosition`'s
+         *     fields are all non-nullable, so a position that can't be fully evaluated has no partial
+         *     representation in this schema — see this task's `decisions` entry.
+         *
+         *     `e.daily_ohlcv` is passed through `app.signals.engine.drop_malformed_daily_bars` before
+         *     `protective_stop`/`evaluate_exit_flags` ever see it — mirroring GET
+         *     /api/stocks/{ticker}/analysis's identical filtering — so a malformed bar anywhere in a
+         *     position's history (not just the very latest one `app.portfolio.pricing._latest_close`
+         *     already excludes a position outright for) can't silently suppress an exit flag via a NaN
+         *     comparison quietly evaluating False. See the api-stocks-analysis-nullable-indicators-
+         *     followups task's `decisions` entry.
          */
         get: operations["get_portfolio_risk"];
         put?: never;

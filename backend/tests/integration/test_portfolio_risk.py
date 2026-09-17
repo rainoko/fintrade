@@ -432,6 +432,84 @@ class TestGetRisk:
         assert body["six_percent_rule_breached"] is False
         assert body["positions"] == []
 
+    def test_malformed_bar_earlier_in_history_does_not_perturb_stop_or_flags(
+        self, db_session: Session
+    ) -> None:
+        """A malformed bar (NaN OHLC) anywhere in a position's daily history -- not just the
+        very latest bar `app.portfolio.pricing._latest_close` already excludes a position
+        outright for -- is dropped via `drop_malformed_daily_bars` before
+        `protective_stop`/`evaluate_exit_flags` ever see it, so the response is identical to
+        what it would be had that malformed bar simply never been fetched. Prepending it ahead
+        of the same quiet history `test_oversized_position_breaches_two_percent_rule_only`
+        uses confirms the filtered frame reduces to exactly that reference scenario."""
+        db_session.add(AccountORM(id=1, cash=6_700.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=30.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        clean_daily = _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)
+        malformed_row = pd.DataFrame(
+            {
+                "open": [float("nan")],
+                "high": [float("nan")],
+                "low": [float("nan")],
+                "close": [float("nan")],
+                "volume": [1_000_000.0],
+            }
+        )
+        daily_with_malformed_bar = pd.concat([malformed_row, clean_daily], ignore_index=True)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily_with_malformed_bar}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        body = response.json()
+
+        expected_risk_pct = 30.0 * _QUIET_DISTANCE / (6_700.0 + 30.0 * 110.0) * 100.0
+        [position] = body["positions"]
+        assert position["protective_stop"] == pytest.approx(_QUIET_STOP)
+        assert position["position_risk_pct"] == pytest.approx(expected_risk_pct)
+        assert position["two_percent_rule_breached"] is True
+        assert "two_percent_rule_breached" in position["exit_flags"]
+
+    def test_malformed_bar_that_drops_history_below_minimum_excludes_position(
+        self, db_session: Session
+    ) -> None:
+        """A 2-row daily frame -- a malformed "yesterday" plus a real "today" -- passes
+        evaluate_exit_flags's raw `len(daily_ohlcv) < 2` check *before* filtering. Without
+        `drop_malformed_daily_bars` applied first, `protective_stop`'s own
+        `.tail(10).min()`/`.mean()` degrade a fully-NaN window to a NaN stop rather than
+        raising (NaN comparisons silently evaluate False, not an error) -- silently producing
+        a NaN `protective_stop`/`position_risk_pct` and suppressing every exit flag instead of
+        excluding the position. With the malformed bar dropped first, only 1 real row is left
+        -- below the minimum -- so the position is excluded from the response instead, the
+        same degrade-gracefully outcome `test_position_with_insufficient_daily_history_is_excluded`
+        already covers for a genuinely single-row history."""
+        db_session.add(AccountORM(id=1, cash=1_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10.0, avg_cost_basis=50.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        malformed_then_real = pd.DataFrame(
+            {
+                "open": [float("nan"), 100.0],
+                "high": [float("nan"), 101.0],
+                "low": [float("nan"), 99.0],
+                "close": [float("nan"), 100.0],
+                "volume": [1_000_000.0, 1_000_000.0],
+            }
+        )
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": malformed_then_real}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        assert response.json()["positions"] == []
+
     def test_stop_hit_flag_surfaces_in_exit_flags(self, db_session: Session) -> None:
         # 10 quiet days establishing a stop near 98, then a sharp gap-down close today that
         # breaches it -- mirrors test_portfolio_exits.py's TestEvaluateExitFlagsEndToEnd
