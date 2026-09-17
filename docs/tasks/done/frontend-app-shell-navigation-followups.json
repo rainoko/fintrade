@@ -3,7 +3,7 @@
   "title": "Frontend app shell/navigation — non-blocking review follow-ups",
   "area": "frontend/layout",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-app-shell-navigation"],
   "references": [
     "docs/tasks/done/frontend-app-shell-navigation.json#review",
@@ -50,5 +50,18 @@
     "pr_number": 83,
     "pr_url": "https://github.com/rainoko/fintrade/pull/83",
     "pushed_at": "2026-09-17T06:35:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-17T06:33:46Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/83",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Minor/non-blocking: AppErrorBoundary's fallback UI hardcodes `minHeight: '100vh'` and 'reload the app' copy, a whole-app-page assumption baked into an otherwise domain-agnostic, generically-reusable component. This slightly undercuts the PR's own stated rationale for the common/ move ('could later wrap just a feature subtree') — a subtree-scoped instance would inherit full-viewport-sized fallback chrome. Tracked as a follow-up (frontend-app-shell-navigation-followups-followups) rather than blocking, since it doesn't affect current behavior (the component is only instantiated once, wrapping the whole app, where 100vh is correct today).",
+        "file": "frontend/src/components/common/AppErrorBoundary/AppErrorBoundary.tsx",
+        "line": 62
+      }
+    ],
+    "notes": "Full review of PR #83, all three checklist items verified against the diff (git diff main...HEAD): (1) nested <nav> fix — AppShell.tsx's outer Box no longer carries component=\"nav\", NavDrawer's List remains the sole landmark, with a new regression test asserting getAllByRole('navigation') has length 1; confirmed live in a real browser (Playwright/chromium against `npm run dev`) at both desktop width (1 landmark) and narrow width in both drawer-closed (0, temporary Drawer unmounted) and drawer-open (1, not nested) states — matches the fix exactly. (2) matchMedia dedup — frontend/tests/mockMatchMedia.ts now holds the single MediaQueryList mock shape behind installDefaultMatchMedia (setup.ts's global default) and mockMatchMedia (AppShell.test.tsx's per-test override); both call sites use it, no drift. (3) AppErrorBoundary moved to components/common/AppErrorBoundary/ with a colocated Storybook story (RendersChildren + CaughtError, the latter deliberately throwing to exercise the fallback) — verified both stories render correctly in a live Storybook instance (chromium screenshots), no console/page errors. Placement re-assessed per step 7a independent of the task's own decisions entry: AppErrorBoundary is fully domain-agnostic (no position/ticker/signal knowledge) and Frontend.md §3 defines layout/ as 'app shell, not reusable outside this app', which AppErrorBoundary's catch-any-render-crash behavior clearly isn't scoped to — common/ is the correct placement, not a genuinely arguable case. Backend: 488 tests passed, 99.84% coverage (pytest --cov=app --cov-fail-under=90; no backend files touched by this PR). Frontend: 193 tests passed across 35 files, 99.7%/99.6%/100%/99.7% stmt/branch/func/line coverage (vitest run --coverage), `npm run lint` clean, `npm run build` (tsc -b && vite build) clean. code-review skill (medium effort) found zero issues. No API route/schema touched, so no OpenAPI snapshot regeneration required. Browser walkthrough performed (this PR touches layout/nav components): golden path (desktop dashboard load, nav-link click to /portfolio, exactly one nav landmark throughout) and edge case (375px-wide viewport hamburger toggle open/close, drawer variant switch) both via a headless Chromium driven by a standalone Playwright script (no MCP browser tools were available in this session) against `npm run dev` + a locally running backend (`uvicorn app.main:app`); console/network monitored throughout — the only error surfaced was a pre-existing CORS rejection between the dev servers on different ports (`localhost:5173` -> `localhost:8000`, no CORS middleware configured in app/main.py), unrelated to this PR's diff and out of scope (not filed as a follow-up under this task since it isn't a finding about the reviewed change). One non-blocking finding (100vh fallback sizing, above) filed as a follow-up task per CLAUDE.md's autonomous-pipeline rule rather than left only as a PR comment. Decisions entries are well-formed (state what was decided and why, including explicitly rejected alternatives) for all three checklist items — no undecided 'decide X' checklist phrasing to cross-check. No pr_decision field existed on this task prior to this review, so nothing needed clearing."
   }
 }
