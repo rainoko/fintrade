@@ -127,6 +127,27 @@ class PositionOut(BaseModel):
     entry_date: date
     current_price: float | None = Field(default=None, description="Null only if the latest price fetch for this ticker failed.")
     unrealized_pnl_pct: float | None = Field(default=None, description="(current_price - avg_cost_basis) / avg_cost_basis, as a percentage. Null under the same condition as current_price.")
+    signal: Signal | None = Field(
+        default=None,
+        description="BUY/SELL/HOLD from the exact same Triple Screen signal engine "
+        "GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- "
+        "not a separately-implemented buy check. Null if this position's signal couldn't be "
+        "computed right now -- either its current_price fetch already failed (see "
+        "current_price's own description), or that fetch succeeded but the separate weekly-"
+        "history fetch the signal engine additionally needs (for Screen 1/Tide) failed -- "
+        "mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole "
+        "request or dropping the position. See the api-portfolio-position-signal task's "
+        "`decisions`.",
+    )
+    confidence: int | None = Field(
+        default=None,
+        description="Same 0-100 weighted composite score as AnalysisResponse.confidence. "
+        "Null under the same condition as `signal`.",
+    )
+    confidence_band: ConfidenceBand | None = Field(
+        default=None,
+        description="Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.",
+    )
 
 
 class PortfolioResponse(BaseModel):

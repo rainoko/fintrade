@@ -426,6 +426,35 @@
             "title": "Avg Cost Basis",
             "type": "number"
           },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same 0-100 weighted composite score as AnalysisResponse.confidence. Null under the same condition as `signal`.",
+            "title": "Confidence"
+          },
+          "confidence_band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Low",
+                  "Medium",
+                  "High"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.",
+            "title": "Confidence Band"
+          },
           "current_price": {
             "anyOf": [
               {
@@ -450,6 +479,23 @@
           "quantity": {
             "title": "Quantity",
             "type": "number"
+          },
+          "signal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "BUY",
+                  "SELL",
+                  "HOLD"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md \u00a75) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), or that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.",
+            "title": "Signal"
           },
           "ticker": {
             "title": "Ticker",
@@ -804,7 +850,7 @@
   "paths": {
     "/api/portfolio": {
       "get": {
-        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in\n`app.portfolio.pricing` (shared with GET /api/portfolio/risk) \u2014 see the\napi-portfolio-risk task's `decisions` entry.",
+        "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in\n`app.portfolio.pricing` (shared with GET /api/portfolio/risk) \u2014 see the\napi-portfolio-risk task's `decisions` entry.\n\n`signal`/`confidence`/`confidence_band` on each position come from the exact same\nTriple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md \u00a75) GET\n/api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal\ncomputation. Null together on a position whose signal couldn't be computed right now\n(its price fetch already failed, or the separate weekly-history fetch the signal engine\nneeds failed), mirroring `current_price`'s own null-on-failure convention and\nWatchlistItemOut's identical precedent -- the position itself is still returned, never\ndropped or 500'd, just as a price-fetch failure never drops it -- see the\napi-portfolio-position-signal task's `decisions` entry.",
         "operationId": "get_portfolio",
         "responses": {
           "200": {
@@ -826,7 +872,7 @@
     },
     "/api/portfolio/positions": {
       "post": {
-        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands.",
+        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.",
         "operationId": "add_position",
         "requestBody": {
           "content": {

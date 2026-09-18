@@ -21,6 +21,16 @@ export interface paths {
          *     task's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in
          *     `app.portfolio.pricing` (shared with GET /api/portfolio/risk) — see the
          *     api-portfolio-risk task's `decisions` entry.
+         *
+         *     `signal`/`confidence`/`confidence_band` on each position come from the exact same
+         *     Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
+         *     /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
+         *     computation. Null together on a position whose signal couldn't be computed right now
+         *     (its price fetch already failed, or the separate weekly-history fetch the signal engine
+         *     needs failed), mirroring `current_price`'s own null-on-failure convention and
+         *     WatchlistItemOut's identical precedent -- the position itself is still returned, never
+         *     dropped or 500'd, just as a price-fetch failure never drops it -- see the
+         *     api-portfolio-position-signal task's `decisions` entry.
          */
         get: operations["get_portfolio"];
         put?: never;
@@ -50,7 +60,9 @@ export interface paths {
          *     the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
          *     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
          *     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
-         *     lands.
+         *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
+         *     reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
+         *     POST /api/watchlist's identical null-on-write convention for the same fields.
          */
         post: operations["add_position"];
         delete?: never;
@@ -555,6 +567,16 @@ export interface components {
             /** Avg Cost Basis */
             avg_cost_basis: number;
             /**
+             * Confidence
+             * @description Same 0-100 weighted composite score as AnalysisResponse.confidence. Null under the same condition as `signal`.
+             */
+            confidence?: number | null;
+            /**
+             * Confidence Band
+             * @description Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.
+             */
+            confidence_band?: ("Low" | "Medium" | "High") | null;
+            /**
              * Current Price
              * @description Null only if the latest price fetch for this ticker failed.
              */
@@ -568,6 +590,11 @@ export interface components {
             id: string;
             /** Quantity */
             quantity: number;
+            /**
+             * Signal
+             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), or that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
+             */
+            signal?: ("BUY" | "SELL" | "HOLD") | null;
             /** Ticker */
             ticker: string;
             /**

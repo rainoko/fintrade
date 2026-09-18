@@ -3,7 +3,7 @@
   "title": "Backend: annotate each portfolio position with its current signal",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#5-signal-logic-buy--sell--hold",
@@ -13,12 +13,22 @@
   ],
   "description": "User request: every list of tickers in the UI must show its BUY/HOLD/SELL signal, including existing portfolio positions -- not just the watchlist (which api-watchlist already does). GET /api/portfolio's PositionOut currently enriches each position with market data (current_price/unrealized_pnl_pct) via an existing per-position pipeline in backend/app/api/routers/portfolio.py, but has no signal field. Extend PositionOut with nullable signal/confidence/confidence_band fields, computed by reusing the existing signal engine (backend/app/signals/engine.py's analyse()) against that same per-position market-data fetch -- do not implement a second/divergent signal computation. Follow the exact nullable-on-failure precedent already established by api-watchlist's WatchlistItemOut (a ticker whose signal can't be computed gets null fields, not a failed request or a dropped position) rather than inventing a new convention.",
   "checklist": [
-    { "step": "Add nullable signal/confidence/confidence_band fields to PositionOut in backend/app/api/schemas.py, with field descriptions per CLAUDE.md's API documentation standard.", "done": false },
-    { "step": "Compute them in backend/app/api/routers/portfolio.py's get_portfolio, reusing the existing per-position market-data fetch and the signal engine's analyse() -- do not add a second signal computation path.", "done": false },
-    { "step": "Follow api-watchlist's nullable-on-failure precedent exactly (a position whose signal can't be computed gets null fields, the endpoint still returns the position) -- record as a decisions entry only if any deviation from that precedent is needed, otherwise just cite it.", "done": false },
-    { "step": "Tests: positions with a computable signal, a position whose signal computation fails (nullable fields), confirm current_price/unrealized_pnl_pct behavior is unaffected.", "done": false },
-    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": false }
+    { "step": "Add nullable signal/confidence/confidence_band fields to PositionOut in backend/app/api/schemas.py, with field descriptions per CLAUDE.md's API documentation standard.", "done": true },
+    { "step": "Compute them in backend/app/api/routers/portfolio.py's get_portfolio, reusing the existing per-position market-data fetch and the signal engine's analyse() -- do not add a second signal computation path.", "done": true },
+    { "step": "Follow api-watchlist's nullable-on-failure precedent exactly (a position whose signal can't be computed gets null fields, the endpoint still returns the position) -- record as a decisions entry only if any deviation from that precedent is needed, otherwise just cite it.", "done": true },
+    { "step": "Tests: positions with a computable signal, a position whose signal computation fails (nullable fields), confirm current_price/unrealized_pnl_pct behavior is unaffected.", "done": true },
+    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": true }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "GET /api/portfolio's per-position signal computation reuses enrich_positions_with_price's already-fetched e.daily_ohlcv (no second daily fetch), but issues its own additional provider.get_weekly_ohlcv(ticker) call per position -- the same extra weekly fetch GET /api/portfolio/risk already makes for the same reason (Screen 1/Tide needs weekly history that enrich_positions_with_price never fetches). A position's signal fields go null if either that position's e.daily_ohlcv is None (its price fetch already failed) or the weekly fetch raises DataProviderError, mirroring api-watchlist's WatchlistItemOut nullable-on-failure precedent exactly (no deviation) -- a position is never dropped or the request 500'd just because its signal, specifically, couldn't be computed, even when its price/pnl are perfectly fine.",
+      "rationale": "Rejected duplicating GET /api/portfolio/risk's own weekly-fetch-plus-caching logic into a shared helper in this change: get_risk's weekly fetch is entangled with its own protective_stop/evaluate_exit_flags pipeline and stops/weekly_by_id/daily_by_id caching, which has nothing to do with a fresh entry signal; forcing a shared abstraction now would couple two independently-evolving concerns (risk/exit evaluation vs. entry signal annotation) for a marginal reduction in one fetch call, especially since the underlying market data is already cached by app.data.cache regardless -- a second GET /api/portfolio/risk-style weekly fetch in the same request cycle is a cache hit in practice, not a real duplicate network round trip. Kept the new _compute_position_signal as a small, self-contained helper next to _ordered_positions instead, matching the narrow DataProviderError-only catch app.api.routers.watchlist._compute_signal already established (so a genuine bug in analyse() itself still surfaces as a loud 500 in tests/CI rather than being silently swallowed into a null field)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-position-signal"
+  }
 }

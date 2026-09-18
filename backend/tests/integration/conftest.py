@@ -80,13 +80,18 @@ class _StubDailyProvider:
     fixed daily frame, so every ticker is a guaranteed cache miss on its first fetch --
     CachedDataProvider._upsert() commits mid-loop as a result, which is the exact scenario
     those tests reproduce. Never used as the fallback provider (no caller here exercises a
-    fallback path), and `get_weekly_ohlcv` is unused by either test."""
+    fallback path). `get_weekly_ohlcv` returns a fixed flat frame -- unused by
+    test_portfolio_pricing_session.py (which calls `enrich_positions_with_price` directly,
+    never touching the signal engine's weekly fetch), but exercised by
+    test_portfolio_get_db_wiring.py, which goes through the real GET /api/portfolio handler
+    end to end and so also triggers the api-portfolio-position-signal per-position signal
+    computation's own weekly fetch."""
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         return _frame([100.0, 110.0])
 
-    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused here
-        raise NotImplementedError
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        return _frame([100.0, 110.0])
 
 
 def _count_position_selects(engine: Engine, fn) -> int:

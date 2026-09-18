@@ -23,9 +23,9 @@ from app.db.session import get_db
 from app.portfolio.exits import evaluate_exit_flags
 from app.portfolio.models import Account
 from app.portfolio.models import Equity as DomainEquity
-from app.portfolio.pricing import enrich_positions_with_price, positions_value
+from app.portfolio.pricing import EnrichedPosition, enrich_positions_with_price, positions_value
 from app.portfolio.risk import position_risk_pct, protective_stop, total_open_risk_pct
-from app.signals.engine import drop_malformed_daily_bars
+from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -44,6 +44,33 @@ def _ordered_positions(db: Session) -> list[PositionORM]:
     neither relies on incidental SQLite row-return order -- see this task's `decisions`
     entry."""
     return db.query(PositionORM).order_by(PositionORM.entry_date, PositionORM.id).all()
+
+
+def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> SignalResult | None:
+    """Runs the same fetch-then-`analyse()` pipeline `GET /api/stocks/{ticker}/analysis` and
+    `GET /api/watchlist` use, for a single already-price-enriched position, returning `None`
+    instead of raising if the signal can't be computed right now -- see the
+    api-portfolio-position-signal task's `decisions` entry.
+
+    Reuses `e.daily_ohlcv` (the same fetch `enrich_positions_with_price` already made to
+    derive `current_price`) rather than fetching daily data a second time; a `None`
+    `e.daily_ohlcv` means that fetch already failed, so the signal is unconditionally
+    unavailable too (mirrors `app.api.routers.portfolio.get_risk`'s identical
+    `e.position.current_price is None or e.daily_ohlcv is None` guard). Only the weekly
+    history (needed for Screen 1/Tide, not fetched by `enrich_positions_with_price` at all)
+    is fetched here, degrading to `None` on `DataProviderError` -- the same narrow
+    (not bare `except Exception`) catch `app.api.routers.watchlist._compute_signal` uses, so a
+    genuine bug in `analyse()` itself still surfaces as a loud 500 rather than a silently
+    swallowed null field."""
+    if e.daily_ohlcv is None:
+        return None
+    try:
+        weekly_ohlcv = provider.get_weekly_ohlcv(e.position.ticker)
+    except DataProviderError:
+        return None
+
+    daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)
+    return analyse(e.position.ticker, daily_ohlcv, weekly_ohlcv)
 
 
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
@@ -70,25 +97,40 @@ def get_portfolio(
     (it can't be marked to market) rather than falling back to cost basis — see this
     task's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in
     `app.portfolio.pricing` (shared with GET /api/portfolio/risk) — see the
-    api-portfolio-risk task's `decisions` entry."""
+    api-portfolio-risk task's `decisions` entry.
+
+    `signal`/`confidence`/`confidence_band` on each position come from the exact same
+    Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
+    /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
+    computation. Null together on a position whose signal couldn't be computed right now
+    (its price fetch already failed, or the separate weekly-history fetch the signal engine
+    needs failed), mirroring `current_price`'s own null-on-failure convention and
+    WatchlistItemOut's identical precedent -- the position itself is still returned, never
+    dropped or 500'd, just as a price-fetch failure never drops it -- see the
+    api-portfolio-position-signal task's `decisions` entry."""
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 
     enriched = enrich_positions_with_price(_ordered_positions(db), provider)
     value = positions_value(enriched)
 
-    positions_out = [
-        PositionOut(
-            id=e.position.id,
-            ticker=e.position.ticker,
-            quantity=e.position.quantity,
-            avg_cost_basis=e.position.avg_cost_basis,
-            entry_date=e.position.entry_date,
-            current_price=e.position.current_price,
-            unrealized_pnl_pct=e.position.unrealized_pnl_pct,
+    positions_out: list[PositionOut] = []
+    for e in enriched:
+        signal_result = _compute_position_signal(e, provider)
+        positions_out.append(
+            PositionOut(
+                id=e.position.id,
+                ticker=e.position.ticker,
+                quantity=e.position.quantity,
+                avg_cost_basis=e.position.avg_cost_basis,
+                entry_date=e.position.entry_date,
+                current_price=e.position.current_price,
+                unrealized_pnl_pct=e.position.unrealized_pnl_pct,
+                signal=signal_result.signal if signal_result is not None else None,
+                confidence=signal_result.confidence if signal_result is not None else None,
+                confidence_band=signal_result.confidence_band if signal_result is not None else None,
+            )
         )
-        for e in enriched
-    ]
 
     return PortfolioResponse(
         equity=Equity(cash=cash, positions_value=value, total=cash + value),
@@ -131,7 +173,9 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
-    lands."""
+    lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
+    reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
+    POST /api/watchlist's identical null-on-write convention for the same fields."""
     ticker = position.ticker.upper()
     existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
 
@@ -195,6 +239,9 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         entry_date=row.entry_date,
         current_price=None,
         unrealized_pnl_pct=None,
+        signal=None,
+        confidence=None,
+        confidence_band=None,
     )
 
 

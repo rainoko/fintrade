@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
-from app.data.exceptions import TickerNotFoundError
+from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
 from app.db.models import AccountORM, PositionORM
 from app.db.session import get_db
 from app.main import app
@@ -37,21 +37,48 @@ def _frame(closes: list[float]) -> pd.DataFrame:
     )
 
 
+def _hold_weekly_ohlcv() -> pd.DataFrame:
+    # Flat weekly prices -- Screen 1 (Tide) degrades to NEUTRAL, which alone is enough to
+    # keep the combined signal HOLD regardless of the daily side. Same fixture shape as
+    # tests/integration/test_watchlist.py's identically-named helper.
+    return pd.DataFrame(
+        {
+            "open": [100.0] * 30,
+            "high": [101.0] * 30,
+            "low": [99.0] * 30,
+            "close": [100.0] * 30,
+            "volume": [1_000_000] * 30,
+        },
+        index=pd.date_range("2025-01-01", periods=30, freq="W", name="date"),
+    )
+
+
 class _StubProvider:
     """A minimal DataProvider stand-in: returns a fixed close series per ticker, or raises
-    a fixed exception for tickers listed in `failing`."""
+    a fixed exception for tickers listed in `failing`. `weekly_failing` independently governs
+    `get_weekly_ohlcv` (only), so a test can exercise "price fetch succeeded, signal's extra
+    weekly fetch failed" without also failing the daily/price side."""
 
-    def __init__(self, *, prices: dict[str, list[float]] | None = None, failing: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        prices: dict[str, list[float]] | None = None,
+        failing: set[str] | None = None,
+        weekly_failing: set[str] | None = None,
+    ) -> None:
         self._prices = prices or {}
         self._failing = failing or set()
+        self._weekly_failing = weekly_failing or set()
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing:
             raise TickerNotFoundError(ticker)
         return _frame(self._prices[ticker])
 
-    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:  # pragma: no cover - unused by GET /api/portfolio
-        raise NotImplementedError
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        if ticker in self._failing or ticker in self._weekly_failing:
+            raise DataProviderUnavailableError("provider down")
+        return _hold_weekly_ohlcv()
 
 
 def _make_client(db_session: Session, provider) -> TestClient:
@@ -307,3 +334,115 @@ class TestGetPortfolio:
         assert by_ticker["AAPL"]["current_price"] == pytest.approx(150.0)
         assert by_ticker["ZZZZ"]["current_price"] is None
         assert body["equity"]["positions_value"] == pytest.approx(10 * 150.0)
+
+
+class TestGetPortfolioSignal:
+    """Covers this task's checklist item 4: a position with a computable signal, a position
+    whose signal computation fails (nullable fields), and that current_price/unrealized_pnl_pct
+    are unaffected either way."""
+
+    def test_position_with_computable_signal_gets_non_null_signal_fields(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(prices={"AAPL": [110.0]})
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        # Flat/short daily history + flat weekly history degrades gracefully to HOLD (see
+        # app.signals.engine.analyse's own docstring) -- what matters here is that a signal
+        # was computed at all, not which one.
+        assert position["signal"] == "HOLD"
+        assert position["confidence"] == 0
+        assert position["confidence_band"] == "Low"
+        # current_price/unrealized_pnl_pct are unaffected by the added signal computation.
+        assert position["current_price"] == pytest.approx(110.0)
+        assert position["unrealized_pnl_pct"] == pytest.approx((110.0 - 100.0) / 100.0 * 100.0)
+
+    def test_price_fetch_failure_also_nulls_signal_fields(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="ZZZZ", quantity=10, avg_cost_basis=50.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(failing={"ZZZZ"})
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["current_price"] is None
+        assert position["unrealized_pnl_pct"] is None
+        assert position["signal"] is None
+        assert position["confidence"] is None
+        assert position["confidence_band"] is None
+
+    def test_weekly_fetch_failure_nulls_only_signal_fields_price_still_populated(
+        self, db_session: Session
+    ) -> None:
+        """A position whose *price* fetch succeeded but whose signal-only weekly fetch failed
+        still returns a fully-populated current_price/unrealized_pnl_pct -- only the
+        signal/confidence/confidence_band fields go null -- since the position is never
+        dropped just because its signal couldn't be computed (this task's description)."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(prices={"AAPL": [110.0]}, weekly_failing={"AAPL"})
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["current_price"] == pytest.approx(110.0)
+        assert position["unrealized_pnl_pct"] == pytest.approx((110.0 - 100.0) / 100.0 * 100.0)
+        assert position["signal"] is None
+        assert position["confidence"] is None
+        assert position["confidence_band"] is None
+
+    def test_mixed_computable_and_signal_failing_positions(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.add(
+            PositionORM(id="pos_2", ticker="MSFT", quantity=5, avg_cost_basis=300.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(
+            prices={"AAPL": [110.0], "MSFT": [330.0]}, weekly_failing={"MSFT"}
+        )
+        test_client = _make_client(db_session, provider)
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        by_ticker = {p["ticker"]: p for p in response.json()["positions"]}
+        assert by_ticker["AAPL"]["signal"] == "HOLD"
+        assert by_ticker["MSFT"]["signal"] is None
+        # Both positions still contribute their known price to positions_value.
+        assert by_ticker["MSFT"]["current_price"] == pytest.approx(330.0)
