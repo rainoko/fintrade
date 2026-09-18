@@ -1,0 +1,63 @@
+{
+  "id": "frontend-e2e-tests-followups",
+  "title": "Frontend e2e test suite — non-blocking review follow-ups",
+  "area": "frontend/testing",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-e2e-tests"],
+  "references": [
+    "docs/tasks/frontend-e2e-tests.json#review",
+    "https://github.com/rainoko/fintrade/pull/103"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #103 (frontend-e2e-tests), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "README.md's new 'End-to-end tests' section (added by PR #103) replaced the previous '## MCP servers' heading but never restored a heading for the paragraph that used to sit under it ('MCP server configuration lives in .mcp.json ...') — that paragraph is now headless, directly under the new e2e section's content with no '## MCP servers' heading above it, plus a doubled blank line was left behind. Add back a '## MCP servers' heading immediately before that paragraph and clean up the extra blank line.",
+      "done": true
+    },
+    {
+      "step": "backend/app/data/fixture_provider.py's get_weekly_ohlcv (line 88) recomputes the full synthetic daily series from scratch via its own independent call to _series(ticker) instead of resampling the frame get_daily_ohlcv already builds. Not a correctness issue (both calls are seeded identically so results are always consistent), just wasted work -- any request needing both daily and weekly data for the same ticker (e.g. the stock-analysis page, which the e2e suite hits directly) runs the same ~420-iteration RNG loop twice. Simplify get_weekly_ohlcv to resample self.get_daily_ohlcv(ticker)'s own output instead of calling self._series(ticker) a second time.",
+      "done": true
+    },
+    {
+      "step": "frontend/playwright.config.ts is not included in either tsconfig.app.json's or tsconfig.node.json's `include` array, so `npx tsc -b --noEmit` (and therefore `npm run build`) never type-checks it -- Playwright only validates it at its own runtime when `npm run test:e2e` is actually invoked. Add it to tsconfig.node.json's `include` (it's a Node-context config file, matching vite.config.ts's placement) so a type error in it surfaces at build/lint time rather than only when someone happens to run the e2e suite.",
+      "done": true
+    }
+  ],
+  "decisions": [],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-e2e-tests-followups",
+    "pr_number": 104,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/104",
+    "pushed_at": "2026-09-18T08:03:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T08:08:47Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/104",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "README.md fix verified: '## MCP servers' heading restored immediately before the 'MCP server configuration lives in .mcp.json ...' paragraph, doubled blank line removed. Rendered context checked directly.",
+        "file": "README.md",
+        "line": 113
+      },
+      {
+        "summary": "frontend/tsconfig.node.json now includes playwright.config.ts. Verified with `npx tsc -p tsconfig.node.json --listFiles --noEmit`, which now lists playwright.config.ts and its @playwright/test type deps; `npx tsc -b --noEmit` and `npm run lint` both clean.",
+        "file": "frontend/tsconfig.node.json",
+        "line": 25
+      },
+      {
+        "summary": "fixture_provider.py's get_weekly_ohlcv now calls self.get_daily_ohlcv(ticker) instead of self._series(ticker) directly. Verified the resample logic itself is sound and correct: get_weekly_ohlcv('AAPL')'s output is .equals() to a manual daily.resample('W-FRI', agg=...) performed on get_daily_ohlcv('AAPL')'s own output -- byte-identical, no NaNs, monotonic index, correct index name. Also confirmed determinism (get_daily_ohlcv is a pure function of ticker, no shared mutable state, so calling it a second time from get_weekly_ohlcv is safe). Non-blocking finding filed as a follow-up: this change does not actually achieve the performance goal its own commit message and the PR #103 follow-up item describe -- get_daily_ohlcv has no memoization, so a request that calls both provider.get_daily_ohlcv(ticker) and provider.get_weekly_ohlcv(ticker) for the same ticker (app/api/routers/stocks.py, app/api/routers/watchlist.py both do this) still runs the ~420-iteration RNG loop twice, unchanged from before. See docs/tasks/frontend-e2e-tests-followups-followups.json.",
+        "file": "backend/app/data/fixture_provider.py",
+        "line": 88
+      },
+      {
+        "summary": "Re-ran the full frontend e2e suite (npx playwright test, 4 spec files / 12 tests) against this branch: all 12 passed, including stock-analysis.spec.ts's range/interval toggle test which exercises get_weekly_ohlcv via GET /api/stocks/AAPL/history?range=6m&interval=weekly. No console errors, no unexpected network failures.",
+        "file": "backend/app/data/fixture_provider.py",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (559 passed, 99.86% coverage, no regression), frontend vitest run --coverage (99.71% lines, no regression), backend ruff+mypy clean, frontend eslint+tsc -b clean, code-review skill (medium effort) found no correctness bugs. This PR touches no API routes/schemas (openapi.json unaffected) and adds no new module/dependency (architecture-review not triggered) and no frontend components (placement check not applicable). Re-ran the e2e suite directly per the review request since fixture_provider.py backs its data -- all 12 specs pass. One non-blocking finding (fixture_provider.py's fix doesn't achieve its stated RNG-loop-dedup goal, though it's not a correctness bug and the resample logic itself is verified sound) filed as docs/tasks/frontend-e2e-tests-followups-followups.json. No checklist items phrased as 'decide X' in this task, so no decisions-array gap."
+  }
+}
