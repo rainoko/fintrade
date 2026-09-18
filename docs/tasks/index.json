@@ -635,7 +635,7 @@
       "id": "api-stocks-indicator-history",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/api-stocks-indicator-history.json"
     },
     {
