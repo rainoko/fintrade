@@ -698,8 +698,8 @@
       "id": "frontend-oscillator-chart-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-oscillator-chart-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-oscillator-chart-followups-followups.json"
     },
     {
       "id": "watchlist-domain-models",
