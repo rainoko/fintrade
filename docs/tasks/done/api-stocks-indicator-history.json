@@ -84,5 +84,10 @@
       }
     ],
     "notes": "Re-review (retry round 2). Backend: 519 passed, 99.84% coverage (ruff clean, mypy clean). Frontend: 99.71%/99.64%/100%/99.71% (statements/branches/functions/lines), eslint clean, tsc clean. backend/openapi.json and frontend/src/api/types.ts both regenerate byte-identical to what's committed (re-ran scripts/export_openapi.py and npm run generate:api-types directly, git status clean after both). No frontend consumer of GET /api/stocks/{ticker}/indicators exists yet (confirmed via grep), so no UI surface to browser-walk -- consistent with round 1. code-review (medium effort) against the round-1-to-round-2 diff (3e90dd4..HEAD) returned zero findings after an independent hand-verification of the weekday-offset arithmetic, the evaluate_tide short-history fallback, and the single caller's usage. All checklist 'decide X' items have corresponding decisions entries, including the new decisions entry recording this fix and its rationale. Verdict: accepted -- the round-1 blocking finding is resolved and no new blocking or non-blocking issues found this round."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T06:50:44Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing: 519 passed, 99.84% coverage, matching review notes. Re-ran scripts/export_openapi.py: byte-identical to committed backend/openapi.json (git status clean after). Independently verified _weekly_through_bar_date() by computing its week_friday offset for all 7 weekdays against pandas' actual resample('W-FRI') bin labels on a synthetic series -- all 7 matched exactly -- and by direct truncation checks on a real W-FRI-labeled weekly frame confirming an earlier bar's window excludes later weekly bars (fewer rows, earlier last label) while the latest daily bar's window reduces to the full untruncated weekly series (the last-point-matches-/analysis invariant). Skimmed the full diff (engine.py, stocks.py router, schemas.py, API.md/Frontend.md doc updates, followups task) -- consistent with the review's claims, no underweighted findings."
   }
 }
