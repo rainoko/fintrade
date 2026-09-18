@@ -819,6 +819,13 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-stock-detail-metric-help.json"
+    },
+    {
+      "id": "frontend-signal-why-explanation",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-signal-why-explanation.json"
     }
   ]
 }
