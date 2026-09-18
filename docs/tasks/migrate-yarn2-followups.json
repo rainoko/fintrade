@@ -1,0 +1,21 @@
+{
+  "id": "migrate-yarn2-followups",
+  "title": "Yarn Berry migration — non-blocking review follow-ups",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["migrate-yarn2"],
+  "references": [
+    "docs/tasks/migrate-yarn2.json#review",
+    "https://github.com/rainoko/fintrade/pull/116"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #116 (migrate-yarn2), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "backend/app/config.py:19 and backend/app/data/fixture_provider.py:2 still say \"run via `npm run test:e2e`\" in their docstrings/comments -- missed by migrate-yarn2's repo-wide npm-to-yarn sweep (both files are outside that task's own `references` list, which is presumably why the sweep didn't catch them). Comment-only, no functional effect, but should read `yarn test:e2e` to match the rest of the repo post-migration.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

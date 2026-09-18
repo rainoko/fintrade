@@ -3,7 +3,7 @@
   "title": "Migrate frontend package manager from npm to Yarn 2+ (Yarn Berry)",
   "area": "infra",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/package.json",
@@ -52,5 +52,23 @@
     "pr_number": 116,
     "pr_url": "https://github.com/rainoko/fintrade/pull/116",
     "pushed_at": "2026-09-18T13:08:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T13:18:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/116",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "frontend/README.md's Scripts table (edited by this PR to rename npm commands to yarn) no longer matches Prettier's expected column padding: `yarn format:check` / `node_modules/.bin/prettier --check README.md` fails (exit 1) on this file. Confirmed this is newly introduced by this PR, not pre-existing drift, by checking out the pre-PR revision of frontend/README.md and running the same check (passes cleanly there). Purely cosmetic (`prettier --write` only needs to widen column 1 by one space and narrow column 2's separator by one dash), but this project has direct precedent for treating exactly this failure mode as blocking rather than a follow-up: docs/tasks/done/frontend-api-client.json's review history (PR #63) required a dedicated fix commit for the identical class of README table-padding regression before acceptance.",
+        "file": "frontend/README.md",
+        "line": 11
+      },
+      {
+        "summary": "backend/app/config.py and backend/app/data/fixture_provider.py still reference `npm run test:e2e` in their docstrings/comments -- missed by the repo-wide npm-to-yarn sweep this task's checklist called for. Comment-only, no functional effect.",
+        "file": "backend/app/config.py",
+        "line": 19
+      }
+    ],
+    "notes": "Full verification pass, not just a diff read. Confirmed clean from a genuinely fresh install: `rm -rf node_modules && yarn install --immutable` succeeds with no npm involvement. Ran and confirmed passing: yarn build, yarn lint, yarn tsc -b --noEmit, yarn test:coverage (269/269, 99.6%/99.21%/100%/99.6%), yarn build-storybook, make e2e (13/13 specs, real backend+frontend booted via the new yarn dev/yarn test:e2e wiring, including the 'no console errors on load' spec), backend ruff/mypy (clean) and pytest --cov (560/560, 99.86%, no regression either side). Verified the resolutions translation is correct: yarn.lock hoists a single typescript@npm:6.0.3 with nothing nested under openapi-typescript, and `yarn generate:api-types` reproduces src/api/types.ts byte-for-byte identical to the committed file (no API/schema changes in this PR, so no openapi.json staleness concern either). Independently reproduced the jsdom pin's justification: bumping jsdom back to ^30.1.0 and reinstalling reliably reproduces the exact same 9 FocusTrap-related test failures described in the task's decisions entry, confirming it's a genuine unrelated jsdom regression rather than something masking a real Yarn-migration issue. Verified the vendored frontend/.yarn/releases/yarn-4.18.0.cjs is byte-for-byte identical (sha256) to the real upstream https://repo.yarnpkg.com/4.18.0/packages/yarnpkg-cli/bin/yarn.js fetched fresh -- genuine, not tampered. Checked .devcontainer/post-create.sh's corepack enable placement: no automatic frontend-install step exists in that script to race with it, so ordering is fine for a fresh container build. Repo-wide grep for npm run/npm install/npx outside node_modules/.git/docs/tasks (historical records deliberately left as-is) found the two backend comment misses recorded above, otherwise clean and consistent across Makefile, both READMEs, docs/architecture/{Frontend,Testing}.md, and the three .claude/skills/*/SKILL.md files. Ran the code-review skill (medium effort) independently; it found the identical README.md/format:check issue and otherwise cleared the diff (no other correctness bugs, resolutions/jsdom/gitignore pattern all independently confirmed correct). architecture-review checklist walked explicitly: no backend/signal/API changes in this PR (pure build tooling) so verify-elder-signal doesn't apply; no layering/dependency-table/coverage-gate/API-contract issues, vite.config.ts's coverage thresholds and pyproject.toml's gate are untouched (comment-only diffs), no new architectural layer introduced. All three decisions entries are well-reasoned and the checklist's linker-mode 'decide X' item has a corresponding decisions record -- no undocumented judgment calls. No UI feature was added by this PR (pure tooling migration); browser-facing risk was covered via make e2e's real-Chromium run (13/13, including its console-error check) plus manually starting the dev stack via `yarn dev`/uvicorn and confirming both respond correctly -- Playwright MCP tools were not available in this session, so no separate interactive walkthrough was performed beyond that. The one non-blocking finding (stale npm references in two backend comments) is filed as a follow-up on migrate-yarn2-followups. Verdict: needs_work, blocked solely on the README.md Prettier fix -- everything else in this migration (the .yarnrc.yml/.gitignore/.prettierignore Yarn-Berry idiom, the packageManager field, the skill-file and doc updates) is correct and consistent."
   }
 }

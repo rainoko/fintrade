@@ -656,7 +656,7 @@
       "id": "migrate-yarn2",
       "area": "infra",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/migrate-yarn2.json"
     },
     {
@@ -791,6 +791,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/api-watchlist-followups.json"
+    },
+    {
+      "id": "migrate-yarn2-followups",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/migrate-yarn2-followups.json"
     }
   ]
 }
