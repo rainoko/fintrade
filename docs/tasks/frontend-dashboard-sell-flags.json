@@ -3,7 +3,7 @@
   "title": "Dashboard: list of held positions currently flagged to sell",
   "area": "frontend/pages/dashboard",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/DashboardPage.tsx",
@@ -13,12 +13,25 @@
   ],
   "description": "User request: the dashboard should also show a list of tickers with a sell flag. GET /api/portfolio/risk already returns exit_flags per held position (docs/Analyse.md's 'Existing-position exit signals' section -- e.g. 'stop_hit', 'tide_flipped_bearish') -- RiskSummaryCard currently condenses this to an aggregate count only ('Positions Breaching 2% Rule'), not a per-ticker list. The simplest correct implementation is a new dashboard component listing every position with a non-empty exit_flags (data already available, no backend change needed). Decide and record as a decisions entry whether 'sell flag' should ALSO include a position whose fresh technical signal (GET /api/stocks/{ticker}/analysis) is SELL -- Analyse.md distinguishes fresh technical SELL from risk-driven exit flags as related but separate concepts -- and if so, how to get that per held position without an N+1 call pattern (may require a backend follow-up task rather than being done here); the risk-driven exit_flags list alone is a complete, independently useful implementation of this task even if that extension is deferred.",
   "checklist": [
-    { "step": "Decide the scope of 'sell flag' (risk-driven exit_flags only, vs. also fresh technical SELL) and record as a decisions entry, including whether any backend follow-up task is needed for the fresh-signal case.", "done": false },
-    { "step": "Add a new component (e.g. SellFlaggedPositionsCard) listing every position from usePortfolioRisk with a non-empty exit_flags, showing the ticker and which flag(s) fired -- reuse DataTable/existing common/ components rather than a bespoke table.", "done": false },
-    { "step": "Compose it into DashboardPage.tsx alongside the existing RiskSummaryCard/PositionsGlanceTable.", "done": false },
-    { "step": "Handle the empty case (no positions currently flagged) with EmptyState or an inline message, not a blank gap.", "done": false },
-    { "step": "Tests: component test(s) for the flagged-list rendering (including the empty case), MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": false }
+    { "step": "Decide the scope of 'sell flag' (risk-driven exit_flags only, vs. also fresh technical SELL) and record as a decisions entry, including whether any backend follow-up task is needed for the fresh-signal case.", "done": true },
+    { "step": "Add a new component (e.g. SellFlaggedPositionsCard) listing every position from usePortfolioRisk with a non-empty exit_flags, showing the ticker and which flag(s) fired -- reuse DataTable/existing common/ components rather than a bespoke table.", "done": true },
+    { "step": "Compose it into DashboardPage.tsx alongside the existing RiskSummaryCard/PositionsGlanceTable.", "done": true },
+    { "step": "Handle the empty case (no positions currently flagged) with EmptyState or an inline message, not a blank gap.", "done": true },
+    { "step": "Tests: component test(s) for the flagged-list rendering (including the empty case), MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T10:45:38Z",
+      "recorded_by": "task-worker",
+      "decision": "Scope 'sell flag' on the dashboard to the risk-driven exit_flags list only (GET /api/portfolio/risk), not also a fresh technical SELL signal from GET /api/stocks/{ticker}/analysis. No backend follow-up task filed for the fresh-signal extension at this time.",
+      "rationale": "The risk-driven exit_flags list is already returned per held position by /api/portfolio/risk (no backend change needed) and is a complete, independently useful answer to the user request ('the dashboard should also show a list of tickers with a sell flag'), matching this task's own description that says the flags-only version is sufficient even if deferred. Also including fresh technical SELL would require either an N+1 GET /api/stocks/{ticker}/analysis call per held position from the dashboard (a client-side fan-out this task's checklist explicitly warns against) or a new backend endpoint/field that batches fresh signals for the held-position set -- a genuine backend design decision (new response shape, caching/perf tradeoffs) out of scope for a frontend-only task. Rejected: doing the N+1 client-side fetch anyway (rejected as an anti-pattern per Frontend.md's hooks-per-API-concern rule and the checklist's own explicit warning); rejected inventing a backend batch endpoint inline in this task (rejected because it's backend design work that belongs in its own add-api-endpoint-governed task, and no such endpoint/field currently exists in backend/openapi.json). If wanted later, a new task (e.g. 'api-portfolio-fresh-signals' or extending GET /api/portfolio/risk's response) should add a per-position fresh-signal field so the frontend can consume it without N+1 calls."
+    },
+    {
+      "timestamp": "2026-09-18T10:45:38Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed SellFlaggedPositionsCard under features/portfolio/components/ (not components/common/), and extracted the exit-flag label map (previously private to RiskPanel) into a shared features/portfolio/exitFlagLabels.ts module reused by both RiskPanel and SellFlaggedPositionsCard.",
+      "rationale": "Every field the new component renders (a position, a ticker, an exit flag) is a portfolio-risk domain concept and it owns its own usePortfolioRisk call, matching RiskSummaryCard/RiskPanel's existing placement precedent in the same file (add-frontend-feature skill step 2). The EXIT_FLAG_LABELS map duplicated verbatim between RiskPanel and the new card would have been exactly the kind of near-duplicate the skill flags for consolidation (step 2's 'check whether something close enough already exists' rule) -- extracting it to a shared module keeps RiskPanel's full risk table and the dashboard's flagged-only list from drifting on wording for the same underlying flag over time. Rejected: leaving a second copy of the label map inline in the new component (rejected as the exact duplication the skill warns against); rejected promoting it to components/common/ instead (rejected because the map's keys/values are portfolio-risk domain vocabulary, not a generic/presentational concern, so it belongs alongside the feature it describes)."
+    }
+  ],
   "questions": []
 }

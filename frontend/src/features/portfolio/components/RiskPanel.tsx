@@ -14,6 +14,7 @@ import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
 import StatCard from '../../../components/common/StatCard/StatCard'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, humanizeSnakeCase } from '../../../utils/format'
+import { EXIT_FLAG_LABELS } from '../exitFlagLabels'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
 export interface RiskPanelProps {
@@ -25,19 +26,6 @@ export interface RiskPanelProps {
    * no acknowledgment at all — see this task's `decisions` entry.
    */
   positions: PositionOut[]
-}
-
-// Human-readable label per known exit_flags value (docs/Analyse.md §7,
-// app.portfolio.exits.evaluate_exit_flags). A value not in this map (e.g. a
-// future flag added on the backend before the frontend catches up) falls
-// back to humanizeSnakeCase's fallback (underscores-to-spaces, capitalized)
-// rather than rendering nothing for it.
-const EXIT_FLAG_LABELS: Record<string, string> = {
-  stop_hit: 'Stop hit',
-  two_percent_rule_breached: '2% rule breached',
-  six_percent_rule_contributor: '6% rule contributor',
-  profit_zone_impulse_red: 'Profit zone (Impulse red)',
-  tide_flipped_bearish: 'Tide flipped bearish',
 }
 
 /**
