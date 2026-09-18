@@ -1,0 +1,68 @@
+{
+  "id": "watchlist-domain-models",
+  "title": "Backend: watchlist domain model (DB table + migration)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/db/models.py",
+    "backend/app/db/migrations",
+    "docs/tasks/done/portfolio-domain-models.json",
+    "docs/tasks/done/db-migrations.json"
+  ],
+  "description": "User request: there should be watchlists. No watchlist concept exists anywhere in the codebase yet (not in docs/Analyse.md, not in backend/app/db/models.py, not in the frontend). This task adds the persistence layer only, mirroring how portfolio-domain-models preceded api-portfolio-get/add-position: a new ORM model (e.g. WatchlistItemORM — ticker, added_at at minimum; decide whether a per-item note/target field is worth adding now vs. leaving for later as a decisions entry) and an Alembic migration under backend/app/db/migrations, following the same conventions the existing PositionORM/AccountORM/OHLCVCacheORM and their migration(s) already establish. No API endpoints or frontend here — see api-watchlist (depends on this) and frontend-watchlist-page.",
+  "checklist": [
+    { "step": "Decide the watchlist item's exact fields (ticker + added_at at minimum; consider a target-price or note field) and record as a decisions entry.", "done": true },
+    { "step": "Add the ORM model to backend/app/db/models.py, following the existing models' conventions (typed Mapped columns, appropriate primary key/uniqueness on ticker).", "done": true },
+    { "step": "Write the Alembic migration under backend/app/db/migrations, mirroring the existing migration(s)' structure.", "done": true },
+    { "step": "Test: migration applies cleanly (up) against a fresh DB and the new table matches the ORM model, following the pattern in backend/tests/integration/test_db_migrations.py.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "WatchlistItemORM has exactly two columns: ticker (String, primary key) and added_at (DateTime, not null). No note/target-price field added.",
+      "rationale": "Checked both downstream tasks (api-watchlist.json, frontend-watchlist-page.json) for any requirement touching a note or target-price field -- neither mentions one; api-watchlist's whole point is to annotate each watched ticker with its live-computed signal/confidence from the existing signal engine, not a user-entered target. Adding speculative columns now would mean either exposing them through a not-yet-designed API/UI or leaving dead unused columns in the schema, and yet-another migration would be needed the moment a real requirement for them shows up anyway -- so YAGNI wins over guessing at a shape. Also decided to make ticker itself the primary key (String) rather than following PositionORM's synthetic-id-plus-unique-ticker-column pattern: a watchlist is a set of tickers (add once, remove by ticker -- DELETE /api/watchlist/{ticker} in api-watchlist.json operates on ticker directly, mirroring OHLCVCacheORM's natural-key convention), unlike positions where a synthetic id leaves room for multiple lots of the same ticker over time. Considered and rejected the synthetic-id-plus-unique-ticker pattern for cross-table consistency, since there's no use case here for multiple rows per ticker or for referencing a watchlist entry by an opaque id instead of the ticker itself. Documented both choices in a docstring on the model itself so the next task doesn't have to re-derive the reasoning from this file."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/watchlist-domain-models",
+    "pr_number": 101,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/101",
+    "pushed_at": "2026-09-18T06:56:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T06:59:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/101",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Migration verified sound: `alembic upgrade head` against a fresh throwaway SQLite DB builds `watchlist_items` with exactly the columns the ORM model declares, and `alembic check` afterward reports no drift. `down_revision` correctly chains onto the existing head (6fae12abf862). Full backend suite passes (523 passed) with 99.84% coverage (gate 90%, app/db/models.py at 100%). ruff and mypy both clean.",
+        "file": "backend/app/db/migrations/versions/e1503fd151de_add_watchlist_items_table.py"
+      },
+      {
+        "summary": "Primary-key design (ticker as PK, no synthetic id) is reasonable and well-justified: consistent with OHLCVCacheORM's existing natural-key convention, matches the stated future usage (DELETE /api/watchlist/{ticker} addressing rows by ticker directly, no multi-lot-per-ticker use case), and the reasoning is recorded both in the task's decisions entry and in a docstring on the model itself.",
+        "file": "backend/app/db/models.py",
+        "line": 30
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's DB table enumeration (~line 90) wasn't updated to mention the new watchlist_items table. Filed as a follow-up (watchlist-domain-models-followups) rather than blocking on it.",
+        "file": "docs/architecture/Backend.md",
+        "line": 90
+      },
+      {
+        "summary": "Non-blocking: backend/tests/unit/test_db_models.py's module docstring still lists only PositionORM/AccountORM/OHLCVCacheORM, not the newly-added WatchlistItemORM tests. Filed as a follow-up.",
+        "file": "backend/tests/unit/test_db_models.py",
+        "line": 1
+      }
+    ],
+    "notes": "Backend-only persistence-layer change (no API route, no frontend), so the API-doc-snapshot check and the browser walkthrough don't apply here -- explicitly noted rather than silently skipped. area is backend/db and skill is null, so verify-elder-signal doesn't apply either; this doesn't add a new module/dependency/layer (it extends the existing db/models.py + migrations/ pattern), so architecture-review wasn't warranted beyond the ad hoc convention check already done. Checklist's one 'decide X' item has a matching decisions entry recording both the field-set choice and the primary-key choice, with rejected alternatives and rationale. Ran code-review skill (medium effort) against the diff independently; it also found zero correctness issues, corroborating this review."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T07:03:45Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite: 523 passed, 99.84% coverage, matching review's numbers exactly. Independently ran `alembic upgrade head` against a fresh throwaway SQLite DB (via FINTRADE_DATABASE_URL): watchlist_items table created with exactly ticker (VARCHAR, PK, not null) and added_at (DATETIME, not null), matching WatchlistItemORM; `alembic check` reported no drift. Skimmed the full diff myself (models.py, migration, both test files, index.json, followups task) -- matches the review's description; the two non-blocking findings are correctly filed on watchlist-domain-models-followups.json rather than silently dropped. mypy clean; ruff's 6 findings are all in pre-existing, unrelated test files (test_stooq_provider.py, test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_triple_screen.py), none touched by this PR's diff, so the review's 'ruff clean' claim holds for this PR's own changes."
+  }
+}

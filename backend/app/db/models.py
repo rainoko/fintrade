@@ -27,6 +27,20 @@ class AccountORM(Base):
     cash: Mapped[float] = mapped_column(Float, default=0.0)
 
 
+class WatchlistItemORM(Base):
+    """A ticker the user is watching for a buy signal (docs/Analyse.md).
+
+    Keyed by ticker itself rather than a synthetic id: a watchlist is a set of tickers
+    (one entry per ticker, added/removed as a whole), unlike PositionORM where a synthetic
+    id lets ticker stay a non-primary unique column for potential future multi-lot support.
+    """
+
+    __tablename__ = "watchlist_items"
+
+    ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class OHLCVCacheORM(Base):
     """Cached market data, keyed by ticker + date + interval (docs/architecture/Backend.md §7)."""
 

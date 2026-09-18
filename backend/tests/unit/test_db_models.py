@@ -7,9 +7,10 @@ from datetime import date, datetime
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import AccountORM, Base, OHLCVCacheORM, PositionORM
+from app.db.models import AccountORM, Base, OHLCVCacheORM, PositionORM, WatchlistItemORM
 
 
 @pytest.fixture
@@ -203,3 +204,48 @@ class TestOHLCVCacheORM:
         session.commit()
 
         assert session.get(OHLCVCacheORM, key) is None
+
+
+class TestWatchlistItemORM:
+    def test_create_and_read(self, session: Session) -> None:
+        item = WatchlistItemORM(ticker="AAPL", added_at=datetime(2026, 5, 14, 12, 0, 0))
+        session.add(item)
+        session.commit()
+
+        fetched = session.get(WatchlistItemORM, "AAPL")
+        assert fetched is not None
+        assert fetched.ticker == "AAPL"
+        assert fetched.added_at == datetime(2026, 5, 14, 12, 0, 0)
+
+    def test_ticker_is_the_primary_key(self, session: Session) -> None:
+        session.add(WatchlistItemORM(ticker="AAPL", added_at=datetime(2026, 1, 1)))
+        session.commit()
+
+        # Re-adding the same ticker (same primary key) must be rejected at the DB level --
+        # a watchlist holds at most one entry per ticker.
+        session.add(WatchlistItemORM(ticker="AAPL", added_at=datetime(2026, 1, 2)))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+    def test_delete(self, session: Session) -> None:
+        session.add(WatchlistItemORM(ticker="TSLA", added_at=datetime(2026, 3, 1)))
+        session.commit()
+
+        item = session.get(WatchlistItemORM, "TSLA")
+        assert item is not None
+        session.delete(item)
+        session.commit()
+
+        assert session.get(WatchlistItemORM, "TSLA") is None
+
+    def test_list_multiple_items(self, session: Session) -> None:
+        session.add_all(
+            [
+                WatchlistItemORM(ticker="AAPL", added_at=datetime(2026, 1, 1)),
+                WatchlistItemORM(ticker="TSLA", added_at=datetime(2026, 1, 2)),
+            ]
+        )
+        session.commit()
+
+        items = session.query(WatchlistItemORM).order_by(WatchlistItemORM.ticker).all()
+        assert [i.ticker for i in items] == ["AAPL", "TSLA"]
