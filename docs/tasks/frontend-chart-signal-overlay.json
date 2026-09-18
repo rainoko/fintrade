@@ -3,7 +3,7 @@
   "title": "Frontend: show backend-calculated signals on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -55,7 +55,7 @@
     "branch": "task/frontend-chart-signal-overlay",
     "pr_number": 107,
     "pr_url": "https://github.com/rainoko/fintrade/pull/107",
-    "pushed_at": "2026-09-18T09:04:26Z"
+    "pushed_at": "2026-09-18T09:24:28Z"
   },
   "review": {
     "reviewed_at": "2026-09-18T09:13:15Z",
