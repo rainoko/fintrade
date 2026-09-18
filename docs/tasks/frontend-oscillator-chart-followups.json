@@ -24,6 +24,10 @@
     {
       "step": "OscillatorChart.tsx's createChart() call (line ~135) uses the exact same options object (`{ autoSize: true, layout: { background: { color: 'transparent' } } }`) as PriceChart.tsx's own chart-creation effect, duplicated verbatim in a second file -- a shared helper (e.g. a small `createBaseChart(container)` in a features/stocks lib module) would remove the duplication and the risk of the two drifting apart if the base chart options ever need to change. (Surfaced by a code-review skill pass on this PR.)",
       "done": true
+    },
+    {
+      "step": "Non-blocking (round-2 re-review, PR #108): the new `createBaseChart` helper landed at `frontend/src/features/stocks/lib/chart.ts`, but per docs/architecture/Frontend.md §3's explicit utils/-vs-features placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component -> utils/'), it arguably belongs in `frontend/src/utils/` instead -- it takes only a raw `HTMLElement` and returns a generic `IChartApi`, with no reference to ticker/position/signal or any stocks-domain concept, the same test that puts `utils/format.ts` outside any single feature folder. Frontend.md's own documented directory tree also only lists `hooks/` and `components/` under each `features/<domain>/` folder, not a `lib/` subfolder, so this is a new, undocumented structural pattern as well as an arguable placement call. Genuinely arguable rather than clear-cut though: its only two consumers (PriceChart.tsx, OscillatorChart.tsx) are both in features/stocks today, unlike format.ts's cross-feature usage that motivated the utils/ example -- worth a decision either way (move to utils/, or document the features/<domain>/lib/ pattern in Frontend.md as an accepted convention) rather than leaving it unresolved.",
+      "done": false
     }
   ],
   "decisions": [

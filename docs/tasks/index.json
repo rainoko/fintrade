@@ -677,8 +677,8 @@
       "id": "frontend-oscillator-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-oscillator-chart.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-oscillator-chart.json"
     },
     {
       "id": "frontend-oscillator-chart-followups",
