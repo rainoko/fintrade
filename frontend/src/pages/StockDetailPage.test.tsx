@@ -6,14 +6,19 @@ import { server } from '../../tests/mocks/server'
 import { createTestQueryClient, renderWithProviders } from '../../tests/renderWithProviders'
 import StockDetailPage from './StockDetailPage'
 
-// PriceChart (rendered below IndicatorsPanel) builds a real Lightweight
-// Charts chart against a DOM container; jsdom has no real <canvas> 2D
-// context, so mock the library the same way PriceChart.test.tsx does — this
-// page's own tests care about page composition (which panels render, in
-// what order, for which signal), not chart internals.
+// StockCharts (rendered below IndicatorsPanel) composes PriceChart and
+// OscillatorChart, both of which build a real Lightweight Charts chart
+// against a DOM container; jsdom has no real <canvas> 2D context, so mock
+// the library the same way PriceChart.test.tsx/OscillatorChart.test.tsx do
+// — this page's own tests care about page composition (which panels
+// render, in what order, for which signal), not chart internals.
+// `createPriceLine` (used by OscillatorChart's 30/70 and zero reference
+// lines) and `HistogramSeries`/`LineStyle` (used by OscillatorChart's Force
+// Index/MACD Histogram panes) are new here versus PriceChart's own overlay,
+// which never called either.
 vi.mock('lightweight-charts', () => ({
   createChart: () => ({
-    addSeries: () => ({ setData: () => {} }),
+    addSeries: () => ({ setData: () => {}, createPriceLine: () => ({}) }),
     removeSeries: () => {},
     timeScale: () => ({ fitContent: () => {} }),
     remove: () => {},
@@ -21,6 +26,8 @@ vi.mock('lightweight-charts', () => ({
   createSeriesMarkers: () => ({ setMarkers: () => {}, detach: () => {} }),
   CandlestickSeries: 'CandlestickSeries-definition',
   LineSeries: 'LineSeries-definition',
+  HistogramSeries: 'HistogramSeries-definition',
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
 }))
 
 function renderStockDetail(ticker: string) {

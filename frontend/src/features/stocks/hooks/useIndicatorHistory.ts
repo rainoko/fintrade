@@ -11,10 +11,10 @@ export interface UseIndicatorHistoryParams {
 export interface UseIndicatorHistoryOptions {
   /**
    * Lets a caller gate the request on something beyond "ticker is present"
-   * (e.g. PriceChart only wants this fetched while the daily interval is
-   * selected — indicators are daily-cadence only, see PriceChart.tsx's
-   * decisions entry). Defaults to `true` so a caller with no such
-   * constraint (e.g. the future oscillator-pane consumer) can omit it.
+   * (e.g. PriceChart/OscillatorChart only want this fetched while the
+   * daily interval is selected — indicators are daily-cadence only, see
+   * PriceChart.tsx's decisions entry). Defaults to `true` so a caller with
+   * no such constraint can omit it.
    */
   enabled?: boolean
 }
@@ -24,12 +24,16 @@ export interface UseIndicatorHistoryOptions {
  * the resulting BUY/SELL/HOLD signal for each daily bar
  * (docs/architecture/API.md#get-apistocksstickerindicators). Deliberately
  * generic (not `PriceChart`-specific): keyed and shaped the same way as
- * `useStockHistory` so `frontend-oscillator-chart` (stochastic_k/
- * force_index_2ema panes) can reuse this same hook rather than each
- * feature writing its own `useQuery` wrapper around the same endpoint —
- * see this task's (frontend-chart-signal-overlay) decisions entry. Typed
- * to `ApiError` so callers can pass `.error` straight into
- * `common/ErrorState`, same convention as useStockHistory/useStockAnalysis.
+ * `useStockHistory` so both `PriceChart` (EMA/signal overlay) and
+ * `OscillatorChart` (stochastic_k/force_index_2ema/macd_histogram panes,
+ * frontend-oscillator-chart) reuse this same hook rather than each feature
+ * writing its own `useQuery` wrapper around the same endpoint — see this
+ * task's (frontend-chart-signal-overlay) decisions entry. Calling it twice
+ * with the same `ticker`/`range` (as those two components do when both
+ * mounted together) addresses the same TanStack Query cache entry, so the
+ * underlying request is only actually made once. Typed to `ApiError` so
+ * callers can pass `.error` straight into `common/ErrorState`, same
+ * convention as useStockHistory/useStockAnalysis.
  */
 export function useIndicatorHistory(
   ticker: string,

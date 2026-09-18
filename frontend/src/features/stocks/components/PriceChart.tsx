@@ -5,7 +5,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import { useTheme } from '@mui/material/styles'
 import {
   CandlestickSeries,
-  createChart,
   createSeriesMarkers,
   LineSeries,
   type IChartApi,
@@ -20,9 +19,28 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockHistory } from '../hooks/useStockHistory'
+import { createBaseChart } from '../lib/chart'
 
 export interface PriceChartProps {
   ticker: string
+  /**
+   * Reports every range-preset change (see `RANGE_OPTIONS` above) so a
+   * parent composing this component with a sibling chart can mirror the
+   * current selection — see `StockCharts.tsx` (frontend-oscillator-chart),
+   * which passes it straight into `OscillatorChart`'s own `range` prop so
+   * both panes always plot the same window. Optional: existing callers
+   * (and this component's own tests) that don't need to mirror the
+   * selection elsewhere can omit it.
+   */
+  onRangeChange?: (range: string) => void
+  /**
+   * Reports every interval-toggle change (Daily/Weekly), same rationale as
+   * `onRangeChange` above — `StockCharts.tsx` uses it to gate
+   * `OscillatorChart` on `interval === 'daily'`, matching this component's
+   * own overlay-gating rule (`/indicators` is daily-cadence only, see
+   * `overlayEnabled` below).
+   */
+  onIntervalChange?: (interval: HistoryInterval) => void
 }
 
 // Preset windows mapped to the API's `<N>d|w|m|y|max` range grammar
@@ -40,8 +58,12 @@ const RANGE_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
   { label: 'Max', value: 'max' },
 ]
 
-const DEFAULT_RANGE = '1y'
-const DEFAULT_INTERVAL: HistoryInterval = 'daily'
+// Exported so `StockCharts.tsx` can initialize its own mirrored range/
+// interval state to the exact same defaults this component starts with,
+// rather than duplicating the literal values (and risking the two drifting
+// apart if one is ever changed without the other).
+export const DEFAULT_RANGE = '1y'
+export const DEFAULT_INTERVAL: HistoryInterval = 'daily'
 const CHART_HEIGHT = 320
 
 /**
@@ -132,8 +154,23 @@ function buildOverlayData(
  * from the backend response, per Frontend.md §5's "backend computes,
  * frontend displays" rule. `IndicatorsPanel` (fed by `/analysis`) remains
  * the latest-value-only counterpart shown alongside this chart.
+ *
+ * Still owns its own range/interval `ToggleButtonGroup` controls and local
+ * `useState` for them (unchanged from before), but now also reports every
+ * change via the optional `onRangeChange`/`onIntervalChange` props so a
+ * parent can mirror the current selection into a sibling pane —
+ * `StockCharts.tsx` (frontend-oscillator-chart) is the one real consumer of
+ * this today, keeping `OscillatorChart`'s Stochastic/Force Index/MACD
+ * Histogram panes on the exact same range and daily-only gating as this
+ * chart's own overlay. See this task's `decisions` entry for why a
+ * mirrored-callback pattern was used instead of converting this component
+ * into a fully controlled one.
  */
-export default function PriceChart({ ticker }: PriceChartProps) {
+export default function PriceChart({
+  ticker,
+  onRangeChange,
+  onIntervalChange,
+}: PriceChartProps) {
   const theme = useTheme()
   const [range, setRange] = useState<string>(DEFAULT_RANGE)
   const [interval, setInterval] = useState<HistoryInterval>(DEFAULT_INTERVAL)
@@ -189,10 +226,7 @@ export default function PriceChart({ ticker }: PriceChartProps) {
       return
     }
 
-    const chart = createChart(container, {
-      autoSize: true,
-      layout: { background: { color: 'transparent' } },
-    })
+    const chart = createBaseChart(container)
     const series = chart.addSeries(CandlestickSeries)
     series.setData(
       finiteBars.map((bar) => ({
@@ -291,6 +325,7 @@ export default function PriceChart({ ticker }: PriceChartProps) {
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
       setRange(value)
+      onRangeChange?.(value)
     }
   }
 
@@ -300,6 +335,7 @@ export default function PriceChart({ ticker }: PriceChartProps) {
   ) {
     if (value !== null) {
       setInterval(value)
+      onIntervalChange?.(value)
     }
   }
 

@@ -1,0 +1,42 @@
+{
+  "id": "frontend-oscillator-chart-followups",
+  "title": "Non-blocking follow-ups from PR #108 review (frontend-oscillator-chart)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-oscillator-chart"],
+  "references": [
+    "docs/tasks/frontend-oscillator-chart.json",
+    "https://github.com/rainoko/fintrade/pull/108",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "backend/app/api/schemas.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #108 (frontend-oscillator-chart), recorded here so they aren't lost once that PR merges. The blocking finding -- OscillatorChart.tsx crashing the whole app when a plotted point has a null stochastic_k/force_index_2ema (e.g. selecting the 'Max' range, which includes the indicator warm-up bars) -- is tracked as the needs_work verdict on the parent task itself, not here.",
+  "checklist": [
+    {
+      "step": "backend: GET /api/stocks/{ticker}/indicators' IndicatorHistoryPoint.stochastic_k/force_index_2ema are declared `type: number` (required, non-nullable) in backend/app/api/schemas.py and backend/openapi.json, but the runtime response can legitimately emit `null` for early-history bars still inside the indicator's warm-up window (Stochastic %K(5,3,3) needs ~11 bars, confirmed live: GET /api/stocks/AAPL/indicators?range=max returns 6 points with stochastic_k=null and 1 with force_index_2ema=null). This is a distinct cause from the one api-stocks-analysis-nullable-indicators already fixed for /analysis (that fix drops malformed-OHLC bars; these nulls come from legitimate warm-up insufficiency on otherwise well-formed bars, so the same fix doesn't apply). Decide and implement: either mark these fields Optional/nullable in schemas.py (regenerating openapi.json + frontend types) so the contract is honest, or trim not-yet-warmed-up points from the response before it's returned.",
+      "done": false
+    },
+    {
+      "step": "OscillatorChart.tsx's Force Index and MACD Histogram pane setup (the HistogramSeries creation, sign-based color computation, and dotted zero-baseline price line) is near-duplicated between the two panes with only the series title/paneIndex differing -- could be factored into one small shared helper to reduce the ~20 lines of duplication, mirroring the 'single buildOscillatorSeriesData pass' consolidation already done for the data-building side.",
+      "done": true
+    },
+    {
+      "step": "OscillatorChart.tsx's createChart() call (line ~135) uses the exact same options object (`{ autoSize: true, layout: { background: { color: 'transparent' } } }`) as PriceChart.tsx's own chart-creation effect, duplicated verbatim in a second file -- a shared helper (e.g. a small `createBaseChart(container)` in a features/stocks lib module) would remove the duplication and the risk of the two drifting apart if the base chart options ever need to change. (Surfaced by a code-review skill pass on this PR.)",
+      "done": true
+    },
+    {
+      "step": "Non-blocking (round-2 re-review, PR #108): the new `createBaseChart` helper landed at `frontend/src/features/stocks/lib/chart.ts`, but per docs/architecture/Frontend.md §3's explicit utils/-vs-features placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component -> utils/'), it arguably belongs in `frontend/src/utils/` instead -- it takes only a raw `HTMLElement` and returns a generic `IChartApi`, with no reference to ticker/position/signal or any stocks-domain concept, the same test that puts `utils/format.ts` outside any single feature folder. Frontend.md's own documented directory tree also only lists `hooks/` and `components/` under each `features/<domain>/` folder, not a `lib/` subfolder, so this is a new, undocumented structural pattern as well as an arguable placement call. Genuinely arguable rather than clear-cut though: its only two consumers (PriceChart.tsx, OscillatorChart.tsx) are both in features/stocks today, unlike format.ts's cross-feature usage that motivated the utils/ example -- worth a decision either way (move to utils/, or document the features/<domain>/lib/ pattern in Frontend.md as an accepted convention) rather than leaving it unresolved.",
+      "done": false
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T10:10:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed the two frontend-only follow-ups (near-duplicated Force Index/MACD Histogram pane setup, and the duplicated createChart() options object) as part of the frontend-oscillator-chart PR #108 needs_work fix round, since both were small and directly touched the same file already being fixed for the blocking bug. Added `addZeroBaselineHistogramPane` (a shared helper in OscillatorChart.tsx) for the first, and a new `features/stocks/lib/chart.ts` with `createBaseChart(container)` (used by both PriceChart.tsx and OscillatorChart.tsx) for the second. Left the first checklist item (backend schemas.py nullable-fields decision) untouched -- that's genuinely backend-area work outside a frontend PR's natural scope, and this fix round's frontend null-guard already makes the crash-safety fix independent of which backend approach is eventually chosen there.",
+      "rationale": "Both fixes verified via the same test run as the parent task's blocking fix: vitest (259 passed, coverage unaffected), eslint, tsc -b --noEmit, and make e2e (13/13 passed) -- see frontend-oscillator-chart's own decisions entry for full detail. Not marking this whole task's `state` as `done` since checklist item 1 (backend) remains open and is out of scope for a frontend change."
+    }
+  ],
+  "questions": []
+}
