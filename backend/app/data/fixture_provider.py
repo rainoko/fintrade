@@ -1,5 +1,5 @@
 """Deterministic, no-network `DataProvider` used only by the frontend e2e test suite
-(``frontend/tests/e2e/``, run via ``npm run test:e2e``), selected via
+(``frontend/tests/e2e/``, run via ``yarn test:e2e``), selected via
 ``FINTRADE_DATA_PROVIDER_MODE=fixture`` (see ``app.config.Settings.data_provider_mode`` and
 ``app.api.dependencies.get_data_provider``).
 

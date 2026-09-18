@@ -44,6 +44,12 @@
       "recorded_by": "task-worker",
       "decision": "Pinned devDependencies.jsdom to an exact \"30.0.1\" (previously \"^30.0.1\") instead of letting the fresh Yarn lockfile resolve the range's newest match.",
       "rationale": "A clean `yarn install` from the range initially resolved jsdom to 30.1.0 (vs. 30.0.1 frozen in the old package-lock.json) and that alone broke 9 previously-passing vitest tests (ConfirmDialog, AddPositionDialog) with `TypeError: nodeToRestore.current.focus is not a function` inside MUI's FocusTrap unmount path — a jsdom 30.1.0 behavior change in focus/element handling, not anything caused by Yarn itself. Re-resolving with jsdom pinned back to 30.0.1 made all 269 tests pass again with no other change. Rejected chasing/patching the jsdom 30.1.0 incompatibility itself as out of scope for a package-manager migration (that's real, unrelated frontend maintenance work); rejected leaving it broken since 'no regression from the package-manager switch' is this task's own explicit bar. A future task can deliberately revisit the jsdom upgrade (and whatever MUI/jsdom compat fix it needs) on its own."
+    },
+    {
+      "timestamp": "2026-09-18T14:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed frontend/README.md's Scripts table padding with `yarn format` scoped to just that file (verified via a subsequent isolated `prettier --check README.md`), and did not apply the broader `yarn format --write .` output to the ~22 other files it also touched (RiskPercent.tsx, several stocks-feature components/tests, e2e specs, etc.).",
+      "rationale": "Confirmed via `git diff --stat main...task/migrate-yarn2` that this PR never touched any of those other files, and via `git stash` + a repo-wide `yarn format:check` on the pre-fix branch state that all ~22 already fail Prettier's check independent of this PR (pre-existing drift on main, unrelated to the npm->yarn migration). Reformatting them here would be an unrelated, out-of-scope change riding on this PR; left them alone so the diff stays scoped to the review's actual blocking finding (README.md) plus the requested non-blocking comment fixes."
     }
   ],
   "questions": [],

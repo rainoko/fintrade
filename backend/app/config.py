@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # every environment before this setting existed. "fixture": it returns
     # app.data.fixture_provider.FixtureDataProvider instead -- a deterministic,
     # no-network synthetic data source used only by the frontend e2e test suite
-    # (frontend/tests/e2e/, run via `npm run test:e2e`) so that suite never
+    # (frontend/tests/e2e/, run via `yarn test:e2e`) so that suite never
     # depends on live market data or produces flaky signal output from real
     # market noise. Never set in the live app's own default config or in the
     # pytest suite (which mocks providers directly instead -- see
