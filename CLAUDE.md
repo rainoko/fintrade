@@ -100,6 +100,7 @@ The `orchestrate-tasks` skill runs the task board hands-off. It dispatches `task
 - `check-coverage` — run backend + frontend coverage together and report against the 90% gate.
 - `test-90` — actively close coverage gaps (the write-tests counterpart to `check-coverage`).
 - `static-verify` — run backend (ruff + mypy) and frontend (eslint + tsc) static analysis together and report pass/fail with findings grouped by file.
+- `validate-task-board` — run `scripts/validate_tasks.py` to check every `docs/tasks/*.json` and `docs/tasks/done/*.json` against the structural invariants this section documents (required fields/types, valid `state` values, entry shapes, `depends_on` resolution, the `index.json` mirror rule, the `done` <=> `docs/tasks/done/` path invariant) and report every violation found.
 - `e2e-test` — run the frontend's real-browser Playwright end-to-end suite (`frontend/tests/e2e/`) against a freshly-started backend+frontend stack and report pass/fail per spec.
 - `verify-elder-signal` — review signal/confidence/risk code against `docs/Analyse.md`.
 - `architecture-review` — review code structure against `docs/Architecture.md` and its sub-docs.

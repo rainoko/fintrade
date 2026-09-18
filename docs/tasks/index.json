@@ -754,8 +754,15 @@
       "id": "scripts-validate-tasks",
       "area": "tooling",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/scripts-validate-tasks.json"
+    },
+    {
+      "id": "scripts-validate-tasks-followups",
+      "area": "tooling",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/scripts-validate-tasks.json"
+      "path": "docs/tasks/scripts-validate-tasks-followups.json"
     },
     {
       "id": "api-stocks-indicator-history-followups",
