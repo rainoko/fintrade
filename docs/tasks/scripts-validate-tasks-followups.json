@@ -14,17 +14,25 @@
   "checklist": [
     {
       "step": "Fix scripts/validate_tasks.py's dead 'id field does not match its filename' check: check_task_shape(task_id, data) is always called with task_id already derived as data[\"id\"] when data has a non-empty id (see collect_task_files/run: `task_id = data[\"id\"] if is_nonempty_str(data.get(\"id\")) else path.stem`), so the internal comparison `data[\"id\"] != task_id` inside check_task_shape can never be true -- the check is unreachable dead code. Verified by hand: adding a task file docs/tasks/scratch-filename-mismatch.json with `\"id\": \"totally-different-id\"` produced zero violation for this specific rule (only the unrelated 'missing index.json entry' violation fired). Fix by passing the filename-derived id (path.stem) separately into check_task_shape so it can genuinely compare against the file's own `id` field, independent of which value it uses elsewhere as the task's canonical id.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add a persisted, committed regression test for scripts/validate_tasks.py itself (e.g. a small stdlib-only test script or a pytest module) exercising each violation type on synthetic fixture data, plus the real-board clean-pass case. The task-worker's smoke test (a synthetic negative-case run covering every violation type, per the task's checklist item 4) was apparently run ad hoc and not committed, so there's currently no automated way to re-verify the validator's own correctness on a future change to it -- and, notably, a committed test suite would have caught both the dead id-vs-filename check and the TypeError-on-non-scalar-field crash bug (both fixed as blocking findings on this same PR) if those specific cases had been included.",
-      "done": false
+      "done": true
     },
     {
       "step": "scripts/validate_tasks.py's `tasks_by_id[task_id] = (data, path)` (in `run()`) silently overwrites an earlier entry when two task files share the same `id` (e.g. a stale copy left behind after an incomplete `git mv` to docs/tasks/done/). The duplicate is flagged once as \"duplicate id ... found elsewhere on the board\", but every subsequent cross-check (index.json state/path mirror, depends_on resolution) then only ever runs against whichever file was processed last -- a genuine, independent drift on the earlier/stale duplicate is never separately checked beyond that one generic line. Consider keying by (task_id, path) for the cross-check loops, or at least noting in the duplicate-id violation message that only one of the copies was cross-checked.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T12:09:27Z",
+      "recorded_by": "task-worker",
+      "decision": "All three non-blocking checklist items here were fixed as part of PR #113's needs_work revision (scripts-validate-tasks), not deferred to a separate task-worker pass on this task id: (1) check_task_shape now takes filename_stem as its own parameter and compares data['id'] against that instead of against the already-id-derived task_id; (2) tasks_by_id in run() now maps id -> list of (data, path) and both cross-check loops (depends_on resolution, index.json mirror) iterate every entry in that list, so a duplicate id's earlier copy is no longer dropped from cross-checking; (3) a persisted stdlib-only regression suite now lives at scripts/tests/test_validate_tasks.py (23 tests, run via `python3 scripts/tests/test_validate_tasks.py`), covering every violation category including these two fixes and a real-board clean-pass smoke test.",
+      "rationale": "PR #113's needs_work review required fixing two blocking findings in the exact same function (check_task_shape) and file (scripts/validate_tasks.py) these three non-blocking findings also touch, and the review's own notes on finding #2 (the missing regression suite) pointed out that a committed test suite would likely have caught the two blocking bugs -- so writing that suite now, alongside the blocking fixes and while the failure modes are fresh, was more valuable than leaving all three for a later, separate task-worker dispatch against already-drifted code. This task (scripts-validate-tasks-followups) is left in state 'planned' rather than being marked 'done' here: fixing the code is within task-worker's authority for the parent task's own PR, but formally closing a different tracked task's checklist (including any QA/review pass CLAUDE.md's pipeline expects before a state change to 'done') belongs to that task's own dispatch, not a side effect of fixing the parent task on the parent's branch/PR.",
+      "alternatives_considered": "Considered leaving these three items for a dedicated future task-worker run against this task id instead, per the parent task's own instruction that addressing them now was 'not strictly required'; rejected in favor of fixing them immediately since all three are small, isolated to code already being edited for the blocking fixes, and (per the rationale above) directly reduce the risk of re-shipping the same class of bug the blocking findings surfaced."
+    }
+  ],
   "questions": []
 }

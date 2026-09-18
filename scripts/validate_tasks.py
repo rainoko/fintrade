@@ -78,7 +78,7 @@ def load_json(path: Path) -> tuple[Any, str | None]:
         return None, str(exc)
 
 
-def check_task_shape(task_id: str, data: dict[str, Any]) -> list[Violation]:
+def check_task_shape(task_id: str, data: dict[str, Any], filename_stem: str) -> list[Violation]:
     violations: list[Violation] = []
 
     def fail(message: str) -> None:
@@ -99,8 +99,8 @@ def check_task_shape(task_id: str, data: dict[str, Any]) -> list[Violation]:
     elif data["skill"] is not None and not isinstance(data["skill"], str):
         fail("field 'skill' must be a string or null")
 
-    if is_nonempty_str(data.get("id")) and data["id"] != task_id:
-        fail(f"'id' field ({data['id']!r}) does not match its filename ({task_id!r})")
+    if is_nonempty_str(data.get("id")) and data["id"] != filename_stem:
+        fail(f"'id' field ({data['id']!r}) does not match its filename ({filename_stem!r})")
 
     state = data.get("state")
     if isinstance(state, str) and state not in VALID_STATES:
@@ -201,7 +201,9 @@ def check_task_shape(task_id: str, data: dict[str, Any]) -> list[Violation]:
                 or not all(isinstance(m, str) for m in test["method"])
             ):
                 fail("test.method must be a list of strings when present")
-            if "verdict" in test and test["verdict"] not in VALID_TEST_VERDICTS:
+            if "verdict" in test and (
+                not isinstance(test["verdict"], str) or test["verdict"] not in VALID_TEST_VERDICTS
+            ):
                 fail(f"test.verdict must be one of {sorted(VALID_TEST_VERDICTS)}, got {test['verdict']!r}")
             if "gap_analysis" in test:
                 if not isinstance(test["gap_analysis"], list):
@@ -213,10 +215,11 @@ def check_task_shape(task_id: str, data: dict[str, Any]) -> list[Violation]:
                             continue
                         if not is_nonempty_str(gap.get("summary")):
                             fail(f"test.gap_analysis[{i}].summary must be a non-empty string")
-                        if gap.get("severity") not in VALID_SEVERITIES:
+                        severity = gap.get("severity")
+                        if not isinstance(severity, str) or severity not in VALID_SEVERITIES:
                             fail(
                                 f"test.gap_analysis[{i}].severity must be one of "
-                                f"{sorted(VALID_SEVERITIES)}, got {gap.get('severity')!r}"
+                                f"{sorted(VALID_SEVERITIES)}, got {severity!r}"
                             )
                         if not is_nonempty_str(gap.get("evidence")):
                             fail(f"test.gap_analysis[{i}].evidence must be a non-empty string")
@@ -230,7 +233,10 @@ def check_task_shape(task_id: str, data: dict[str, Any]) -> list[Violation]:
                 fail("review.reviewed_at must be a non-empty string when present")
             if "pr_url" in review and not is_nonempty_str(review["pr_url"]):
                 fail("review.pr_url must be a non-empty string when present")
-            if "verdict" in review and review["verdict"] not in VALID_REVIEW_VERDICTS:
+            if "verdict" in review and (
+                not isinstance(review["verdict"], str)
+                or review["verdict"] not in VALID_REVIEW_VERDICTS
+            ):
                 fail(
                     f"review.verdict must be one of {sorted(VALID_REVIEW_VERDICTS)}, "
                     f"got {review['verdict']!r}"
@@ -302,12 +308,19 @@ def run() -> list[Violation]:
         for field in ("area", "skill", "state", "path"):
             if field not in entry:
                 violations.append(Violation(task_id, f"index.json entry is missing '{field}'"))
-        if entry.get("state") not in VALID_STATES:
+        index_state = entry.get("state")
+        if not isinstance(index_state, str) or index_state not in VALID_STATES:
             violations.append(
-                Violation(task_id, f"index.json entry has invalid state {entry.get('state')!r}")
+                Violation(task_id, f"index.json entry has invalid state {index_state!r}")
             )
 
-    tasks_by_id: dict[str, tuple[dict[str, Any], Path]] = {}
+    # Keyed by id -> list of (data, path), not a single tuple: two files can share
+    # an id (e.g. a stale copy left behind after an incomplete `git mv` to
+    # docs/tasks/done/). Keeping every copy here, rather than letting a later one
+    # silently overwrite an earlier one, means the depends_on/index-mirror
+    # cross-checks below still run against *each* duplicate independently instead
+    # of only whichever file happened to be processed last.
+    tasks_by_id: dict[str, list[tuple[dict[str, Any], Path]]] = {}
     all_ids: set[str] = set()
     for path in collect_task_files():
         rel = str(path.relative_to(REPO_ROOT))
@@ -325,9 +338,9 @@ def run() -> list[Violation]:
                 Violation(task_id, f"duplicate task id also found at {rel} elsewhere on the board")
             )
         all_ids.add(task_id)
-        tasks_by_id[task_id] = (data, path)
+        tasks_by_id.setdefault(task_id, []).append((data, path))
 
-        violations.extend(check_task_shape(task_id, data))
+        violations.extend(check_task_shape(task_id, data, path.stem))
 
         is_done_dir = DONE_DIR in path.parents
         state = data.get("state")
@@ -343,40 +356,44 @@ def run() -> list[Violation]:
                 )
             )
 
-    for task_id, (data, _path) in tasks_by_id.items():
-        depends_on = data.get("depends_on")
-        if not isinstance(depends_on, list):
-            continue
-        for dep in depends_on:
-            if isinstance(dep, str) and dep not in all_ids:
-                violations.append(
-                    Violation(task_id, f"depends_on references unknown task id {dep!r}")
-                )
+    for task_id, entries in tasks_by_id.items():
+        for data, _path in entries:
+            depends_on = data.get("depends_on")
+            if not isinstance(depends_on, list):
+                continue
+            for dep in depends_on:
+                if isinstance(dep, str) and dep not in all_ids:
+                    violations.append(
+                        Violation(task_id, f"depends_on references unknown task id {dep!r}")
+                    )
 
-    for task_id, (data, path) in tasks_by_id.items():
-        rel_path = str(path.relative_to(REPO_ROOT))
-        entry = index_by_id.get(task_id)
-        if entry is None:
-            violations.append(
-                Violation(task_id, f"file exists at {rel_path} but has no entry in docs/tasks/index.json")
-            )
-            continue
-        if entry.get("state") != data.get("state"):
-            violations.append(
-                Violation(
-                    task_id,
-                    f"index.json state ({entry.get('state')!r}) does not match the task "
-                    f"file's own state ({data.get('state')!r})",
+    for task_id, entries in tasks_by_id.items():
+        for data, path in entries:
+            rel_path = str(path.relative_to(REPO_ROOT))
+            entry = index_by_id.get(task_id)
+            if entry is None:
+                violations.append(
+                    Violation(
+                        task_id, f"file exists at {rel_path} but has no entry in docs/tasks/index.json"
+                    )
                 )
-            )
-        if entry.get("path") != rel_path:
-            violations.append(
-                Violation(
-                    task_id,
-                    f"index.json path ({entry.get('path')!r}) does not match the task's "
-                    f"actual file location ({rel_path!r})",
+                continue
+            if entry.get("state") != data.get("state"):
+                violations.append(
+                    Violation(
+                        task_id,
+                        f"index.json state ({entry.get('state')!r}) does not match the task "
+                        f"file's own state ({data.get('state')!r}) at {rel_path}",
+                    )
                 )
-            )
+            if entry.get("path") != rel_path:
+                violations.append(
+                    Violation(
+                        task_id,
+                        f"index.json path ({entry.get('path')!r}) does not match the task's "
+                        f"actual file location ({rel_path!r})",
+                    )
+                )
 
     for task_id in index_by_id:
         if task_id not in tasks_by_id:
