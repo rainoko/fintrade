@@ -26,5 +26,11 @@
       "rationale": "Checked both downstream tasks (api-watchlist.json, frontend-watchlist-page.json) for any requirement touching a note or target-price field -- neither mentions one; api-watchlist's whole point is to annotate each watched ticker with its live-computed signal/confidence from the existing signal engine, not a user-entered target. Adding speculative columns now would mean either exposing them through a not-yet-designed API/UI or leaving dead unused columns in the schema, and yet-another migration would be needed the moment a real requirement for them shows up anyway -- so YAGNI wins over guessing at a shape. Also decided to make ticker itself the primary key (String) rather than following PositionORM's synthetic-id-plus-unique-ticker-column pattern: a watchlist is a set of tickers (add once, remove by ticker -- DELETE /api/watchlist/{ticker} in api-watchlist.json operates on ticker directly, mirroring OHLCVCacheORM's natural-key convention), unlike positions where a synthetic id leaves room for multiple lots of the same ticker over time. Considered and rejected the synthetic-id-plus-unique-ticker pattern for cross-table consistency, since there's no use case here for multiple rows per ticker or for referencing a watchlist entry by an opaque id instead of the ticker itself. Documented both choices in a docstring on the model itself so the next task doesn't have to re-derive the reasoning from this file."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/watchlist-domain-models",
+    "pr_number": 101,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/101",
+    "pushed_at": "2026-09-18T06:56:39Z"
+  }
 }
