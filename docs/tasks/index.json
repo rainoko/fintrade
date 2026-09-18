@@ -635,8 +635,8 @@
       "id": "api-stocks-indicator-history",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/api-stocks-indicator-history.json"
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-indicator-history.json"
     },
     {
       "id": "frontend-chart-signal-overlay",

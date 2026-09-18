@@ -3,7 +3,7 @@
   "title": "Backend: expose historical indicator + signal time series for charting",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#4-indicator-summary-table",
@@ -68,26 +68,21 @@
     "pushed_at": "2026-09-18T06:40:39Z"
   },
   "review": {
-    "reviewed_at": "2026-09-18T06:30:37Z",
+    "reviewed_at": "2026-09-18T06:46:51Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/100",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: analyse_history() passes the same, full, untruncated weekly_ohlcv to every per-bar analyse() call, so every historical point in the series is gated against TODAY's Tide (Screen 1), not the Tide as of that bar's date -- look-ahead bias that contradicts the function's own 'no look-ahead' docstring claim and Analyse.md §2's 'never trade against the tide' premise. Up to 30% of confidence (§6 tide alignment) and the BUY/SELL/HOLD signal itself can be wrong for any historical bar within a range where the actual tide has since flipped -- materially misleading for this endpoint's stated charting purpose. The task's decisions entry rejects per-day weekly truncation because a naive '<= bar_date' filter would drop the in-progress week and break the 'last point matches /analysis' invariant, but truncating by the calendar week containing each daily bar's own date (W-FRI label <= that week's Friday) instead of by bar_date directly resolves that tension without special-casing: it naturally reduces to the full weekly series at the most recent daily bar. Needs either a point-in-time-correct weekly truncation or an explicit, reasoned sign-off that historically-inaccurate signal markers are acceptable for this endpoint.",
+        "summary": "Round-2 re-review, confirms the round-1 blocking finding is resolved: the new `_weekly_through_bar_date()` helper truncates weekly_ohlcv per bar to the weekly bars whose W-FRI label falls on or before the Friday of the calendar week (Saturday-through-Friday) containing that bar's own date -- verified by hand for all 7 weekdays against pandas' actual `resample('W-FRI')` binning (Sat/Sun correctly map to the *upcoming* Friday, matching the resampler's own bin assignment), and confirmed the 'last point matches /analysis' invariant holds by construction (the most recent daily bar's cutoff always reduces to weekly_ohlcv's own last label). Ran the new regression tests directly: test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value (an early bar within a synthetic 20-week bullish run correctly reports BULLISH even though the full/current series has since flipped BEARISH -- the exact look-ahead bug this closes), test_last_point_still_matches_todays_full_series_tide, and test_earlier_bar_sees_fewer_weekly_bars_than_a_later_bar, all passing. Also confirmed evaluate_tide's existing NEUTRAL fallback for <2 weekly bars handles the now-possible very-short truncated windows for early historical bars gracefully (no raise). Methodology check against docs/Analyse.md §2 (Screen 1/Tide, 'never trade against the tide'): sound -- a historical point now reflects only weekly data that had actually occurred as of that bar's date, consistent with the no-look-ahead framing the rest of the endpoint already followed.",
         "file": "backend/app/signals/engine.py",
         "line": 330
       },
       {
-        "summary": "Non-blocking (tracked on api-stocks-indicator-history-followups): analyse_history() is O(range_size x full_history_length) -- each per-bar analyse() call recomputes every indicator from scratch over an increasingly large slice, synchronously in the request handler. Documented and accepted for the default range=1y, but range=max is an explicitly supported, tested input and a real multi-second-plus latency risk for tickers with several years of history.",
-        "file": "backend/app/signals/engine.py",
-        "line": 386
-      },
-      {
-        "summary": "Non-blocking (tracked on api-stocks-indicator-history-followups): `bar_date.date() if hasattr(bar_date, \"date\") else bar_date` guards a branch that can't currently occur (daily_ohlcv.index is always a DatetimeIndex of pd.Timestamps here) -- dead code giving false protection rather than real safety.",
-        "file": "backend/app/api/routers/stocks.py",
-        "line": 339
+        "summary": "Both round-1 non-blocking findings folded into this fix as reported: the dead hasattr(bar_date, \"date\") branch in stocks.py is removed (now bar_date.date() directly, confirmed by reading the file), and the unused `import pytest` in test_engine.py is gone. Marked done on api-stocks-indicator-history-followups. The remaining non-blocking finding (O(range_size x full_history_length) cost of analyse_history(), worse for range=max) is unchanged by this fix and remains open on that follow-up task, correctly -- the added per-bar weekly truncation is a cheap boolean-index filter on top of the existing accepted tradeoff, not a new performance concern.",
+        "file": "docs/tasks/api-stocks-indicator-history-followups.json",
+        "line": 0
       }
     ],
-    "notes": "Backend tests (516 passed, 99.84% coverage) and frontend tests (99.71% coverage) both clean; ruff/mypy/eslint/tsc all clean; backend/openapi.json and frontend/src/api/types.ts regenerate byte-identical to what's committed. No frontend consumer of this endpoint exists yet, so no UI surface to browser-walk for this PR -- confirmed via grep, not silently skipped. All checklist 'decide X' items have corresponding decisions entries. Verdict is needs_work solely on the Tide look-ahead finding above; everything else passed."
+    "notes": "Re-review (retry round 2). Backend: 519 passed, 99.84% coverage (ruff clean, mypy clean). Frontend: 99.71%/99.64%/100%/99.71% (statements/branches/functions/lines), eslint clean, tsc clean. backend/openapi.json and frontend/src/api/types.ts both regenerate byte-identical to what's committed (re-ran scripts/export_openapi.py and npm run generate:api-types directly, git status clean after both). No frontend consumer of GET /api/stocks/{ticker}/indicators exists yet (confirmed via grep), so no UI surface to browser-walk -- consistent with round 1. code-review (medium effort) against the round-1-to-round-2 diff (3e90dd4..HEAD) returned zero findings after an independent hand-verification of the weekday-offset arithmetic, the evaluate_tide short-history fallback, and the single caller's usage. All checklist 'decide X' items have corresponding decisions entries, including the new decisions entry recording this fix and its rationale. Verdict: accepted -- the round-1 blocking finding is resolved and no new blocking or non-blocking issues found this round."
   }
 }

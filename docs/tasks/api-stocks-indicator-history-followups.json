@@ -17,7 +17,7 @@
     },
     {
       "step": "backend/app/api/routers/stocks.py:339 -- `bar_date.date() if hasattr(bar_date, \"date\") else bar_date` guards a branch that can't currently occur (daily_ohlcv.index is always a DatetimeIndex of pd.Timestamps by this point), so the else is dead code that gives false protection. Either drop the hasattr guard (call .date() directly) or add a comment explaining why it's defensive, and confirm a future non-Timestamp index would fail loudly (Pydantic validation) rather than silently passing through.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],
