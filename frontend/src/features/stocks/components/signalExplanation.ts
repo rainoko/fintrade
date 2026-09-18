@@ -157,13 +157,26 @@ export function explainSignal(
       : `Impulse is ${impulse} -- this blocks any fresh ${actionWord} signal regardless of the other screens (docs/Analyse.md §3).`,
   }
 
+  // `evaluate_trigger` (backend/app/signals/triple_screen.py) returns
+  // `reference: "not_applicable"` not only when Tide is Neutral (handled
+  // above, before `direction` is even resolved) but also whenever there are
+  // fewer than 2 daily bars to compare -- reachable even with a directional
+  // Tide derived from weekly data (e.g. a very new ticker). Rendering the
+  // normal "reference: Not applicable" alongside a directional "hasn't
+  // closed back above/below..." claim would be self-contradictory in that
+  // case, so it gets its own wording instead (frontend-signal-why-
+  // explanation-followups task `decisions` entry).
+  const triggerReferenceUnavailable = screens.trigger.reference === 'not_applicable'
+
   const triggerCondition: SignalConditionExplanation = {
     key: 'trigger',
     label: 'Trigger fired (Screen 3)',
     met: triggerMet,
     detail: triggerMet
       ? `Trigger fired -- ${triggerReferenceLabel} (docs/Analyse.md §2 Screen 3).`
-      : `Trigger hasn’t fired yet -- price hasn’t ${isBuySide ? 'closed back above the prior high' : 'closed back below the prior low'} (reference: ${triggerReferenceLabel}).`,
+      : triggerReferenceUnavailable
+        ? `Trigger hasn’t fired yet -- there isn’t enough daily price history yet to compare today’s close against a prior ${isBuySide ? 'high' : 'low'}.`
+        : `Trigger hasn’t fired yet -- price hasn’t ${isBuySide ? 'closed back above the prior high' : 'closed back below the prior low'} (reference: ${triggerReferenceLabel}).`,
   }
 
   const waveMetToday = waveState === targetWaveState
@@ -205,11 +218,15 @@ export function explainSignal(
       !impulseMet ? 'the Impulse gate' : null,
       !triggerMet ? 'Trigger' : null,
     ].filter((label): label is string => label !== null)
+    // `otherBlockers` is 1 or 2 items long here (see the branch condition
+    // above); pick a subject-verb-agreeing verb rather than always the
+    // singular "isn't", which reads wrong once both are joined with "and".
+    const otherBlockersVerb = otherBlockers.length > 1 ? 'aren’t' : 'isn’t'
     waveCondition = {
       key: 'wave',
       label: 'Wave pullback/rally (Screen 2)',
       met: null,
-      detail: `Today’s Wave state is ${humanizeSnakeCase(waveState)}, not a qualifying ${targetWaveLabel}. Wave looks back up to 5 trading days, so it may have shown one on an earlier day this view doesn’t show -- but ${otherBlockers.join(' and ')} also isn’t met, so this would be a HOLD either way.`,
+      detail: `Today’s Wave state is ${humanizeSnakeCase(waveState)}, not a qualifying ${targetWaveLabel}. Wave looks back up to 5 trading days, so it may have shown one on an earlier day this view doesn’t show -- but ${otherBlockers.join(' and ')} also ${otherBlockersVerb} met, so this would be a HOLD either way.`,
     }
   }
 

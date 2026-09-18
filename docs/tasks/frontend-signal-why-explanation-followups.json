@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #125 review (frontend-signal-why-explanation)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-signal-why-explanation"],
   "references": [
     "docs/tasks/frontend-signal-why-explanation.json",
@@ -15,17 +15,36 @@
   "checklist": [
     {
       "step": "signalExplanation.ts's ambiguous-Wave HOLD detail text has a subject-verb agreement bug when *both* the Impulse gate and Trigger are already-confirmed blockers: `otherBlockers.join(' and ')` produces a plural subject (e.g. 'the Impulse gate and Trigger') but the fixed singular verb 'isn't met' still follows, rendering '...but the Impulse gate and Trigger also isn't met, so this would be a HOLD either way.' Reproduced directly: explainSignal('HOLD', { tide: BULLISH, impulse: 'RED', wave: NO_WAVE, trigger: { fired: false, reference: 'close_above_prior_high' } }).conditions.find(c => c.key === 'wave').detail. This exact two-blocker combination isn't exercised by any existing signalExplanation.test.ts case (all cases there exercise exactly one blocker). Fix: use 'aren't' when otherBlockers.length > 1, or rephrase without a shared verb.",
-      "done": false
+      "done": true
     },
     {
       "step": "signalExplanation.ts's Trigger 'not fired' detail can render a self-contradictory 'reference: Not applicable' alongside a directional close-above/below claim. backend/app/signals/triple_screen.py's evaluate_trigger returns {fired: false, reference: 'not_applicable'} not only when tide is Neutral but also whenever there are fewer than 2 daily bars -- reachable even with a directional (BULLISH/BEARISH) tide derived from weekly data, e.g. a very new ticker with ample weekly history but under 2 daily bars. In that state, explainSignal's directional branch renders \"Trigger hasn't fired yet -- price hasn't closed back above the prior high (reference: Not applicable)\", which contradicts itself. Reproduced directly via explainSignal with trigger: { fired: false, reference: 'not_applicable' } and a directional tide (this is in fact the exact fixture SignalExplanationContent.test.tsx's `ambiguousWaveScreens` already uses, though that test doesn't assert on the Trigger condition's text). Rare in practice but worth an explicit guard/wording fix (e.g. special-case reference === 'not_applicable' in the directional branch).",
-      "done": false
+      "done": true
     },
     {
       "step": "signalExplanation.test.ts has no test case for the reachable combination where today's Wave state already shows the qualifying pullback/rally (waveMetToday true) but the overall signal is still HOLD because Impulse or Trigger blocks it (e.g. tide BULLISH, waveState OVERSOLD_PULLBACK, impulse RED, triggerFired true -> HOLD, Wave met should be true, Impulse met false). The branch itself (`if (waveMetToday) { met: true }`) is already exercised via the BUY/SELL test cases so branch coverage is numerically 100%, but no test confirms this specific HOLD-with-wave-already-showing combination renders met:true for Wave and correctly names only Impulse/Trigger as the blocker(s) in the headline.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the subject-verb agreement bug by picking 'aren't' vs 'isn't' based on `otherBlockers.length > 1` rather than rephrasing the sentence to avoid a shared verb entirely.",
+      "rationale": "Keeps the existing single-blocker wording (and its existing test assertions in signalExplanation.test.ts, e.g. /the Impulse gate also isn.t met/ and /Trigger.*isn.t met/) unchanged, minimizing the diff, while fixing the only actually-wrong case (both blockers present). A full rephrase (e.g. 'neither X nor Y is met') was considered and rejected as a larger, non-required change to text that's otherwise correct."
+    },
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "For the Trigger 'not fired' detail, special-cased `screens.trigger.reference === 'not_applicable'` to render \"there isn't enough daily price history yet to compare today's close against a prior high/low\" instead of the normal \"price hasn't closed back above/below... (reference: Not applicable)\" wording, leaving `met` (already `false` in this state) untouched.",
+      "rationale": "The task's own analysis (checklist item 2) already narrowed this to a <2-daily-bars edge case, distinct from the Tide-Neutral case (which is handled earlier and never reaches this directional branch at all). The new wording names the actual reason (insufficient daily history) rather than a generic 'not applicable', avoiding the self-contradiction of pairing a directional claim with 'reference: Not applicable' while making no claim about whether price crossed a level that can't yet be computed. No change to any condition's `met` value, per the task description's own note that these findings don't affect correctness of `met`."
+    },
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added the missing 'Wave already shows today, but Impulse/Trigger blocks' HOLD test(s) using the task's suggested fixture (tide BULLISH, waveState OVERSOLD_PULLBACK, impulse RED) split into an Impulse-only-blocks case (triggerFired true) and a both-block case (triggerFired false), rather than a single combined test.",
+      "rationale": "The Impulse-only case matches the task's exact suggested example and asserts the single-blocker headline; the both-block variant was added alongside it since it's the same code path already touched by the subject-verb-agreement fix in this task and costs little to cover explicitly rather than leaving it implied by the other two changes' individual tests."
+    }
+  ],
   "questions": []
 }
