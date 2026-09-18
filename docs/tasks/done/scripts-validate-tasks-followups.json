@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #113 review (scripts-validate-tasks)",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["scripts-validate-tasks"],
   "references": [
     "docs/tasks/done/scripts-validate-tasks.json",
@@ -59,5 +59,38 @@
     "pr_number": 114,
     "pr_url": "https://github.com/rainoko/fintrade/pull/114",
     "pushed_at": "2026-09-18T12:27:26Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T12:31:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/114",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently reproduced the index_by_id duplicate-id fix against a scratch board: ran the pre-fix script (2e41221) against a synthetic index.json with two rows sharing an id (one stale 'planned', one current 'implementing', task file itself 'implementing') -- it reported only the generic 'duplicate id' violation and silently missed the stale row's drift, confirming the bug the checklist described. Ran the post-fix script (f16ff55) against the identical fixture -- it now also reports 'index.json state (\\'planned\\') does not match the task file's own state (\\'implementing\\')', matching the new test_duplicate_index_entry_cross_checks_both_rows regression test exactly.",
+        "file": "scripts/validate_tasks.py",
+        "line": 317
+      },
+      {
+        "summary": "Diffed check_task_shape's four is_invalid_str_choice call sites against the pre-PR inline isinstance-and-membership guards: every fail(...) message string is byte-for-byte unchanged, only the condition expression was factored out. No silent behavior change for anything parsing validator output.",
+        "file": "scripts/validate_tasks.py",
+        "line": 74
+      },
+      {
+        "summary": "Grepped the repo for any direct/executable invocation of scripts/tests/test_validate_tasks.py (CI workflows, Makefile, skill docs) -- none found; every reference uses `python3 scripts/tests/test_validate_tasks.py`, matching the file's own docstring. Dropping the unexecuted shebang is safe.",
+        "file": "scripts/tests/test_validate_tasks.py",
+        "line": 1
+      },
+      {
+        "summary": "Backend pytest --cov=app: 560 passed, 99.86% coverage. Frontend vitest --coverage: 99.6%/99.21%/100%/99.6% (statements/branches/functions/lines). Both well above the 90% gate; this diff touches no app code so no regression expected, and none found. ruff check scripts/ and mypy scripts/validate_tasks.py --strict both clean. No frontend/backend/openapi.json changes in this diff, so steps 8/9/9a (OpenAPI snapshot, browser walkthrough, e2e suite) don't apply -- noting explicitly rather than silently skipping.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (filed as a tracked follow-up, scripts-validate-tasks-followups-followups): the second decisions entry's timestamp (2026-09-18T00:00:00Z) is an exact-midnight placeholder, not the real time -- the corresponding commit f16ff55 was actually authored at 2026-09-18T12:27:07Z per git log, about 12.5 hours off. Doesn't affect the decision's content or the code, but is the same class of fabricated-timestamp issue CLAUDE.md/pr-merger already guard against for review.reviewed_at.",
+        "file": "docs/tasks/scripts-validate-tasks-followups.json",
+        "line": 51
+      }
+    ],
+    "notes": "Full review: checked out PR #114, read the task JSON via index.json's path field, ran the persisted regression suite (24/24 pass) and the validator against the real 110-file board (clean). Independently reproduced the duplicate-index-id bug fix on a scratch board rather than trusting the new test alone (pre-fix script misses the stale row's drift, post-fix script catches it). Verified message-text parity on the is_invalid_str_choice extraction via diff. Grepped for direct execution of the test file before accepting the shebang removal. Ran backend+frontend test/coverage suites (no regression, both well above 90%) and ruff/mypy (clean). Ran the code-review skill (medium effort) against the diff -- returned zero findings, consistent with my own read. area is 'tooling', not backend/signals or backend/portfolio and skill is null, so verify-elder-signal doesn't apply. This is a bugfix + small helper extraction within an existing script, not a new module/dependency/layer, so architecture-review doesn't apply. No frontend/ changes, so the component-placement check (step 7a) doesn't apply. No frontend/backend app code or API/schema changes in this diff, so the OpenAPI-snapshot check, browser walkthrough, and e2e suite (steps 8, 9, 9a) don't apply -- stating this explicitly per the review process rather than silently omitting them. Both checklist items phrased as judgment calls (shebang drop vs chmod +x; scope of the is_invalid_str_choice helper) have corresponding decisions entries with real rationale and rejected alternatives. One non-blocking finding (placeholder decision timestamp) filed as a new follow-up task scripts-validate-tasks-followups-followups per CLAUDE.md's tracked-follow-up rule."
   }
 }
