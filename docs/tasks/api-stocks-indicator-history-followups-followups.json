@@ -1,0 +1,25 @@
+{
+  "id": "api-stocks-indicator-history-followups-followups",
+  "title": "Non-blocking follow-ups from PR #121 review (api-stocks-indicator-history-followups)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-stocks-indicator-history-followups"],
+  "references": [
+    "docs/tasks/api-stocks-indicator-history-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/121"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #121 (api-stocks-indicator-history-followups, the analyse_history() O(range_size x history_length) -> O(history_length) fix), tracked here so they aren't lost once that PR merges and its comments scroll out of view.",
+  "checklist": [
+    {
+      "step": "backend/app/signals/engine.py:521 -- analyse_history() now calls drop_malformed_daily_bars(daily_ohlcv) once at the top (added so the precomputed indicator series and every per-bar truncated slice agree on which rows exist). This is a genuine, currently-dormant behavior change versus the pre-PR implementation for a caller that passes a not-fully-cleaned daily_ohlcv with a malformed bar in the *middle* of history (not just the trailing bar): the malformed bar's date is now silently omitted from the returned history list entirely, whereas the pre-PR implementation still emitted an entry for that date (with indicator/signal values effectively duplicating the prior clean bar's, since analyse() re-cleaned its own truncated slice internally either way). Reproduced directly: with a 60-row synthetic daily frame with row 30's close set to NaN, the pre-PR analyse_history() returned 60 entries (including one dated at the malformed row, matching the prior clean bar's values) while this PR's analyse_history() returns 59 entries (that date entirely absent). The only real caller (app/api/routers/stocks.py) already calls drop_malformed_daily_bars before invoking analyse_history, so this has no live production effect today, and arguably the new behavior is more correct (no chart point for a day whose data never really arrived) -- but it's undocumented (no decisions entry or docstring note acknowledging the change from the prior contract) and untested (no regression test exercises analyse_history() with a malformed bar mixed into history rather than pre-cleaned/trailing-only). Add a regression test for this case and either document the behavior change explicitly (docstring + a decisions entry) or, if judged unintentional/undesirable, reconcile it with the pre-PR emit-an-entry-anyway behavior.",
+      "done": false
+    },
+    {
+      "step": "backend/app/signals/engine.py:354-355 -- the docstring/decisions entry's claim that this PR turns analyse_history()'s cost from O(range_size x history_length) into O(history_length) total is not strictly accurate: elder_bull_power(daily_ohlcv['high'], ema_13) / elder_bear_power(daily_ohlcv['low'], ema_13) (a vectorized High/Low - EMA(13) subtraction) are computed fresh over each bar's own full truncated slice inside analyse() every call, not precomputed once over the full series and sliced like the five daily + three weekly indicators this PR did precompute -- so this remains an O(i)-per-bar cost, on top of the already-acknowledged (in the PR's own decisions entry) per-bar volume-rolling-average and _weekly_through_bar_date boolean-mask costs. The function's true worst-case asymptotic complexity is therefore still O(range_size x history_length), just with a much smaller constant (the dominant terms removed). Confirmed empirically this doesn't matter in practice for realistic history lengths -- a synthetic worst-case benchmark (a choppy/oscillating bullish-tide series engineered to trigger the Wave screen's oversold/Force-Index-spike path -- the other real per-bar-recompute-shaped cost, _is_force_index_spike's rolling-std -- far more often than typical market data) still showed clean linear scaling from n=500 to n=4000 (0.53s/1.01s/2.06s/4.04s), matching the PR's own reported linear-to-5000-bars scaling. This is a documentation-precision nit, not a live performance bug -- either qualify the O(history_length) framing more precisely (e.g. note the residual O(n) terms and why they don't matter in practice) or extend the same precompute-and-slice pattern to elder_bull_power/elder_bear_power for full consistency/asymptotic correctness.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -782,8 +782,15 @@
       "id": "api-stocks-indicator-history-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/api-stocks-indicator-history-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/api-stocks-indicator-history-followups.json"
+    },
+    {
+      "id": "api-stocks-indicator-history-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-indicator-history-followups-followups.json"
     },
     {
       "id": "api-watchlist-followups",

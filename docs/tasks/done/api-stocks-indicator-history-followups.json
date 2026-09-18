@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #100 review (api-stocks-indicator-history)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "docs/tasks/api-stocks-indicator-history.json",
@@ -41,5 +41,23 @@
     "pr_number": 121,
     "pr_url": "https://github.com/rainoko/fintrade/pull/121",
     "pushed_at": "2026-09-18T22:00:32Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T22:11:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/121",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "analyse_history()'s new top-level drop_malformed_daily_bars() call (added so the precomputed indicator series and every per-bar slice agree on which rows exist) is a genuine, currently-dormant behavior change for a caller passing not-fully-cleaned data with a malformed bar in the *middle* of history: that date's entry is now silently omitted from the returned history entirely, instead of (pre-PR) still being emitted with the prior clean bar's values. Reproduced directly (60-row synthetic frame, row 30 malformed: pre-PR returns 60 entries including one for the malformed date, this PR returns 59). The only real caller (app/api/routers/stocks.py) already pre-cleans before calling analyse_history, so there is no live production effect today, and the new behavior may even be more correct -- but it's undocumented and untested. Non-blocking; filed as a follow-up.",
+        "file": "backend/app/signals/engine.py",
+        "line": 521
+      },
+      {
+        "summary": "The docstring/decisions' O(range_size x history_length) -> O(history_length) total framing is not strictly accurate: elder_bull_power/elder_bear_power (High/Low - EMA(13)) are still computed fresh per bar over each truncated slice, not precomputed-and-sliced like the five daily + three weekly indicators this PR did precompute -- so, on top of the already-acknowledged per-bar volume-rolling-average and weekly boolean-mask costs, the function's true worst-case complexity remains O(range_size x history_length), just with a much smaller constant. Confirmed empirically this doesn't matter in practice: a synthetic worst-case benchmark engineered to maximize Wave-screen rolling-std recomputation still showed clean linear scaling from n=500 to n=4000 (0.53s/1.01s/2.06s/4.04s). Documentation-precision nit, not a live performance bug. Non-blocking; filed as a follow-up.",
+        "file": "backend/app/signals/engine.py",
+        "line": 354
+      }
+    ],
+    "notes": "Full review per the PR-reviewer process. Checked out PR #121 (branch already current). Backend test suite: 570 passed, 99.86% overall coverage, 100% on both touched modules (engine.py, triple_screen.py) -- no coverage regression, well above the 90% gate. ruff + mypy clean on backend; frontend untouched by this PR (no lint/tsc run needed, last known state clean). code-review skill launched in background for an additional pass; independent manual code-review + verify-elder-signal walkthrough completed directly (no signal/confidence/risk methodology logic touched -- purely an internal recompute-once-and-slice refactor via new optional keyword params, all defaulting to prior behavior; Screen 1/2/3, Impulse gate, and confidence weights/logic are byte-for-byte unchanged). Independently spot-checked correctness beyond the PR's own regression tests: wrote a standalone script computing analyse_history() over a 300-bar synthetic series and cross-checking signal/confidence/indicators/screens at 12 historical indices (including two weekly-boundary-crossing dates) against a fresh analyse() call on the same truncated slice -- zero mismatches. Verified no look-ahead directly: perturbed a bar 5 days after a checked index by +1000 and confirmed the checked index's result was byte-identical before/after (precomputed-series slicing at index N provably only reflects data through bar N, confirmed both by this test and by reading ema()/macd_components()/stochastic_oscillator()/force_index() -- all are causal/trailing-window, never centered or forward-looking). 'Last point matches /analysis' invariant reconfirmed both via the existing test and my own spot-check at index 299. The private _daily_ohlcv_already_clean escape hatch is safe: it's only ever set by analyse_history() itself after that function has already cleaned the full frame once up front, so every per-bar truncated slice it skips re-cleaning is provably already clean -- confirmed via a targeted test with a malformed bar in the middle of an otherwise-uncleaned input, which showed the top-level clean call still correctly excludes it from every downstream computation. No API route/schema touched -- backend/openapi.json regeneration not applicable. UI-facing: GET /api/stocks/{ticker}/indicators has a frontend consumer (the stock-detail indicator-history chart), so ran the full browser walkthrough despite no route/schema change: started backend (FINTRADE_DATA_PROVIDER_MODE=fixture) + frontend dev servers, drove /stocks/AAPL with a Playwright script (no dedicated Playwright browser tool was available in this session, so used the project's own installed playwright-core directly as an equivalent substitute) -- 1Y and MAX ranges both render the price/EMA chart and all three oscillator panes correctly, zero console errors, zero failed network requests; also checked the invalid-ticker edge case (clean 'Not found' state). Also ran the persisted e2e suite (make e2e): all 13 specs passed, including stock-analysis.spec.ts's dedicated 'selecting the Max range does not crash the oscillator pane or the app (PR #108 review regression)' spec, which directly exercises this PR's own performance-optimization code path. No checklist item phrased as 'decide X' was left undecided -- both decisions entries (task-worker's scope-correction and the optimization design itself) are present and substantive. Two non-blocking findings recorded above and filed as docs/tasks/api-stocks-indicator-history-followups-followups.json."
   }
 }
