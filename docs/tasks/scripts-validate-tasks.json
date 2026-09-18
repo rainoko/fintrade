@@ -3,7 +3,7 @@
   "title": "Python script + skill: validate docs/tasks/ JSON structure",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "CLAUDE.md#Task board (docs/tasks/)",
@@ -51,5 +51,38 @@
       "alternatives_considered": "Considered also wiring it into task-worker's or pr-reviewer's own per-task workflow (validate after every task-file edit), rejected as unnecessarily heavy for what's meant to be a lightweight, occasional board-wide health check, and out of scope for 'only make that change if it's small and clearly beneficial' -- a per-commit hook belongs to a future task's decision, not this one's. Considered naming it 'validate-tasks' to shadow the script's own filename, rejected in favor of 'validate-task-board' for the disambiguation reason above."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-18T12:00:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/113",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: scripts/validate_tasks.py crashes with an uncaught TypeError instead of reporting a violation when a checked field is a non-scalar (list/dict) rather than the expected string. `test[\"verdict\"] not in VALID_TEST_VERDICTS` (and the same pattern at review.verdict, test.gap_analysis[].severity, and index.json's per-task state) calls `not in` on a set of strings, which raises `TypeError: unhashable type` if the value is a list/dict rather than being caught gracefully. Reproduced directly: a task file with `\"test\": {\"verdict\": [\"pass\"]}` makes the whole script abort with a traceback instead of printing `FAIL: N violation(s) found`. This defeats the tool's entire purpose -- gracefully reporting exactly this class of malformed data -- and would break the non-interactive preflight use in orchestrate-tasks/revalidate-done-tasks (a crash there looks like a script bug, not an actionable board finding). Fix: guard each of these four `not in <set>` checks with an `isinstance(value, str)` check first, the same pattern already used correctly for the top-level `state` check at line 106.",
+        "file": "scripts/validate_tasks.py",
+        "line": 204
+      },
+      {
+        "summary": "BLOCKING: .claude/skills/orchestrate-tasks/SKILL.md's new preflight step tells the orchestrator to \"fix anything trivially wrong on the current branch (`main`, since nothing has been dispatched yet) and re-run the validator\" for a validator finding. This is unworkable as written: CLAUDE.md states explicitly (and this file's own diff references) that \"main's branch-protection ruleset rejects every direct push, including a bookkeeping-only one\" -- so a fix made directly on `main` can never actually be pushed upstream. If the instruction instead means editing-but-not-committing, that leaves uncommitted changes on `main` in the shared working tree, which CLAUDE.md's 'one agent at a time on the shared working tree' section warns against (a subsequent task-worker branch cut from `main` would pick up those uncommitted edits). Either reading breaks. Fix: the instruction needs a real persistence path for a trivial board fix -- e.g. open a small dedicated PR for the fix (same as any other change to `main`), or explicitly scope 'fix' to only editing the in-memory/dispatch-time understanding without touching tracked files, and say so.",
+        "file": ".claude/skills/orchestrate-tasks/SKILL.md",
+        "line": 25
+      },
+      {
+        "summary": "Non-blocking: scripts/validate_tasks.py's own 'id field does not match its filename' check is dead code -- run() computes `task_id = data[\"id\"] if is_nonempty_str(data.get(\"id\")) else path.stem` and passes that same task_id into check_task_shape, whose internal comparison `data[\"id\"] != task_id` can therefore never be true whenever `id` is a nonempty string. Verified by hand: a scratch task file with a mismatched `id` vs. filename produced zero violation for this rule. Not one of the invariants the task's own description lists as required, and none of those are affected (all independently verified working via synthetic negative cases). Filed as a tracked follow-up (scripts-validate-tasks-followups) rather than blocking on its own, but should be fixed alongside the two blocking items above since they're in the same function/file.",
+        "file": "scripts/validate_tasks.py",
+        "line": 102
+      },
+      {
+        "summary": "Non-blocking: no persisted/committed regression test for scripts/validate_tasks.py itself -- the synthetic negative-case smoke test mentioned in the PR summary was apparently ad hoc and not committed, so there's no automated way to re-verify the validator's own correctness going forward (and a committed test would likely have caught both blocking findings above). Filed as a tracked follow-up.",
+        "file": "scripts/validate_tasks.py",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: scripts/validate_tasks.py's `tasks_by_id[task_id] = (data, path)` silently overwrites an earlier entry when two task files share the same id (e.g. a stale copy left behind after an incomplete git mv to docs/tasks/done/); the duplicate is flagged once as 'duplicate id', but subsequent index.json-mirror/depends_on cross-checks then only run against whichever file was processed last. Filed as a tracked follow-up.",
+        "file": "scripts/validate_tasks.py",
+        "line": 328
+      }
+    ],
+    "notes": "Verified against CLAUDE.md's Task board section directly (not just the PR summary): the six required invariants (top-level shape/types incl. optional decisions/questions/git/test/review/pr_decision; state in the five documented values; checklist step+done shape; decisions decision+rationale shape including the literal 'bare changed X isn't a decision record' rule; questions question+context shape; depends_on resolution against the whole board; index.json state/path mirror; done<=>docs/tasks/done/ path invariant) are all correctly implemented and matched CLAUDE.md's wording when I re-read that section myself. Ran `python3 scripts/validate_tasks.py` for real: clean pass, 109 task files, matching the PR's claimed smoke test. Independently re-ran a synthetic negative-case test (21 distinct violations across every documented category) and confirmed each fires correctly -- except the dead id-vs-filename check (non-blocking, see below). A second independent code-review pass (code-review skill, high effort) then surfaced two further, genuinely blocking bugs I hadn't caught in my own manual pass: an uncaught TypeError crash on non-scalar field values, and a broken persistence path in the new orchestrate-tasks preflight instruction -- both reproduced directly and confirmed real, see comments. Spot-checked the review.comments[].file/.line null-handling decision against docs/tasks/done/confidence-scoring.json's review.comments[2] (file: null, line: null, a suite-wide coverage note) -- confirmed a real, legitimate existing convention, not board content that should have been 'fixed' instead; that particular validator bug fix was the right call. Both 'decide X' checklist items (script location/dependency footprint; wiring into existing skills) have corresponding decisions entries with real rationale and rejected alternatives -- no gap there. Backend: pytest --cov=app, 560 passed, 99.86% coverage (gate 90%). Frontend: vitest --coverage, 99.6%+ across all four metrics (gate 90%). Backend ruff/mypy clean; frontend eslint/tsc clean; ran ruff check against the new scripts/ directory directly too (not part of the enforced gate, same as backend/scripts/'s existing precedent) -- clean. No backend/app, frontend/, or openapi.json changes in this diff, so no OpenAPI staleness concern and no browser walkthrough/e2e run needed -- this PR has no UI surface (scripts/skills/docs/task-JSON only). architecture-review's checklist (data/indicators/signals/portfolio layering, API routers, React Query, coverage config) doesn't apply -- no app code touched, no new runtime dependency (stdlib only), docs/Architecture.md is silent on repo tooling by design. The revalidate-done-tasks wiring (a pointer to the script as a fast first pass, not replacing the deeper per-task content checks) is fine as-is; only the orchestrate-tasks wiring has the blocking issue above. Filed the three non-blocking findings as scripts-validate-tasks-followups (new task, none existed for this id yet)."
+  }
 }

@@ -1,0 +1,30 @@
+{
+  "id": "scripts-validate-tasks-followups",
+  "title": "Non-blocking follow-ups from PR #113 review (scripts-validate-tasks)",
+  "area": "tooling",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["scripts-validate-tasks"],
+  "references": [
+    "docs/tasks/done/scripts-validate-tasks.json",
+    "https://github.com/rainoko/fintrade/pull/113",
+    "scripts/validate_tasks.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #113 (scripts-validate-tasks), tracked here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "Fix scripts/validate_tasks.py's dead 'id field does not match its filename' check: check_task_shape(task_id, data) is always called with task_id already derived as data[\"id\"] when data has a non-empty id (see collect_task_files/run: `task_id = data[\"id\"] if is_nonempty_str(data.get(\"id\")) else path.stem`), so the internal comparison `data[\"id\"] != task_id` inside check_task_shape can never be true -- the check is unreachable dead code. Verified by hand: adding a task file docs/tasks/scratch-filename-mismatch.json with `\"id\": \"totally-different-id\"` produced zero violation for this specific rule (only the unrelated 'missing index.json entry' violation fired). Fix by passing the filename-derived id (path.stem) separately into check_task_shape so it can genuinely compare against the file's own `id` field, independent of which value it uses elsewhere as the task's canonical id.",
+      "done": false
+    },
+    {
+      "step": "Add a persisted, committed regression test for scripts/validate_tasks.py itself (e.g. a small stdlib-only test script or a pytest module) exercising each violation type on synthetic fixture data, plus the real-board clean-pass case. The task-worker's smoke test (a synthetic negative-case run covering every violation type, per the task's checklist item 4) was apparently run ad hoc and not committed, so there's currently no automated way to re-verify the validator's own correctness on a future change to it -- and, notably, a committed test suite would have caught both the dead id-vs-filename check and the TypeError-on-non-scalar-field crash bug (both fixed as blocking findings on this same PR) if those specific cases had been included.",
+      "done": false
+    },
+    {
+      "step": "scripts/validate_tasks.py's `tasks_by_id[task_id] = (data, path)` (in `run()`) silently overwrites an earlier entry when two task files share the same `id` (e.g. a stale copy left behind after an incomplete `git mv` to docs/tasks/done/). The duplicate is flagged once as \"duplicate id ... found elsewhere on the board\", but every subsequent cross-check (index.json state/path mirror, depends_on resolution) then only ever runs against whichever file was processed last -- a genuine, independent drift on the earlier/stale duplicate is never separately checked beyond that one generic line. Consider keying by (task_id, path) for the cross-check loops, or at least noting in the duplicate-id violation message that only one of the copies was cross-checked.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
