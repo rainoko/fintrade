@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #108 review (frontend-oscillator-chart)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["frontend-oscillator-chart"],
   "references": [
     "docs/tasks/frontend-oscillator-chart.json",
@@ -55,6 +55,29 @@
     "pr_number": 112,
     "pr_url": "https://github.com/rainoko/fintrade/pull/112",
     "pushed_at": "2026-09-18T11:35:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T11:32:55Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/112",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "backend/app/api/schemas.py's new IndicatorHistoryPoint.stochastic_k Field description claims the warm-up window is '~11 prior bars', but the actual implementation (app/indicators/stochastic.py, defaults k_period=5/smooth=3: (k_period-1)+(smooth-1) = 4+2 = 6 leading NaN bars) and this same PR's own new test (test_early_bars_have_null_stochastic_k_and_force_index, which asserts points[:6] are null and points[6:] are not) both show the real warm-up is 6 null bars, not ~11 -- nearly half the claimed figure. This self-contradicts the PR's own decisions entry on this task, which states both '~11-bar... warm-up window' and, two sentences later in the same paragraph, 'asserting the exact warm-up bar counts (6 for stochastic_k...)'. The same wrong '~11' figure was carried into three more committed files: backend/openapi.json and frontend/src/api/types.ts (both regenerated from the inaccurate schemas.py description) and frontend/src/features/stocks/components/OscillatorChart.tsx's rewritten isFiniteValue doc comment. Fails CLAUDE.md's API documentation standard ('Pydantic schema fields get a description... wherever the field's meaning isn't obvious... units, ranges, what triggers a null, etc.') since the description of exactly this -- what triggers a null, and for how long -- is factually wrong. Functional behavior is unaffected (the nullable-schema fix itself, the frontend null-guard, and the test's actual assertions are all correct); this is purely an inaccurate public-contract description that needs correcting to '~6' (or an exact 6) in all four locations before merge.",
+        "file": "backend/app/api/schemas.py",
+        "line": 101
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/API.md's GET /api/stocks/{ticker}/indicators section (example JSON + prose, ~lines 66-93) wasn't updated to mention the new stochastic_k/force_index_2ema nullability -- filed as a checklist item on frontend-oscillator-chart-followups-followups.",
+        "file": "docs/architecture/API.md",
+        "line": 83
+      },
+      {
+        "summary": "Non-blocking, unrelated to this PR's diff (pre-existing, backend/app/api/routers/stocks.py unchanged here): GET /api/stocks/{ticker}/indicators?range=max is very slow against the live data provider for a long-lived ticker (observed >120s CPU-bound for AAPL, whose real history goes back to 1980) since it recomputes the full per-bar signal engine with no caching of derived results. Surfaced while doing this PR's required browser walkthrough (had to re-run against FINTRADE_DATA_PROVIDER_MODE=fixture to get a usable response time) -- filed as a checklist item on frontend-oscillator-chart-followups-followups.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 331
+      }
+    ],
+    "notes": "Backend: 560 passed, 99.86% coverage. Frontend: 269 passed, 99.6%/99.21%/100%/99.6% (stmt/branch/func/line) -- both well above the 90% gate, no regression. ruff/mypy/eslint/tsc all clean. Verified the nullable-schema decision itself is sound: stochastic_k's actual warm-up (6 leading null bars) and force_index_2ema's (1 leading null bar, confirmed empirically via pandas.Series.ewm's leading-NaN seeding behavior) both match the new backend test's asserted counts exactly, and every other IndicatorHistoryPoint field (ema_13/ema_26/macd_histogram/bull_power/bear_power) is correctly never-null across the same warm-up window since EMA-seeded indicators never produce NaN even on their first bar -- this is genuinely a type-accuracy widening, not a behavior change (frontend already defensively filtered nulls via isFiniteValue). chart.ts move to frontend/src/utils/ verified against Frontend.md §3's placement test (domain-agnostic, no props/rendering) and against both consumers (PriceChart.tsx, OscillatorChart.tsx) -- no stale frontend/src/features/stocks/lib/ references remain, old dir removed. Browser walkthrough (had to restart the dev servers with FINTRADE_DATA_PROVIDER_MODE=fixture -- range=max against the live provider for AAPL was still running after 2+ minutes of CPU time, see the unrelated non-blocking finding above): golden path (AAPL, default 1y range) renders price chart with EMA13/EMA26 overlay and all three oscillator panes (Stochastic %K, Force Index, MACD Histogram) correctly; edge case (Max range, which includes the warm-up null bars this PR's schema change is about, plus a Weekly-interval toggle) renders without any console error, failed request, or app crash -- confirms the OscillatorChart.tsx null-guard from PR #108's original fix still works with the now-honestly-typed field. make e2e: 13/13 passed, including stock-analysis.spec.ts's 'selecting the Max range does not crash the oscillator pane or the app (PR #108 review regression)' spec, which is the exact persisted regression test for the bug this whole chain of PRs traces back to. architecture-review: chart.ts placement matches Frontend.md §3 exactly (same test that already places utils/format.ts); no other structural deviation found. One unrelated pre-existing stash (task/watchlist-domain-models, labeled 'do not discard') was present in git stash list at review start -- left untouched, not created by this review."
   },
   "questions": []
 }
