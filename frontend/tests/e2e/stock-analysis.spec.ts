@@ -116,6 +116,36 @@ test.describe('stock analysis page', () => {
     await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
   })
 
+  test('selecting the Max range does not crash the oscillator pane or the app (PR #108 review regression)', async ({
+    page,
+  }) => {
+    // Every ticker's earliest bars, by construction, lack full indicator
+    // warm-up (Stochastic %K(5,3,3) needs ~11 prior bars) -- GET
+    // /api/stocks/AAPL/indicators?range=max legitimately returns points
+    // with stochastic_k/force_index_2ema as `null`. OscillatorChart.tsx
+    // used to pass those straight into Lightweight Charts' `setData`,
+    // which throws synchronously on a non-numeric value; uncaught, that
+    // propagated to the app-root AppErrorBoundary and replaced the WHOLE
+    // page with a generic error screen, not just the oscillator pane. This
+    // is the one range preset the rest of this suite never selects (only
+    // 6M/Weekly/Daily above), which is exactly why it didn't catch the bug.
+    await page.goto('/stocks/AAPL')
+    await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+    await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Max' }).click()
+
+    // The page must still be the stock analysis page, not
+    // AppErrorBoundary's fallback.
+    await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
+    await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+    // The oscillator pane specifically must still render its chart, not
+    // crash or silently disappear.
+    await expect(page.getByText('Oscillators (Screen 2)')).toBeVisible()
+    await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
+    await expect(page.getByText('Something went wrong')).not.toBeVisible()
+  })
+
   test('looking up an unknown ticker shows a not-found error state', async ({ page }) => {
     await page.goto('/')
     await page.getByLabel('Look up a ticker').fill('ZZZZINVALID')

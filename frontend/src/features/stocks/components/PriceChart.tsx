@@ -5,7 +5,6 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import { useTheme } from '@mui/material/styles'
 import {
   CandlestickSeries,
-  createChart,
   createSeriesMarkers,
   LineSeries,
   type IChartApi,
@@ -20,6 +19,7 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockHistory } from '../hooks/useStockHistory'
+import { createBaseChart } from '../lib/chart'
 
 export interface PriceChartProps {
   ticker: string
@@ -226,10 +226,7 @@ export default function PriceChart({
       return
     }
 
-    const chart = createChart(container, {
-      autoSize: true,
-      layout: { background: { color: 'transparent' } },
-    })
+    const chart = createBaseChart(container)
     const series = chart.addSeries(CandlestickSeries)
     series.setData(
       finiteBars.map((bar) => ({

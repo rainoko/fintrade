@@ -1,13 +1,13 @@
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { useTheme } from '@mui/material/styles'
+import { useTheme, type Theme } from '@mui/material/styles'
 import {
-  createChart,
   HistogramSeries,
   LineSeries,
   LineStyle,
   type IChartApi,
+  type ISeriesApi,
   type Time,
 } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
@@ -16,6 +16,7 @@ import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { createBaseChart } from '../lib/chart'
 
 export interface OscillatorChartProps {
   ticker: string
@@ -46,16 +47,44 @@ interface OscillatorSeriesData {
 }
 
 /**
+ * The generated OpenAPI type declares `stochastic_k`/`force_index_2ema`/
+ * `macd_histogram` as non-nullable `number` (backend/app/api/schemas.py),
+ * but the runtime response can legitimately return `null` for early bars
+ * still inside an indicator's warm-up window (e.g. Stochastic %K(5,3,3)
+ * needs ~11 prior bars) — confirmed live via GET
+ * /api/stocks/AAPL/indicators?range=max, which returns points with
+ * stochastic_k/force_index_2ema literally `null`. This is the same class of
+ * schema/reality mismatch `PriceChart.tsx`'s `hasFiniteOhlc` guards against
+ * for OHLCV bars (filed as a backend follow-up on
+ * frontend-oscillator-chart-followups; this guard doesn't assume that gets
+ * fixed and stays regardless of which backend approach is eventually
+ * chosen). Lightweight Charts' `setData` throws synchronously on a
+ * non-numeric value, which — uncaught — crashes the whole app via the
+ * root `AppErrorBoundary`, not just this pane. `unknown` (not `number`) is
+ * used for the parameter type here specifically because the generated type
+ * can't be trusted for this field at runtime.
+ */
+function isFiniteValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
  * Projects `/indicators` points into the three oscillator series this pane
  * plots, in a single pass (same "build once, not three separate `.map()`
- * passes" convention as `PriceChart.tsx`'s `buildOverlayData`). Force
- * Index/MACD Histogram bars are colored by sign (>= 0 vs < 0) using the
- * theme's buy/sell colors — a conventional histogram-coloring choice (every
- * mainstream charting platform colors a MACD histogram this way), not a
- * literal claim that a positive bar IS a BUY signal: Analyse.md §2 is
- * explicit that Force Index's sign is only a buying/selling *cue* in
- * combination with the prevailing trend, which this pane doesn't (and
- * shouldn't) recompute — see this task's `decisions` entry.
+ * passes" convention as `PriceChart.tsx`'s `buildOverlayData`). Each series
+ * is filtered independently by `isFiniteValue` (a point with a null
+ * `stochastic_k` but a valid `force_index_2ema` still contributes to the
+ * Force Index series) — a still-warming-up point is simply omitted from
+ * that one series (Lightweight Charts renders a gap across a missing
+ * time point, not a broken line), rather than the whole series being
+ * suppressed. Force Index/MACD Histogram bars are colored by sign (>= 0 vs
+ * < 0) using the theme's buy/sell colors — a conventional
+ * histogram-coloring choice (every mainstream charting platform colors a
+ * MACD histogram this way), not a literal claim that a positive bar IS a
+ * BUY signal: Analyse.md §2 is explicit that Force Index's sign is only a
+ * buying/selling *cue* in combination with the prevailing trend, which this
+ * pane doesn't (and shouldn't) recompute — see this task's `decisions`
+ * entry.
  */
 function buildOscillatorSeriesData(
   points: readonly IndicatorHistoryPoint[],
@@ -66,19 +95,57 @@ function buildOscillatorSeriesData(
   const macdHistogram: OscillatorSeriesData['macdHistogram'] = []
   for (const point of points) {
     const time = point.date as Time
-    stochastic.push({ time, value: point.stochastic_k })
-    forceIndex.push({
-      time,
-      value: point.force_index_2ema,
-      color: point.force_index_2ema >= 0 ? colors.positive : colors.negative,
-    })
-    macdHistogram.push({
-      time,
-      value: point.macd_histogram,
-      color: point.macd_histogram >= 0 ? colors.positive : colors.negative,
-    })
+    if (isFiniteValue(point.stochastic_k)) {
+      stochastic.push({ time, value: point.stochastic_k })
+    }
+    if (isFiniteValue(point.force_index_2ema)) {
+      forceIndex.push({
+        time,
+        value: point.force_index_2ema,
+        color: point.force_index_2ema >= 0 ? colors.positive : colors.negative,
+      })
+    }
+    if (isFiniteValue(point.macd_histogram)) {
+      macdHistogram.push({
+        time,
+        value: point.macd_histogram,
+        color: point.macd_histogram >= 0 ? colors.positive : colors.negative,
+      })
+    }
   }
   return { stochastic, forceIndex, macdHistogram }
+}
+
+/**
+ * Adds one histogram pane with a dotted zero baseline — the setup shared,
+ * before this helper, near-identically between the Force Index and MACD
+ * Histogram panes (same series options shape, same zero `createPriceLine`)
+ * with only the title/paneIndex/data differing. See this task's `decisions`
+ * entry for why a zero baseline rather than a documented threshold pair
+ * (like Stochastic's 30/70) is used for both.
+ */
+function addZeroBaselineHistogramPane(
+  chart: IChartApi,
+  paneIndex: number,
+  title: string,
+  data: OscillatorSeriesData['forceIndex'],
+  theme: Theme,
+): ISeriesApi<'Histogram'> {
+  const series = chart.addSeries(
+    HistogramSeries,
+    { title, priceLineVisible: false, lastValueVisible: false },
+    paneIndex,
+  )
+  series.setData(data)
+  series.createPriceLine({
+    price: 0,
+    color: theme.palette.text.secondary,
+    lineWidth: 1,
+    lineStyle: LineStyle.Dotted,
+    axisLabelVisible: false,
+    title: '',
+  })
+  return series
 }
 
 /**
@@ -132,10 +199,7 @@ export default function OscillatorChart({ ticker, range, enabled = true }: Oscil
       return
     }
 
-    const chart = createChart(container, {
-      autoSize: true,
-      layout: { background: { color: 'transparent' } },
-    })
+    const chart = createBaseChart(container)
 
     const { stochastic, forceIndex, macdHistogram } = buildOscillatorSeriesData(data.points, {
       positive: theme.palette.signal.buy,
@@ -171,43 +235,8 @@ export default function OscillatorChart({ ticker, range, enabled = true }: Oscil
       title: 'Overbought (70)',
     })
 
-    const forceIndexSeries = chart.addSeries(
-      HistogramSeries,
-      {
-        title: 'Force Index (2-EMA)',
-        priceLineVisible: false,
-        lastValueVisible: false,
-      },
-      1,
-    )
-    forceIndexSeries.setData(forceIndex)
-    forceIndexSeries.createPriceLine({
-      price: 0,
-      color: theme.palette.text.secondary,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: false,
-      title: '',
-    })
-
-    const macdSeries = chart.addSeries(
-      HistogramSeries,
-      {
-        title: 'MACD Histogram (Daily)',
-        priceLineVisible: false,
-        lastValueVisible: false,
-      },
-      2,
-    )
-    macdSeries.setData(macdHistogram)
-    macdSeries.createPriceLine({
-      price: 0,
-      color: theme.palette.text.secondary,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dotted,
-      axisLabelVisible: false,
-      title: '',
-    })
+    addZeroBaselineHistogramPane(chart, 1, 'Force Index (2-EMA)', forceIndex, theme)
+    addZeroBaselineHistogramPane(chart, 2, 'MACD Histogram (Daily)', macdHistogram, theme)
 
     chart.timeScale().fitContent()
     chartRef.current = chart

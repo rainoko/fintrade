@@ -70,6 +70,46 @@ const indicatorPoints: IndicatorHistoryResponse = {
   ],
 }
 
+// GET /api/stocks/{ticker}/indicators legitimately returns null
+// stochastic_k/force_index_2ema/macd_histogram for early bars still inside
+// an indicator's warm-up window (e.g. Stochastic %K(5,3,3) needs ~11 prior
+// bars) -- confirmed live via GET /api/stocks/AAPL/indicators?range=max,
+// which returns points with these fields literally `null` -- even though
+// the generated `IndicatorHistoryPoint` type says `number`, since that's
+// what the real backend does. Built via a single cast (rather than `as any`
+// on each field) to construct that real-world shape for tests despite the
+// type, same pattern PriceChart.test.tsx's `formingBar` uses for null OHLC.
+const warmingUpPoint = {
+  date: '2026-08-31',
+  ema_13: 224.0,
+  ema_26: 219.5,
+  macd_histogram: 0.9,
+  bull_power: 2.0,
+  bear_power: -0.9,
+  stochastic_k: null,
+  force_index_2ema: null,
+  signal: 'HOLD',
+  confidence: 0,
+  confidence_band: 'Low',
+} as unknown as IndicatorHistoryResponse['points'][number]
+
+// The very first bar of a ticker's history has no prior data at all --
+// every one of these fields can legitimately be null there, not just
+// stochastic_k/force_index_2ema.
+const firstEverBarPoint = {
+  date: '2026-08-30',
+  ema_13: 223.0,
+  ema_26: 218.0,
+  macd_histogram: null,
+  bull_power: 1.5,
+  bear_power: -1.2,
+  stochastic_k: null,
+  force_index_2ema: null,
+  signal: 'HOLD',
+  confidence: 0,
+  confidence_band: 'Low',
+} as unknown as IndicatorHistoryResponse['points'][number]
+
 describe('OscillatorChart', () => {
   beforeEach(() => {
     setDataMock.mockClear()
@@ -154,6 +194,55 @@ describe('OscillatorChart', () => {
       .filter(([paneIndex]) => paneIndex === 2)
       .map(([, options]) => options as { price: number })
     expect(macdLines.map((line) => line.price)).toEqual([0])
+  })
+
+  it('filters out non-finite stochastic_k/force_index_2ema values per-series instead of crashing (PR #108 review regression)', async () => {
+    // Reproduces the reported crash: selecting a range that includes bars
+    // still inside the indicator warm-up window (e.g. "Max") used to pass a
+    // literal `null` straight into Lightweight Charts' `setData`, which
+    // throws synchronously ("Line series item data value must be a number,
+    // got=object, value=null") -- uncaught, that crashed the whole app via
+    // AppErrorBoundary, not just this pane.
+    mockIndicators({
+      ticker: 'AAPL',
+      points: [firstEverBarPoint, warmingUpPoint, ...indicatorPoints.points],
+    })
+
+    renderWithProviders(<OscillatorChart ticker="AAPL" range="max" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+
+    // Stochastic %K (pane 0): the warm-up point's null stochastic_k is
+    // omitted entirely -- a gap in the line, not a crash and not the whole
+    // series being suppressed (the two well-formed points still plot).
+    expect(setDataMock).toHaveBeenCalledWith(0, [
+      { time: '2026-09-01', value: 55.0 },
+      { time: '2026-09-02', value: 24.3 },
+    ])
+
+    // Force Index (pane 1): same gap treatment for its own null value.
+    const forceIndexData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 1)?.[1] as {
+      time: string
+      value: number
+    }[]
+    expect(forceIndexData.map((point) => point.time)).toEqual(['2026-09-01', '2026-09-02'])
+
+    // MACD Histogram (pane 2): only the very first bar (which has no macd
+    // value yet either) is dropped -- the warm-up point had a finite
+    // macd_histogram, so it is NOT dropped there. Each series is filtered
+    // independently, not the whole point removed from every series just
+    // because one field was null.
+    const macdData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 2)?.[1] as {
+      time: string
+      value: number
+    }[]
+    expect(macdData.map((point) => point.time)).toEqual([
+      '2026-08-31',
+      '2026-09-01',
+      '2026-09-02',
+    ])
   })
 
   it('shows an EmptyState instead of a broken chart when the API returns zero points', async () => {
