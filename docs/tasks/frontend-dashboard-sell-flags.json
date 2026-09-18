@@ -33,5 +33,11 @@
       "rationale": "Every field the new component renders (a position, a ticker, an exit flag) is a portfolio-risk domain concept and it owns its own usePortfolioRisk call, matching RiskSummaryCard/RiskPanel's existing placement precedent in the same file (add-frontend-feature skill step 2). The EXIT_FLAG_LABELS map duplicated verbatim between RiskPanel and the new card would have been exactly the kind of near-duplicate the skill flags for consolidation (step 2's 'check whether something close enough already exists' rule) -- extracting it to a shared module keeps RiskPanel's full risk table and the dashboard's flagged-only list from drifting on wording for the same underlying flag over time. Rejected: leaving a second copy of the label map inline in the new component (rejected as the exact duplication the skill warns against); rejected promoting it to components/common/ instead (rejected because the map's keys/values are portfolio-risk domain vocabulary, not a generic/presentational concern, so it belongs alongside the feature it describes)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-dashboard-sell-flags",
+    "pr_number": 110,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/110",
+    "pushed_at": "2026-09-18T10:46:52Z"
+  }
 }
