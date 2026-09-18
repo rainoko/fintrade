@@ -59,5 +59,10 @@
       }
     ],
     "notes": "Full review: backend pytest --cov=app (559 passed, 99.86% coverage, no regression), frontend vitest run --coverage (99.71% lines, no regression), backend ruff+mypy clean, frontend eslint+tsc -b clean, code-review skill (medium effort) found no correctness bugs. This PR touches no API routes/schemas (openapi.json unaffected) and adds no new module/dependency (architecture-review not triggered) and no frontend components (placement check not applicable). Re-ran the e2e suite directly per the review request since fixture_provider.py backs its data -- all 12 specs pass. One non-blocking finding (fixture_provider.py's fix doesn't achieve its stated RNG-loop-dedup goal, though it's not a correctness bug and the resample logic itself is verified sound) filed as docs/tasks/frontend-e2e-tests-followups-followups.json. No checklist items phrased as 'decide X' in this task, so no decisions-array gap."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T08:12:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (559 passed, 99.86% coverage, matches review) and the full e2e suite via npm run test:e2e (12/12 passed, including the weekly-interval toggle spec). Hand-verified get_weekly_ohlcv('AAPL') against a manual daily.resample('W-FRI') on get_daily_ohlcv('AAPL')'s own output myself: .equals() True, no NaNs, monotonic index, correct index name. Skimmed the full diff (README heading restore, fixture_provider.py resample, tsconfig.node.json include, index.json mirroring) -- matches review's description, and the frontend-e2e-tests-followups-followups follow-up task is correctly filed and mirrored in index.json. Accept holds."
   }
 }
