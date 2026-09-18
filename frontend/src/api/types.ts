@@ -26,11 +26,14 @@ export interface paths {
          *     Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
          *     /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
          *     computation. Null together on a position whose signal couldn't be computed right now
-         *     (its price fetch already failed, or the separate weekly-history fetch the signal engine
-         *     needs failed), mirroring `current_price`'s own null-on-failure convention and
-         *     WatchlistItemOut's identical precedent -- the position itself is still returned, never
-         *     dropped or 500'd, just as a price-fetch failure never drops it -- see the
-         *     api-portfolio-position-signal task's `decisions` entry.
+         *     (its price fetch already failed, the separate weekly-history fetch the signal engine
+         *     needs failed, or the latest daily bar has a valid close but NaN open/high/low -- the
+         *     signal fields go null rather than silently reflecting yesterday's bar while
+         *     `current_price` reflects today's), mirroring `current_price`'s own null-on-failure
+         *     convention and WatchlistItemOut's identical precedent -- the position itself is still
+         *     returned, never dropped or 500'd, just as a price-fetch failure never drops it -- see
+         *     `_compute_position_signal`'s docstring and the api-portfolio-position-signal task's
+         *     `decisions` entry.
          */
         get: operations["get_portfolio"];
         put?: never;
@@ -592,7 +595,7 @@ export interface components {
             quantity: number;
             /**
              * Signal
-             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), or that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
+             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so current_price is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
              */
             signal?: ("BUY" | "SELL" | "HOLD") | null;
             /** Ticker */

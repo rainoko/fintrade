@@ -3,7 +3,7 @@
   "title": "Portfolio position signal annotation -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-portfolio-position-signal"],
   "references": [
     "docs/tasks/api-portfolio-position-signal.json#review",
@@ -17,7 +17,7 @@
     },
     {
       "step": "Non-blocking, PR #118 round 2 (task/api-portfolio-position-signal): `PositionOut.signal`/`.confidence`/`.confidence_band` `Field(description=...)` in backend/app/api/schemas.py (and the identical text this generates into backend/openapi.json's components.schemas.PositionOut and frontend/src/api/types.ts's PositionOut JSDoc) still only lists two null-triggering conditions (current_price fetch failed; the weekly-history fetch failed) after commit 94691d8's fix added a third (the latest daily bar has a valid close but NaN open/high/low and so doesn't survive drop_malformed_daily_bars's strict filter). `_compute_position_signal`'s docstring and `get_portfolio`'s own route docstring both document the third condition correctly -- only the Pydantic field-level description (the actual public API contract source) is stale. docs/architecture/API.md's GET /api/portfolio section has the same gap (only two of three null conditions listed). Update both to mention all three conditions and regenerate backend/openapi.json.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],
