@@ -4,7 +4,8 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HistoryResponse, IndicatorHistoryResponse } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
+import { stocksKeys } from '../hooks/queryKeys'
 import PriceChart from './PriceChart'
 
 // jsdom has no real <canvas> 2D context, and Lightweight Charts' own
@@ -17,6 +18,15 @@ import PriceChart from './PriceChart'
 // on refetch. `setMarkersMock`/`detachMarkersMock`/`removeSeriesMock` cover
 // the EMA13/EMA26 line-series + BUY/SELL marker overlay added on top of the
 // candlestick series (frontend-chart-signal-overlay).
+//
+// Each `createChart()` call returns a *fresh* chart object that tracks its
+// own disposed state and throws from `removeSeries` once `remove()` has
+// been called on it — mirroring the real Lightweight Charts library's
+// `ensureDefined` throw on a disposed chart (see the reported crash: a
+// previous version of PriceChart.tsx's overlay-cleanup effect called
+// `chart.removeSeries(...)` on a chart the candlestick effect's cleanup had
+// already disposed). A plain shared mock object that never throws wouldn't
+// have caught that bug; this one does.
 const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const removeSeriesMock = vi.fn()
@@ -28,12 +38,23 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
   setMarkersMock(markers)
   return { setMarkers: setMarkersMock, markers: () => markers, detach: detachMarkersMock }
 })
-const createChartMock = vi.fn(() => ({
-  addSeries: addSeriesMock,
-  removeSeries: removeSeriesMock,
-  timeScale: () => ({ fitContent: fitContentMock }),
-  remove: removeMock,
-}))
+const createChartMock = vi.fn(() => {
+  let disposed = false
+  return {
+    addSeries: addSeriesMock,
+    removeSeries: (series: unknown) => {
+      removeSeriesMock(series)
+      if (disposed) {
+        throw new Error('Value is undefined')
+      }
+    },
+    timeScale: () => ({ fitContent: fitContentMock }),
+    remove: () => {
+      removeMock()
+      disposed = true
+    },
+  }
+})
 
 vi.mock('lightweight-charts', () => ({
   createChart: () => createChartMock(),
@@ -437,16 +458,31 @@ describe('PriceChart', () => {
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
       const intervalGroup = screen.getByRole('group', { name: 'Price history interval' })
+      // Regression test for the reported crash (frontend-chart-signal-overlay
+      // review): toggling the interval after the overlay has rendered once
+      // used to throw synchronously from the overlay effect's cleanup
+      // calling `chart.removeSeries(...)` on a chart the candlestick
+      // effect's cleanup had *already* disposed via `chart.remove()` — see
+      // PriceChart.tsx's decisions entry. With the mocked chart now
+      // throwing in that exact scenario (see the `createChartMock` factory
+      // above), this `click` would reject/throw if the guard regressed.
       await user.click(within(intervalGroup).getByRole('button', { name: 'Weekly' }))
 
       await waitFor(() =>
         expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
       )
 
-      // The overlay from the prior (daily) chart is detached/removed rather
-      // than left dangling on the newly recreated chart.
-      expect(detachMarkersMock).toHaveBeenCalled()
-      expect(removeSeriesMock).toHaveBeenCalled()
+      // The whole prior (daily) chart is torn down via a single
+      // `chart.remove()` rather than the overlay separately detaching its
+      // own series/markers from it first — once a chart is removed, its own
+      // series/plugins are already gone with it, so a *second*, separate
+      // `removeSeries`/`detach` call against the same disposed chart isn't
+      // just unnecessary, it's exactly what threw (see above). The overlay
+      // cleanup's guard recognizes this (via the shared chart/series refs)
+      // and skips redundant cleanup.
+      expect(removeMock).toHaveBeenCalled()
+      expect(detachMarkersMock).not.toHaveBeenCalled()
+      expect(removeSeriesMock).not.toHaveBeenCalled()
 
       // No new /indicators request is made for the weekly interval — the
       // overlay is daily-only (see PriceChart.tsx's decisions entry).
@@ -506,6 +542,42 @@ describe('PriceChart', () => {
       expect(screen.getByText('Service unavailable')).toBeInTheDocument()
       // The chart itself is unaffected by the overlay's failure.
       expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument()
+    })
+
+    it('swaps the overlay series in place (without recreating the candlestick chart) when only the indicators query refetches', async () => {
+      // Unlike a range/interval change (which changes `historyQuery.data`
+      // and recreates the whole chart), an `/indicators`-only refetch
+      // leaves `historyQuery.data` referentially unchanged, so the
+      // candlestick effect never re-runs and `chartRef`/`seriesRef` keep
+      // pointing at the same chart — this is the path where the overlay
+      // effect's cleanup guard sees matching refs and actually calls
+      // `chart.removeSeries(...)`/`markersPlugin.detach()` for real (as
+      // opposed to skipping because the candlestick effect already tore
+      // the chart down first).
+      mockHistory(twoBars)
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+
+      const updatedIndicators: IndicatorHistoryResponse = {
+        ticker: 'AAPL',
+        points: [{ ...indicatorPoints.points[1], date: '2026-09-03', signal: 'SELL' }],
+      }
+      mockIndicators(updatedIndicators)
+      await queryClient.invalidateQueries({ queryKey: stocksKeys.indicators('AAPL', '1y') })
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(2))
+
+      // The candlestick chart itself was never recreated...
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+      expect(removeMock).not.toHaveBeenCalled()
+      // ...but the stale overlay series/markers were removed/detached for
+      // real before the new ones were added.
+      expect(removeSeriesMock).toHaveBeenCalledTimes(2)
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
     })
 
     it('shows an EmptyState for the overlay when the API returns zero points', async () => {
