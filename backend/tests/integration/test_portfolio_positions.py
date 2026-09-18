@@ -46,6 +46,9 @@ class TestAddPosition:
         assert body["entry_date"] == "2026-05-14"
         assert body["current_price"] is None
         assert body["unrealized_pnl_pct"] is None
+        assert body["signal"] is None
+        assert body["confidence"] is None
+        assert body["confidence_band"] is None
         assert body["id"].startswith("pos_")
 
     def test_ticker_is_normalized_to_uppercase(self, client: TestClient) -> None:

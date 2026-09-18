@@ -61,7 +61,25 @@ def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> Sig
     is fetched here, degrading to `None` on `DataProviderError` -- the same narrow
     (not bare `except Exception`) catch `app.api.routers.watchlist._compute_signal` uses, so a
     genuine bug in `analyse()` itself still surfaces as a loud 500 rather than a silently
-    swallowed null field."""
+    swallowed null field.
+
+    `drop_malformed_daily_bars` is called here with its default `require_full_ohlc_on_latest_bar
+    =True` -- NOT `get_risk`'s `False` -- because `analyse()` (unlike `evaluate_exit_flags`)
+    genuinely reads the latest bar's own open/high/low, not just its close (Elder-Ray needs
+    high/low, Wave/Trigger need the day's full range); handing it a bar with NaN open/high/low
+    would feed garbage into those computations rather than degrade gracefully. But dropping the
+    latest bar outright, on its own, isn't safe either: `e.daily_ohlcv` is only non-`None` here
+    because `app.portfolio.pricing._latest_close` already found a *valid close* on that exact
+    latest bar (its own check is close-only, permissive) and derived `e.position.current_price`
+    from it -- so if that same latest bar fails this stricter filter, it must be because its
+    open/high/low are NaN (the yfinance "not yet settled" shape `drop_malformed_daily_bars`'s
+    own docstring documents), not because its close is missing. Silently proceeding with the
+    filtered frame in that case would compute `signal`/`confidence`/`confidence_band` from
+    *yesterday's* bar while `current_price`/`unrealized_pnl_pct` on the same position reflect
+    *today's* close -- a one-day desync with no error and no null to flag it. Detecting that
+    exact condition (the latest bar didn't survive filtering) and returning `None` instead
+    keeps the two families of fields consistent: either both come from today's bar, or the
+    signal ones are null until today's bar has a full OHLC -- never a silent mix of the two."""
     if e.daily_ohlcv is None:
         return None
     try:
@@ -70,6 +88,8 @@ def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> Sig
         return None
 
     daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv)
+    if daily_ohlcv.empty or daily_ohlcv.index[-1] != e.daily_ohlcv.index[-1]:
+        return None
     return analyse(e.position.ticker, daily_ohlcv, weekly_ohlcv)
 
 
@@ -103,11 +123,14 @@ def get_portfolio(
     Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
     /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
     computation. Null together on a position whose signal couldn't be computed right now
-    (its price fetch already failed, or the separate weekly-history fetch the signal engine
-    needs failed), mirroring `current_price`'s own null-on-failure convention and
-    WatchlistItemOut's identical precedent -- the position itself is still returned, never
-    dropped or 500'd, just as a price-fetch failure never drops it -- see the
-    api-portfolio-position-signal task's `decisions` entry."""
+    (its price fetch already failed, the separate weekly-history fetch the signal engine
+    needs failed, or the latest daily bar has a valid close but NaN open/high/low -- the
+    signal fields go null rather than silently reflecting yesterday's bar while
+    `current_price` reflects today's), mirroring `current_price`'s own null-on-failure
+    convention and WatchlistItemOut's identical precedent -- the position itself is still
+    returned, never dropped or 500'd, just as a price-fetch failure never drops it -- see
+    `_compute_position_signal`'s docstring and the api-portfolio-position-signal task's
+    `decisions` entry."""
     account = db.get(AccountORM, 1)
     cash = account.cash if account is not None else 0.0
 

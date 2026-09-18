@@ -446,3 +446,52 @@ class TestGetPortfolioSignal:
         assert by_ticker["MSFT"]["signal"] is None
         # Both positions still contribute their known price to positions_value.
         assert by_ticker["MSFT"]["current_price"] == pytest.approx(330.0)
+
+    def test_malformed_open_high_low_on_latest_bar_nulls_signal_but_not_price(
+        self, db_session: Session
+    ) -> None:
+        """Today's daily bar has a real `close` (110.0) but NaN `open`/`high`/`low` -- the
+        "not yet settled" yfinance shape `app.portfolio.pricing._latest_close` already
+        tolerates for `current_price` (it only checks `close`), same as
+        test_portfolio_risk.py's `test_malformed_open_high_low_on_latest_bar_does_not_
+        suppress_stop_hit`. Unlike GET /api/portfolio/risk (whose `evaluate_exit_flags` only
+        ever reads the latest bar's `close`), `analyse()` reads the latest bar's open/high/low
+        too (Elder-Ray/Wave/Trigger) -- so it can't safely be handed this bar with
+        `require_full_ohlc_on_latest_bar=False` the way `get_risk` is. Before this test's fix,
+        `_compute_position_signal` filtered with the strict default, which dropped this bar
+        entirely and silently computed the signal from yesterday's bar instead, while
+        `current_price` kept reflecting today's 110.0 close -- a one-day desync with no error
+        and no null to flag it. The fix instead detects that the latest bar didn't survive
+        filtering and returns `None`, so the signal fields go null instead of stale."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _frame([100.0, 105.0, 110.0])
+        daily.loc[daily.index[-1], ["open", "high", "low"]] = float("nan")
+
+        class _MalformedLatestBarProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                return daily
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                return _hold_weekly_ohlcv()
+
+        test_client = _make_client(db_session, _MalformedLatestBarProvider())
+        try:
+            response = test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        # current_price still reflects today's real close (permissive, close-only check).
+        assert position["current_price"] == pytest.approx(110.0)
+        assert position["unrealized_pnl_pct"] == pytest.approx((110.0 - 100.0) / 100.0 * 100.0)
+        # signal fields go null rather than silently reflecting yesterday's 105.0 bar.
+        assert position["signal"] is None
+        assert position["confidence"] is None
+        assert position["confidence_band"] is None
