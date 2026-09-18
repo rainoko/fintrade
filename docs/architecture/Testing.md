@@ -2,6 +2,13 @@
 
 **Hard requirement: 90% test coverage on both backend and frontend**, enforced in CI — a build that drops below 90% fails, not just warns.
 
+This coverage gate governs the backend (pytest) and frontend (vitest) suites described in
+this document, both of which mock every external boundary (market data providers,
+the API layer). It does **not** apply to the separate end-to-end suite described in
+[End-to-end (Playwright)](#end-to-end-playwright) below, which deliberately does the opposite
+— a real, running, un-mocked stack — and is never run as part of `make test`/`npm test` or
+counted toward either coverage number.
+
 ## Backend (Python)
 
 - **Tooling:** `pytest` + `pytest-cov`, coverage measured via `coverage.py`.
@@ -56,6 +63,38 @@
 ## CI Enforcement
 
 Both coverage gates run on every PR. A PR that drops either side below 90% fails CI regardless of what else it changes — coverage is a merge blocker, not a follow-up task. (Exact CI platform/workflow file is a separate decision, not covered by this doc.)
+
+## End-to-end (Playwright)
+
+`frontend/tests/e2e/` (`frontend/playwright.config.ts`, run via `make e2e` /
+`npm run test:e2e` — see [README.md](../../README.md#end-to-end-tests)) is a distinct test
+category from everything above: real browser (Chromium via Playwright), real running
+backend + frontend processes, no mocking at any layer. It exists to catch the class of bug
+the mocked suites structurally can't — a real HTTP round-trip through Vite's dev-server
+proxy, an actual DOM render of MUI components together, a real SQLite-backed request —
+without which two suites that separately mock the same contract (MSW on the frontend,
+`TestClient`-level stubs on the backend) could each stay green while still disagreeing with
+each other in production.
+
+**Deterministic, offline data:** the backend is started with
+`FINTRADE_DATA_PROVIDER_MODE=fixture` (`app.config.Settings.data_provider_mode`,
+`app.api.dependencies.get_data_provider`), which swaps in
+`app.data.fixture_provider.FixtureDataProvider` — an in-process, no-network `DataProvider`
+serving a fixed set of synthetic tickers with deterministic (seeded, not wall-clock-random)
+OHLCV series — instead of the real yfinance/Stooq-backed provider. This keeps the suite
+fast, offline, and immune to live market data changing the Elder Triple Screen outcome
+between runs. The suite also gets its own SQLite database (`backend/e2e.db`, wiped before
+every run by the `webServer` command in `playwright.config.ts`), so portfolio add/delete
+specs always start from a known state rather than accumulating rows across runs.
+
+**Coverage, deliberately not exhaustive at the Elder-methodology level:** specs assert
+structurally (a signal badge renders one of BUY/SELL/HOLD, a confidence score renders
+0–100, a price chart has candles) rather than pinning an exact expected signal/confidence
+value for the fixture data — that precision is what the backend's hand-derived-reference-
+value unit tests already cover (see `verify-elder-signal`). Golden-path flows covered:
+dashboard, stock search + analysis (signal/confidence/screens/indicators/chart, plus an
+unknown-ticker 404), portfolio (view/add/delete a position, the risk panel), and app-shell
+navigation between all three pages.
 
 ## What 90% Coverage Does *Not* Guarantee
 

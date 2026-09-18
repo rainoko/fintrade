@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from app.data.base import DataProvider
+from app.data.fixture_provider import FixtureDataProvider
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
 
@@ -25,7 +26,11 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "fixtures"
 STOOQ_FIXTURES_DIR = FIXTURES_DIR / "stooq"
 YFINANCE_FIXTURES_DIR = FIXTURES_DIR / "yfinance"
 
-_PROVIDER_CLASSES = [StooqProvider, YFinanceProvider]
+# FixtureDataProvider (app/data/fixture_provider.py) is included here too: it's a third real
+# DataProvider implementation (used by the frontend e2e suite, not the live app), so the same
+# interchangeability contract applies to it -- see this task's (frontend-e2e-tests) `decisions`
+# entry.
+_PROVIDER_CLASSES = [StooqProvider, YFinanceProvider, FixtureDataProvider]
 
 _PROTOCOL_METHODS = ["get_daily_ohlcv", "get_weekly_ohlcv"]
 
@@ -105,6 +110,18 @@ class TestProvidersProduceIdenticallyShapedOutput:
         mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
 
         result = YFinanceProvider().get_weekly_ohlcv("AAPL")
+
+        assert list(result.columns) == ["open", "high", "low", "close", "volume"]
+        assert result.index.name == "date"
+
+    def test_fixture_daily_output_matches_protocol_shape(self) -> None:
+        result = FixtureDataProvider().get_daily_ohlcv("AAPL")
+
+        assert list(result.columns) == ["open", "high", "low", "close", "volume"]
+        assert result.index.name == "date"
+
+    def test_fixture_weekly_output_matches_protocol_shape(self) -> None:
+        result = FixtureDataProvider().get_weekly_ohlcv("AAPL")
 
         assert list(result.columns) == ["open", "high", "low", "close", "volume"]
         assert result.index.name == "date"

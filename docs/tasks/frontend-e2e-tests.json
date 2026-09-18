@@ -3,7 +3,7 @@
   "title": "Frontend: full end-to-end browser test suite covering all app functionality",
   "area": "frontend/testing",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/architecture/Testing.md",
@@ -12,13 +12,44 @@
   ],
   "description": "Add a real, automated, repeatable browser-driven end-to-end test suite (e.g. Playwright Test, since the Playwright MCP tools are already used elsewhere in this project's pipeline for ad hoc manual walkthroughs by task-qa-reviewer/pr-reviewer — reusing the same library keeps tooling consistent, though this should be a decisions entry, not assumed) that exercises every user-facing flow of the app end-to-end against the real running frontend+backend, not the MSW-mocked vitest suite. This is a NEW, SEPARATE test category from the existing vitest/pytest suites and must NOT be folded into the 90%-coverage-gated suite or its own no-live-network-call invariant (docs/architecture/Testing.md, CLAUDE.md's Testing standard) — that rule governs the existing unit/component/integration suite specifically. Record as a decisions entry how the e2e suite gets deterministic, offline-friendly data (e.g. a seeded/fixture market-data provider or backend mode) rather than depending on live external market-data APIs, since that would make the suite flaky/slow/rate-limited and require live internet access to run — unless a real live-data run is deliberately chosen and justified instead.",
   "checklist": [
-    { "step": "Decide the e2e tooling (Playwright Test recommended per the description's reasoning, but record the actual choice and alternatives considered) and where test files live (e.g. frontend/tests/e2e/); record as a decisions entry.", "done": false },
-    { "step": "Decide how the suite gets a runnable backend+frontend stack and realistic, deterministic data without live external market-data calls (e.g. a test/dev data-provider fixture, a seeded DB/portfolio); record as a decisions entry.", "done": false },
-    { "step": "Write e2e specs covering the dashboard page, stock analysis page (search, indicators, signal/confidence display, history chart), portfolio page (view positions, add position, delete position, risk panel), and app-shell navigation between all pages.", "done": false },
-    { "step": "Add an npm script (e.g. npm run test:e2e) and wire it into the root Makefile if appropriate, without folding it into the existing `make test`/coverage gate.", "done": false },
-    { "step": "Document how to run the e2e suite in README.md and/or docs/architecture/Testing.md.", "done": false },
-    { "step": "Confirm the suite passes against a freshly-started dev stack (`make dev` or equivalent) before considering this done.", "done": false }
+    { "step": "Decide the e2e tooling (Playwright Test recommended per the description's reasoning, but record the actual choice and alternatives considered) and where test files live (e.g. frontend/tests/e2e/); record as a decisions entry.", "done": true },
+    { "step": "Decide how the suite gets a runnable backend+frontend stack and realistic, deterministic data without live external market-data calls (e.g. a test/dev data-provider fixture, a seeded DB/portfolio); record as a decisions entry.", "done": true },
+    { "step": "Write e2e specs covering the dashboard page, stock analysis page (search, indicators, signal/confidence display, history chart), portfolio page (view positions, add position, delete position, risk panel), and app-shell navigation between all pages.", "done": true },
+    { "step": "Add an npm script (e.g. npm run test:e2e) and wire it into the root Makefile if appropriate, without folding it into the existing `make test`/coverage gate.", "done": true },
+    { "step": "Document how to run the e2e suite in README.md and/or docs/architecture/Testing.md.", "done": true },
+    { "step": "Confirm the suite passes against a freshly-started dev stack (`make dev` or equivalent) before considering this done.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Playwright Test (`@playwright/test`), specs under `frontend/tests/e2e/*.spec.ts`, config at `frontend/playwright.config.ts` (sibling to `vite.config.ts`), run via `npm run test:e2e` / `make e2e`.",
+      "rationale": "Matches the Playwright MCP tooling already used elsewhere in this project's pipeline (task-qa-reviewer's browser walkthroughs, pr-reviewer's verification) — one browser-automation stack to reason about instead of two, and Playwright Test's built-in `webServer` config (start/stop the app under test, wait for readiness) fits this task's 'freshly-started dev stack' requirement directly. Alternatives considered: Cypress (mature, but its bundler/runner model is a second, unrelated build pipeline next to Vite/vitest, and its multi-tab/multi-origin support is weaker than Playwright's — not needed here today, but Playwright's `webServer` array conveniently models 'two independent processes' the exact way this suite needs it); WebdriverIO (more setup for less benefit than Playwright Test's batteries-included runner/assertions/trace-viewer, no compelling advantage for this project's scale)."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `FINTRADE_DATA_PROVIDER_MODE` (`app.config.Settings.data_provider_mode`, default `\"live\"`) and a new `app.data.fixture_provider.FixtureDataProvider`: an in-process, no-network `DataProvider` implementation serving a small fixed set of synthetic tickers (AAPL/MSFT/TSLA/GOOGL) with deterministic (ticker-seeded, not wall-clock-random) OHLCV series spanning ~420 business days. `app.api.dependencies.get_data_provider` returns it instead of the real yfinance/Stooq/cache stack whenever `FINTRADE_DATA_PROVIDER_MODE=fixture` is set. `playwright.config.ts`'s `webServer` starts the backend with that env var plus a dedicated, wiped-before-every-run SQLite database (`backend/e2e.db`, via `FINTRADE_DATABASE_URL`), so the whole suite runs offline and starts from a known-empty portfolio every time.",
+      "rationale": "Live yfinance/Stooq calls would make the suite flaky (real market data changes daily and can shift which Elder Triple Screen signal comes out), slow/rate-limited, and dependent on live internet access in CI or a sandboxed agent session — directly against this task's own requirement. A backend-mode switch (vs. e.g. a frontend-only MSW-style mock) was chosen because the suite explicitly must exercise the *real* backend end to end (the whole point of this test category, per the task description) — mocking at the frontend would silently reintroduce the same MSW-mocked coverage the vitest suite already provides, not add anything new. Rejected alternative: seeding a fixed historical CSV per ticker (e.g. reusing tests/fixtures/yfinance's recorded fixtures) instead of a synthetic generator — rejected because those fixtures are frozen to specific past calendar dates, which would make the frontend's date-labeled UI (chart x-axis, `analysis.as_of`) look stale/wrong when viewed 'today' in a real browser; a formula anchored to `pd.Timestamp.today()` keeps the data looking current while still being fully deterministic in shape. Signal/confidence e2e assertions are deliberately structural (a BUY/SELL/HOLD badge and a 0-100 confidence render, not a specific pinned value) rather than reverse-engineering the fixture data to force an exact Elder Triple Screen outcome (Tide/Wave/Trigger/Impulse interact in ways that would require re-deriving `app.signals.engine`'s own logic just to predict it) — that value-level precision is already covered by the backend's hand-derived-reference-value unit tests (`verify-elder-signal`)."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Playwright's `webServer` array always starts its own dedicated backend+frontend processes (`reuseExistingServer: false`, unconditionally — not just outside CI) rather than optionally reusing an already-running `make dev`, and the whole suite runs serially (`workers: 1`, `fullyParallel: false`) with a single `test.describe.serial` block for the portfolio add/delete flow.",
+      "rationale": "A `make dev` a developer started by hand wouldn't have `FINTRADE_DATA_PROVIDER_MODE=fixture`/the dedicated e2e database set, so reusing it would silently fall back to live market data and the developer's real portfolio — defeating the determinism this suite exists for; the tradeoff (this suite can't run at the same time as a manually-started `make dev` on the same ports) is documented in README.md. Serial execution: the portfolio specs add/delete real rows through the one shared e2e database, and this is a small, deliberately non-exhaustive suite (golden-path coverage per flow, not a combinatorial sweep) where the speed cost of serializing is minor compared to the complexity of making every spec reason about concurrent mutations of shared state. Every spec is still written to tolerate state left behind by another spec/an interrupted prior run (flexible locators, accepting either the 'Added' or 'Merged' AddPositionDialog success message, matching on a specific added ticker rather than assuming an empty table) rather than relying on file execution order, since Playwright doesn't guarantee cross-file ordering."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Did not wire a Chromium browser/system-dependency install into `.devcontainer/post-create.sh`; documented `npx playwright install chromium` + `sudo npx playwright install-deps chromium` as a one-time manual step in README.md's new 'End-to-end tests' section instead.",
+      "rationale": "Matches this project's existing convention: post-create.sh already auto-provisions the backend venv but deliberately leaves `frontend/node_modules` to `make install`/a manual `npm install` rather than running it automatically — Playwright's browser download (~300MB) and its `install-deps` step (needs `sudo apt-get`) are a similar-weight, similar-scope addition that wasn't asked for here and would grow every future container build/image regardless of whether a given contributor ever runs the e2e suite. Verified during this task that `npx playwright install chromium` itself needs no sudo (downloads straight to `~/.cache/ms-playwright`), and that `sudo npx playwright install-deps chromium` succeeds cleanly in this dev container image when it is needed."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Installed `@playwright/test` with `npm install -D @playwright/test --legacy-peer-deps` rather than a plain `npm install`.",
+      "rationale": "A plain `npm install` in `frontend/` already fails on a pre-existing, unrelated peer-dependency conflict (`openapi-typescript@7.13.0` wants `typescript@^5.x`, the repo has `typescript@~6.0.2`/`6.0.3` installed) — confirmed this reproduces on a clean `main` checkout with zero changes from this task, and is already tracked separately as the `frontend-verify-npm-install` task. `--legacy-peer-deps` was scoped to just this one install command (not added to a persistent `.npmrc`), and the resulting `package-lock.json`/`package.json` diff was verified to be minimal (just the three new Playwright packages), not a wholesale re-resolution of the dependency tree."
+    }
+  ],
   "questions": []
 }

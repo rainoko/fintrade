@@ -11,7 +11,7 @@
 # too (see .devcontainer/*.sh shebangs).
 SHELL := bash
 
-.PHONY: help backend frontend dev install test
+.PHONY: help backend frontend dev install test e2e
 
 help: ## Show this help
 	@echo "Available targets:"
@@ -58,3 +58,6 @@ install: ## Install backend (venv + pip) and frontend (npm) dependencies
 test: ## Run backend (pytest) and frontend (vitest) test suites
 	cd backend && .venv/bin/pytest
 	cd frontend && npm test
+
+e2e: ## Run the frontend's Playwright end-to-end suite (real browser, real backend+frontend, deterministic fixture data -- see docs/architecture/Testing.md). Separate from `test`: not part of the 90%-coverage gate, and starts its own backend/frontend processes rather than reusing `make dev`.
+	cd frontend && npm run test:e2e

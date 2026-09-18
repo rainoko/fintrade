@@ -1,6 +1,10 @@
-/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+// Also brings vitest/config's ambient module augmentation of Vite's `UserConfig.test` into
+// scope (what the removed `/// <reference types="vitest/config" />` used to do on its own),
+// so pulling in `configDefaults` as a real import made that triple-slash reference redundant
+// -- and eslint's @typescript-eslint/triple-slash-reference rule flags exactly that.
+import { configDefaults } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -24,6 +28,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     css: true,
+    // tests/e2e/*.spec.ts are Playwright specs (playwright.config.ts, `npm run test:e2e`) --
+    // a real, un-mocked, separate test category (frontend-e2e-tests task) that must never
+    // run under vitest (its `test`/`expect` come from '@playwright/test', not vitest) or
+    // count toward this suite's 90% coverage gate (docs/architecture/Testing.md).
+    exclude: [...configDefaults.exclude, 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       // 'text' is given explicit options (not just the bare 'text' string)
