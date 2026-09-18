@@ -3,7 +3,7 @@
   "title": "Backend: expose historical indicator + signal time series for charting",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#4-indicator-summary-table",
@@ -60,5 +60,28 @@
     "pr_number": 100,
     "pr_url": "https://github.com/rainoko/fintrade/pull/100",
     "pushed_at": "2026-09-18T06:25:46Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T06:30:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/100",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: analyse_history() passes the same, full, untruncated weekly_ohlcv to every per-bar analyse() call, so every historical point in the series is gated against TODAY's Tide (Screen 1), not the Tide as of that bar's date -- look-ahead bias that contradicts the function's own 'no look-ahead' docstring claim and Analyse.md §2's 'never trade against the tide' premise. Up to 30% of confidence (§6 tide alignment) and the BUY/SELL/HOLD signal itself can be wrong for any historical bar within a range where the actual tide has since flipped -- materially misleading for this endpoint's stated charting purpose. The task's decisions entry rejects per-day weekly truncation because a naive '<= bar_date' filter would drop the in-progress week and break the 'last point matches /analysis' invariant, but truncating by the calendar week containing each daily bar's own date (W-FRI label <= that week's Friday) instead of by bar_date directly resolves that tension without special-casing: it naturally reduces to the full weekly series at the most recent daily bar. Needs either a point-in-time-correct weekly truncation or an explicit, reasoned sign-off that historically-inaccurate signal markers are acceptable for this endpoint.",
+        "file": "backend/app/signals/engine.py",
+        "line": 330
+      },
+      {
+        "summary": "Non-blocking (tracked on api-stocks-indicator-history-followups): analyse_history() is O(range_size x full_history_length) -- each per-bar analyse() call recomputes every indicator from scratch over an increasingly large slice, synchronously in the request handler. Documented and accepted for the default range=1y, but range=max is an explicitly supported, tested input and a real multi-second-plus latency risk for tickers with several years of history.",
+        "file": "backend/app/signals/engine.py",
+        "line": 386
+      },
+      {
+        "summary": "Non-blocking (tracked on api-stocks-indicator-history-followups): `bar_date.date() if hasattr(bar_date, \"date\") else bar_date` guards a branch that can't currently occur (daily_ohlcv.index is always a DatetimeIndex of pd.Timestamps here) -- dead code giving false protection rather than real safety.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 339
+      }
+    ],
+    "notes": "Backend tests (516 passed, 99.84% coverage) and frontend tests (99.71% coverage) both clean; ruff/mypy/eslint/tsc all clean; backend/openapi.json and frontend/src/api/types.ts regenerate byte-identical to what's committed. No frontend consumer of this endpoint exists yet, so no UI surface to browser-walk for this PR -- confirmed via grep, not silently skipped. All checklist 'decide X' items have corresponding decisions entries. Verdict is needs_work solely on the Tide look-ahead finding above; everything else passed."
   }
 }

@@ -1,0 +1,25 @@
+{
+  "id": "api-stocks-indicator-history-followups",
+  "title": "Non-blocking follow-ups from PR #100 review (api-stocks-indicator-history)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-stocks-indicator-history"],
+  "references": [
+    "docs/tasks/api-stocks-indicator-history.json",
+    "https://github.com/rainoko/fintrade/pull/100"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #100 (api-stocks-indicator-history), tracked here so they aren't lost once that PR merges and its comments scroll out of view.",
+  "checklist": [
+    {
+      "step": "backend/app/signals/engine.py's analyse_history() is O(range_size x full_history_length) -- each per-bar analyse() call recomputes EMA/MACD/Elder-Ray/Stochastic/Force-Index (plus up to 5 extra evaluate_wave calls via _wave_lookback) from scratch over an increasingly large slice, synchronously in the request handler. Accepted as a documented tradeoff for the default range=1y, but range=max is an explicitly supported, tested input and a real multi-second-plus latency risk for tickers with several years of daily history. Consider a caching layer or an incremental (non-recompute-from-scratch) implementation.",
+      "done": false
+    },
+    {
+      "step": "backend/app/api/routers/stocks.py:339 -- `bar_date.date() if hasattr(bar_date, \"date\") else bar_date` guards a branch that can't currently occur (daily_ohlcv.index is always a DatetimeIndex of pd.Timestamps by this point), so the else is dead code that gives false protection. Either drop the hasattr guard (call .date() directly) or add a comment explaining why it's defensive, and confirm a future non-Timestamp index would fail loudly (Pydantic validation) rather than silently passing through.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
