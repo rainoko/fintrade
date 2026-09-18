@@ -34,5 +34,11 @@
       "rationale": "Same rationale that already justified wiring `static-verify` into both agents: the suite is fast (~18s for the current 4 spec files / 12 tests, confirmed by this task's own smoke test run), fully automated (no MCP tool-call-by-tool-call scripting needed), and catches a class of regression neither the manual walkthrough (scoped to the current change only) nor the mocked vitest/pytest suites (no real browser, no real cross-process HTTP) can: whether this PR/task silently broke an *unrelated* already-covered golden-path flow. Considered leaving it unwired and only documenting it as something a human/agent could run manually on request — rejected because that would make it exactly the kind of check CLAUDE.md's task-board rationale warns against for PR comments: valuable but easy to forget to actually run, when wiring it into the two review agents' existing steps costs one extra `Skill` call each and turns 'available if remembered' into 'always exercised for UI-facing work,' matching how `static-verify` was already treated as too important to leave optional."
     }
   ],
+  "git": {
+    "branch": "task/skill-e2e-testing",
+    "pr_number": 105,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/105",
+    "pushed_at": "2026-09-18T08:18:48Z"
+  },
   "questions": []
 }
