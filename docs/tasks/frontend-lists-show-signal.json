@@ -1,0 +1,27 @@
+{
+  "id": "frontend-lists-show-signal",
+  "title": "Every ticker list in the UI shows its BUY/HOLD/SELL signal",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["api-portfolio-position-signal"],
+  "references": [
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
+    "frontend/src/features/portfolio/components/RiskPanel.tsx",
+    "frontend/src/features/watchlist/components/WatchlistTable.tsx",
+    "frontend/src/components/common/SignalBadge",
+    "docs/tasks/api-portfolio-position-signal.json"
+  ],
+  "description": "User request: all lists must show the BUY/HOLD/SELL signal, even the watchlist. WatchlistTable (frontend-watchlist-page, merged) already does this via common/SignalBadge -- no change needed there, confirm it still holds. The actual gap is the Portfolio-domain tables: PositionsTable (Portfolio page) and PositionsGlanceTable (Dashboard page) show ticker/quantity/price/P&L but no signal today, since GET /api/portfolio never returned one -- api-portfolio-position-signal (depends_on) adds it. Add a Signal column to both tables using the exact same common/SignalBadge treatment WatchlistTable already established (reuse, do not reinvent), with the same null-signal '—' fallback pattern WatchlistTable uses. Decide whether RiskPanel's table should also get a signal column (it currently shows risk-driven exit_flags, a different concept from a fresh entry signal -- both could usefully coexist) and record as a decisions entry either way.",
+  "checklist": [
+    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsTable.tsx (Portfolio page), reusing WatchlistTable's exact pattern.", "done": false },
+    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsGlanceTable.tsx (Dashboard page), same pattern.", "done": false },
+    { "step": "Decide whether RiskPanel's table also gets a signal column, and implement if so; record the decision either way.", "done": false },
+    { "step": "Confirm WatchlistTable's existing signal display still works unchanged (regression check only, no code change expected there).", "done": false },
+    { "step": "Update/add tests for each changed table's new column (MSW-mocked, including the null-signal case).", "done": false },
+    { "step": "Confirm 90% coverage gate still holds; run make e2e to confirm nothing broke on the Portfolio/Dashboard pages.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

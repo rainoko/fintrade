@@ -798,6 +798,41 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/migrate-yarn2-followups.json"
+    },
+    {
+      "id": "api-portfolio-position-signal",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-portfolio-position-signal.json"
+    },
+    {
+      "id": "frontend-lists-show-signal",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-lists-show-signal.json"
+    },
+    {
+      "id": "frontend-stock-detail-metric-help",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-detail-metric-help.json"
+    },
+    {
+      "id": "frontend-signal-why-explanation",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-signal-why-explanation.json"
+    },
+    {
+      "id": "frontend-watchlist-add-skeleton",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-watchlist-add-skeleton.json"
     }
   ]
 }
