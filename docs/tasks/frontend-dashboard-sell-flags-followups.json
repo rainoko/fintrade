@@ -3,7 +3,7 @@
   "title": "Dashboard sell-flagged positions card — non-blocking review follow-ups",
   "area": "frontend/pages/dashboard",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-dashboard-sell-flags"],
   "references": [
     "docs/tasks/frontend-dashboard-sell-flags.json#review",
@@ -13,11 +13,19 @@
   "checklist": [
     {
       "step": "The exit_flags-to-Chip-list column renderer is duplicated near-verbatim between RiskPanel.tsx (~line 103) and SellFlaggedPositionsCard.tsx (~line 23), even though this PR extracted the adjacent EXIT_FLAG_LABELS map specifically to avoid that kind of drift -- the shared label map is reused but the Stack-of-Chips renderer built on top of it isn't. A future change to how exit flags are displayed (severity color, tooltip, a new flag's chip variant) has to be made in two places and can silently drift. Extract a shared ExitFlagChips component (or a renderExitFlags column-render helper) into features/portfolio/ and use it from both RiskPanel and SellFlaggedPositionsCard.",
-      "done": false
+      "done": true
     },
     {
       "step": "SellFlaggedPositionsCard.tsx manually branches on flaggedPositions.length === 0 to render common/EmptyState before ever calling DataTable, duplicating logic DataTable already implements internally via its own emptyMessage prop (DataTable.tsx renders EmptyState itself whenever rows.length === 0). Passing emptyMessage=\"No positions currently flagged to sell.\" straight to DataTable and always rendering it would produce identical output while dropping the extra EmptyState import and the manual ternary.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T11:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared Chip-list renderer as ExitFlagChips.tsx, a flat file in features/portfolio/components/ (matching the existing flat-file convention there, e.g. RiskPanel.tsx/SellFlaggedPositionsCard.tsx — not a TickerLink-style component/test/stories folder), taking a single `flags: string[]` prop and internally handling both the non-empty Chip-Stack case and the empty-array '—' fallback (previously only present in RiskPanel's inline ternary, since SellFlaggedPositionsCard always filtered exit_flags to non-empty before rendering). Both RiskPanel and SellFlaggedPositionsCard now call <ExitFlagChips flags={row.exit_flags} /> from their `exit_flags` column's `render`.",
+      "rationale": "The task's own checklist wording already named the target location ('into features/portfolio/'), so no live ambiguity on common/ vs feature placement — consistent with the parent PR's EXIT_FLAG_LABELS decision: every value ExitFlagChips renders (an exit flag) is portfolio-risk domain vocabulary, not a generic/presentational concern, so components/common/'s Storybook-catalog convention doesn't apply here (confirmed no existing features/portfolio/components/ file has a matching .stories.tsx). Folding the empty-array fallback into the shared component (rather than leaving it as a caller-side ternary around <ExitFlagChips />) means a future column that reuses it for a possibly-empty exit_flags list gets the '—' behavior for free instead of every caller having to remember to add it, and keeps RiskPanel's existing rendered output ('—' per empty-flags row) byte-identical after the refactor. Rejected: a bare renderExitFlags() function returning ReactNode instead of a component (rejected because it collapses to the same JSX either way and a component keeps the per-flag key stability and prop typing explicit at the call site, matching how DataTable's other custom renderers in this codebase are already components, e.g. RiskPercent/TickerLink); rejected leaving the empty-array fallback to each caller (rejected because it re-introduces exactly the kind of per-caller duplication this task exists to remove)."
     }
   ]
 }

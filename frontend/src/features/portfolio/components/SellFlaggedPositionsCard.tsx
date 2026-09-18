@@ -1,16 +1,13 @@
-import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import type { RiskPosition } from '../../../api/portfolio'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
-import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
-import { humanizeSnakeCase } from '../../../utils/format'
-import { EXIT_FLAG_LABELS } from '../exitFlagLabels'
+import ExitFlagChips from './ExitFlagChips'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
 const columns: DataTableColumn<RiskPosition>[] = [
@@ -23,13 +20,7 @@ const columns: DataTableColumn<RiskPosition>[] = [
   {
     key: 'exit_flags',
     header: 'Exit Flags',
-    render: (row) => (
-      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
-        {row.exit_flags.map((flag) => (
-          <Chip key={flag} label={humanizeSnakeCase(flag, EXIT_FLAG_LABELS)} size="small" />
-        ))}
-      </Stack>
-    ),
+    render: (row) => <ExitFlagChips flags={row.exit_flags} />,
   },
 ]
 
@@ -71,16 +62,13 @@ export default function SellFlaggedPositionsCard() {
         Positions Flagged to Sell
       </Typography>
 
-      {flaggedPositions.length === 0 ? (
-        <EmptyState message="No positions currently flagged to sell." />
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={flaggedPositions}
-          getRowKey={(row) => row.id}
-          ariaLabel="Positions flagged to sell"
-        />
-      )}
+      <DataTable
+        columns={columns}
+        rows={flaggedPositions}
+        getRowKey={(row) => row.id}
+        emptyMessage="No positions currently flagged to sell."
+        ariaLabel="Positions flagged to sell"
+      />
     </Stack>
   )
 }

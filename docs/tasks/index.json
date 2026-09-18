@@ -733,7 +733,7 @@
       "id": "frontend-dashboard-sell-flags-followups",
       "area": "frontend/pages/dashboard",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-dashboard-sell-flags-followups.json"
     },
     {
