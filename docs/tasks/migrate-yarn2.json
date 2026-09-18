@@ -46,5 +46,11 @@
       "rationale": "A clean `yarn install` from the range initially resolved jsdom to 30.1.0 (vs. 30.0.1 frozen in the old package-lock.json) and that alone broke 9 previously-passing vitest tests (ConfirmDialog, AddPositionDialog) with `TypeError: nodeToRestore.current.focus is not a function` inside MUI's FocusTrap unmount path — a jsdom 30.1.0 behavior change in focus/element handling, not anything caused by Yarn itself. Re-resolving with jsdom pinned back to 30.0.1 made all 269 tests pass again with no other change. Rejected chasing/patching the jsdom 30.1.0 incompatibility itself as out of scope for a package-manager migration (that's real, unrelated frontend maintenance work); rejected leaving it broken since 'no regression from the package-manager switch' is this task's own explicit bar. A future task can deliberately revisit the jsdom upgrade (and whatever MUI/jsdom compat fix it needs) on its own."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/migrate-yarn2",
+    "pr_number": 116,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/116",
+    "pushed_at": "2026-09-18T13:08:01Z"
+  }
 }
