@@ -3,7 +3,7 @@
   "title": "Stock detail: clicking the signal (BUY/HOLD/SELL) opens an explanation of why",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/features/stocks/components/SignalSummary.tsx",
@@ -42,5 +42,43 @@
     "pr_number": 125,
     "pr_url": "https://github.com/rainoko/fintrade/pull/125",
     "pushed_at": "2026-09-18T23:14:46Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T23:23:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/125",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Worked through signalExplanation.ts's case analysis by hand against backend/app/signals/engine.py's _determine_signal/_wave_lookback for every reachable HOLD sub-case (Neutral tide; directional tide with Impulse blocking, both when Wave already shows/showed today and when it doesn't; directional tide where Wave never matched, provable by elimination since Tide/Impulse/Trigger otherwise satisfy the setup; directional tide with Trigger not fired). Every case's met/false/null value is correct and matches the backend's real boolean logic; the one flagged 'genuinely ambiguous' Wave case (HOLD, Wave not shown today, and at least one of Impulse/Trigger is already an independent confirmed blocker) is in fact the only case where Wave's true 5-day state can't be determined from what GET /api/stocks/{ticker}/analysis exposes today -- confirmed by tracing the AND-gate structure of _determine_signal itself, not just trusting the task's own decisions-entry claim. No conflation found between the four distinct ways a HOLD can arise.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": null
+      },
+      {
+        "summary": "Browser walkthrough (Playwright driven directly against a manually-started backend fixture-mode + Vite dev server, since no chromium-cli/Playwright MCP tool was available in this session): clicked the signal badge on /stocks/AAPL (a real ticker, Neutral-tide HOLD case), confirmed the balloon opens anchored below the badge with text that matches the ticker's actual screens.* values exactly (Tide Neutral, Impulse BLUE 'not evaluated', Wave/Trigger 'not evaluated'), with no console errors and no >=400 network responses. Also verified keyboard-open (focus + Enter), Escape-to-close, and click-away-to-close all work. make e2e: all 13 specs passed, including this PR's new stock-analysis.spec.ts assertions for the click-to-open balloon and Escape-to-close.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "docs/tasks/api-stocks-analysis-wave-lookback.json (the filed backend follow-up for the wave-lookback data gap) is well-formed, validated by scripts/validate_tasks.py, correctly filed as its own separate task file (not folded into this task's own commit inappropriately), and correctly added to docs/tasks/index.json in the same PR.",
+        "file": "docs/tasks/api-stocks-analysis-wave-lookback.json",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: signalExplanation.ts's ambiguous-Wave HOLD detail text has a subject-verb agreement bug when both the Impulse gate and Trigger are already-confirmed blockers (otherBlockers.join(' and ') produces a plural subject but the fixed singular verb 'isn't met' still follows -- e.g. 'the Impulse gate and Trigger also isn't met'). Reachable and unexercised by any existing test. Filed as a checklist item on frontend-signal-why-explanation-followups.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: the Trigger 'not fired' detail can render a self-contradictory 'reference: Not applicable' alongside a directional close-above/below claim, reachable when evaluate_trigger returns reference='not_applicable' due to fewer than 2 daily bars even though the weekly-derived tide is already directional (a rare edge case, but reproducible directly, and matches the exact fixture SignalExplanationContent.test.tsx's ambiguousWaveScreens already uses without asserting on this text). Filed as a checklist item on frontend-signal-why-explanation-followups.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: no test exercises the reachable combination where today's Wave state already shows the qualifying pullback/rally (waveMetToday true) but the overall signal is still HOLD because Impulse or Trigger blocks it -- numerically covered by branch coverage via the BUY/SELL cases sharing the same code path, but not semantically asserted for this specific HOLD combination. Filed as a checklist item on frontend-signal-why-explanation-followups.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.test.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app --cov-fail-under=90 (573 passed, 99.86% coverage), frontend vitest run --coverage (286 passed, 47 files, 99.64%/99.3%/100%/99.63% stmt/branch/func/line) -- both well above the 90% gate, no regression. Static analysis clean: ruff (app/), mypy (39 source files), eslint, tsc -b --noEmit. yarn build-storybook succeeds (new InfoBalloon.stories.tsx). scripts/validate_tasks.py: no violations. code-review skill (medium effort) found the two non-blocking wording bugs listed above and nothing else. No backend route/schema changed by this PR itself (api-stocks-analysis-wave-lookback is a separate, not-yet-implemented follow-up task), so no openapi.json staleness question applies. common/InfoBalloon is correctly placed (generic trigger+Popover, no domain knowledge, only presentational props) vs. signalExplanation.ts/SignalExplanationContent.tsx correctly placed under features/stocks (Elder Triple Screen domain logic) -- no placement violation either direction. Both checklist items phrased as 'decide X' (wave-lookback gap, balloon vs modal) have corresponding decisions entries with real rationale and rejected alternatives, not bare 'changed X' records. Working tree was clean at review start and end; no stray uncommitted changes from another agent were found."
   }
 }
