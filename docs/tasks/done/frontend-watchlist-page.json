@@ -3,7 +3,7 @@
   "title": "Frontend: Watchlist page (add/remove tickers, highlight buy signals)",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-watchlist"],
   "references": [
     "frontend/src/pages/DashboardPage.tsx",
@@ -56,5 +56,23 @@
     "pr_number": 106,
     "pr_url": "https://github.com/rainoko/fintrade/pull/106",
     "pushed_at": "2026-09-18T08:38:17Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T08:45:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/106",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "WatchlistTable's per-row Remove IconButton isn't disabled while useRemoveWatchlistItem is isPending, so a fast double-click on the same row can fire two DELETE requests; the second 404s and surfaces a confusing 'Not found' ErrorState for what was actually a successful removal. Pre-existing pattern in features/portfolio/components/PositionsTable.tsx too, reproduced rather than fixed here. Non-blocking; tracked as frontend-watchlist-page-followups.",
+        "file": "frontend/src/features/watchlist/components/WatchlistTable.tsx",
+        "line": 83
+      },
+      {
+        "summary": "No Playwright e2e spec (frontend/tests/e2e/watchlist.spec.ts) was added for the new /watchlist page, unlike every other top-level nav destination (dashboard/navigation/portfolio/stock-analysis all have one). Page-level vitest/MSW coverage (WatchlistPage.test.tsx) is thorough, so this isn't a regression risk today, but it's a gap in the persisted real-browser regression suite. Non-blocking; tracked as frontend-watchlist-page-followups.",
+        "file": "frontend/tests/e2e",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: gh pr checkout 106. Backend+frontend suites both pass well above the 90% gate (backend 559 tests, 99.86% coverage; frontend 232 tests, 99.49% statements/99% branches -- matches PR description). ruff/mypy/eslint/tsc all clean. No backend changes in this PR (api-watchlist already merged in #102); frontend/src/api/types.ts regenerates byte-identical to the committed backend/openapi.json via `npm run generate:api-types`, confirming a genuine regeneration rather than a hand-edit, so no OpenAPI-sync gap. code-review skill (medium effort) found one genuine minor issue (the double-click race noted above) and nothing else after verification. Placement check (step 7a): WatchlistTable/AddTickerForm both reference watchlist-domain concepts (WatchlistItemOut shape, idempotent-add semantics) so features/watchlist/components/ is correct per Frontend.md §3 -- no near-duplicate of an existing common/ or feature component, and SignalBadge/ConfidenceGauge reuse is genuine (unmodified common/ components, null-handling done at the WatchlistTable call site rather than pushed into either component, matching the recorded decision). Browser walkthrough (Playwright driven via a scratch script against a fixture-mode backend + Vite dev server, since no interactive Playwright MCP tool was available in this session): added AAPL and TSLA (both rendered with signal badge + confidence gauge), re-added AAPL as a duplicate (idempotent no-op, no UI error), added an unknown ticker (row appears with '—'/'—' for signal/confidence per the documented null-on-failure case, not a form error -- correctly distinguishes 'add succeeded, signal computation pending/failed' from 'add failed'), opened and cancelled the remove-confirm dialog, then confirmed removal of AAPL and watched it drop from the table. No console errors, no failed network requests observed. All local fixture tickers (AAPL/MSFT/TSLA/GOOGL) happen to compute HOLD today so a live BUY badge wasn't observed in the walkthrough itself, but BUY-vs-HOLD visual distinctness is directly unit-tested (WatchlistTable.test.tsx, SignalBadge.test.tsx) against mocked BUY data, so this isn't a coverage gap. e2e-test skill: ran `make e2e` -- all 12 existing specs across dashboard/navigation/portfolio/stock-analysis passed, no regression from this PR; confirmed no watchlist.spec.ts exists (tracked as a non-blocking follow-up, not blocking since neither the task checklist nor add-frontend-feature skill mandates one and nothing existing regressed). Checklist cross-check: no 'decide X' checklist item lacks a decisions entry -- all 5 judgment calls (types.ts regen timing, common/-vs-feature placement + ticker-link deferral, null-signal rendering, inline-form-vs-dialog, new formatDate helper placement) are recorded with rationale. No new module/dependency/layer added, so architecture-review wasn't separately invoked; area is frontend/pages, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply (the signal computation itself is unchanged, reused via existing GET /api/watchlist)."
   }
 }

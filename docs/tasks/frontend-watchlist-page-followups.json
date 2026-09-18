@@ -1,0 +1,23 @@
+{
+  "id": "frontend-watchlist-page-followups",
+  "title": "Watchlist page — non-blocking review follow-ups",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-watchlist-page"],
+  "references": [
+    "docs/tasks/done/frontend-watchlist-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/106"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #106 (frontend-watchlist-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "features/watchlist/components/WatchlistTable.tsx's per-row Remove IconButton isn't disabled while useRemoveWatchlistItem's mutation is isPending, so a fast double-click on the same row (confirm the dialog, then click Remove again before the invalidated query has refetched and the stale row disappeared) fires two DELETE /api/watchlist/{ticker} requests for the same ticker. The second returns 404, and removeWatchlistItem.isError then renders a 'Not found' ErrorState even though the ticker was actually removed successfully by the first request -- a confusing false-failure message for what is really a success. The same pattern pre-exists in features/portfolio/components/PositionsTable.tsx (not introduced by PR #106), but this PR reproduces rather than fixes it; worth addressing in both places together, e.g. by disabling the row's action while a removal for that row is in flight.",
+      "done": false
+    },
+    {
+      "step": "No Playwright e2e spec (frontend/tests/e2e/watchlist.spec.ts) was added for the new /watchlist page in PR #106, even though it's a full new UI flow (add a ticker, see it appear with a signal badge, remove it) comparable in shape to what dashboard.spec.ts/navigation.spec.ts/portfolio.spec.ts/stock-analysis.spec.ts already cover for the other pages. The e2e-test skill's own guidance ('if a new UI flow is added, the underlying task should also add or extend an e2e spec for it') wasn't followed here. The vitest/MSW page-level tests (WatchlistPage.test.tsx) are thorough and this isn't a regression risk today, but the persisted, versioned real-browser regression suite has a coverage gap for this page that every other top-level nav destination doesn't have.",
+      "done": false
+    }
+  ]
+}
