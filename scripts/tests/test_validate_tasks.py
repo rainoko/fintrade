@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Stdlib-only regression tests for scripts/validate_tasks.py.
 
 Matches that script's own zero-setup philosophy (see its module docstring and
@@ -354,6 +353,36 @@ class ValidateTasksTestCase(unittest.TestCase):
         self.assertTrue(any("duplicate task id" in m for m in messages), messages)
         self.assertTrue(any("unknown task id 'missing-a'" in m for m in messages), messages)
         self.assertTrue(any("unknown task id 'missing-b'" in m for m in messages), messages)
+
+    def test_duplicate_index_entry_cross_checks_both_rows(self) -> None:
+        # Regression test for the index_by_id overwrite-on-duplicate bug: two
+        # rows in index.json share an id, one matching the real task file's
+        # state and one stale/drifted. Before the fix, index_by_id[task_id] =
+        # entry (a single assignment, not append-to-list) meant only whichever
+        # row was processed last survived, so the earlier row's own drift from
+        # the task file was never independently reported -- only the generic
+        # "duplicate id ... in tasks list" violation fired. After the fix, the
+        # mirror cross-check loop runs against every row sharing that id, so
+        # the drifted row's mismatch is reported too.
+        b = self.board()
+        task = _valid_task(state="implementing")
+        b.add_task(task)
+        stale_row = _valid_index_entry({**task, "state": "planned"}, "docs/tasks/sample-task.json")
+        current_row = _valid_index_entry(task, "docs/tasks/sample-task.json")
+        b.write_index([stale_row, current_row])
+        b.apply()
+        messages = self.violation_messages()
+        self.assertTrue(
+            any("duplicate id 'sample-task' in tasks list" in m for m in messages), messages
+        )
+        self.assertTrue(
+            any(
+                "index.json state ('planned') does not match the task file's own state "
+                "('implementing')" in m
+                for m in messages
+            ),
+            messages,
+        )
 
 
 class RealBoardSmokeTest(unittest.TestCase):
