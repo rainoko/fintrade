@@ -3,7 +3,7 @@
   "title": "Backend: annotate each portfolio position with its current signal",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#5-signal-logic-buy--sell--hold",
@@ -33,5 +33,23 @@
     "pr_number": 118,
     "pr_url": "https://github.com/rainoko/fintrade/pull/118",
     "pushed_at": "2026-09-18T14:29:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T14:36:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/118",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: `_compute_position_signal` (backend/app/api/routers/portfolio.py) filters `e.daily_ohlcv` with `drop_malformed_daily_bars`'s default `require_full_ohlc_on_latest_bar=True`, but `current_price`/`unrealized_pnl_pct` on the same position come from `app.portfolio.pricing._latest_close`, which only requires the latest bar's `close` to be non-NaN (permissive). When the latest daily bar has a valid `close` but NaN open/high/low -- the exact, already-observed yfinance condition `drop_malformed_daily_bars`'s own docstring documents, and the same condition `get_risk`'s docstring explicitly reasons about (citing the api-stocks-analysis-nullable-indicators-followups task) -- `current_price` reflects today's close while `signal`/`confidence`/`confidence_band` silently reflect yesterday's bar instead: no error, no null, just a one-day-stale signal displayed next to a fresh price. `get_risk` avoids this exact class of bug for its own fields by passing `require_full_ohlc_on_latest_bar=False`, but that's not a safe blind copy here either -- `analyse()` (unlike `evaluate_exit_flags`) does read the latest bar's open/high/low (Elder-Ray, Wave, Trigger), so `_compute_position_signal` needs its own reasoned fix for this desync, not either extreme unexamined. Neither this task's `decisions` entry nor `_compute_position_signal`'s docstring discusses this risk, and no test in `TestGetPortfolioSignal` exercises a malformed-latest-bar frame the way `test_portfolio_get.py`'s existing price-side malformed-bar fixtures do.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 68
+      },
+      {
+        "summary": "Non-blocking: no test asserts that `POST /api/portfolio/positions` (add_position) returns `signal`/`confidence`/`confidence_band` as null, even though the code explicitly sets them and API.md/openapi.json document it as intentional. `test_create_new_position_returns_201` (backend/tests/integration/test_portfolio_positions.py) only asserts `current_price`/`unrealized_pnl_pct` are null. Behavior is correct and documented, just untested explicitly -- filed as a follow-up.",
+        "file": "backend/tests/integration/test_portfolio_positions.py",
+        "line": 47
+      }
+    ],
+    "notes": "Checked out PR #118. Backend: 564 passed, 99.86% coverage (portfolio.py and schemas.py both 100%), matching the PR's claim. Frontend: vitest --coverage passed on a clean re-run (99.6% lines/branches; one PortfolioPage.test.tsx timeout on the first run reproduced as a flake under full-suite+coverage load, confirmed by isolating the test on both main and this branch where it passes in ~3.5s each time -- not a regression from this PR, which touches no frontend logic, only a regenerated types.ts). ruff/mypy/eslint/tsc all clean. `python scripts/export_openapi.py` re-run locally produces zero diff against the committed backend/openapi.json -- snapshot is current. No UI surface: grepped every portfolio-feature component/hook for `signal` and found none consuming the new fields yet, so the browser walkthrough and the e2e-test skill are correctly skipped (this PR is backend-only enrichment; frontend display is presumably a separate follow-on task). verify-elder-signal: `analyse()` itself is untouched and called with the same (ticker, daily_ohlcv, weekly_ohlcv) signature GET /api/stocks/{ticker}/analysis and GET /api/watchlist already use -- no second/divergent signal computation, confirming the task's core requirement. architecture-review: router stays thin (the new helper only orchestrates fetch + null-handling, matching watchlist.py's existing `_compute_signal` precedent exactly), CachedDataProvider is used via the existing get_data_provider dependency (no re-fetch bypassing the SQLite cache), API.md/openapi.json/types.ts all updated consistently. The nullable-on-failure precedent, the weekly-fetch-per-position N+1 concern (mitigated by the existing 24h SQLite cache, consistent with get_risk's identical pattern), and add_position's null-on-write fields are all correctly implemented and documented per the task's `decisions` entry -- no issues there. The one blocking finding above (a latent-but-real signal/price staleness desync on a documented yfinance data condition, unaddressed by the decisions entry and untested) is why this is needs_work rather than accepted with a follow-up; it's about signal correctness, not a nit. Ran the code-review skill (medium effort, backgrounded) against the diff; it independently surfaced the same desync finding as its one reported result, which I verified directly against `_latest_close`'s close-only NaN check before including it."
   }
 }

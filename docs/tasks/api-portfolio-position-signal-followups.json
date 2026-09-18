@@ -1,0 +1,21 @@
+{
+  "id": "api-portfolio-position-signal-followups",
+  "title": "Portfolio position signal annotation -- non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["api-portfolio-position-signal"],
+  "references": [
+    "docs/tasks/api-portfolio-position-signal.json#review",
+    "https://github.com/rainoko/fintrade/pull/118"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #118 (api-portfolio-position-signal), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "No test asserts that POST /api/portfolio/positions (add_position) returns signal/confidence/confidence_band as null, even though the code explicitly sets them and API.md/openapi.json document it as intentional. test_create_new_position_returns_201 (backend/tests/integration/test_portfolio_positions.py) only asserts current_price/unrealized_pnl_pct are null. Behavior is correct and documented, just untested explicitly -- add an explicit assertion (either extend the existing test or add a dedicated one).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
