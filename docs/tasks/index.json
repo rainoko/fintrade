@@ -656,7 +656,7 @@
       "id": "watchlist-domain-models",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/watchlist-domain-models.json"
     },
     {

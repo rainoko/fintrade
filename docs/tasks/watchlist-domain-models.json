@@ -3,7 +3,7 @@
   "title": "Backend: watchlist domain model (DB table + migration)",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/db/models.py",
@@ -13,11 +13,18 @@
   ],
   "description": "User request: there should be watchlists. No watchlist concept exists anywhere in the codebase yet (not in docs/Analyse.md, not in backend/app/db/models.py, not in the frontend). This task adds the persistence layer only, mirroring how portfolio-domain-models preceded api-portfolio-get/add-position: a new ORM model (e.g. WatchlistItemORM — ticker, added_at at minimum; decide whether a per-item note/target field is worth adding now vs. leaving for later as a decisions entry) and an Alembic migration under backend/app/db/migrations, following the same conventions the existing PositionORM/AccountORM/OHLCVCacheORM and their migration(s) already establish. No API endpoints or frontend here — see api-watchlist (depends on this) and frontend-watchlist-page.",
   "checklist": [
-    { "step": "Decide the watchlist item's exact fields (ticker + added_at at minimum; consider a target-price or note field) and record as a decisions entry.", "done": false },
-    { "step": "Add the ORM model to backend/app/db/models.py, following the existing models' conventions (typed Mapped columns, appropriate primary key/uniqueness on ticker).", "done": false },
-    { "step": "Write the Alembic migration under backend/app/db/migrations, mirroring the existing migration(s)' structure.", "done": false },
-    { "step": "Test: migration applies cleanly (up) against a fresh DB and the new table matches the ORM model, following the pattern in backend/tests/integration/test_db_migrations.py.", "done": false }
+    { "step": "Decide the watchlist item's exact fields (ticker + added_at at minimum; consider a target-price or note field) and record as a decisions entry.", "done": true },
+    { "step": "Add the ORM model to backend/app/db/models.py, following the existing models' conventions (typed Mapped columns, appropriate primary key/uniqueness on ticker).", "done": true },
+    { "step": "Write the Alembic migration under backend/app/db/migrations, mirroring the existing migration(s)' structure.", "done": true },
+    { "step": "Test: migration applies cleanly (up) against a fresh DB and the new table matches the ORM model, following the pattern in backend/tests/integration/test_db_migrations.py.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "WatchlistItemORM has exactly two columns: ticker (String, primary key) and added_at (DateTime, not null). No note/target-price field added.",
+      "rationale": "Checked both downstream tasks (api-watchlist.json, frontend-watchlist-page.json) for any requirement touching a note or target-price field -- neither mentions one; api-watchlist's whole point is to annotate each watched ticker with its live-computed signal/confidence from the existing signal engine, not a user-entered target. Adding speculative columns now would mean either exposing them through a not-yet-designed API/UI or leaving dead unused columns in the schema, and yet-another migration would be needed the moment a real requirement for them shows up anyway -- so YAGNI wins over guessing at a shape. Also decided to make ticker itself the primary key (String) rather than following PositionORM's synthetic-id-plus-unique-ticker-column pattern: a watchlist is a set of tickers (add once, remove by ticker -- DELETE /api/watchlist/{ticker} in api-watchlist.json operates on ticker directly, mirroring OHLCVCacheORM's natural-key convention), unlike positions where a synthetic id leaves room for multiple lots of the same ticker over time. Considered and rejected the synthetic-id-plus-unique-ticker pattern for cross-table consistency, since there's no use case here for multiple rows per ticker or for referencing a watchlist entry by an opaque id instead of the ticker itself. Documented both choices in a docstring on the model itself so the next task doesn't have to re-derive the reasoning from this file."
+    }
+  ],
   "questions": []
 }
