@@ -132,6 +132,86 @@ describe('explainSignal', () => {
     expect(result.headline).toMatch(/missing: Impulse gate\.$/)
   })
 
+  it('explains a HOLD with both the Impulse gate and Trigger already blocking -- uses a plural verb, not "also isn\'t met"', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({ tideTrend: 'BULLISH', impulse: 'RED', waveState: 'NO_WAVE', triggerFired: false }),
+    )
+
+    const wave = result.conditions.find((c) => c.key === 'wave')!
+    expect(wave.met).toBeNull()
+    expect(wave.detail).toMatch(/the Impulse gate and Trigger also aren.t met/)
+    expect(wave.detail).not.toMatch(/also isn.t met/)
+  })
+
+  it('gives Trigger a non-contradictory detail when reference is not_applicable despite a directional Tide (fewer than 2 daily bars)', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BULLISH',
+        impulse: 'RED',
+        waveState: 'NO_WAVE',
+        triggerFired: false,
+        triggerReference: 'not_applicable',
+      }),
+    )
+
+    const trigger = result.conditions.find((c) => c.key === 'trigger')!
+    expect(trigger.met).toBe(false)
+    expect(trigger.detail).not.toMatch(/closed back above the prior high/)
+    expect(trigger.detail).not.toMatch(/reference: Not applicable/)
+    expect(trigger.detail).toMatch(/enough daily price history/)
+  })
+
+  it('gives Trigger a non-contradictory detail on the SELL/BEARISH side too when reference is not_applicable', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BEARISH',
+        impulse: 'GREEN',
+        waveState: 'NO_WAVE',
+        triggerFired: false,
+        triggerReference: 'not_applicable',
+      }),
+    )
+
+    const trigger = result.conditions.find((c) => c.key === 'trigger')!
+    expect(trigger.met).toBe(false)
+    expect(trigger.detail).not.toMatch(/closed back below the prior low/)
+    expect(trigger.detail).not.toMatch(/reference: Not applicable/)
+    expect(trigger.detail).toMatch(/enough daily price history yet to compare today.s close against a prior low/)
+  })
+
+  it('explains a HOLD where Wave already shows today but the Impulse gate still blocks it', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({ tideTrend: 'BULLISH', impulse: 'RED', waveState: 'OVERSOLD_PULLBACK', triggerFired: true }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/shows an oversold pullback today/)
+    expect(impulse.met).toBe(false)
+    expect(trigger.met).toBe(true)
+    expect(result.headline).toMatch(/missing: Impulse gate\.$/)
+  })
+
+  it('explains a HOLD where Wave already shows today but both Impulse and Trigger still block it', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({ tideTrend: 'BULLISH', impulse: 'RED', waveState: 'OVERSOLD_PULLBACK', triggerFired: false }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/shows an oversold pullback today/)
+    expect(impulse.met).toBe(false)
+    expect(trigger.met).toBe(false)
+    expect(result.headline).toMatch(/missing: Impulse gate, Trigger fired \(Screen 3\)\.$/)
+  })
+
   it('explains a HOLD blocked by the Impulse gate on the SELL side', () => {
     const result = explainSignal(
       'HOLD',

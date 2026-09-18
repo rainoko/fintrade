@@ -845,8 +845,8 @@
       "id": "frontend-signal-why-explanation-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-signal-why-explanation-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-signal-why-explanation-followups.json"
     },
     {
       "id": "api-stocks-analysis-wave-lookback",
