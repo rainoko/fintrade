@@ -679,6 +679,20 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-dashboard-sell-flags.json"
+    },
+    {
+      "id": "frontend-ticker-link",
+      "area": "frontend/components/common",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-ticker-link.json"
+    },
+    {
+      "id": "scripts-validate-tasks",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/scripts-validate-tasks.json"
     }
   ]
 }
