@@ -6,8 +6,10 @@ import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import InfoBalloon from '../../../components/common/InfoBalloon/InfoBalloon'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import { humanizeSnakeCase } from '../../../utils/format'
+import { confidenceHelp, getConfidenceComponentHelp, signalHelp } from './metricHelpContent'
 import SignalExplanationContent from './SignalExplanationContent'
 
 export interface SignalSummaryProps {
@@ -57,6 +59,19 @@ function formatPercent(fraction: number): string {
  * explainSignal, not a generic definition of what BUY/HOLD/SELL means
  * (that's frontend-stock-detail-metric-help's job) — see
  * docs/tasks/frontend-signal-why-explanation.json.
+ *
+ * A separate `common/MetricHelp` question-mark icon sits next to the badge
+ * and next to the confidence gauge (frontend-stock-detail-metric-help):
+ * these are the generic "what does BUY/SELL/HOLD mean, what is confidence,
+ * how do they relate to Elder's methodology" explanations
+ * (`metricHelpContent.ts`'s `signalHelp`/`confidenceHelp`), deliberately
+ * distinct from the badge's own click-to-explain "why this result"
+ * balloon above — the two don't duplicate or conflict, since one is
+ * generic/definitional and the other is causal/ticker-specific. Each
+ * confidence_breakdown row also gets its own inline `MetricHelp` (next to
+ * the component name, not a corner overlay -- a table cell has no useful
+ * "corner") explaining what that weighted component measures and how its
+ * score/weight combination contributed to the total.
  */
 export default function SignalSummary({
   signal,
@@ -69,7 +84,22 @@ export default function SignalSummary({
     {
       key: 'component',
       header: 'Component',
-      render: (row) => humanizeSnakeCase(row.component, COMPONENT_LABELS),
+      render: (row) => {
+        const help = getConfidenceComponentHelp(row.component)
+        return (
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <span>{humanizeSnakeCase(row.component, COMPONENT_LABELS)}</span>
+            {help && (
+              <MetricHelp
+                metricLabel={help.metricLabel}
+                definition={help.definition}
+                elderContext={help.elderContext}
+                valueInterpretation={help.interpretValue(row.score, row.weight)}
+              />
+            )}
+          </Stack>
+        )
+      },
     },
     {
       key: 'weight',
@@ -87,15 +117,31 @@ export default function SignalSummary({
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-        <InfoBalloon
-          triggerAriaLabel={`Why ${signal}?`}
-          title={`Why ${signal}?`}
-          content={<SignalExplanationContent signal={signal} screens={screens} />}
-        >
-          <SignalBadge signal={signal} />
-        </InfoBalloon>
-        <ConfidenceGauge confidence={confidence} band={confidenceBand} />
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <InfoBalloon
+            triggerAriaLabel={`Why ${signal}?`}
+            title={`Why ${signal}?`}
+            content={<SignalExplanationContent signal={signal} screens={screens} />}
+          >
+            <SignalBadge signal={signal} />
+          </InfoBalloon>
+          <MetricHelp
+            metricLabel={signalHelp.metricLabel}
+            definition={signalHelp.definition}
+            elderContext={signalHelp.elderContext}
+            valueInterpretation={signalHelp.interpretValue(signal)}
+          />
+        </Stack>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <ConfidenceGauge confidence={confidence} band={confidenceBand} />
+          <MetricHelp
+            metricLabel={confidenceHelp.metricLabel}
+            definition={confidenceHelp.definition}
+            elderContext={confidenceHelp.elderContext}
+            valueInterpretation={confidenceHelp.interpretValue(confidence, confidenceBand)}
+          />
+        </Stack>
       </Stack>
 
       <Typography variant="subtitle2" color="text.secondary">

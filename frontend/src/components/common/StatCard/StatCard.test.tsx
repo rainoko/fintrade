@@ -51,4 +51,22 @@ describe('StatCard', () => {
 
     expect(screen.getByText('no change')).toBeInTheDocument()
   })
+
+  it('renders no corner content when none is given', () => {
+    render(<StatCard label="Total Equity" value="$10,000.00" />)
+
+    expect(screen.queryByTestId('corner-marker')).not.toBeInTheDocument()
+  })
+
+  it('renders arbitrary corner content when given one', () => {
+    render(
+      <StatCard
+        label="EMA (13)"
+        value="226.40"
+        corner={<span data-testid="corner-marker">?</span>}
+      />,
+    )
+
+    expect(screen.getByTestId('corner-marker')).toBeInTheDocument()
+  })
 })

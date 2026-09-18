@@ -1,3 +1,4 @@
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import StatCard from './StatCard'
 
@@ -37,5 +38,13 @@ export const NeutralDelta: Story = {
     label: 'Open Positions',
     value: '4',
     delta: { text: 'no change', direction: 'neutral' },
+  },
+}
+
+export const WithCornerContent: Story = {
+  args: {
+    label: 'EMA (13)',
+    value: '226.40',
+    corner: <HelpOutlineIcon fontSize="small" color="action" />,
   },
 }

@@ -1,10 +1,12 @@
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
+import type { ReactNode } from 'react'
 
 export type StatCardDeltaDirection = 'positive' | 'negative' | 'neutral'
 
@@ -21,6 +23,15 @@ export interface StatCardProps {
   value: string
   /** Optional trend/delta shown under the value (e.g. change since yesterday). */
   delta?: StatCardDelta
+  /**
+   * Optional arbitrary content anchored to the card's top-right corner
+   * (e.g. a `MetricHelp` question-mark icon on the stock detail page's
+   * IndicatorsPanel — frontend-stock-detail-metric-help). Still
+   * domain-agnostic: StatCard itself renders whatever `ReactNode` it's
+   * given without knowing what it is, the same way `PageHeader`'s
+   * `action` prop works.
+   */
+  corner?: ReactNode
 }
 
 /**
@@ -29,7 +40,7 @@ export interface StatCardProps {
  * strings — it doesn't know what "equity" or "risk" mean, just how to lay
  * out a label/value/delta.
  */
-export default function StatCard({ label, value, delta }: StatCardProps) {
+export default function StatCard({ label, value, delta, corner }: StatCardProps) {
   const theme = useTheme()
 
   const deltaColor =
@@ -40,7 +51,8 @@ export default function StatCard({ label, value, delta }: StatCardProps) {
         : theme.palette.text.secondary
 
   return (
-    <Card variant="outlined">
+    <Card variant="outlined" sx={{ position: 'relative' }}>
+      {corner && <Box sx={{ position: 'absolute', top: 4, right: 4 }}>{corner}</Box>}
       <CardContent>
         <Typography variant="body2" color="text.secondary" gutterBottom>
           {label}
