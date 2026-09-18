@@ -15,7 +15,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
-from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
+from app.data.exceptions import (
+    DataProviderUnavailableError,
+    InsufficientHistoryError,
+    TickerNotFoundError,
+)
 from app.db.models import WatchlistItemORM
 from app.db.session import get_db
 from app.main import app
@@ -118,6 +122,14 @@ class TestAddWatchlistItem:
         assert response.status_code == 201
         assert response.json()["ticker"] == "AAPL"
 
+    def test_ticker_with_surrounding_whitespace_is_stripped_and_uppercased(
+        self, client: TestClient
+    ) -> None:
+        response = client.post("/api/watchlist", json={"ticker": " aapl "})
+
+        assert response.status_code == 201
+        assert response.json()["ticker"] == "AAPL"
+
     def test_blank_ticker_returns_422(self, client: TestClient) -> None:
         response = client.post("/api/watchlist", json={"ticker": "   "})
 
@@ -164,6 +176,30 @@ class TestGetWatchlistWithSignal:
         assert response.status_code == 200
         item = response.json()["items"][0]
         assert item["ticker"] == "ZZZZ"
+        assert item["signal"] is None
+        assert item["confidence"] is None
+        assert item["confidence_band"] is None
+
+    def test_list_nulls_out_signal_for_a_ticker_with_insufficient_history(
+        self, db_session: Session
+    ) -> None:
+        # Spot-test for InsufficientHistoryError specifically (a recent-IPO-shaped 422 from
+        # the provider) -- TickerNotFoundError and DataProviderUnavailableError are covered
+        # above; _compute_signal catches all three via the shared DataProviderError base, but
+        # exercising each concrete subclass documents that every one of them nulls the entry
+        # out rather than only the two already covered.
+        db_session.add(WatchlistItemORM(ticker="IPOX", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        db_session.commit()
+        provider = _StubProvider(
+            failing={"IPOX": InsufficientHistoryError("IPOX", available=5, required=26)}
+        )
+        test_client = _client_with_provider(db_session, provider)
+
+        response = test_client.get("/api/watchlist")
+
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["ticker"] == "IPOX"
         assert item["signal"] is None
         assert item["confidence"] is None
         assert item["confidence_band"] is None

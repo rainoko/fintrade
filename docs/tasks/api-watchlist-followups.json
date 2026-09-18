@@ -3,7 +3,7 @@
   "title": "Watchlist CRUD endpoints — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-watchlist"],
   "references": [
     "docs/tasks/api-watchlist.json#review",
@@ -13,19 +13,33 @@
   "checklist": [
     {
       "step": "backend/openapi.json gained the /api/watchlist routes/schemas in PR #102 but frontend/src/api/types.ts was never regenerated (still has zero watchlist references) — the add-api-endpoint skill explicitly lists 'regenerate after every snapshot update so the two sides can't silently drift' as a required step and flags skipping it as a named common failure mode, and the precedent api-stocks-indicator-history PR (also backend-only at the time) did regenerate types.ts. Not treated as blocking here since CLAUDE.md's own wording allows deferring frontend type regen until 'before the frontend consumes the change' and no frontend watchlist consumer exists yet, but regenerate frontend/src/api/types.ts (npm run generate:api-types) before or alongside whatever task first builds a frontend watchlist UI, rather than leaving it to be discovered as a surprise stale-types diff then.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/app/api/routers/watchlist.py's _compute_signal calls drop_malformed_daily_bars(daily_ohlcv) before analyse(), but analyse() already performs this exact filtering internally as its first step (app/signals/engine.py) -- and unlike stocks.py's get_analysis (which needs the pre-filtered frame afterward to derive as_of), _compute_signal never uses the returned daily_ohlcv for anything else, so this is a redundant full-DataFrame pass per watched ticker on every GET /api/watchlist request. Not a correctness bug (idempotent operation), just wasted work -- drop the redundant call and let analyse() do it once.",
-      "done": false
+      "done": true
     },
     {
       "step": "The nullable-signal-on-failure tests (test_watchlist.py) cover TickerNotFoundError and DataProviderUnavailableError but not InsufficientHistoryError specifically, even though all three are the DataProviderError subclasses the decisions entry names as triggering the null-out. Behavior is verified generically since _compute_signal catches the shared base class, but add a spot-test for the InsufficientHistoryError case too for completeness/documentation value.",
-      "done": false
+      "done": true
     },
     {
       "step": "No test exercises WatchlistItemIn's ticker field being real content padded with leading/trailing whitespace (e.g. ' aapl ' -> 'AAPL') -- only the blank-whitespace-only rejection and already-clean-casing paths are tested, so the strip-then-uppercase interaction for a realistic 'user pasted a ticker with a stray space' input isn't directly covered.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (regenerate frontend/src/api/types.ts) required no new work: PR #106 (frontend-watchlist-page, merged after this followups task was filed) already regenerated types.ts as part of building the frontend watchlist UI, and it already carries the /api/watchlist routes/schemas. Re-ran `yarn generate:api-types` (the migrate-yarn2-era script name, not the npm one the checklist text predates) from backend/openapi.json to confirm it produces a zero-diff, then marked the item done rather than leaving it open on a technicality.",
+      "rationale": "The checklist step's own condition for doing the work ('before or alongside whatever task first builds a frontend watchlist UI') was already satisfied by prior, unrelated work; re-running the generator and confirming no diff is the correct verification that the drift this item warned about never actually occurred, without fabricating a no-op commit."
+    },
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Removed the redundant drop_malformed_daily_bars(daily_ohlcv) call in _compute_signal and stopped importing it in watchlist.py, letting analyse() perform that filtering once internally exactly as the checklist item specifies.",
+      "rationale": "analyse() already runs drop_malformed_daily_bars as its first step (app/signals/engine.py), and _compute_signal never reads the pre-filtered daily_ohlcv again afterward (unlike stocks.py's get_analysis, which needs it to derive as_of) -- so the call was pure wasted per-ticker work on every GET /api/watchlist request, not a behavior difference. No alternative considered; this is exactly what the checklist item asked for."
     }
   ]
 }

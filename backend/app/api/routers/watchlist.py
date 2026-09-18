@@ -18,7 +18,7 @@ from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
 from app.db.models import WatchlistItemORM
 from app.db.session import get_db
-from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
+from app.signals.engine import SignalResult, analyse
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
@@ -41,14 +41,20 @@ def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
     Deliberately narrow: only `DataProviderError` (the documented, expected failure mode for
     a market-data fetch) is caught here, not a bare `except Exception`, so a genuine bug in
     `analyse()` itself still surfaces as a loud 500 in tests/CI instead of being silently
-    swallowed into a null field."""
+    swallowed into a null field.
+
+    Unlike `stocks.py`'s `get_analysis` (which pre-filters `daily_ohlcv` with
+    `drop_malformed_daily_bars` itself because it needs the cleaned frame afterward to derive
+    `as_of`), this function never uses `daily_ohlcv` again after passing it to `analyse()` --
+    and `analyse()` already runs `drop_malformed_daily_bars` internally as its first step, so
+    filtering here first would just be a redundant full-DataFrame pass per watched ticker on
+    every `GET /api/watchlist` request. `analyse()` is left to do it once."""
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
         weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
     except DataProviderError:
         return None
 
-    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
     return analyse(ticker, daily_ohlcv, weekly_ohlcv)
 
 
