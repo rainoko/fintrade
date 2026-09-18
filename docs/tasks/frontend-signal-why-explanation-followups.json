@@ -1,0 +1,31 @@
+{
+  "id": "frontend-signal-why-explanation-followups",
+  "title": "Non-blocking follow-ups from PR #125 review (frontend-signal-why-explanation)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-signal-why-explanation"],
+  "references": [
+    "docs/tasks/frontend-signal-why-explanation.json",
+    "https://github.com/rainoko/fintrade/pull/125",
+    "frontend/src/features/stocks/components/signalExplanation.ts",
+    "frontend/src/features/stocks/components/signalExplanation.test.ts"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #125 (frontend-signal-why-explanation), recorded here so they aren't lost once that PR merges. None of these affect the correctness of any condition's `met`/`false`/`null` value -- verified by hand against backend/app/signals/engine.py's `_determine_signal`/`_wave_lookback` for every reachable HOLD sub-case (Neutral tide; directional tide with Impulse blocking; directional tide with Wave never matching, provable by elimination; directional tide with Trigger not fired) -- these are wording/text-accuracy and test-completeness gaps only.",
+  "checklist": [
+    {
+      "step": "signalExplanation.ts's ambiguous-Wave HOLD detail text has a subject-verb agreement bug when *both* the Impulse gate and Trigger are already-confirmed blockers: `otherBlockers.join(' and ')` produces a plural subject (e.g. 'the Impulse gate and Trigger') but the fixed singular verb 'isn't met' still follows, rendering '...but the Impulse gate and Trigger also isn't met, so this would be a HOLD either way.' Reproduced directly: explainSignal('HOLD', { tide: BULLISH, impulse: 'RED', wave: NO_WAVE, trigger: { fired: false, reference: 'close_above_prior_high' } }).conditions.find(c => c.key === 'wave').detail. This exact two-blocker combination isn't exercised by any existing signalExplanation.test.ts case (all cases there exercise exactly one blocker). Fix: use 'aren't' when otherBlockers.length > 1, or rephrase without a shared verb.",
+      "done": false
+    },
+    {
+      "step": "signalExplanation.ts's Trigger 'not fired' detail can render a self-contradictory 'reference: Not applicable' alongside a directional close-above/below claim. backend/app/signals/triple_screen.py's evaluate_trigger returns {fired: false, reference: 'not_applicable'} not only when tide is Neutral but also whenever there are fewer than 2 daily bars -- reachable even with a directional (BULLISH/BEARISH) tide derived from weekly data, e.g. a very new ticker with ample weekly history but under 2 daily bars. In that state, explainSignal's directional branch renders \"Trigger hasn't fired yet -- price hasn't closed back above the prior high (reference: Not applicable)\", which contradicts itself. Reproduced directly via explainSignal with trigger: { fired: false, reference: 'not_applicable' } and a directional tide (this is in fact the exact fixture SignalExplanationContent.test.tsx's `ambiguousWaveScreens` already uses, though that test doesn't assert on the Trigger condition's text). Rare in practice but worth an explicit guard/wording fix (e.g. special-case reference === 'not_applicable' in the directional branch).",
+      "done": false
+    },
+    {
+      "step": "signalExplanation.test.ts has no test case for the reachable combination where today's Wave state already shows the qualifying pullback/rally (waveMetToday true) but the overall signal is still HOLD because Impulse or Trigger blocks it (e.g. tide BULLISH, waveState OVERSOLD_PULLBACK, impulse RED, triggerFired true -> HOLD, Wave met should be true, Impulse met false). The branch itself (`if (waveMetToday) { met: true }`) is already exercised via the BUY/SELL test cases so branch coverage is numerically 100%, but no test confirms this specific HOLD-with-wave-already-showing combination renders met:true for Wave and correctly names only Impulse/Trigger as the blocker(s) in the headline.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

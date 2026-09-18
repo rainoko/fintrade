@@ -1,0 +1,23 @@
+{
+  "id": "api-stocks-analysis-wave-lookback",
+  "title": "GET /api/stocks/{ticker}/analysis: expose the Wave screen's 5-day lookback result (wave_showed_pullback/wave_showed_rally), not just today's state",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/signals/engine.py",
+    "docs/Analyse.md#5-signal-logic-buy--sell--hold",
+    "docs/tasks/frontend-signal-why-explanation.json"
+  ],
+  "description": "Filed from frontend-signal-why-explanation's own checklist item 1 (a genuine data-availability gap discovered while implementing the stock-detail 'why this signal' explanation balloon): `_determine_signal` (backend/app/signals/engine.py) doesn't gate BUY/SELL on today's `evaluate_wave` result alone -- it gates on `wave_showed_pullback`/`wave_showed_rally` (`_wave_lookback`), true if the qualifying OVERSOLD_PULLBACK/OVERBOUGHT_RALLY state appeared on *any* of the last `_WAVE_LOOKBACK_DAYS` (5) trading days, not just today. `GET /api/stocks/{ticker}/analysis`'s `screens.wave.state` only ever reports *today's* `evaluate_wave` result, so a client consuming this endpoint has no way to distinguish 'the Wave condition was met on an earlier day within the lookback window' from 'the Wave condition was never met at all' -- both currently just look like `screens.wave.state != OVERSOLD_PULLBACK/OVERBOUGHT_RALLY` today.\n\nThis is invisible for a fresh BUY/SELL itself (the signal's own existence already proves the lookback condition held at some point), but matters for anything trying to *explain* the signal causally: frontend-signal-why-explanation's HOLD explanation can only conclusively rule out the Wave condition today when Tide/Impulse/Trigger all otherwise line up for a directional trade (by elimination -- see that task's `signalExplanation.ts`); every other HOLD configuration has to render an honest 'can't be confirmed from today's data alone' caveat rather than a definitive met/not-met, purely because this field isn't exposed. Extending the API to expose `wave_showed_pullback`/`wave_showed_rally` (or an equivalent, e.g. `wave.showed_pullback_in_lookback: bool`) would let that caveat be replaced with a fully accurate statement in every case, closing the gap `_wave_lookback`'s own docstring already names explicitly.\n\nAdd the exposure as a new field (or two) on `WaveScreen` in `backend/app/api/schemas.py`, sourced from `_wave_lookback`'s existing return values (already computed internally by `analyse()` -- no new computation needed, just plumbing the two booleans that are currently discarded after `_determine_signal` consumes them). Update `backend/openapi.json` and regenerate `frontend/src/api/types.ts` per the add-api-endpoint skill's contract-sync step. A frontend follow-up to actually consume the new field(s) in `signalExplanation.ts` (removing the `met: null` ambiguous-case branch) is out of this task's own scope -- file that separately once this lands, or fold it in here if it's cheap enough once the schema change is done; record whichever choice as a decisions entry.",
+  "checklist": [
+    { "step": "Decide the exact field shape (e.g. WaveScreen.showed_pullback_in_lookback: bool | null, WaveScreen.showed_rally_in_lookback: bool | null, null when Tide is Neutral since neither is ever reachable) and document it with a description citing docs/Analyse.md §5 and _wave_lookback's own docstring; record as a decisions entry.", "done": false },
+    { "step": "Plumb _wave_lookback's existing wave_showed_pullback/wave_showed_rally return values through analyse() into the screens.wave dict instead of discarding them after _determine_signal consumes them.", "done": false },
+    { "step": "Update backend/app/api/schemas.py's WaveScreen model, regenerate backend/openapi.json, and regenerate frontend/src/api/types.ts.", "done": false },
+    { "step": "Unit tests covering: a directional tide where the lookback state differs from today's state (the case this field exists to distinguish), and the Tide-Neutral case.", "done": false },
+    { "step": "Decide and record (as a decisions entry) whether to fold in the frontend-signal-why-explanation follow-up (consuming the new field(s) to remove signalExplanation.ts's ambiguous-caveat branch) here or file it as its own separate task.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

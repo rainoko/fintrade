@@ -838,8 +838,22 @@
       "id": "frontend-signal-why-explanation",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-signal-why-explanation.json"
+    },
+    {
+      "id": "frontend-signal-why-explanation-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-signal-why-explanation.json"
+      "path": "docs/tasks/frontend-signal-why-explanation-followups.json"
+    },
+    {
+      "id": "api-stocks-analysis-wave-lookback",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-analysis-wave-lookback.json"
     },
     {
       "id": "frontend-watchlist-add-skeleton",
