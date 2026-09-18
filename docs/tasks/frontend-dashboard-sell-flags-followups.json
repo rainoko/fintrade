@@ -27,5 +27,11 @@
       "decision": "Extracted the shared Chip-list renderer as ExitFlagChips.tsx, a flat file in features/portfolio/components/ (matching the existing flat-file convention there, e.g. RiskPanel.tsx/SellFlaggedPositionsCard.tsx — not a TickerLink-style component/test/stories folder), taking a single `flags: string[]` prop and internally handling both the non-empty Chip-Stack case and the empty-array '—' fallback (previously only present in RiskPanel's inline ternary, since SellFlaggedPositionsCard always filtered exit_flags to non-empty before rendering). Both RiskPanel and SellFlaggedPositionsCard now call <ExitFlagChips flags={row.exit_flags} /> from their `exit_flags` column's `render`.",
       "rationale": "The task's own checklist wording already named the target location ('into features/portfolio/'), so no live ambiguity on common/ vs feature placement — consistent with the parent PR's EXIT_FLAG_LABELS decision: every value ExitFlagChips renders (an exit flag) is portfolio-risk domain vocabulary, not a generic/presentational concern, so components/common/'s Storybook-catalog convention doesn't apply here (confirmed no existing features/portfolio/components/ file has a matching .stories.tsx). Folding the empty-array fallback into the shared component (rather than leaving it as a caller-side ternary around <ExitFlagChips />) means a future column that reuses it for a possibly-empty exit_flags list gets the '—' behavior for free instead of every caller having to remember to add it, and keeps RiskPanel's existing rendered output ('—' per empty-flags row) byte-identical after the refactor. Rejected: a bare renderExitFlags() function returning ReactNode instead of a component (rejected because it collapses to the same JSX either way and a component keeps the per-flag key stability and prop typing explicit at the call site, matching how DataTable's other custom renderers in this codebase are already components, e.g. RiskPercent/TickerLink); rejected leaving the empty-array fallback to each caller (rejected because it re-introduces exactly the kind of per-caller duplication this task exists to remove)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-sell-flags-followups",
+    "pr_number": 111,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/111",
+    "pushed_at": "2026-09-18T11:03:25Z"
+  }
 }
