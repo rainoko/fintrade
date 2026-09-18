@@ -113,11 +113,16 @@ Current positions plus account equity.
       "avg_cost_basis": 195.30,
       "entry_date": "2026-05-14",
       "current_price": 228.9,
-      "unrealized_pnl_pct": 17.2
+      "unrealized_pnl_pct": 17.2,
+      "signal": "BUY",
+      "confidence": 72,
+      "confidence_band": "High"
     }
   ]
 }
 ```
+
+Each position is also annotated with its current `signal`/`confidence`/`confidence_band` via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` use (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check, reusing the same per-position market-data fetch `current_price` is derived from. `signal`/`confidence`/`confidence_band` are `null` together on a position whose signal couldn't be computed right now — either its `current_price` fetch already failed (same condition as `current_price`/`unrealized_pnl_pct` above), or that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed — mirroring `WatchlistItemOut`'s null-on-failure pattern rather than failing the whole request or dropping the position (see the `api-portfolio-position-signal` task's `decisions`).
 
 ### `POST /api/portfolio/positions`
 
@@ -128,7 +133,7 @@ Request:
 { "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14" }
 ```
 
-Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct` are always `null` in this response — price enrichment happens on read, not on write.
+Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct`/`signal`/`confidence`/`confidence_band` are always `null` in this response — price/signal enrichment happens on read, not on write.
 
 Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale).
 
