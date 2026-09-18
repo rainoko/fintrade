@@ -826,6 +826,13 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-signal-why-explanation.json"
+    },
+    {
+      "id": "frontend-watchlist-add-skeleton",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-watchlist-add-skeleton.json"
     }
   ]
 }
