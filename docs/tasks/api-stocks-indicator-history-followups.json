@@ -35,5 +35,11 @@
       "alternatives_considered": "A full caching layer (e.g. per-ticker memoized indicator series keyed by a cache invalidation policy) was rejected as unnecessary complexity for a single-request code path with no cross-request reuse need -- the existing app.data.cache module already handles the actual cross-request caching concern (raw OHLCV fetches), and this task's cost is pure in-process recomputation, not I/O. Skipping the weekly-Tide and drop_malformed_daily_bars optimizations (stopping at just the five named daily indicators) was considered and rejected after profiling showed they'd become the dominant remaining cost, per the rationale above."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-indicator-history-followups",
+    "pr_number": 121,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/121",
+    "pushed_at": "2026-09-18T22:00:32Z"
+  }
 }
