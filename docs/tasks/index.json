@@ -651,6 +651,34 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-oscillator-chart.json"
+    },
+    {
+      "id": "watchlist-domain-models",
+      "area": "backend/db",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/watchlist-domain-models.json"
+    },
+    {
+      "id": "api-watchlist",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-watchlist.json"
+    },
+    {
+      "id": "frontend-watchlist-page",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-watchlist-page.json"
+    },
+    {
+      "id": "frontend-dashboard-sell-flags",
+      "area": "frontend/pages/dashboard",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-dashboard-sell-flags.json"
     }
   ]
 }
