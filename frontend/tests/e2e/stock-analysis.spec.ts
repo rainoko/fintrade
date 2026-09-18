@@ -50,6 +50,13 @@ test.describe('stock analysis page', () => {
 
     // Price history chart (features/stocks/components/PriceChart.tsx).
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+
+    // Historical oscillator pane -- Stochastic %K/Force Index/MACD
+    // Histogram (features/stocks/components/OscillatorChart.tsx),
+    // synced to the same (default, Daily) range/interval as the price
+    // chart above via StockCharts.tsx.
+    await expect(page.getByText('Oscillators (Screen 2)')).toBeVisible()
+    await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
   })
 
   test('range and interval toggles reload the price chart without erroring', async ({
@@ -86,16 +93,27 @@ test.describe('stock analysis page', () => {
     // AppErrorBoundary's fallback -- confirms the range toggle didn't crash
     // the tree the way the reported bug did.
     await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
+    // The oscillator pane (StockCharts.tsx mirrors PriceChart's range into
+    // it) stays in sync with the same 6M window, not stuck on the default.
+    await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
 
     await page.getByRole('button', { name: 'Weekly' }).click()
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
+    // `/indicators` is daily-cadence only -- the oscillator pane replaces
+    // its chart with an explanatory message rather than showing daily data
+    // under weekly candles (OscillatorChart.tsx's `enabled` gating).
+    await expect(
+      page.getByText('Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.'),
+    ).toBeVisible()
+    await expect(page.getByTestId('oscillator-chart-canvas')).not.toBeVisible()
 
     // Back to Daily re-fetches and re-mounts the overlay -- toggling away
     // from it and back again must not crash either.
     await page.getByRole('button', { name: 'Daily' }).click()
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
+    await expect(page.getByTestId('oscillator-chart-canvas')).toBeVisible()
   })
 
   test('looking up an unknown ticker shows a not-found error state', async ({ page }) => {

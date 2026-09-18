@@ -5,9 +5,9 @@ import ErrorState from '../components/common/ErrorState/ErrorState'
 import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
-import PriceChart from '../features/stocks/components/PriceChart'
 import ScreensPanel from '../features/stocks/components/ScreensPanel'
 import SignalSummary from '../features/stocks/components/SignalSummary'
+import StockCharts from '../features/stocks/components/StockCharts'
 import TickerSearchBox from '../features/stocks/components/TickerSearchBox'
 import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
 
@@ -15,10 +15,13 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * Stock analysis page: `GET /api/stocks/{ticker}/analysis`'s Triple Screen
  * signal, confidence, per-screen detail, and latest indicator values for one
  * ticker (docs/Analyse.md §6, docs/architecture/API.md), plus the raw OHLCV
- * candlestick chart from `GET /.../history` (PriceChart, frontend-stock-history-chart).
+ * candlestick chart from `GET /.../history` and the historical indicator/
+ * oscillator series from `GET /.../indicators` (`StockCharts`, composing
+ * `PriceChart` + `OscillatorChart` — frontend-stock-history-chart,
+ * frontend-chart-signal-overlay, frontend-oscillator-chart).
  * Stays thin per Frontend.md §3 — all fetching lives in useStockAnalysis/
- * useStockHistory, all domain rendering lives in
- * SignalSummary/ScreensPanel/IndicatorsPanel/PriceChart.
+ * useStockHistory/useIndicatorHistory, all domain rendering lives in
+ * SignalSummary/ScreensPanel/IndicatorsPanel/StockCharts.
  *
  * Renders TickerSearchBox (the same entry point built by
  * frontend-dashboard-page) in its own PageHeader action, so switching to a
@@ -65,7 +68,7 @@ export default function StockDetailPage() {
 
           <IndicatorsPanel indicators={analysisQuery.data.indicators} />
 
-          <PriceChart ticker={ticker} />
+          <StockCharts ticker={ticker} />
         </Stack>
       )}
     </>
