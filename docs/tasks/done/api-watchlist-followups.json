@@ -3,7 +3,7 @@
   "title": "Watchlist CRUD endpoints — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-watchlist"],
   "references": [
     "docs/tasks/api-watchlist.json#review",
@@ -47,5 +47,12 @@
       "decision": "Removed the redundant drop_malformed_daily_bars(daily_ohlcv) call in _compute_signal and stopped importing it in watchlist.py, letting analyse() perform that filtering once internally exactly as the checklist item specifies.",
       "rationale": "analyse() already runs drop_malformed_daily_bars as its first step (app/signals/engine.py), and _compute_signal never reads the pre-filtered daily_ohlcv again afterward (unlike stocks.py's get_analysis, which needs it to derive as_of) -- so the call was pure wasted per-ticker work on every GET /api/watchlist request, not a behavior difference. No alternative considered; this is exactly what the checklist item asked for."
     }
-  ]
+  ],
+  "review": {
+    "reviewed_at": "2026-09-18T22:43:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/123",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #123. Verified the core behavioral claim directly in app/signals/engine.py: analyse() unconditionally calls drop_malformed_daily_bars(daily_ohlcv) unless the private _daily_ohlcv_already_clean=True escape hatch is passed (analyse_history-only), and watchlist.py's _compute_signal never passes it -- so removing the pre-analyse() drop_malformed_daily_bars call in _compute_signal is a genuine behavioral no-op, not a silent reintroduction of the malformed-bar issue. Confirmed no other usage/import of drop_malformed_daily_bars remains in watchlist.py, and that portfolio.py/stocks.py's own calls are unaffected (they still need the returned frame afterward, unlike watchlist.py). Sanity-checked the live request path against a fixture-backed dev server: POST with a whitespace-padded ticker (' aapl ') round-trips to 'AAPL', and GET computes a real signal through the now-single analyse() filtering pass. Both new tests genuinely exercise what they claim: InsufficientHistoryError (constructor/base-class checked against app/data/exceptions.py) nulls out signal/confidence/confidence_band identically to the two already-covered DataProviderError subclasses, and the whitespace test exercises the real strip-then-upper() interaction (WatchlistItemIn's field_validator strips in schemas.py, add_watchlist_item uppercases in the router). Re-ran yarn generate:api-types myself from backend/openapi.json -- zero diff against frontend/src/api/types.ts, confirming the decisions entry's no-op claim. Backend: 573 tests pass, 99.86% coverage (well above the 90% gate). ruff/mypy clean on backend; frontend unchanged by this PR, lint/tsc confirmed clean regardless. code-review skill (medium effort) independently verified the same claims and returned zero findings. No API route/schema change, so no openapi.json regen was needed here. Ran the persisted e2e suite (make e2e): all 13 specs across dashboard/navigation/portfolio/stock-analysis passed; no watchlist-specific e2e spec exists yet (pre-existing gap, not introduced by this PR). Playwright MCP browser tools were not available in this review session, so the interactive walkthrough was substituted with a direct API exercise of the changed endpoint (documented above) plus the full e2e run. No checklist item is phrased as 'decide X' without a corresponding decisions entry -- the two substantive checklist items (types.ts no-op, redundant filter removal) each have one; the two test-addition items needed no decision record. No blocking or non-blocking findings; no follow-up task filed."
+  }
 }
