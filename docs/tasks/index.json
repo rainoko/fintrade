@@ -838,8 +838,15 @@
       "id": "frontend-signal-why-explanation",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-signal-why-explanation.json"
+    },
+    {
+      "id": "api-stocks-analysis-wave-lookback",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-analysis-wave-lookback.json"
     },
     {
       "id": "frontend-watchlist-add-skeleton",

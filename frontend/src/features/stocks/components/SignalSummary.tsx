@@ -1,18 +1,25 @@
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import type { AnalysisResponse, ConfidenceBreakdownItem } from '../../../api/stocks'
+import type { AnalysisResponse, ConfidenceBreakdownItem, Screens } from '../../../api/stocks'
 import ConfidenceGauge from '../../../components/common/ConfidenceGauge/ConfidenceGauge'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
+import InfoBalloon from '../../../components/common/InfoBalloon/InfoBalloon'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import { humanizeSnakeCase } from '../../../utils/format'
+import SignalExplanationContent from './SignalExplanationContent'
 
 export interface SignalSummaryProps {
   signal: AnalysisResponse['signal']
   confidence: AnalysisResponse['confidence']
   confidenceBand: AnalysisResponse['confidence_band']
   confidenceBreakdown: ConfidenceBreakdownItem[]
+  /**
+   * `GET /api/stocks/{ticker}/analysis`'s `screens` object -- drives the
+   * click-to-explain "why this signal" balloon (see `signalExplanation.ts`).
+   */
+  screens: Screens
 }
 
 // Human-readable label per known confidence_breakdown component name
@@ -43,12 +50,20 @@ function formatPercent(fraction: number): string {
  * per-component breakdown table (weight/score) behind that score. Feature
  * component (not `common/`) since confidence_breakdown's component names
  * are Analyse.md §6 domain concepts.
+ *
+ * The signal badge itself is clickable (wrapped in common/InfoBalloon),
+ * opening a balloon that explains WHY this signal resulted for this ticker
+ * right now — the causal per-condition breakdown from signalExplanation.ts's
+ * explainSignal, not a generic definition of what BUY/HOLD/SELL means
+ * (that's frontend-stock-detail-metric-help's job) — see
+ * docs/tasks/frontend-signal-why-explanation.json.
  */
 export default function SignalSummary({
   signal,
   confidence,
   confidenceBand,
   confidenceBreakdown,
+  screens,
 }: SignalSummaryProps) {
   const columns: DataTableColumn<ConfidenceBreakdownItem>[] = [
     {
@@ -73,7 +88,13 @@ export default function SignalSummary({
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-        <SignalBadge signal={signal} />
+        <InfoBalloon
+          triggerAriaLabel={`Why ${signal}?`}
+          title={`Why ${signal}?`}
+          content={<SignalExplanationContent signal={signal} screens={screens} />}
+        >
+          <SignalBadge signal={signal} />
+        </InfoBalloon>
         <ConfidenceGauge confidence={confidence} band={confidenceBand} />
       </Stack>
 

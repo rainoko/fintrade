@@ -62,6 +62,7 @@ export default function StockDetailPage() {
             confidence={analysisQuery.data.confidence}
             confidenceBand={analysisQuery.data.confidence_band}
             confidenceBreakdown={analysisQuery.data.confidence_breakdown}
+            screens={analysisQuery.data.screens}
           />
 
           <ScreensPanel screens={analysisQuery.data.screens} />

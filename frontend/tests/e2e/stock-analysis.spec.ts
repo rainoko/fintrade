@@ -24,6 +24,27 @@ test.describe('stock analysis page', () => {
     const signalBadge = page.getByTestId('signal-badge')
     await expect(signalBadge).toBeVisible()
     await expect(signalBadge).toHaveText(/^(BUY|SELL|HOLD)$/)
+    const signalText = (await signalBadge.textContent())?.trim()
+
+    // Clicking the signal opens the "why this signal" balloon
+    // (common/InfoBalloon + features/stocks/components/
+    // SignalExplanationContent.tsx) -- frontend-signal-why-explanation.
+    // Asserts only on structure common to every BUY/SELL/HOLD outcome
+    // (a headline that names the signal itself, and one list item per
+    // Triple Screen condition), not a specific wording, since AAPL's fixture
+    // series isn't engineered to land a specific signal (see this file's
+    // top-level docstring).
+    await page.getByRole('button', { name: `Why ${signalText}?` }).click()
+    const explanationList = page.getByRole('list', { name: 'Signal condition breakdown' })
+    await expect(explanationList).toBeVisible()
+    await expect(explanationList.getByText('Tide direction (Screen 1)', { exact: true })).toBeVisible()
+    await expect(explanationList.getByText('Impulse gate', { exact: true })).toBeVisible()
+    await expect(
+      explanationList.getByText('Wave pullback/rally (Screen 2)', { exact: true }),
+    ).toBeVisible()
+    await expect(explanationList.getByText('Trigger fired (Screen 3)', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(explanationList).not.toBeVisible()
 
     const confidenceGauge = page.getByRole('progressbar', { name: 'Confidence' })
     await expect(confidenceGauge).toBeVisible()

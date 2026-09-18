@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { ConfidenceBreakdownItem } from '../../../api/stocks'
+import type { ConfidenceBreakdownItem, Screens } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
 import SignalSummary from './SignalSummary'
 
@@ -12,6 +13,34 @@ const breakdown: ConfidenceBreakdownItem[] = [
   { component: 'volume_confirmation', weight: 0.1, score: 1.0 },
 ]
 
+const buyScreens: Screens = {
+  tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+  impulse: 'GREEN',
+  wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+  trigger: { fired: true, reference: 'close_above_prior_high' },
+}
+
+const sellScreens: Screens = {
+  tide: { trend: 'BEARISH', weekly_macd_histogram_slope: 'falling' },
+  impulse: 'RED',
+  wave: { stochastic_k: 78.1, force_index_2ema: 15234.2, state: 'OVERBOUGHT_RALLY' },
+  trigger: { fired: true, reference: 'close_below_prior_low' },
+}
+
+const holdNeutralScreens: Screens = {
+  tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+  impulse: 'BLUE',
+  wave: { stochastic_k: 50.0, force_index_2ema: 100.0, state: 'NO_WAVE' },
+  trigger: { fired: false, reference: 'not_applicable' },
+}
+
+const holdMissingWaveScreens: Screens = {
+  tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+  impulse: 'GREEN',
+  wave: { stochastic_k: 55.0, force_index_2ema: 200.0, state: 'NO_WAVE' },
+  trigger: { fired: true, reference: 'close_above_prior_high' },
+}
+
 describe('SignalSummary', () => {
   it('renders a BUY signal, confidence gauge, and the breakdown table', () => {
     renderWithTheme(
@@ -20,6 +49,7 @@ describe('SignalSummary', () => {
         confidence={72}
         confidenceBand="High"
         confidenceBreakdown={breakdown}
+        screens={buyScreens}
       />,
     )
 
@@ -45,6 +75,7 @@ describe('SignalSummary', () => {
         confidence={22}
         confidenceBand="Low"
         confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0 }]}
+        screens={sellScreens}
       />,
     )
 
@@ -63,6 +94,7 @@ describe('SignalSummary', () => {
         confidence={50}
         confidenceBand="High"
         confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0.5 }]}
+        screens={holdNeutralScreens}
       />,
     )
 
@@ -76,6 +108,7 @@ describe('SignalSummary', () => {
         confidence={50}
         confidenceBand="Medium"
         confidenceBreakdown={[{ component: 'future_component', weight: 0.5, score: 0.5 }]}
+        screens={holdNeutralScreens}
       />,
     )
 
@@ -90,10 +123,90 @@ describe('SignalSummary', () => {
         confidence={50}
         confidenceBand="Medium"
         confidenceBreakdown={[]}
+        screens={holdNeutralScreens}
       />,
     )
 
     expect(screen.getByText('No confidence breakdown available.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('clicking a BUY signal opens a balloon explaining every condition as met', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+        screens={buyScreens}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Why BUY?' }))
+
+    expect(
+      screen.getByText(/BUY: every Triple Screen condition lined up/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Wave shows an oversold pullback today/)).toBeInTheDocument()
+  })
+
+  it('clicking a SELL signal opens a balloon explaining every condition as met', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="SELL"
+        confidence={65}
+        confidenceBand="Medium"
+        confidenceBreakdown={breakdown}
+        screens={sellScreens}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Why SELL?' }))
+
+    expect(
+      screen.getByText(/SELL: every Triple Screen condition lined up/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Wave shows an overbought rally today/)).toBeInTheDocument()
+  })
+
+  it('clicking a Neutral-tide HOLD signal names Tide as the blocking condition, not a generic message', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="HOLD"
+        confidence={0}
+        confidenceBand="Low"
+        confidenceBreakdown={[]}
+        screens={holdNeutralScreens}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Why HOLD?' }))
+
+    expect(screen.getAllByText(/Tide is Neutral/).length).toBeGreaterThan(0)
+  })
+
+  it('clicking a directional-tide HOLD signal missing only Wave names Wave specifically, not Tide', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="HOLD"
+        confidence={0}
+        confidenceBand="Low"
+        confidenceBreakdown={[]}
+        screens={holdMissingWaveScreens}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Why HOLD?' }))
+
+    expect(
+      screen.getByText(/missing: Wave pullback\/rally \(Screen 2\)/),
+    ).toBeInTheDocument()
+    // Proves the two HOLD cases render genuinely different explanations
+    // rather than a templated "conditions not met" message either way.
+    expect(screen.queryByText(/Tide is Neutral/)).not.toBeInTheDocument()
   })
 })
