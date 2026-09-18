@@ -1,0 +1,130 @@
+{
+  "id": "frontend-e2e-tests",
+  "title": "Frontend: full end-to-end browser test suite covering all app functionality",
+  "area": "frontend/testing",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/architecture/Testing.md",
+    "docs/architecture/Frontend.md",
+    ".claude/agents/task-qa-reviewer.md"
+  ],
+  "description": "Add a real, automated, repeatable browser-driven end-to-end test suite (e.g. Playwright Test, since the Playwright MCP tools are already used elsewhere in this project's pipeline for ad hoc manual walkthroughs by task-qa-reviewer/pr-reviewer — reusing the same library keeps tooling consistent, though this should be a decisions entry, not assumed) that exercises every user-facing flow of the app end-to-end against the real running frontend+backend, not the MSW-mocked vitest suite. This is a NEW, SEPARATE test category from the existing vitest/pytest suites and must NOT be folded into the 90%-coverage-gated suite or its own no-live-network-call invariant (docs/architecture/Testing.md, CLAUDE.md's Testing standard) — that rule governs the existing unit/component/integration suite specifically. Record as a decisions entry how the e2e suite gets deterministic, offline-friendly data (e.g. a seeded/fixture market-data provider or backend mode) rather than depending on live external market-data APIs, since that would make the suite flaky/slow/rate-limited and require live internet access to run — unless a real live-data run is deliberately chosen and justified instead.",
+  "checklist": [
+    { "step": "Decide the e2e tooling (Playwright Test recommended per the description's reasoning, but record the actual choice and alternatives considered) and where test files live (e.g. frontend/tests/e2e/); record as a decisions entry.", "done": true },
+    { "step": "Decide how the suite gets a runnable backend+frontend stack and realistic, deterministic data without live external market-data calls (e.g. a test/dev data-provider fixture, a seeded DB/portfolio); record as a decisions entry.", "done": true },
+    { "step": "Write e2e specs covering the dashboard page, stock analysis page (search, indicators, signal/confidence display, history chart), portfolio page (view positions, add position, delete position, risk panel), and app-shell navigation between all pages.", "done": true },
+    { "step": "Add an npm script (e.g. npm run test:e2e) and wire it into the root Makefile if appropriate, without folding it into the existing `make test`/coverage gate.", "done": true },
+    { "step": "Document how to run the e2e suite in README.md and/or docs/architecture/Testing.md.", "done": true },
+    { "step": "Confirm the suite passes against a freshly-started dev stack (`make dev` or equivalent) before considering this done.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Playwright Test (`@playwright/test`), specs under `frontend/tests/e2e/*.spec.ts`, config at `frontend/playwright.config.ts` (sibling to `vite.config.ts`), run via `npm run test:e2e` / `make e2e`.",
+      "rationale": "Matches the Playwright MCP tooling already used elsewhere in this project's pipeline (task-qa-reviewer's browser walkthroughs, pr-reviewer's verification) — one browser-automation stack to reason about instead of two, and Playwright Test's built-in `webServer` config (start/stop the app under test, wait for readiness) fits this task's 'freshly-started dev stack' requirement directly. Alternatives considered: Cypress (mature, but its bundler/runner model is a second, unrelated build pipeline next to Vite/vitest, and its multi-tab/multi-origin support is weaker than Playwright's — not needed here today, but Playwright's `webServer` array conveniently models 'two independent processes' the exact way this suite needs it); WebdriverIO (more setup for less benefit than Playwright Test's batteries-included runner/assertions/trace-viewer, no compelling advantage for this project's scale)."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `FINTRADE_DATA_PROVIDER_MODE` (`app.config.Settings.data_provider_mode`, default `\"live\"`) and a new `app.data.fixture_provider.FixtureDataProvider`: an in-process, no-network `DataProvider` implementation serving a small fixed set of synthetic tickers (AAPL/MSFT/TSLA/GOOGL) with deterministic (ticker-seeded, not wall-clock-random) OHLCV series spanning ~420 business days. `app.api.dependencies.get_data_provider` returns it instead of the real yfinance/Stooq/cache stack whenever `FINTRADE_DATA_PROVIDER_MODE=fixture` is set. `playwright.config.ts`'s `webServer` starts the backend with that env var plus a dedicated, wiped-before-every-run SQLite database (`backend/e2e.db`, via `FINTRADE_DATABASE_URL`), so the whole suite runs offline and starts from a known-empty portfolio every time.",
+      "rationale": "Live yfinance/Stooq calls would make the suite flaky (real market data changes daily and can shift which Elder Triple Screen signal comes out), slow/rate-limited, and dependent on live internet access in CI or a sandboxed agent session — directly against this task's own requirement. A backend-mode switch (vs. e.g. a frontend-only MSW-style mock) was chosen because the suite explicitly must exercise the *real* backend end to end (the whole point of this test category, per the task description) — mocking at the frontend would silently reintroduce the same MSW-mocked coverage the vitest suite already provides, not add anything new. Rejected alternative: seeding a fixed historical CSV per ticker (e.g. reusing tests/fixtures/yfinance's recorded fixtures) instead of a synthetic generator — rejected because those fixtures are frozen to specific past calendar dates, which would make the frontend's date-labeled UI (chart x-axis, `analysis.as_of`) look stale/wrong when viewed 'today' in a real browser; a formula anchored to `pd.Timestamp.today()` keeps the data looking current while still being fully deterministic in shape. Signal/confidence e2e assertions are deliberately structural (a BUY/SELL/HOLD badge and a 0-100 confidence render, not a specific pinned value) rather than reverse-engineering the fixture data to force an exact Elder Triple Screen outcome (Tide/Wave/Trigger/Impulse interact in ways that would require re-deriving `app.signals.engine`'s own logic just to predict it) — that value-level precision is already covered by the backend's hand-derived-reference-value unit tests (`verify-elder-signal`)."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Playwright's `webServer` array always starts its own dedicated backend+frontend processes (`reuseExistingServer: false`, unconditionally — not just outside CI) rather than optionally reusing an already-running `make dev`, and the whole suite runs serially (`workers: 1`, `fullyParallel: false`) with a single `test.describe.serial` block for the portfolio add/delete flow.",
+      "rationale": "A `make dev` a developer started by hand wouldn't have `FINTRADE_DATA_PROVIDER_MODE=fixture`/the dedicated e2e database set, so reusing it would silently fall back to live market data and the developer's real portfolio — defeating the determinism this suite exists for; the tradeoff (this suite can't run at the same time as a manually-started `make dev` on the same ports) is documented in README.md. Serial execution: the portfolio specs add/delete real rows through the one shared e2e database, and this is a small, deliberately non-exhaustive suite (golden-path coverage per flow, not a combinatorial sweep) where the speed cost of serializing is minor compared to the complexity of making every spec reason about concurrent mutations of shared state. Every spec is still written to tolerate state left behind by another spec/an interrupted prior run (flexible locators, accepting either the 'Added' or 'Merged' AddPositionDialog success message, matching on a specific added ticker rather than assuming an empty table) rather than relying on file execution order, since Playwright doesn't guarantee cross-file ordering."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Did not wire a Chromium browser/system-dependency install into `.devcontainer/post-create.sh`; documented `npx playwright install chromium` + `sudo npx playwright install-deps chromium` as a one-time manual step in README.md's new 'End-to-end tests' section instead.",
+      "rationale": "Matches this project's existing convention: post-create.sh already auto-provisions the backend venv but deliberately leaves `frontend/node_modules` to `make install`/a manual `npm install` rather than running it automatically — Playwright's browser download (~300MB) and its `install-deps` step (needs `sudo apt-get`) are a similar-weight, similar-scope addition that wasn't asked for here and would grow every future container build/image regardless of whether a given contributor ever runs the e2e suite. Verified during this task that `npx playwright install chromium` itself needs no sudo (downloads straight to `~/.cache/ms-playwright`), and that `sudo npx playwright install-deps chromium` succeeds cleanly in this dev container image when it is needed."
+    },
+    {
+      "timestamp": "2026-09-18T07:42:16Z",
+      "recorded_by": "task-worker",
+      "decision": "Installed `@playwright/test` with `npm install -D @playwright/test --legacy-peer-deps` rather than a plain `npm install`.",
+      "rationale": "A plain `npm install` in `frontend/` already fails on a pre-existing, unrelated peer-dependency conflict (`openapi-typescript@7.13.0` wants `typescript@^5.x`, the repo has `typescript@~6.0.2`/`6.0.3` installed) — confirmed this reproduces on a clean `main` checkout with zero changes from this task, and is already tracked separately as the `frontend-verify-npm-install` task. `--legacy-peer-deps` was scoped to just this one install command (not added to a persistent `.npmrc`), and the resulting `package-lock.json`/`package.json` diff was verified to be minimal (just the three new Playwright packages), not a wholesale re-resolution of the dependency tree."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-e2e-tests",
+    "pr_number": 103,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/103",
+    "pushed_at": "2026-09-18T07:44:47Z"
+  },
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-18T07:53:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/103",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Backend: `pytest --cov=app --cov-report=term-missing` -- 559 passed, 99.86% total coverage, fixture_provider.py/config.py/dependencies.py all at 100%. `ruff check app/` and `mypy` both clean.",
+        "file": "backend/app/data/fixture_provider.py"
+      },
+      {
+        "summary": "Frontend: `vitest run --coverage` -- 35 test files / 205 tests passed, 99.71% statements / 99.64% branches / 100% functions / 99.71% lines, well above the 90% gate. Confirmed `tests/e2e/**` is genuinely excluded from this run (vite.config.ts's new `test.exclude` entry) -- no Playwright spec appeared in the vitest run. `npm run lint` (eslint), `npx tsc -b --noEmit`, `npm run build`, and `npm run build-storybook` all clean.",
+        "file": "frontend/vite.config.ts"
+      },
+      {
+        "summary": "Ran the actual e2e suite myself against a freshly-started stack (`npm run test:e2e`, ports 8000/5173 confirmed free beforehand): all 12 specs passed in 18s, real HTTP round-trips visible in the backend log (GET/POST/DELETE through the fixture provider and a scratch SQLite e2e.db), ports released cleanly afterward. Matches the PR description's own claim of two clean runs.",
+        "file": "frontend/playwright.config.ts"
+      },
+      {
+        "summary": "Fixture-provider gating verified correct and isolated: `Settings.data_provider_mode` defaults to `\"live\"` (backend/app/config.py), `get_data_provider` only returns `FixtureDataProvider` when `FINTRADE_DATA_PROVIDER_MODE=fixture` is explicitly set, and that env var is set nowhere except playwright.config.ts's own `webServer` block -- not in `.env`, not in `make dev`/`make backend`, not in any other script. `test_data_provider_mode_defaults_to_live` and `test_get_data_provider_wires_yfinance_primary_stooq_fallback_and_cache` both explicitly pin the default (live yfinance+Stooq+cache) behavior. FixtureDataProvider also correctly implements the DataProvider protocol and is folded into test_provider_contract.py's cross-provider interchangeability tests.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 39
+      },
+      {
+        "summary": "`--legacy-peer-deps` scoping claim verified accurate: package-lock.json's diff against main is minimal (exactly the 3 new Playwright packages, no wholesale re-resolution), the flag isn't added to any `.npmrc`, isn't used in `make install`'s plain `npm install`, and doesn't appear anywhere in the Makefile/README/CI-adjacent scripts -- grepped the whole tree to confirm. The pre-existing openapi-typescript/typescript peer conflict it works around is independently corroborated by an identical decision already recorded on the separate, still-planned `frontend-verify-npm-install` task and on the already-merged `frontend-api-client` task, so this isn't a new or newly-discovered problem this PR is masking.",
+        "file": "docs/tasks/frontend-e2e-tests.json",
+        "line": 50
+      },
+      {
+        "summary": "E2e spec quality: all 12 specs are genuine functional checks, not page-load smoke tests -- portfolio.spec.ts drives a full add/verify-in-risk-panel/delete cycle through the real backend, stock-analysis.spec.ts checks structural signal/confidence/indicator/chart rendering plus an explicit unknown-ticker 404 path, navigation.spec.ts checks an unknown-route fallback in addition to routing, and dashboard.spec.ts includes a console-error assertion. Locators (test-ids, aria labels, role names) were cross-checked against the actual component source (SignalSummary.tsx, PriceChart.tsx, RiskPanel.tsx, etc.) and match.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts"
+      },
+      {
+        "summary": "No API route/schema touched by this PR (dependencies.py/config.py changes are internal wiring, not a new endpoint or schema field) -- backend/openapi.json correctly left untouched, no regeneration needed.",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "Architecture review (architecture-review skill, self-run): fixture_provider.py is correctly placed in app/data/ implementing the DataProvider protocol, adds no new backend dependency, and doesn't bypass the SQLite-cache-layer principle in a way that matters (it's in-memory synthetic data with nothing for a cache to usefully do, and only reachable in fixture mode). No new frontend components added by this PR, so the components/common/-vs-feature placement check (step 7a) doesn't apply. Frontend.md and Testing.md were both updated in the same change to document the new module list/dependency/test category -- no stale doc.",
+        "file": "backend/app/data/fixture_provider.py"
+      },
+      {
+        "summary": "code-review skill (medium effort): found one informational efficiency note, no correctness bugs. get_weekly_ohlcv (fixture_provider.py:88) recomputes the full synthetic daily series via its own independent _series(ticker) call instead of reusing/resampling get_daily_ohlcv's output -- not a correctness issue (both calls are deterministically seeded so results always agree), just duplicated work. Non-blocking, tracked on frontend-e2e-tests-followups.json.",
+        "file": "backend/app/data/fixture_provider.py",
+        "line": 88
+      },
+      {
+        "summary": "Own finding: README.md's diff replaced the pre-existing '## MCP servers' heading with the new 'End-to-end tests' section, but never restored a heading for the paragraph that used to sit directly under it ('MCP server configuration lives in .mcp.json ...') -- that paragraph is now headless, plus a doubled blank line was left behind before it. Non-blocking (doesn't affect any tooling/build/test), tracked on frontend-e2e-tests-followups.json.",
+        "file": "README.md",
+        "line": 113
+      },
+      {
+        "summary": "Own finding: frontend/playwright.config.ts isn't included in tsconfig.app.json's or tsconfig.node.json's `include`, so `npx tsc -b --noEmit`/`npm run build` never type-checks it -- only Playwright's own runtime validates it, when `npm run test:e2e` is actually invoked. Non-blocking (confirmed the config works correctly at runtime via a real e2e run), tracked on frontend-e2e-tests-followups.json.",
+        "file": "frontend/playwright.config.ts"
+      },
+      {
+        "summary": "Decisions cross-check: every checklist item phrased as a judgment call (tooling choice, fixture-data/determinism strategy, serial-execution/webServer-reuse strategy, devcontainer scope, --legacy-peer-deps usage) has a corresponding decisions entry with rationale and rejected alternatives -- no undocumented judgment call found.",
+        "file": "docs/tasks/frontend-e2e-tests.json"
+      },
+      {
+        "summary": "No UI page/component was added or changed by this PR (it's a test-infrastructure-only change) -- the browser-walkthrough step is otherwise inapplicable, but exceeded in substance anyway: actually ran the new Playwright suite end to end against a freshly-started stack (see above) rather than a manual MCP walkthrough, exercising the golden path plus edge cases (unknown ticker, unknown route, console errors) it's meant to catch.",
+        "file": "frontend/tests/e2e/stock-analysis.spec.ts"
+      }
+    ],
+    "notes": "No blocking findings. Backend/frontend test suites, coverage, lint, type-check, build, and build-storybook all clean; the new e2e suite itself was executed twice by task-worker and once more independently by this review, all 12 specs passing against a freshly-started stack. Fixture data provider is correctly gated behind FINTRADE_DATA_PROVIDER_MODE=fixture, defaults to live, and is unreachable from any normal dev/production code path. --legacy-peer-deps usage is properly scoped to one install command, not baked into any committed script, and its premise (pre-existing openapi-typescript/typescript peer conflict) is independently corroborated. Three non-blocking findings (a README heading regression, a minor fixture-provider efficiency note, and a tsconfig completeness gap for playwright.config.ts) filed as docs/tasks/frontend-e2e-tests-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T07:57:27Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (559 passed, 99.86% coverage) and frontend vitest run --coverage (35 files/205 tests, 99.71% stmts/99.64% branches), both matching pr-reviewer's reported numbers exactly. Independently ran npm run test:e2e against a freshly-started stack: 12/12 specs passed in 18s with real HTTP traffic to the fixture-backed backend, ports released cleanly afterward. Verified in source (not just trusted the review): Settings.data_provider_mode defaults to \"live\" (backend/app/config.py:25) and FINTRADE_DATA_PROVIDER_MODE is set nowhere in the repo except frontend/playwright.config.ts:71's webServer block; --legacy-peer-deps appears nowhere in Makefile's install target, package.json scripts, or any .npmrc (repo has none) -- confirmed via targeted grep, not just review notes. Skimmed the full diff (Makefile, config.py, dependencies.py, fixture_provider.py, playwright.config.ts, vite.config.ts) myself; matches the review's description with no underweighted findings."
+  }
+}

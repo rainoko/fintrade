@@ -88,7 +88,13 @@ frontend/
     mocks/
       handlers.ts           # MSW handlers mirroring API.md, including every error case in API.md's "Error Cases to Cover in Tests"
       server.ts
+    e2e/                   # Playwright specs -- real browser, real backend+frontend, no mocking (see Testing.md#end-to-end-playwright)
+      dashboard.spec.ts
+      navigation.spec.ts
+      portfolio.spec.ts
+      stock-analysis.spec.ts
   vite.config.ts
+  playwright.config.ts
   tsconfig.json
   package.json
 ```
@@ -132,6 +138,7 @@ Feature-specific components (`features/<domain>/components/`) and pages do **not
 | `storybook` (+ `@storybook/react-vite`, a11y/interactions addons) | Catalogs and tests `components/common/` in isolation |
 | `openapi-typescript` (dev dependency, generator only) | Generates `api/types.ts` from `backend/openapi.json` |
 | `@fontsource/inter` | Self-hosted Inter font files, loaded once in `main.tsx` (and again in `.storybook/preview.tsx`) so the theme's declared font family actually renders |
+| `@playwright/test` | Real-browser end-to-end suite (`tests/e2e/`) — a separate, un-mocked category from `vitest`/`msw` above, see [Testing.md](Testing.md#end-to-end-playwright) |
 
 Explicitly **not** used: Redux, Redux Toolkit, MobX, Zustand, Recoil, Jotai, or any other client-state library (see §2).
 

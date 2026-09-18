@@ -26,3 +26,10 @@ coverage
 
 *storybook.log
 storybook-static
+
+# Playwright e2e suite (playwright.config.ts, tests/e2e/) -- report/artifacts only,
+# never the spec files themselves.
+/playwright-report
+/test-results
+/blob-report
+/playwright/.cache

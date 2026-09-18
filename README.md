@@ -24,6 +24,7 @@ make frontend  # run the frontend dev server (Vite) on :5173
 make dev       # run both together; Ctrl-C stops both cleanly
 make install   # set up backend/.venv and frontend/node_modules
 make test      # run backend (pytest) and frontend (vitest) test suites
+make e2e       # run the frontend's Playwright end-to-end suite (see "End-to-end tests" below)
 make help      # list all targets
 ```
 
@@ -79,7 +80,37 @@ python scripts/fix_schema_drift.py
 alembic stamp head
 ```
 
-## MCP servers
+## End-to-end tests
+
+`frontend/tests/e2e/` (Playwright Test, config at `frontend/playwright.config.ts`) is a
+separate, real-browser test category from the vitest/pytest suites `make test` runs: it
+drives an actual running backend + frontend through a real Chromium browser, rather than
+mocking the API boundary (vitest+MSW) or calling routers in-process (pytest+`TestClient`).
+It is **not** part of the 90% coverage gate (see [Testing.md](docs/architecture/Testing.md))
+and is never run by `make test`/`npm test`.
+
+```bash
+make e2e                       # from the repo root
+# or, equivalent:
+cd frontend && npm run test:e2e
+cd frontend && npm run test:e2e:ui   # Playwright's interactive UI mode, for debugging
+```
+
+Both commands start their own backend and frontend processes (Playwright's `webServer`
+config) rather than reusing an already-running `make dev` — always on `:8000`/`:5173`, so
+stop any manually-started `make dev`/`make backend`/`make frontend` first. The backend
+process is started with `FINTRADE_DATA_PROVIDER_MODE=fixture` (selects
+`app.data.fixture_provider.FixtureDataProvider`, a deterministic, no-network market-data
+provider serving a handful of synthetic tickers — see that module's docstring) and a
+dedicated `backend/e2e.db` SQLite database that's wiped before every run, so the suite never
+depends on live yfinance/Stooq calls or leftover portfolio state from a previous run.
+
+The first run downloads a Chromium browser build via `npx playwright install chromium`
+(already done in the dev container's `node_modules` cache once installed) and, outside the
+dev container's prebuilt image, its system-level dependencies via
+`sudo npx playwright install-deps chromium`.
+
+
 
 MCP server configuration lives in `.mcp.json` (project-scoped, shared via git) and in each contributor's local Claude Code config (personal, not shared — used for anything involving a secret).
 
