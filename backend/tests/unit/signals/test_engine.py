@@ -28,7 +28,13 @@ import pandas as pd
 import pytest
 
 from app.signals.confidence import ConfidenceComponent
-from app.signals.engine import _determine_signal, _wave_lookback, analyse, drop_malformed_daily_bars
+from app.signals.engine import (
+    _determine_signal,
+    _wave_lookback,
+    analyse,
+    analyse_history,
+    drop_malformed_daily_bars,
+)
 from app.signals.triple_screen import TideResult
 
 
@@ -745,3 +751,136 @@ class TestConfidenceComponentPassthrough:
         scores = {c.component: c.score for c in result.breakdown}
         assert scores["tide_alignment"] == 1.0
         assert scores["impulse_gate"] == 1.0
+
+
+def _dated_buy_daily_ohlcv() -> pd.DataFrame:
+    # Same series as TestAnalyseEndToEnd.test_end_to_end_buy_after_pullback_and_trigger, but
+    # with a real DatetimeIndex -- analyse_history() reads dates off the index positionally.
+    closes = [100 + i * 0.5 for i in range(20)]
+    closes += [closes[-1] - 3 * i for i in range(1, 6)]
+    closes.append(closes[-1] + 8.0)
+    volumes = [1_000_000] * 24 + [9_000_000, 3_000_000]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + 0.3 for c in closes],
+            "low": [c - 0.3 for c in closes],
+            "close": closes,
+            "volume": volumes,
+        },
+        index=pd.date_range("2026-01-01", periods=len(closes), freq="D", name="date"),
+    )
+
+
+def _dated_buy_weekly_ohlcv() -> pd.DataFrame:
+    # A plain list, not a pd.Series -- a Series column carries its own (default RangeIndex)
+    # index, which pandas would otherwise reindex against the DataFrame's explicit
+    # DatetimeIndex below, silently turning every value NaN (same pitfall documented in
+    # tests/integration/test_stocks_analysis.py's _buy_weekly_ohlcv).
+    weekly_closes = [100 * (1.05**i) for i in range(40)]
+    return pd.DataFrame(
+        {
+            "open": weekly_closes,
+            "high": [c * 1.01 for c in weekly_closes],
+            "low": [c * 0.99 for c in weekly_closes],
+            "close": weekly_closes,
+            "volume": 1_000_000,
+        },
+        index=pd.date_range("2025-01-01", periods=40, freq="W", name="date"),
+    )
+
+
+class TestAnalyseHistory:
+    """Tests for analyse_history() (docs/tasks/api-stocks-indicator-history.json)."""
+
+    def test_last_point_matches_a_full_history_analyse_call(self) -> None:
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+        expected = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        last_date, last_result = history[-1]
+        assert last_date == daily_ohlcv.index[-1]
+        assert last_result.signal == expected.signal == "BUY"
+        assert last_result.confidence == expected.confidence
+        assert last_result.indicators == expected.indicators
+        assert last_result.screens == expected.screens
+
+    def test_dates_are_oldest_first_and_one_per_bar(self) -> None:
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        dates = [bar_date for bar_date, _ in history]
+        assert dates == list(daily_ohlcv.index)
+
+    def test_from_index_skips_bars_but_keeps_full_warm_up_context(self) -> None:
+        """A later bar's indicators must be identical whether computed via a full-history loop
+        or via a `from_index`-trimmed one starting at that same bar -- `from_index` only
+        controls which entries are *emitted*, not how much history feeds the computation of
+        each one (unlike naively pre-trimming daily_ohlcv itself, which would degrade the
+        indicators of early emitted bars)."""
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+        full_history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        trimmed_history = analyse_history(
+            "TEST", daily_ohlcv, weekly_ohlcv, from_index=len(daily_ohlcv) - 3
+        )
+
+        assert len(trimmed_history) == 3
+        assert trimmed_history == full_history[-3:]
+
+    def test_negative_from_index_behaves_like_zero(self) -> None:
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv, from_index=-5)
+
+        assert len(history) == len(daily_ohlcv)
+
+    def test_from_index_past_the_end_returns_empty_list(self) -> None:
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history(
+            "TEST", daily_ohlcv, weekly_ohlcv, from_index=len(daily_ohlcv)
+        )
+
+        assert history == []
+
+    def test_empty_daily_ohlcv_returns_empty_list_without_raising(self) -> None:
+        daily_ohlcv = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert history == []
+
+    def test_weekly_ohlcv_is_never_truncated_tide_constant_across_series(self) -> None:
+        """Screen 1 (Tide) is weekly-derived and, per this function's own documented
+        decision, is held at its current (full weekly_ohlcv) value for every point in the
+        series rather than recomputed from a per-day-truncated weekly frame -- see this
+        task's `decisions` entry."""
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        tides = {result.screens["tide"]["trend"] for _, result in history if len(result.screens) > 0}
+        assert tides == {"BULLISH"}
+
+    def test_daily_cadence_fields_vary_across_the_series(self) -> None:
+        """Contrast with the tide-is-constant test above: indicators that only depend on the
+        (growing) daily window must actually change bar to bar, confirming this isn't
+        accidentally replaying one fixed result for every date."""
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        ema_13_values = {result.indicators["ema_13"] for _, result in history}
+        assert len(ema_13_values) > 1

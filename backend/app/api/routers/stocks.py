@@ -9,6 +9,8 @@ from app.api.schemas import (
     ConfidenceBreakdownItem,
     ErrorDetail,
     HistoryResponse,
+    IndicatorHistoryPoint,
+    IndicatorHistoryResponse,
     Indicators,
     OHLCVBar,
     Screens,
@@ -19,7 +21,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.signals.engine import analyse, drop_malformed_daily_bars
+from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
 # or the literal 'max' for full available history. Matches the one example API.md gives
@@ -250,3 +252,102 @@ def get_analysis(
         ],
         indicators=cast(Indicators, result.indicators),
     )
+
+
+@router.get(
+    "/{ticker}/indicators",
+    response_model=IndicatorHistoryResponse,
+    operation_id="get_stock_indicator_history",
+    summary="Get historical indicator values and the resulting signal for each daily bar",
+    responses={
+        404: {"model": ErrorDetail, "description": "Unknown ticker"},
+        422: {
+            "description": "Either of two distinct shapes, both under HTTP 422: `range` doesn't "
+            "match the accepted pattern (FastAPI's standard HTTPValidationError -- `detail` is a "
+            "list of per-field errors), or the ticker has fewer than 26 weeks of weekly history "
+            "to compute Screen 1's Tide (`detail` is a single string, ErrorDetail) -- same "
+            "dual-shape pattern as `GET /api/stocks/{ticker}/history`.",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                        ],
+                    },
+                },
+            },
+        },
+        503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
+    },
+)
+def get_indicator_history(
+    ticker: str,
+    range: str = Query(
+        "1y",
+        pattern=_RANGE_PATTERN,
+        description="Same lookback-window grammar as GET /api/stocks/{ticker}/history's `range`: "
+        "'<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available "
+        "history. Trimmed from the most recent bar actually returned, not from today's date. "
+        "Daily bars only -- unlike /history, this endpoint has no `interval` param, since every "
+        "indicator/Screen it computes (docs/Analyse.md §4) is itself daily-cadence; see this "
+        "task's `decisions` entry.",
+    ),
+    provider: DataProvider = Depends(get_data_provider),
+) -> IndicatorHistoryResponse:
+    """Re-runs the Triple Screen signal engine (`app.signals.engine.analyse`, via
+    `app.signals.engine.analyse_history`) once per daily bar in the requested range, each time
+    using only that bar's own history (no look-ahead) -- so the frontend can plot indicator
+    lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
+    `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
+    task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
+    docstring for why Screen 1/Tide is held at its current value across the whole series
+    rather than recomputed per day.
+
+    `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. Malformed
+    bars (NaN OHLC, see `app.signals.engine.drop_malformed_daily_bars`) are dropped from
+    `daily_ohlcv` up front, same as `/analysis`. The full (untrimmed) daily history is always
+    fetched first so every emitted point -- including ones near the start of the requested
+    `range` -- has correct indicator warm-up context; `range` only controls which already-
+    computed points are included in the response, not how much history feeds the computation.
+    The last entry in `points` always matches `GET /api/stocks/{ticker}/analysis`'s
+    `signal`/`confidence`/`indicators` for this same ticker at the same date, since it's
+    produced from the exact same (untruncated) inputs."""
+    ticker = ticker.upper()
+    try:
+        daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InsufficientHistoryError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DataProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+
+    try:
+        visible_daily = _trim_to_range(daily_ohlcv, range)
+    except _RangeOutOfBoundsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    from_index = len(daily_ohlcv) - len(visible_daily)
+    history = analyse_history(ticker, daily_ohlcv, weekly_ohlcv, from_index=from_index)
+
+    points = [
+        IndicatorHistoryPoint(
+            date=bar_date.date() if hasattr(bar_date, "date") else bar_date,
+            ema_13=result.indicators["ema_13"],
+            ema_26=result.indicators["ema_26"],
+            macd_histogram=result.indicators["macd_histogram"],
+            bull_power=result.indicators["bull_power"],
+            bear_power=result.indicators["bear_power"],
+            stochastic_k=result.screens["wave"]["stochastic_k"],
+            force_index_2ema=result.screens["wave"]["force_index_2ema"],
+            signal=result.signal,
+            confidence=result.confidence,
+            confidence_band=result.confidence_band,
+        )
+        for bar_date, result in history
+    ]
+    return IndicatorHistoryResponse(ticker=ticker, points=points)

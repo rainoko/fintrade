@@ -325,3 +325,62 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
         screens=screens,
         indicators=indicators,
     )
+
+
+def analyse_history(
+    ticker: str,
+    daily_ohlcv: pd.DataFrame,
+    weekly_ohlcv: pd.DataFrame,
+    *,
+    from_index: int = 0,
+) -> list[tuple[pd.Timestamp, SignalResult]]:
+    """Re-runs ``analyse()`` once per daily bar from ``from_index`` (inclusive) through the
+    last bar, truncating ``daily_ohlcv`` to only the bars up to and including that day each
+    time -- so every historical point reflects what ``analyse()`` would have produced "as of"
+    that day (no look-ahead), not a replay of today's fixed values backwards. This is what
+    makes the resulting per-bar ``signal``/``indicators`` meaningful for a chart overlay
+    (``app.api.routers.stocks.get_indicator_history``, docs/Analyse.md §4-5) rather than a
+    single value repeated across every date -- see this task's `decisions` entry
+    (docs/tasks/api-stocks-indicator-history.json) for why this loop lives here (reusing
+    ``analyse()`` unchanged) instead of duplicating any indicator/Screen math.
+
+    ``weekly_ohlcv`` is passed to every call **unmodified** (not truncated per day). Screen 1
+    (Tide) and its ``evaluate_tide(weekly_ohlcv)`` call therefore reads the same (current)
+    weekly snapshot for every point in the returned series, same as
+    ``app.api.routers.stocks.get_analysis`` already does for a single "today" call --
+    ``analyse()`` has never truncated weekly data to a specific as-of date; it always uses
+    whatever weekly series the caller passed in. A naive per-day truncation (e.g. keeping
+    only weekly bars whose index date is <= the daily bar's date) would actually disagree
+    with that for the *most recent* point whenever the latest daily bar's date isn't itself a
+    weekly-bar boundary: ``app.data.stooq_provider.StooqProvider._resample_weekly``'s
+    ``W-FRI`` labeling means the current, still-forming week's bar is labeled with a
+    not-yet-reached Friday date, so a "keep only weeks up to today" filter would incorrectly
+    drop that in-progress week even at the series' own last point -- breaking the "the last
+    entry always matches ``GET /api/stocks/{ticker}/analysis``" invariant this function exists
+    to preserve. The practical effect: Screen 1/Tide is constant across the whole series here,
+    while Screen 2 (Wave), Screen 3 (Trigger), the Impulse gate, and every listed indicator
+    (EMA, MACD-Histogram, Bull/Bear Power, Stochastic %K, Force Index) are daily-cadence and do
+    vary bar to bar, which is what a price-chart overlay primarily needs.
+
+    ``daily_ohlcv``/``weekly_ohlcv`` are expected already cleaned by the caller (e.g. via
+    ``drop_malformed_daily_bars``), matching every other function in this module --
+    ``analyse()`` re-applies ``drop_malformed_daily_bars`` to its own truncated slice
+    regardless (idempotent, negligible cost), so a malformed bar earlier in ``daily_ohlcv``
+    can't leak into any truncated window either.
+
+    ``from_index`` lets the caller skip recomputing bars it doesn't intend to return (e.g. a
+    ``range``-trimmed output window) while ``daily_ohlcv`` itself still carries the full
+    available history every emitted point needs for correct indicator warm-up -- passing an
+    already-trimmed ``daily_ohlcv`` instead would degrade (NaN-tail) the indicators for bars
+    near the start of the window. Negative values behave like ``0`` (the full series).
+
+    Returns a list of ``(bar_date, SignalResult)`` pairs, oldest first, one per daily bar from
+    ``from_index`` through the last available bar (empty if ``daily_ohlcv`` has no bars in
+    that range).
+    """
+    n = len(daily_ohlcv)
+    start = max(from_index, 0)
+    return [
+        (daily_ohlcv.index[i], analyse(ticker, daily_ohlcv.iloc[: i + 1], weekly_ohlcv))
+        for i in range(start, n)
+    ]

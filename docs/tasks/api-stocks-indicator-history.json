@@ -3,7 +3,7 @@
   "title": "Backend: expose historical indicator + signal time series for charting",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md#4-indicator-summary-table",
@@ -15,13 +15,44 @@
   ],
   "description": "docs/architecture/Frontend.md §5 documents this exact gap and explicitly flags it as a future backend task: `GET /api/stocks/{ticker}/history` returns raw OHLCV bars only, and `GET /api/stocks/{ticker}/analysis` returns indicator/screen/signal values for the *latest* bar only — neither exposes a historical time series, which is why PriceChart.tsx currently plots candlesticks only with no indicator overlay (see that component's own doc comment). This task is that future backend work, now wanted: add a way for the frontend to get indicator values (at minimum ema_13, ema_26, macd_histogram, bull_power, bear_power, stochastic_k, force_index_2ema per docs/Analyse.md §4's Indicator Summary Table) AND the resulting signal (per docs/Analyse.md §5) for each historical bar, not just the latest one, so the UI can plot them over time. Decide the endpoint shape as part of this task (e.g. extend GET /api/stocks/{ticker}/history with an optional indicator/signal series, or add a new GET /api/stocks/{ticker}/indicators?range=... endpoint) — record as a decisions entry with rationale, keeping in mind this must not duplicate indicator math in a second place (compute once in the backend's existing signal engine, per Architecture.md §3's 'one place, testable once' principle already cited by Frontend.md §5).",
   "checklist": [
-    { "step": "Decide the endpoint/response shape for historical indicator+signal data (extend /history vs. a new endpoint; which fields; whether to include weekly-screen-derived fields like tide/impulse per bar or only the daily indicators) and record as a decisions entry.", "done": false },
-    { "step": "Implement the endpoint/response change in backend/app/api/, reusing the existing signal engine (backend/app/signals/) rather than recomputing indicator math separately.", "done": false },
-    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": false },
-    { "step": "Hand-computed or fixture-backed reference-value tests confirming the historical series values match the existing single-point /analysis values for the same date (no drift between the two).", "done": false },
-    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": false },
-    { "step": "Update docs/architecture/Frontend.md §5 to reflect that historical indicator/signal data is now available (it currently documents the gap this task closes), and update backend/app/api/schemas.py field descriptions accordingly.", "done": false }
+    { "step": "Decide the endpoint/response shape for historical indicator+signal data (extend /history vs. a new endpoint; which fields; whether to include weekly-screen-derived fields like tide/impulse per bar or only the daily indicators) and record as a decisions entry.", "done": true },
+    { "step": "Implement the endpoint/response change in backend/app/api/, reusing the existing signal engine (backend/app/signals/) rather than recomputing indicator math separately.", "done": true },
+    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": true },
+    { "step": "Hand-computed or fixture-backed reference-value tests confirming the historical series values match the existing single-point /analysis values for the same date (no drift between the two).", "done": true },
+    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": true },
+    { "step": "Update docs/architecture/Frontend.md §5 to reflect that historical indicator/signal data is now available (it currently documents the gap this task closes), and update backend/app/api/schemas.py field descriptions accordingly.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T06:24:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new endpoint, GET /api/stocks/{ticker}/indicators?range=..., rather than extending GET /api/stocks/{ticker}/history with an optional indicator/signal series.",
+      "rationale": "Keeps /history's existing job (raw OHLCV, cheap, always-available) unchanged for the common case (a plain candlestick chart with no indicator overlay) instead of making every /history caller pay for a much more expensive computation (analyse() re-run per bar) whenever indicators aren't actually wanted. A new resource also gets its own operation_id/response_model/error contract cleanly instead of a conditional shape on an existing one. Rejected alternative: an `include_indicators=true` query flag on /history that changes its response shape conditionally -- rejected because OpenAPI/TypeScript can't cleanly express a response shape that depends on a query param's value without a discriminated union the generated client would have to branch on, and because it conflates two different performance profiles under one contract."
+    },
+    {
+      "timestamp": "2026-09-18T06:24:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Each point includes the 7 raw indicator values (ema_13, ema_26, macd_histogram, bull_power, bear_power, stochastic_k, force_index_2ema) plus the resulting signal, confidence, and confidence_band -- but NOT the full screens breakdown (tide/impulse/wave/trigger objects) that /analysis exposes for its single latest-bar snapshot.",
+      "rationale": "The description's minimum bar (docs/Analyse.md §4's table) is exactly these 7 values, and 'the resulting signal' per docs/Analyse.md §5 is the BUY/SELL/HOLD label -- confidence/confidence_band were added too since app.signals.engine.analyse() already computes them as part of the same SignalResult at zero extra cost, and they let a future chart color/size signal markers by conviction. The screens sub-objects (tide.trend, wave.state, trigger.reference, etc.) were left out of the per-bar response to keep this endpoint's primary use case (charting) lean -- IndicatorsPanel.tsx already renders the full screens breakdown for the latest bar via /analysis, and nothing in this task's description or the two frontend follow-on tasks (frontend-chart-signal-overlay, frontend-oscillator-chart) asks for a historical screens time series. Can be added later as additional optional fields without a breaking change if a future task needs it."
+    },
+    {
+      "timestamp": "2026-09-18T06:24:52Z",
+      "recorded_by": "task-worker",
+      "decision": "app.signals.engine.analyse_history() passes the SAME (untruncated) weekly_ohlcv to every per-bar analyse() call, rather than truncating it to only the weeks that had 'already happened' as of each daily bar's date.",
+      "rationale": "GET /api/stocks/{ticker}/analysis has never point-in-time-truncated weekly data for its own 'today' call -- it always uses whatever weekly series the provider currently returns. Truncating weekly_ohlcv per day would actually break this task's own required invariant (checklist item 4, 'the historical series' last point matches /analysis for the same date'): app.data.stooq_provider.StooqProvider._resample_weekly labels each weekly bar with its W-FRI (Friday) date, so the current, still-forming week's bar can be labeled with a not-yet-reached Friday date relative to the latest available daily bar -- a naive '<= bar_date' truncation would incorrectly drop that in-progress week even at the series' very last point, disagreeing with /analysis. Practical effect: Screen 1/Tide is held at its current value across the whole returned series (documented in analyse_history()'s docstring and in API.md/Frontend.md), while Screen 2/3, the Impulse gate, and every listed daily indicator still vary bar to bar as expected. Rejected alternative: truncating weekly_ohlcv to whole completed weeks only (dropping the in-progress week entirely rather than keeping/discarding it wholesale) -- rejected as unnecessary added complexity for a charting endpoint, and because it still wouldn't match /analysis's own (also not point-in-time-strict) latest-bar behavior, which is what checklist item 4 actually pins down."
+    },
+    {
+      "timestamp": "2026-09-18T06:24:52Z",
+      "recorded_by": "task-worker",
+      "decision": "No `interval` query param -- GET /api/stocks/{ticker}/indicators always computes daily-cadence indicators/signals, unlike /history which supports both `daily` and `weekly`.",
+      "rationale": "Every indicator/Screen this endpoint returns (docs/Analyse.md §4's table entries 1-5, all marked 'Daily' or 'Weekly & Daily' but consumed here at daily resolution) plus the BUY/SELL/HOLD signal itself are evaluated at daily cadence by app.signals.engine.analyse() -- a 'weekly' variant would require a materially different computation (weekly EMA/MACD/Elder-Ray and a weekly-cadence signal definition Analyse.md doesn't define), not just a different resample of the same values. Out of scope for this task; can be added as a separate endpoint or param later if a weekly chart resolution is actually wanted."
+    },
+    {
+      "timestamp": "2026-09-18T06:24:52Z",
+      "recorded_by": "task-worker",
+      "decision": "The `range` query param trims which already-computed points are RETURNED, but every returned point is still computed from the full available daily history (not from a pre-trimmed frame) -- so indicator warm-up (EMA/MACD/Stochastic needing prior bars) is always correct even for points near the start of a trimmed window. Accepted the resulting O(range_size x full_history_length) per-request cost (bounded by the default range=1y, worse for range=max on a ticker with many years of history) as a known, documented limitation rather than solving it in this task.",
+      "rationale": "Pre-trimming daily_ohlcv to the requested range before looping would degrade (NaN-tail) the earliest emitted bars' indicators, which would be a worse, silent correctness bug for a charting feature whose whole point is to show real indicator values over time. The performance tradeoff is bounded by the default range (1y, ~252 bars) matching /history's own default, and yfinance/Stooq-scale histories (thousands of bars for old tickers) only get expensive under an explicit range=max request -- acceptable for MVP scope; if it becomes a real problem, a caching layer or a lower-level vectorized recomputation of just the daily-cadence pieces (not re-deriving Tide, which doesn't change per bar here) would be the follow-up, not something to build speculatively now."
+    }
+  ],
   "questions": []
 }

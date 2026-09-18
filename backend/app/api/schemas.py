@@ -85,7 +85,29 @@ class AnalysisResponse(BaseModel):
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70.")
     screens: Screens
     confidence_breakdown: list[ConfidenceBreakdownItem] = Field(description="Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.")
-    indicators: Indicators
+    indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 7 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
+
+
+# --- /api/stocks/{ticker}/indicators ------------------------------------
+
+
+class IndicatorHistoryPoint(BaseModel):
+    date: date
+    ema_13: float = Field(description="Same definition as AnalysisResponse.indicators.ema_13, for this bar.")
+    ema_26: float = Field(description="Same definition as AnalysisResponse.indicators.ema_26, for this bar.")
+    macd_histogram: float = Field(description="Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.")
+    bull_power: float = Field(description="Elder-Ray Bull Power = High - EMA(13), for this bar.")
+    bear_power: float = Field(description="Elder-Ray Bear Power = Low - EMA(13), for this bar.")
+    stochastic_k: float = Field(description="Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar.")
+    force_index_2ema: float = Field(description="Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar.")
+    signal: Signal = Field(description="BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.")
+    confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
+    confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")
+
+
+class IndicatorHistoryResponse(BaseModel):
+    ticker: str
+    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) is not point-in-time recomputed per bar -- every entry reflects the current weekly Tide, matching how /analysis itself always uses the latest available weekly series rather than one truncated to a specific date (see the api-stocks-indicator-history task's decisions).")
 
 
 # --- /api/portfolio -------------------------------------------------------
