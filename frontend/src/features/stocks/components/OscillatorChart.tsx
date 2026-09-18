@@ -53,7 +53,8 @@ interface OscillatorSeriesData {
  * reason — see the frontend-oscillator-chart-followups task's `decisions`
  * entry), since the runtime response can legitimately return `null` for
  * early bars still inside an indicator's warm-up window (e.g. Stochastic
- * %K(5,3,3) needs ~11 prior bars) — confirmed live via GET
+ * %K(5,3,3) needs (k_period - 1) + (smooth - 1) prior bars — 6 with the
+ * current defaults) — confirmed live via GET
  * /api/stocks/AAPL/indicators?range=max, which returns points with
  * stochastic_k/force_index_2ema literally `null`. `macd_histogram` stays
  * non-nullable (EMA-seeded indicators never produce NaN, even on the first

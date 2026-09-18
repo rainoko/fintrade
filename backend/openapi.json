@@ -250,7 +250,7 @@
                 "type": "null"
               }
             ],
-            "description": "Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~11 prior bars) -- unlike WaveScreen.stochastic_k on GET /api/stocks/{ticker}/analysis, which is always non-null since /analysis only ever reports the latest bar, by definition never still warming up.",
+            "description": "Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar. Null for a bar still inside the indicator's warm-up window (needs (k_period - 1) + (smooth - 1) prior bars -- 6 with the current defaults, k_period=5/smooth=3) -- unlike WaveScreen.stochastic_k on GET /api/stocks/{ticker}/analysis, which is always non-null since /analysis only ever reports the latest bar, by definition never still warming up.",
             "title": "Stochastic K"
           }
         },
