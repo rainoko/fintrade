@@ -50,5 +50,11 @@
       "rationale": "added_at is the first ISO date-*time* value (not a plain YYYY-MM-DD date like PositionOut.entry_date, which the codebase already renders unformatted) this app has needed to display, so no existing helper covered it. It's domain-agnostic (operates on any ISO date/date-time string, doesn't know what a 'watchlist' is) and not a component, so per Frontend.md §3's placement rule (mirrored by this file's own header comment for every other helper here) it belongs in utils/format.ts rather than components/common/ or features/watchlist/. `timeZone: 'UTC'` is pinned (a stricter version of formatCurrency's existing en-US locale pin) so the rendered calendar date doesn't shift by a day for a negative-UTC-offset host when a future caller passes a date-only string."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-watchlist-page",
+    "pr_number": 106,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/106",
+    "pushed_at": "2026-09-18T08:38:17Z"
+  }
 }
