@@ -112,7 +112,13 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
       render: (row) => <ExitFlagChips flags={row.exit_flags} />,
     },
     {
-      key: 'signal',
+      // Synthetic column: `RiskPosition` has no `signal` field of its own
+      // (see the comment above `signalByTicker`), so `key` can't be
+      // `'signal'` -- `DataTableColumn<T>.key` is typed `keyof T` and is
+      // only ever used as this column's own React key, not a lookup into
+      // the row. Reusing 'id' (unused by any other column here) matches
+      // PositionsTable.tsx's identical synthetic-column precedent.
+      key: 'id',
       header: 'Signal',
       render: (row) => {
         const signal = signalByTicker.get(row.ticker)

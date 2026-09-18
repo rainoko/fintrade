@@ -3,7 +3,7 @@
   "title": "Every ticker list in the UI shows its BUY/HOLD/SELL signal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-portfolio-position-signal"],
   "references": [
     "frontend/src/features/portfolio/components/PositionsTable.tsx",
@@ -28,6 +28,12 @@
       "recorded_by": "task-worker",
       "decision": "RiskPanel's per-position table also gets a Signal column, sourced by cross-referencing the already-fetched `positions` prop (PositionOut[], from GET /api/portfolio) by ticker -- not by having the backend add a `signal` field to RiskPosition/GET /api/portfolio/risk.",
       "rationale": "The task's own title ('Every ticker list in the UI shows its BUY/HOLD/SELL signal') is a literal instruction, and RiskPanel's table is a ticker list users look at alongside the others. Exit flags (risk-driven, 'should I get out of a position I already hold') and a fresh entry signal (Elder's Triple Screen, 'would I buy/sell this ticker today') are genuinely different concepts per the task description, but nothing stops them coexisting in the same row -- a HOLD signal next to a stop_hit exit flag is meaningful information, not noise. Rejected: (1) leaving RiskPanel unchanged -- under-delivers on the literal task title for a table that already lists tickers prominently; (2) having the backend add `signal` to RiskPosition -- GET /api/portfolio already returns it per-ticker (api-portfolio-position-signal), so duplicating it into a second response only for RiskPanel's convenience would be scope creep, redundant, and risks the two responses drifting out of sync for a ticker whose signal changes between the two fetches; cross-referencing client-side (the same pattern RiskPanel already uses for its missingTickers note) avoids all of that with no backend change needed. A ticker present in `riskPositions` but with no matching entry in `positions` (or whose PositionOut.signal is null) falls back to the same '—' WatchlistTable/PositionsTable/PositionsGlanceTable use."
+    },
+    {
+      "timestamp": "2026-09-18T21:35:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Round-1 fix for review.comments' blocking TS2322: RiskPanel.tsx's synthetic Signal column now uses `key: 'id'` instead of the fabricated `key: 'signal'` (RiskPosition has no such field; DataTableColumn<T>.key is typed keyof T).",
+      "rationale": "`id` is a real RiskPosition field not otherwise used as a column key in this table, and reusing an existing real field for a synthetic/rendered column's React key is exactly the precedent PositionsTable.tsx already set for its own non-domain delete-action column (`key: 'id'` there too, for a different real reason -- its 'id' field just happens to be otherwise-unused there as well). Rejected: widening DataTableColumn to accept an arbitrary synthetic string key -- a bigger, shared-component change for a single call site, when an existing real field already covers it. Verified this time with `yarn tsc -b --noEmit` (clean) and `yarn build` (succeeds), not just vitest/eslint, since skipping those was the actual cause of the round-1 miss."
     }
   ],
   "questions": [],
