@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatCurrency,
+  formatDate,
   formatNullableCurrency,
   formatNullableNumber,
   humanizeSnakeCase,
@@ -16,7 +17,9 @@ describe('humanizeSnakeCase', () => {
   })
 
   it('falls back the same way for a value not present in a given label map', () => {
-    expect(humanizeSnakeCase('some_new_flag', { stop_hit: 'Stop hit' })).toBe('Some new flag')
+    expect(humanizeSnakeCase('some_new_flag', { stop_hit: 'Stop hit' })).toBe(
+      'Some new flag',
+    )
   })
 
   it('lowercases an UPPER_SNAKE_CASE value before capitalizing only the first letter', () => {
@@ -30,9 +33,9 @@ describe('humanizeSnakeCase', () => {
 
 describe('formatNullableNumber', () => {
   it('formats a plain number using the given options', () => {
-    expect(formatNullableNumber(24.3, { minimumFractionDigits: 1, maximumFractionDigits: 1 })).toBe(
-      '24.3',
-    )
+    expect(
+      formatNullableNumber(24.3, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    ).toBe('24.3')
   })
 
   it("renders '—' for null", () => {
@@ -77,5 +80,15 @@ describe('formatNullableCurrency', () => {
 
   it("renders '—' for undefined", () => {
     expect(formatNullableCurrency(undefined)).toBe('—')
+  })
+})
+
+describe('formatDate', () => {
+  it('formats an ISO date-time string as a short human-readable date', () => {
+    expect(formatDate('2026-09-18T14:03:00Z')).toBe('Sep 18, 2026')
+  })
+
+  it('formats a plain ISO date string the same way', () => {
+    expect(formatDate('2026-01-05')).toBe('Jan 5, 2026')
   })
 })

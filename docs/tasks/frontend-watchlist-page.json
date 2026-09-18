@@ -3,7 +3,7 @@
   "title": "Frontend: Watchlist page (add/remove tickers, highlight buy signals)",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-watchlist"],
   "references": [
     "frontend/src/pages/DashboardPage.tsx",
@@ -12,12 +12,43 @@
   ],
   "description": "User request: there should be watchlists, and the watchlist should signal when to buy. New page (e.g. /watchlist) backed by api-watchlist: list watched tickers with their current signal prominently shown (visually distinguish BUY from HOLD/SELL, matching whatever signal-display convention the stock analysis page already uses -- reuse it, do not invent a second one), an add-ticker control, and a remove action per row. Add a nav entry in the app shell alongside the existing Dashboard/Portfolio/Stocks entries.",
   "checklist": [
-    { "step": "Wire a TanStack Query hook (list) and mutations (add/remove) for GET/POST/DELETE /api/watchlist, following the existing usePortfolio/useAddPosition-style conventions (Frontend.md).", "done": false },
-    { "step": "Build the Watchlist page: table of watched tickers with signal/confidence displayed using the same visual treatment as the stock analysis page (reuse, do not duplicate, the existing signal-badge/color convention), an add-ticker input, and a remove action per row.", "done": false },
-    { "step": "Add a route and app-shell navigation entry for the new page, consistent with the existing Dashboard/Portfolio/Stocks entries.", "done": false },
-    { "step": "Handle loading/error/empty states consistently (LoadingState/ErrorState/EmptyState).", "done": false },
-    { "step": "Tests: component/page tests for list/add/remove and the buy-signal highlighting, MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": false }
+    { "step": "Wire a TanStack Query hook (list) and mutations (add/remove) for GET/POST/DELETE /api/watchlist, following the existing usePortfolio/useAddPosition-style conventions (Frontend.md).", "done": true },
+    { "step": "Build the Watchlist page: table of watched tickers with signal/confidence displayed using the same visual treatment as the stock analysis page (reuse, do not duplicate, the existing signal-badge/color convention), an add-ticker input, and a remove action per row.", "done": true },
+    { "step": "Add a route and app-shell navigation entry for the new page, consistent with the existing Dashboard/Portfolio/Stocks entries.", "done": true },
+    { "step": "Handle loading/error/empty states consistently (LoadingState/ErrorState/EmptyState).", "done": true },
+    { "step": "Tests: component/page tests for list/add/remove and the buy-signal highlighting, MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T08:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "frontend/src/api/types.ts was regenerated from the committed backend/openapi.json (npm run generate:api-types) as the first step of this task, even though that was flagged as a non-blocking gap on api-watchlist's own review (deferred there since no frontend consumer existed yet). This task is that consumer, so the deferral condition no longer holds.",
+      "rationale": "CLAUDE.md's API documentation standard and Frontend.md §7 both require api/types.ts to be generated from the committed openapi.json snapshot before the frontend consumes a route; api-watchlist's review explicitly deferred it pending a real consumer, not indefinitely. Regenerating up front (rather than hand-writing the WatchlistItemIn/Out/Response shapes into api/watchlist.ts) keeps this task's types.ts diff purely additive (199 lines, only new Watchlist* schemas) and guarantees the frontend types match the backend's Pydantic schemas exactly rather than a manually-transcribed approximation."
+    },
+    {
+      "timestamp": "2026-09-18T08:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "WatchlistTable and AddTickerForm live under features/watchlist/components/, not components/common/, and the ticker cell renders as plain text rather than a link.",
+      "rationale": "Both components reference watchlist-domain concepts directly (WatchlistItemOut's ticker/added_at/signal/confidence/confidence_band shape, the idempotent-add semantics), so per Frontend.md §3's placement test they belong under features/<domain>/, matching PositionsTable/AddPositionDialog's own placement for the equivalent portfolio-domain components. The ticker cell was considered for a Link (as PositionsGlanceTable.tsx does to /stocks/:ticker) but left as plain text: frontend-ticker-link (a shared common/TickerLink component meant to consolidate this exact pattern) is still 'planned', and the task description explicitly says not to block on it or invent it here since that task will retrofit it later. A one-off inline <Link> was rejected as it would just be more duplication for frontend-ticker-link to later replace, working against the consolidation that task exists to do."
+    },
+    {
+      "timestamp": "2026-09-18T08:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A watchlist entry's null signal/confidence/confidence_band renders as a plain '—' em dash in the table (not inside SignalBadge/ConfidenceGauge, and not a distinct third component).",
+      "rationale": "common/SignalBadge's `signal` prop and common/ConfidenceGauge's `confidence` prop are both typed as non-nullable (Signal = 'BUY'|'SELL'|'HOLD'; confidence: number) by design (Frontend.md §3 calls SignalBadge a component that 'doesn't fetch or know how the signal was derived' -- a plain string-union prop, not an Optional one) since every other current caller (SignalSummary, wired to AnalysisResponse) always has a resolved value. Widening either prop to accept null just for this one caller would push a watchlist-specific nullability concern into two otherwise-simple domain-agnostic components. Rejected: rendering a badge with a synthetic 'UNKNOWN'/'N/A' fourth signal value (invents a value Analyse.md never defines, and SignalBadge's color palette has no case for it). '—' matches the exact same null-rendering convention formatNullableCurrency/formatNullableNumber and PositionsTable/PositionsGlanceTable's own null current_price/unrealized_pnl_pct cells already establish elsewhere in this codebase."
+    },
+    {
+      "timestamp": "2026-09-18T08:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The add-ticker control (AddTickerForm) is a single-field inline form embedded directly in the page's PageHeader action slot, not a modal dialog like portfolio's AddPositionDialog, and it shows no distinct 'already watching' success message when the add is an idempotent no-op.",
+      "rationale": "AddPositionDialog's modal form exists because adding a position has four required fields and a genuine merge outcome (quantity/cost-basis re-averaging) worth summarizing before returning to the table. POST /api/watchlist takes exactly one field (ticker) and its duplicate-add outcome is a no-op with zero visible effect (the existing row, unchanged, is already what's on screen) -- there is nothing for a confirmation screen to usefully summarize, unlike the portfolio merge case. An inline form (mirroring TickerSearchBox's existing row-of-TextField-plus-Button structure, but calling useAddWatchlistItem's mutation instead of navigating) keeps the common case (adding a new ticker) to a single click with no extra modal step, which weighed more than dialog-based consistency with AddPositionDialog given the two forms' genuinely different shapes."
+    },
+    {
+      "timestamp": "2026-09-18T08:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `formatDate` helper to utils/format.ts (pinned to `'en-US'` and `timeZone: 'UTC'`) to render WatchlistItemOut.added_at, rather than showing the raw ISO datetime string or a one-off formatter local to WatchlistTable.tsx.",
+      "rationale": "added_at is the first ISO date-*time* value (not a plain YYYY-MM-DD date like PositionOut.entry_date, which the codebase already renders unformatted) this app has needed to display, so no existing helper covered it. It's domain-agnostic (operates on any ISO date/date-time string, doesn't know what a 'watchlist' is) and not a component, so per Frontend.md §3's placement rule (mirrored by this file's own header comment for every other helper here) it belongs in utils/format.ts rather than components/common/ or features/watchlist/. `timeZone: 'UTC'` is pinned (a stricter version of formatCurrency's existing en-US locale pin) so the rendered calendar date doesn't shift by a day for a negative-UTC-offset host when a future caller passes a date-only string."
+    }
+  ],
   "questions": []
 }

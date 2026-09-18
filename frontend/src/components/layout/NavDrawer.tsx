@@ -1,5 +1,6 @@
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'
 import DashboardIcon from '@mui/icons-material/Dashboard'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -15,7 +16,7 @@ interface NavItem {
   icon: ReactNode
 }
 
-// Static top-level nav: Dashboard and Portfolio only. Stock Detail
+// Static top-level nav: Dashboard, Portfolio, and Watchlist. Stock Detail
 // ('/stocks/:ticker') is intentionally not listed here — it's a
 // ticker-parameterized route reached by navigating from a position/search,
 // not a standalone nav destination (see docs/architecture/Frontend.md §3's
@@ -23,6 +24,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
   { label: 'Portfolio', path: '/portfolio', icon: <AccountBalanceWalletIcon /> },
+  { label: 'Watchlist', path: '/watchlist', icon: <VisibilityIcon /> },
 ]
 
 interface NavDrawerProps {

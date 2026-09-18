@@ -698,7 +698,7 @@
       "id": "frontend-watchlist-page",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-watchlist-page.json"
     },
     {
