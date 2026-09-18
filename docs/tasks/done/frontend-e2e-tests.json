@@ -3,7 +3,7 @@
   "title": "Frontend: full end-to-end browser test suite covering all app functionality",
   "area": "frontend/testing",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/architecture/Testing.md",
@@ -57,5 +57,69 @@
     "pr_url": "https://github.com/rainoko/fintrade/pull/103",
     "pushed_at": "2026-09-18T07:44:47Z"
   },
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-18T07:53:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/103",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Backend: `pytest --cov=app --cov-report=term-missing` -- 559 passed, 99.86% total coverage, fixture_provider.py/config.py/dependencies.py all at 100%. `ruff check app/` and `mypy` both clean.",
+        "file": "backend/app/data/fixture_provider.py"
+      },
+      {
+        "summary": "Frontend: `vitest run --coverage` -- 35 test files / 205 tests passed, 99.71% statements / 99.64% branches / 100% functions / 99.71% lines, well above the 90% gate. Confirmed `tests/e2e/**` is genuinely excluded from this run (vite.config.ts's new `test.exclude` entry) -- no Playwright spec appeared in the vitest run. `npm run lint` (eslint), `npx tsc -b --noEmit`, `npm run build`, and `npm run build-storybook` all clean.",
+        "file": "frontend/vite.config.ts"
+      },
+      {
+        "summary": "Ran the actual e2e suite myself against a freshly-started stack (`npm run test:e2e`, ports 8000/5173 confirmed free beforehand): all 12 specs passed in 18s, real HTTP round-trips visible in the backend log (GET/POST/DELETE through the fixture provider and a scratch SQLite e2e.db), ports released cleanly afterward. Matches the PR description's own claim of two clean runs.",
+        "file": "frontend/playwright.config.ts"
+      },
+      {
+        "summary": "Fixture-provider gating verified correct and isolated: `Settings.data_provider_mode` defaults to `\"live\"` (backend/app/config.py), `get_data_provider` only returns `FixtureDataProvider` when `FINTRADE_DATA_PROVIDER_MODE=fixture` is explicitly set, and that env var is set nowhere except playwright.config.ts's own `webServer` block -- not in `.env`, not in `make dev`/`make backend`, not in any other script. `test_data_provider_mode_defaults_to_live` and `test_get_data_provider_wires_yfinance_primary_stooq_fallback_and_cache` both explicitly pin the default (live yfinance+Stooq+cache) behavior. FixtureDataProvider also correctly implements the DataProvider protocol and is folded into test_provider_contract.py's cross-provider interchangeability tests.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 39
+      },
+      {
+        "summary": "`--legacy-peer-deps` scoping claim verified accurate: package-lock.json's diff against main is minimal (exactly the 3 new Playwright packages, no wholesale re-resolution), the flag isn't added to any `.npmrc`, isn't used in `make install`'s plain `npm install`, and doesn't appear anywhere in the Makefile/README/CI-adjacent scripts -- grepped the whole tree to confirm. The pre-existing openapi-typescript/typescript peer conflict it works around is independently corroborated by an identical decision already recorded on the separate, still-planned `frontend-verify-npm-install` task and on the already-merged `frontend-api-client` task, so this isn't a new or newly-discovered problem this PR is masking.",
+        "file": "docs/tasks/frontend-e2e-tests.json",
+        "line": 50
+      },
+      {
+        "summary": "E2e spec quality: all 12 specs are genuine functional checks, not page-load smoke tests -- portfolio.spec.ts drives a full add/verify-in-risk-panel/delete cycle through the real backend, stock-analysis.spec.ts checks structural signal/confidence/indicator/chart rendering plus an explicit unknown-ticker 404 path, navigation.spec.ts checks an unknown-route fallback in addition to routing, and dashboard.spec.ts includes a console-error assertion. Locators (test-ids, aria labels, role names) were cross-checked against the actual component source (SignalSummary.tsx, PriceChart.tsx, RiskPanel.tsx, etc.) and match.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts"
+      },
+      {
+        "summary": "No API route/schema touched by this PR (dependencies.py/config.py changes are internal wiring, not a new endpoint or schema field) -- backend/openapi.json correctly left untouched, no regeneration needed.",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "Architecture review (architecture-review skill, self-run): fixture_provider.py is correctly placed in app/data/ implementing the DataProvider protocol, adds no new backend dependency, and doesn't bypass the SQLite-cache-layer principle in a way that matters (it's in-memory synthetic data with nothing for a cache to usefully do, and only reachable in fixture mode). No new frontend components added by this PR, so the components/common/-vs-feature placement check (step 7a) doesn't apply. Frontend.md and Testing.md were both updated in the same change to document the new module list/dependency/test category -- no stale doc.",
+        "file": "backend/app/data/fixture_provider.py"
+      },
+      {
+        "summary": "code-review skill (medium effort): found one informational efficiency note, no correctness bugs. get_weekly_ohlcv (fixture_provider.py:88) recomputes the full synthetic daily series via its own independent _series(ticker) call instead of reusing/resampling get_daily_ohlcv's output -- not a correctness issue (both calls are deterministically seeded so results always agree), just duplicated work. Non-blocking, tracked on frontend-e2e-tests-followups.json.",
+        "file": "backend/app/data/fixture_provider.py",
+        "line": 88
+      },
+      {
+        "summary": "Own finding: README.md's diff replaced the pre-existing '## MCP servers' heading with the new 'End-to-end tests' section, but never restored a heading for the paragraph that used to sit directly under it ('MCP server configuration lives in .mcp.json ...') -- that paragraph is now headless, plus a doubled blank line was left behind before it. Non-blocking (doesn't affect any tooling/build/test), tracked on frontend-e2e-tests-followups.json.",
+        "file": "README.md",
+        "line": 113
+      },
+      {
+        "summary": "Own finding: frontend/playwright.config.ts isn't included in tsconfig.app.json's or tsconfig.node.json's `include`, so `npx tsc -b --noEmit`/`npm run build` never type-checks it -- only Playwright's own runtime validates it, when `npm run test:e2e` is actually invoked. Non-blocking (confirmed the config works correctly at runtime via a real e2e run), tracked on frontend-e2e-tests-followups.json.",
+        "file": "frontend/playwright.config.ts"
+      },
+      {
+        "summary": "Decisions cross-check: every checklist item phrased as a judgment call (tooling choice, fixture-data/determinism strategy, serial-execution/webServer-reuse strategy, devcontainer scope, --legacy-peer-deps usage) has a corresponding decisions entry with rationale and rejected alternatives -- no undocumented judgment call found.",
+        "file": "docs/tasks/frontend-e2e-tests.json"
+      },
+      {
+        "summary": "No UI page/component was added or changed by this PR (it's a test-infrastructure-only change) -- the browser-walkthrough step is otherwise inapplicable, but exceeded in substance anyway: actually ran the new Playwright suite end to end against a freshly-started stack (see above) rather than a manual MCP walkthrough, exercising the golden path plus edge cases (unknown ticker, unknown route, console errors) it's meant to catch.",
+        "file": "frontend/tests/e2e/stock-analysis.spec.ts"
+      }
+    ],
+    "notes": "No blocking findings. Backend/frontend test suites, coverage, lint, type-check, build, and build-storybook all clean; the new e2e suite itself was executed twice by task-worker and once more independently by this review, all 12 specs passing against a freshly-started stack. Fixture data provider is correctly gated behind FINTRADE_DATA_PROVIDER_MODE=fixture, defaults to live, and is unreachable from any normal dev/production code path. --legacy-peer-deps usage is properly scoped to one install command, not baked into any committed script, and its premise (pre-existing openapi-typescript/typescript peer conflict) is independently corroborated. Three non-blocking findings (a README heading regression, a minor fixture-provider efficiency note, and a tsconfig completeness gap for playwright.config.ts) filed as docs/tasks/frontend-e2e-tests-followups.json."
+  }
 }

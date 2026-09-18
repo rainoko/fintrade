@@ -607,8 +607,15 @@
       "id": "frontend-e2e-tests",
       "area": "frontend/testing",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-e2e-tests.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-e2e-tests.json"
+    },
+    {
+      "id": "frontend-e2e-tests-followups",
+      "area": "frontend/testing",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-e2e-tests-followups.json"
     },
     {
       "id": "skill-e2e-testing",
