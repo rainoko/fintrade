@@ -50,5 +50,11 @@
       "rationale": "Applied Frontend.md §3's utils/-vs-features placement test literally: createBaseChart takes a raw HTMLElement and returns a generic IChartApi, referencing no stocks-domain concept (ticker/position/signal) at all -- exactly the 'domain-agnostic and not a component -> utils/' case the doc spells out, and the same test (not merely the same outcome) that already places utils/format.ts outside any single feature folder despite format.ts also having started from feature-specific consumers. Rejected the alternative (documenting a new features/<domain>/lib/ convention in Frontend.md instead): Frontend.md §3's directory tree is explicit that a features/<domain>/ folder owns only hooks/ and components/, and introducing a third subfolder kind for exactly one two-line helper is more structural surface than the problem needs when an existing, already-documented location (utils/) fits it exactly. The 'both consumers are in features/stocks today' argument the follow-up task raised as a countervailing point doesn't actually distinguish this from format.ts's history (format.ts's own initial consumer set was similarly narrow before a second feature adopted it) and the placement test itself is about what the helper *is* (domain-agnostic, no props/rendering), not how many current call sites happen to share a folder."
     }
   ],
+  "git": {
+    "branch": "task/frontend-oscillator-chart-followups",
+    "pr_number": 112,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/112",
+    "pushed_at": "2026-09-18T11:35:00Z"
+  },
   "questions": []
 }
