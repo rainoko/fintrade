@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #121 review (api-stocks-indicator-history-followups)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-indicator-history-followups"],
   "references": [
     "docs/tasks/api-stocks-indicator-history-followups.json#review",
@@ -53,5 +53,12 @@
     "pr_number": 122,
     "pr_url": "https://github.com/rainoko/fintrade/pull/122",
     "pushed_at": "2026-09-18T22:26:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T22:31:02Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/122",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite 571 passed, 99.86% line/branch coverage (no frontend files touched by this PR -- last known frontend state clean, not re-run). ruff/mypy clean on touched files. code-review skill (effort medium) found zero findings. verify-elder-signal: no signal/confidence/risk logic changed -- items 1/2 are docstring-only and item 3 is independently confirmed value-preserving, so no methodology conformance question arises. Independently reproduced item 3's value-preservation claim myself (not just trusting the PR's own 1000-combination number): a standalone script comparing the pre-fix (full-slice-then-rolling-std) and post-fix (trailing-window-sliced-then-rolling-std) `_is_force_index_spike` implementations across 4008 combinations (2000 random series of varying length x 2 directions, plus edge cases -- exactly-window-length, window+1, all-zero/flat, NaN-prefixed, NaN-latest) found 0 mismatches. Confirmed the new regression test (`test_malformed_bar_mid_history_is_dropped_from_history_entirely`) genuinely exercises a true mid-history row (index 10 of a 26-row fixture, not first/last) and, by reading the pre-#121 `analyse_history()` from git history (commit 2f82721) directly, confirmed its no-top-level-clean behavior matches exactly what the new docstring paragraph and decision entry describe (would emit an entry duplicating the prior bar for the malformed date, vs. the current 59-of-60 dropped-entirely behavior). Confirmed the item-2 docstring's 'residual O(i)-per-bar term' claim against the actual code: `elder_bull_power`/`elder_bear_power` (engine.py:354-355) are computed from each bar's own truncated slice inside `analyse()`, not from a precomputed-and-sliced series like the other five/eight indicators, and the volume-rolling-average (engine.py:380) and `_weekly_through_bar_date` (engine.py:575) per-bar costs the docstring calls 'already-acknowledged' do exist as described. No API/schema change (openapi.json regeneration not applicable) and no new module/dependency/layer (architecture-review not applicable). No frontend component touched. UI-facing-work check: this PR's changed code sits behind GET /api/stocks/{ticker}/indicators, which has a frontend consumer (the stock-analysis chart), so I did not skip step 9 -- but no Playwright MCP browser tools were exposed in this session (only Read/Bash/Skill/Edit/Write), so I substituted a live smoke test instead of an interactive walkthrough: started `make dev` and hit the real endpoint against live yfinance data for AAPL at range=3m and range=max (11,533 points, 200 OK, valid signal/confidence/indicator fields throughout, no errors). Then ran the persisted e2e suite (step 9a, `make e2e`): all 13 specs passed, including `stock-analysis.spec.ts`'s 'selecting the Max range does not crash the oscillator pane or the app' test, which exercises exactly the changed `_is_force_index_spike`/`analyse_history` code path end to end through a real browser. All 3 checklist items have corresponding `decisions` entries recording the judgment calls made (keep new malformed-bar behavior, document rather than eliminate the residual complexity, apply the suggested one-line slice fix) -- no undocumented judgment calls found. No non-blocking findings to file as a follow-up task."
   }
 }
