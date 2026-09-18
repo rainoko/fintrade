@@ -817,8 +817,8 @@
       "id": "frontend-lists-show-signal",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-lists-show-signal.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-lists-show-signal.json"
     },
     {
       "id": "frontend-stock-detail-metric-help",

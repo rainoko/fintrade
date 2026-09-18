@@ -10,6 +10,7 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBreachBanner'
 import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
+import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import StatCard from '../../../components/common/StatCard/StatCard'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency } from '../../../utils/format'
@@ -65,6 +66,15 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
   const missingTickers = positions
     .map((position) => position.ticker)
     .filter((ticker) => !riskTickers.has(ticker))
+  // RiskResponse/RiskPosition itself carries no `signal` field (it's a
+  // risk-driven exit view, not an entry-signal one) -- the Signal column
+  // below cross-references the already-available `positions` prop by ticker
+  // the same way `missingTickers` above does, rather than the backend
+  // duplicating a value GET /api/portfolio already returns. See this task's
+  // `decisions` entry for why RiskPanel gets a Signal column at all.
+  const signalByTicker = new Map(
+    positions.map((position) => [position.ticker, position.signal]),
+  )
   // Plural pronoun agreement for the note below: "its"/"it's" reads wrong
   // once more than one ticker is joined into the list (e.g. "ZZZZINVALID,
   // TSLA — its price..."). See this task's `decisions` entry.
@@ -100,6 +110,20 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
       key: 'exit_flags',
       header: 'Exit Flags',
       render: (row) => <ExitFlagChips flags={row.exit_flags} />,
+    },
+    {
+      // Synthetic column: `RiskPosition` has no `signal` field of its own
+      // (see the comment above `signalByTicker`), so `key` can't be
+      // `'signal'` -- `DataTableColumn<T>.key` is typed `keyof T` and is
+      // only ever used as this column's own React key, not a lookup into
+      // the row. Reusing 'id' (unused by any other column here) matches
+      // PositionsTable.tsx's identical synthetic-column precedent.
+      key: 'id',
+      header: 'Signal',
+      render: (row) => {
+        const signal = signalByTicker.get(row.ticker)
+        return signal == null ? '—' : <SignalBadge signal={signal} />
+      },
     },
   ]
 

@@ -41,10 +41,11 @@ import type {
 // Sentinel POST /api/portfolio/positions payloads:
 //   quantity <= 0 or avg_cost_basis <= 0 -> 422 HTTPValidationError (per-field)
 //   ticker === 'OVERFLOW'                -> 422 ErrorDetail (merge would overflow)
-// Watchlist tickers: any ticker not present in `mockWatchlistSignals` below
-// annotates as signal/confidence/confidence_band all null on GET /api/watchlist
-// (API.md's nullable-on-failure case) rather than needing its own sentinel —
-// this mirrors mockPrices' "unknown ticker -> null price" convention above.
+// Watchlist/portfolio tickers: any ticker not present in `mockTickerSignals`
+// below annotates as signal/confidence/confidence_band all null on both GET
+// /api/watchlist and GET /api/portfolio (API.md's nullable-on-failure case)
+// rather than needing its own sentinel — this mirrors mockPrices' "unknown
+// ticker -> null price" convention above.
 // Sentinel watchlist tickers:
 //   any ticker not present in the in-memory watchlist store -> 404 (DELETE)
 
@@ -154,12 +155,36 @@ const riskFixture: RiskResponse = {
   ],
 }
 
+// Mock signal/confidence backing both GET /api/watchlist's and GET
+// /api/portfolio's per-ticker annotation (the real backend re-runs
+// app.signals.engine.analyse per ticker for each; this mock layer never
+// re-implements that — it just returns canned per-ticker results, shared
+// between both endpoints since api-portfolio-position-signal's decisions
+// establish GET /api/portfolio reuses the exact same signal engine GET
+// /api/watchlist does, not a second computation). A ticker with no entry
+// here annotates as signal/confidence/confidence_band all null, the same
+// "signal couldn't be computed" case API.md documents. Includes one of each
+// signal value so a test can assert BUY renders visually distinct from
+// HOLD/SELL.
+const mockTickerSignals: Record<
+  string,
+  Pick<WatchlistItemOut, 'signal' | 'confidence' | 'confidence_band'>
+> = {
+  AAPL: { signal: 'BUY', confidence: 72, confidence_band: 'High' },
+  MSFT: { signal: 'HOLD', confidence: 45, confidence_band: 'Medium' },
+  TSLA: { signal: 'SELL', confidence: 30, confidence_band: 'Low' },
+}
+
 // Core, always-known fields for a stored position — deliberately excludes
-// current_price/unrealized_pnl_pct, which are enriched at *read* time (see
-// `enrich` below) rather than stored, mirroring API.md's "price enrichment
-// happens on read, not on write" rule: the same stored position can be
-// null-priced in a POST response and priced in the following GET.
-type StoredPosition = Omit<PositionOut, 'current_price' | 'unrealized_pnl_pct'>
+// current_price/unrealized_pnl_pct/signal/confidence/confidence_band, which
+// are enriched at *read* time (see `enrich` below) rather than stored,
+// mirroring API.md's "enrichment happens on read, not on write" rule: the
+// same stored position can be null-priced/null-signaled in a POST response
+// and populated in the following GET.
+type StoredPosition = Omit<
+  PositionOut,
+  'current_price' | 'unrealized_pnl_pct' | 'signal' | 'confidence' | 'confidence_band'
+>
 
 const initialPositions: StoredPosition[] = [
   {
@@ -183,7 +208,21 @@ function enrich(position: StoredPosition): PositionOut {
     price === null
       ? null
       : ((price - position.avg_cost_basis) / position.avg_cost_basis) * 100
-  return { ...position, current_price: price, unrealized_pnl_pct: unrealizedPnlPct }
+  // Reuses the same mockTickerSignals canned-signal table GET /api/watchlist
+  // draws from (frontend-lists-show-signal) rather than a second one — the
+  // real backend annotates both endpoints from the same signal engine
+  // (api-portfolio-position-signal's decisions). A ticker with no entry
+  // annotates as signal/confidence/confidence_band all null, the same
+  // "signal couldn't be computed" case API.md documents.
+  const signalData = mockTickerSignals[position.ticker]
+  return {
+    ...position,
+    current_price: price,
+    unrealized_pnl_pct: unrealizedPnlPct,
+    signal: signalData?.signal ?? null,
+    confidence: signalData?.confidence ?? null,
+    confidence_band: signalData?.confidence_band ?? null,
+  }
 }
 
 // Mutable in-memory portfolio store backing GET/POST/DELETE
@@ -228,22 +267,6 @@ const PROVIDER_DOWN_TICKER = 'NOPROVIDER'
 
 const RANGE_PATTERN = /^(max|\d{1,4}[dwmy])$/
 
-// Mock signal/confidence backing GET /api/watchlist's per-ticker annotation
-// (the real backend re-runs app.signals.engine.analyse per ticker; this mock
-// layer never re-implements that — it just returns canned per-ticker
-// results). A ticker with no entry here annotates as
-// signal/confidence/confidence_band all null, the same "signal couldn't be
-// computed" case API.md documents. Includes one of each signal value so a
-// test can assert BUY renders visually distinct from HOLD/SELL.
-const mockWatchlistSignals: Record<
-  string,
-  Pick<WatchlistItemOut, 'signal' | 'confidence' | 'confidence_band'>
-> = {
-  AAPL: { signal: 'BUY', confidence: 72, confidence_band: 'High' },
-  MSFT: { signal: 'HOLD', confidence: 45, confidence_band: 'Medium' },
-  TSLA: { signal: 'SELL', confidence: 30, confidence_band: 'Low' },
-}
-
 // Core, always-known fields for a stored watchlist item — deliberately
 // excludes signal/confidence/confidence_band, which are annotated at *read*
 // time (see `enrichWatchlistItem` below) rather than stored, mirroring
@@ -257,7 +280,7 @@ const initialWatchlistItems: StoredWatchlistItem[] = [
 ]
 
 function enrichWatchlistItem(item: StoredWatchlistItem): WatchlistItemOut {
-  const signalData = mockWatchlistSignals[item.ticker]
+  const signalData = mockTickerSignals[item.ticker]
   return {
     ...item,
     signal: signalData?.signal ?? null,
@@ -338,13 +361,17 @@ export const handlers: HttpHandler[] = [
       positions.push(stored)
     }
 
-    // current_price/unrealized_pnl_pct are always null in the POST response
-    // itself (API.md) even though a subsequent GET /api/portfolio enriches
-    // this same stored position from mockPrices — see `enrich` above.
+    // current_price/unrealized_pnl_pct/signal/confidence/confidence_band are
+    // always null in the POST response itself (API.md) even though a
+    // subsequent GET /api/portfolio enriches this same stored position from
+    // mockPrices/mockTickerSignals — see `enrich` above.
     const created: PositionOut = {
       ...stored,
       current_price: null,
       unrealized_pnl_pct: null,
+      signal: null,
+      confidence: null,
+      confidence_band: null,
     }
     return HttpResponse.json(created, { status: 201 })
   }),
