@@ -3,3 +3,4 @@ storybook-static
 coverage
 node_modules
 src/api/types.ts
+.yarn

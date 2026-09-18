@@ -8,6 +8,9 @@ if [ -d backend ]; then
   (cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]")
 fi
 
+echo "==> Enabling Corepack (provisions the Yarn version pinned in frontend/package.json's packageManager field / frontend/.yarnrc.yml)"
+corepack enable
+
 echo "==> Fixing ownership on persistent Claude Code config volume"
 mkdir -p ~/.claude
 sudo chown -R "$(id -u):$(id -g)" ~/.claude

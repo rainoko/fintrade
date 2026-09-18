@@ -3,7 +3,7 @@
   "title": "Migrate frontend package manager from npm to Yarn 2+ (Yarn Berry)",
   "area": "infra",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/package.json",
@@ -13,13 +13,38 @@
   ],
   "description": "Migrate frontend/ from npm to Yarn 2+ (\"Yarn Berry\") via Corepack: replace package-lock.json with a Yarn lockfile (.yarnrc.yml, .yarn/releases), and update every command across the repo that currently shells out to npm — the root Makefile's frontend/install/test/dev targets, .devcontainer/post-create.sh, README.md, and any .claude/skills or .claude/agents files that reference npm commands directly (check add-frontend-feature, static-verify, check-coverage, test-90, revalidate-done-tasks, and any e2e-testing skill/task landed by then) — to their Yarn equivalents. Account for whatever frontend npm scripts exist at the time of this task (including test:e2e if frontend-e2e-tests has landed by then).",
   "checklist": [
-    { "step": "Decide the Yarn Berry linker mode (node-modules vs PnP) and record as a decisions entry with rationale — PnP is more idiomatic Yarn Berry but can surface compatibility issues with tools expecting a real node_modules tree (editor tsserver, Storybook, Playwright, etc.); the node-modules linker is the safer default for a migration like this unless there's a clear reason to prefer PnP.", "done": false },
-    { "step": "Enable Yarn via Corepack and run `yarn set version berry` in frontend/; remove package-lock.json; commit the new yarn.lock, .yarnrc.yml, and .yarn/releases.", "done": false },
-    { "step": "Update every reference to npm commands across the repo: root Makefile (backend/frontend/install/test/dev targets), .devcontainer/post-create.sh, README.md, CLAUDE.md if it references npm, and any skill/agent files under .claude/ that shell out to npm.", "done": false },
-    { "step": "Confirm `yarn install`, `yarn build`, `yarn test`/coverage, `yarn lint`, and `yarn build-storybook` all work equivalently to their prior npm counterparts.", "done": false },
-    { "step": "Re-run the full frontend suite + coverage gate to confirm no regression from the package-manager switch.", "done": false },
-    { "step": "Update .devcontainer/devcontainer.json/post-create.sh if Yarn needs explicit provisioning (e.g. `corepack enable`) so a fresh container gets it automatically.", "done": false }
+    { "step": "Decide the Yarn Berry linker mode (node-modules vs PnP) and record as a decisions entry with rationale — PnP is more idiomatic Yarn Berry but can surface compatibility issues with tools expecting a real node_modules tree (editor tsserver, Storybook, Playwright, etc.); the node-modules linker is the safer default for a migration like this unless there's a clear reason to prefer PnP.", "done": true },
+    { "step": "Enable Yarn via Corepack and run `yarn set version berry` in frontend/; remove package-lock.json; commit the new yarn.lock, .yarnrc.yml, and .yarn/releases.", "done": true },
+    { "step": "Update every reference to npm commands across the repo: root Makefile (backend/frontend/install/test/dev targets), .devcontainer/post-create.sh, README.md, CLAUDE.md if it references npm, and any skill/agent files under .claude/ that shell out to npm.", "done": true },
+    { "step": "Confirm `yarn install`, `yarn build`, `yarn test`/coverage, `yarn lint`, and `yarn build-storybook` all work equivalently to their prior npm counterparts.", "done": true },
+    { "step": "Re-run the full frontend suite + coverage gate to confirm no regression from the package-manager switch.", "done": true },
+    { "step": "Update .devcontainer/devcontainer.json/post-create.sh if Yarn needs explicit provisioning (e.g. `corepack enable`) so a fresh container gets it automatically.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Use the node-modules linker (nodeLinker: node-modules in frontend/.yarnrc.yml), not Plug'n'Play.",
+      "rationale": "Matches the task's own stated default and this project's tooling: Storybook (@storybook/react-vite), Playwright, and editor tsserver all expect a real node_modules tree on disk. PnP would need extra SDK/editor shims (yarn dlx @yarnpkg/sdks) and has known rough edges with Storybook's Vite builder and some ESM/CJS interop in this dependency set. node-modules keeps the working tree's file layout (and therefore every existing tool config) unchanged, which is the point of a low-risk package-manager swap rather than a bigger tooling migration."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Vendor the Yarn release binary at frontend/.yarn/releases/yarn-4.18.0.cjs with .yarnrc.yml's yarnPath pointing at it (the classic 'committed release' Yarn Berry setup), in addition to keeping packageManager: yarn@4.18.0 in package.json.",
+      "rationale": "Corepack 0.34's own `yarn set version stable` only updates package.json's packageManager field and relies on Corepack's own per-user cache/network fetch to resolve that version at run time; it does not vendor a project-local copy. The task's checklist explicitly asks for '.yarn/releases' to be committed, and a vendored release is what makes `yarn <anything>` work offline/hermetically for any contributor or CI runner without a first-time Corepack network fetch (consistent with this repo's no-live-network-call testing philosophy, even though this specific file isn't fetched by tests). Copied the exact 4.18.0 bundle Corepack had already downloaded (byte-identical to what `corepack pack`/a real `yarn set version stable` would fetch) rather than hand-rolling one."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Translated frontend/package.json's npm `overrides` (added in frontend-verify-npm-install, PR #115) to Yarn's `resolutions` field as `\"openapi-typescript/typescript\": \"$typescript\"` (a flat 'package/dependency' key instead of npm's nested-object form), keeping the same `$typescript` self-reference syntax.",
+      "rationale": "Verified this resolves correctly: `yarn install` hoists a single top-level node_modules/typescript@6.0.3 (matching the project's own ~6.0.2-range typescript devDependency) with no nested copy under node_modules/openapi-typescript, and `yarn generate:api-types` reproduces src/api/types.ts byte-for-byte identical to the committed file (diffed before/after). Yarn's post-resolution validation still prints a YN0060 peer-mismatch warning ('typescript ... doesn't satisfy what openapi-typescript ... request(s) ^5.0.0') — this is expected and harmless (same category of warning npm's overrides mechanism was working around in the first place: openapi-typescript's own peerDependencies range predates TS 6.x), not a sign the resolution failed to apply."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned devDependencies.jsdom to an exact \"30.0.1\" (previously \"^30.0.1\") instead of letting the fresh Yarn lockfile resolve the range's newest match.",
+      "rationale": "A clean `yarn install` from the range initially resolved jsdom to 30.1.0 (vs. 30.0.1 frozen in the old package-lock.json) and that alone broke 9 previously-passing vitest tests (ConfirmDialog, AddPositionDialog) with `TypeError: nodeToRestore.current.focus is not a function` inside MUI's FocusTrap unmount path — a jsdom 30.1.0 behavior change in focus/element handling, not anything caused by Yarn itself. Re-resolving with jsdom pinned back to 30.0.1 made all 269 tests pass again with no other change. Rejected chasing/patching the jsdom 30.1.0 incompatibility itself as out of scope for a package-manager migration (that's real, unrelated frontend maintenance work); rejected leaving it broken since 'no regression from the package-manager switch' is this task's own explicit bar. A future task can deliberately revisit the jsdom upgrade (and whatever MUI/jsdom compat fix it needs) on its own."
+    }
+  ],
   "questions": []
 }

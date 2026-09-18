@@ -25,7 +25,7 @@ function positionRow(page: Page) {
  * a pre-existing MSFT position from an earlier interrupted run (the add step accepts either
  * the "Added" or "Merged" success message -- see AddPositionDialog.tsx) -- both matter
  * because playwright.config.ts's webServer only guarantees a clean database at the start of
- * a whole `npm run test:e2e` invocation, not before each individual spec file.
+ * a whole `yarn test:e2e` invocation, not before each individual spec file.
  */
 test.describe.serial('portfolio: view, add, and delete a position', () => {
   test('portfolio page loads with a positions table', async ({ page }) => {

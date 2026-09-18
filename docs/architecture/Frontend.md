@@ -115,7 +115,7 @@ Every component under `components/common/` **must** have a `.stories.tsx` coveri
 
 Feature-specific components (`features/<domain>/components/`) and pages do **not** get stories — they're wired to real hooks/data and are covered by component tests (with MSW), not Storybook. Storybook is for the domain-agnostic, reusable layer only.
 
-`npm run build-storybook` must succeed as part of CI-equivalent verification (see `test-90`-style closing pass) — a component whose story is broken is exactly the kind of regression this exists to catch before it reaches a page.
+`yarn build-storybook` must succeed as part of CI-equivalent verification (see `test-90`-style closing pass) — a component whose story is broken is exactly the kind of regression this exists to catch before it reaches a page.
 
 ## 5. Chart & indicator display: what the backend actually supports
 

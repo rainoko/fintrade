@@ -29,7 +29,7 @@ backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://loc
 	cd backend && .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0
 
 frontend: ## Run the frontend dev server (Vite) on http://localhost:5173 (bound to 0.0.0.0 so the dev container's forwarded port reaches it)
-	cd frontend && npm run dev -- --host 0.0.0.0
+	cd frontend && yarn dev --host 0.0.0.0
 
 dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, including uvicorn's reloader and vite's node process
 	@# Known limitation: a bare SIGINT sent to only this recipe's top-level `make dev`
@@ -51,13 +51,13 @@ dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, i
 	wait $$bpid $$fpid 2>/dev/null; \
 	exit $$status
 
-install: ## Install backend (venv + pip) and frontend (npm) dependencies
+install: ## Install backend (venv + pip) and frontend (yarn) dependencies
 	cd backend && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -e ".[dev]"
-	cd frontend && npm install
+	cd frontend && corepack enable && yarn install
 
 test: ## Run backend (pytest) and frontend (vitest) test suites
 	cd backend && .venv/bin/pytest
-	cd frontend && npm test
+	cd frontend && yarn test
 
 e2e: ## Run the frontend's Playwright end-to-end suite (real browser, real backend+frontend, deterministic fixture data -- see docs/architecture/Testing.md). Separate from `test`: not part of the 90%-coverage gate, and starts its own backend/frontend processes rather than reusing `make dev`.
-	cd frontend && npm run test:e2e
+	cd frontend && yarn test:e2e

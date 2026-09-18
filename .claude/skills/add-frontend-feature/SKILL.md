@@ -25,7 +25,7 @@ Frontend work follows `docs/architecture/Frontend.md` in full — its module lay
 
 8. **Record any judgment call.** Non-obvious placement decisions (step 2), a state-location choice that isn't purely mechanical, or any other genuine ambiguity Frontend.md/API.md doesn't fully pin down — append an entry to this task's `decisions` array in its task JSON (`decision` + `rationale`, including what you rejected and why). A checklist item phrased as "decide X" is not satisfied by code that implicitly picks a behavior with no record.
 
-9. **Run coverage before finishing** — use the `check-coverage`/`test-90` skills, or `npm run test:coverage` directly, to confirm the new code doesn't drop the frontend below the 90% gate (`docs/architecture/Testing.md`).
+9. **Run coverage before finishing** — use the `check-coverage`/`test-90` skills, or `yarn test:coverage` directly, to confirm the new code doesn't drop the frontend below the 90% gate (`docs/architecture/Testing.md`).
 
 ## Common Mistakes to Avoid
 
