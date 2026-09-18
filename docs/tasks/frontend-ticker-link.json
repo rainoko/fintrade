@@ -3,7 +3,7 @@
   "title": "Every ticker in the UI links to its stock detail page (shared TickerLink component)",
   "area": "frontend/components/common",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
@@ -40,5 +40,11 @@
       "rationale": "TickerLink is the only common/ component that renders a react-router Link, so a global decorator would be unused overhead for every other story. A per-story decorator keeps the router dependency visible exactly where it's needed, matching how PositionsGlanceTable/PositionsTable/RiskPanel/WatchlistTable's own component tests each wrap themselves in <MemoryRouter> individually rather than relying on a shared global test harness change."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ticker-link",
+    "pr_number": 109,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/109",
+    "pushed_at": "2026-09-18T10:31:27Z"
+  }
 }
