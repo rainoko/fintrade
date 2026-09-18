@@ -21,7 +21,7 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-18T00:00:00Z",
+      "timestamp": "2026-09-18T14:29:19Z",
       "recorded_by": "task-worker",
       "decision": "GET /api/portfolio's per-position signal computation reuses enrich_positions_with_price's already-fetched e.daily_ohlcv (no second daily fetch), but issues its own additional provider.get_weekly_ohlcv(ticker) call per position -- the same extra weekly fetch GET /api/portfolio/risk already makes for the same reason (Screen 1/Tide needs weekly history that enrich_positions_with_price never fetches). A position's signal fields go null if either that position's e.daily_ohlcv is None (its price fetch already failed) or the weekly fetch raises DataProviderError, mirroring api-watchlist's WatchlistItemOut nullable-on-failure precedent exactly (no deviation) -- a position is never dropped or the request 500'd just because its signal, specifically, couldn't be computed, even when its price/pnl are perfectly fine.",
       "rationale": "Rejected duplicating GET /api/portfolio/risk's own weekly-fetch-plus-caching logic into a shared helper in this change: get_risk's weekly fetch is entangled with its own protective_stop/evaluate_exit_flags pipeline and stops/weekly_by_id/daily_by_id caching, which has nothing to do with a fresh entry signal; forcing a shared abstraction now would couple two independently-evolving concerns (risk/exit evaluation vs. entry signal annotation) for a marginal reduction in one fetch call, especially since the underlying market data is already cached by app.data.cache regardless -- a second GET /api/portfolio/risk-style weekly fetch in the same request cycle is a cache hit in practice, not a real duplicate network round trip. Kept the new _compute_position_signal as a small, self-contained helper next to _ordered_positions instead, matching the narrow DataProviderError-only catch app.api.routers.watchlist._compute_signal already established (so a genuine bug in analyse() itself still surfaces as a loud 500 in tests/CI rather than being silently swallowed into a null field)."
@@ -29,6 +29,9 @@
   ],
   "questions": [],
   "git": {
-    "branch": "task/api-portfolio-position-signal"
+    "branch": "task/api-portfolio-position-signal",
+    "pr_number": 118,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/118",
+    "pushed_at": "2026-09-18T14:29:19Z"
   }
 }
