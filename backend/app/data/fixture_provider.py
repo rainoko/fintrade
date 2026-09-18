@@ -85,7 +85,7 @@ class FixtureDataProvider(DataProvider):
         return self._series(ticker)
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
-        daily = self._series(ticker)
+        daily = self.get_daily_ohlcv(ticker)
         weekly = daily.resample("W-FRI").agg(
             {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
         )

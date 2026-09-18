@@ -3,7 +3,7 @@
   "title": "Frontend e2e test suite — non-blocking review follow-ups",
   "area": "frontend/testing",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-e2e-tests"],
   "references": [
     "docs/tasks/frontend-e2e-tests.json#review",
@@ -13,15 +13,15 @@
   "checklist": [
     {
       "step": "README.md's new 'End-to-end tests' section (added by PR #103) replaced the previous '## MCP servers' heading but never restored a heading for the paragraph that used to sit under it ('MCP server configuration lives in .mcp.json ...') — that paragraph is now headless, directly under the new e2e section's content with no '## MCP servers' heading above it, plus a doubled blank line was left behind. Add back a '## MCP servers' heading immediately before that paragraph and clean up the extra blank line.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/app/data/fixture_provider.py's get_weekly_ohlcv (line 88) recomputes the full synthetic daily series from scratch via its own independent call to _series(ticker) instead of resampling the frame get_daily_ohlcv already builds. Not a correctness issue (both calls are seeded identically so results are always consistent), just wasted work -- any request needing both daily and weekly data for the same ticker (e.g. the stock-analysis page, which the e2e suite hits directly) runs the same ~420-iteration RNG loop twice. Simplify get_weekly_ohlcv to resample self.get_daily_ohlcv(ticker)'s own output instead of calling self._series(ticker) a second time.",
-      "done": false
+      "done": true
     },
     {
       "step": "frontend/playwright.config.ts is not included in either tsconfig.app.json's or tsconfig.node.json's `include` array, so `npx tsc -b --noEmit` (and therefore `npm run build`) never type-checks it -- Playwright only validates it at its own runtime when `npm run test:e2e` is actually invoked. Add it to tsconfig.node.json's `include` (it's a Node-context config file, matching vite.config.ts's placement) so a type error in it surfaces at build/lint time rather than only when someone happens to run the e2e suite.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],
