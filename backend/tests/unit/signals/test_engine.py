@@ -842,6 +842,40 @@ class TestAnalyseHistory:
         dates = [bar_date for bar_date, _ in history]
         assert dates == list(daily_ohlcv.index)
 
+    def test_malformed_bar_mid_history_is_dropped_from_history_entirely(self) -> None:
+        """Regression test for a currently-dormant behavior change from PR #121's
+        precompute-and-slice refactor (docs/tasks/api-stocks-indicator-history-followups-
+        followups.json, `analyse_history`'s own docstring): a malformed bar *mid*-history
+        (not just the trailing bar -- see ``TestAnalyseEndToEnd
+        .test_malformed_latest_bar_is_excluded_and_does_not_change_signal`` for that case) is
+        now omitted from the returned history entirely, since `analyse_history` cleans
+        `daily_ohlcv` once up front via `drop_malformed_daily_bars` before ever slicing it.
+
+        Confirmed against git history (the pre-PR-#121 implementation, which never cleaned
+        `daily_ohlcv` at the top of this function at all -- only `analyse()`'s own per-slice
+        clean ran): that version still emitted an entry for the malformed bar's own date, with
+        a `SignalResult` identical to the prior clean bar's (the malformed row fell out of
+        that bar's own truncated slice inside `analyse()`, leaving a slice identical to the
+        prior bar's own call) -- one entry per original row, `len(daily_ohlcv)` total. This
+        test only asserts the current (post-PR-#121) behavior -- one fewer entry, with the
+        malformed date entirely absent -- not the historical duplicate-entry behavior, which
+        no longer exists to test against directly.
+        """
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+        malformed_date = daily_ohlcv.index[10]
+        daily_with_malformed_middle_bar = daily_ohlcv.copy()
+        daily_with_malformed_middle_bar.loc[
+            malformed_date, ["open", "high", "low", "close"]
+        ] = float("nan")
+
+        history = analyse_history("TEST", daily_with_malformed_middle_bar, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv) - 1
+        dates = [bar_date for bar_date, _ in history]
+        assert malformed_date not in dates
+        assert dates == [d for d in daily_ohlcv.index if d != malformed_date]
+
     def test_from_index_skips_bars_but_keeps_full_warm_up_context(self) -> None:
         """A later bar's indicators must be identical whether computed via a full-history loop
         or via a `from_index`-trimmed one starting at that same bar -- `from_index` only

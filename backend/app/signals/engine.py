@@ -479,6 +479,22 @@ def analyse_history(
     data straight through would otherwise risk an index-mismatch ``ValueError`` from
     ``app.indicators.elder_ray`` instead of a silently-wrong result.
 
+    This top-level clean is a genuine, currently-dormant behavior change from this function's
+    pre-precomputation implementation for a caller whose ``daily_ohlcv`` has a malformed bar
+    *mid*-history (not just the trailing bar): that date's entry is now omitted from the
+    returned list entirely, rather than -- the prior behavior -- still appearing in the
+    output with a ``SignalResult`` duplicating the preceding clean bar's (since the malformed
+    row fell out of that bar's own truncated slice inside ``analyse()``'s own, still-present,
+    per-slice clean either way, leaving that slice identical to the prior bar's). See
+    ``TestAnalyseHistory.test_malformed_bar_mid_history_is_dropped_from_history_entirely`` for
+    a reproduction of the current (post-precomputation) behavior. The only real caller
+    (``app.api.routers.stocks.get_indicator_history``) always pre-cleans ``daily_ohlcv`` before
+    calling this function, so neither behavior is actually reachable in production today, and
+    the new one arguably fits ``drop_malformed_daily_bars``'s own contract better (no chart
+    point for a day whose data never really arrived, rather than a phantom duplicate point) --
+    but it's a real, observable difference for any future caller that doesn't pre-clean, worth
+    stating explicitly rather than leaving implicit in the precomputation change alone.
+
     ``from_index`` lets the caller skip recomputing bars it doesn't intend to return (e.g. a
     ``range``-trimmed output window) while ``daily_ohlcv`` itself still carries the full
     available history every emitted point needs for correct indicator warm-up -- passing an
@@ -500,11 +516,22 @@ def analyse_history(
     see its docstring) -- a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead
     of letting ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/
     ``evaluate_tide``) rederive them from each bar's own truncated ``daily_ohlcv``/
-    ``weekly_ohlcv`` window. This turns the O(range_size x history_length) cost into
-    O(history_length) total, still reusing ``analyse()`` unchanged for every non-precomputed
-    part of the orchestration (Screen 1/Tide's own BULLISH/BEARISH/NEUTRAL classification,
-    Screen 3/Trigger, the Impulse gate's own GREEN/RED/BLUE classification, confidence scoring)
-    rather than duplicating any Screen/signal logic here. The weekly series is precomputed only
+    ``weekly_ohlcv`` window. This turns the dominant cost of the O(range_size x history_length)
+    total into O(history_length), not the *entire* cost -- ``elder_bull_power``/
+    ``elder_bear_power`` (a vectorized High/Low - EMA(13) subtraction) are *not* among the
+    series precomputed here, since ``analyse()`` computes them itself from its own truncated
+    ``daily_ohlcv``/``ema_13`` slice every call; along with the already-acknowledged per-bar
+    volume-rolling-average (the confidence-scoring branch) and ``_weekly_through_bar_date``
+    boolean-mask costs, this leaves a residual O(i)-per-bar term, so the function's true
+    worst-case asymptotic complexity remains O(range_size x history_length) -- just with a much
+    smaller constant, since the five/eight precomputed series above were the dominant terms.
+    Confirmed empirically this residual cost doesn't matter in practice for realistic history
+    lengths (a synthetic worst-case benchmark engineered to hit the Wave screen's oversold/
+    Force-Index-spike path as often as possible still showed clean linear, not quadratic,
+    scaling up to several thousand bars -- see this task's `decisions` entry,
+    docs/tasks/api-stocks-indicator-history-followups-followups.json), which is why
+    ``elder_bull_power``/``elder_bear_power`` were left as-is rather than extended into the
+    same precompute-and-slice pattern. The weekly series is precomputed only
     when it actually has enough history/columns for ``evaluate_tide`` to use them (2+ rows and
     a ``close`` column) -- otherwise every call hits ``evaluate_tide``'s own (cheap, guard-clause)
     NEUTRAL/missing-column path regardless, so there's nothing worth precomputing. This function
