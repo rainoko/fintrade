@@ -35,5 +35,11 @@
       "rationale": "Records the concrete, checkable state ('clean, with this specific override') per the checklist's own requirement, distinguishes the one thing worth fixing (the peer conflict, now fixed) from routine version staleness (not a warning, not in scope), and gives the next person who reruns `npm install` and sees a different `npm outdated` list confidence that nothing regressed silently."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-verify-npm-install",
+    "pr_number": 115,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/115",
+    "pushed_at": "2026-09-18T12:41:26Z"
+  }
 }
