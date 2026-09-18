@@ -22,6 +22,8 @@ Confirm GitHub push/PR access actually works before dispatching any worker — a
 
 If either fails, **stop and ask the user** how they want to authenticate (generate an SSH key and register it on GitHub, or `gh auth login`) — this is the one kind of question this skill is allowed to interrupt for, since no task can complete without it.
 
+Also run `python3 scripts/validate_tasks.py` (the `validate-task-board` skill) once before dispatching anything — a malformed task JSON or an `index.json` mirror drift can send `next-task`/`task-worker` down the wrong path for whichever task it touches. Unlike the auth check above, a non-zero result here doesn't block the whole run: fix anything trivially wrong on the current branch (`main`, since nothing has been dispatched yet) and re-run the validator, or if a finding needs a real judgment call about board content, note it and proceed anyway — a validator finding on one task shouldn't stall every other ready task.
+
 ## The loop
 
 Repeat until no more progress is possible:
