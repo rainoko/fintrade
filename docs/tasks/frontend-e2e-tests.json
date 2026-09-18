@@ -51,5 +51,11 @@
       "rationale": "A plain `npm install` in `frontend/` already fails on a pre-existing, unrelated peer-dependency conflict (`openapi-typescript@7.13.0` wants `typescript@^5.x`, the repo has `typescript@~6.0.2`/`6.0.3` installed) — confirmed this reproduces on a clean `main` checkout with zero changes from this task, and is already tracked separately as the `frontend-verify-npm-install` task. `--legacy-peer-deps` was scoped to just this one install command (not added to a persistent `.npmrc`), and the resulting `package-lock.json`/`package.json` diff was verified to be minimal (just the three new Playwright packages), not a wholesale re-resolution of the dependency tree."
     }
   ],
+  "git": {
+    "branch": "task/frontend-e2e-tests",
+    "pr_number": 103,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/103",
+    "pushed_at": "2026-09-18T07:44:47Z"
+  },
   "questions": []
 }
