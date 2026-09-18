@@ -121,5 +121,10 @@
       }
     ],
     "notes": "No blocking findings. Backend/frontend test suites, coverage, lint, type-check, build, and build-storybook all clean; the new e2e suite itself was executed twice by task-worker and once more independently by this review, all 12 specs passing against a freshly-started stack. Fixture data provider is correctly gated behind FINTRADE_DATA_PROVIDER_MODE=fixture, defaults to live, and is unreachable from any normal dev/production code path. --legacy-peer-deps usage is properly scoped to one install command, not baked into any committed script, and its premise (pre-existing openapi-typescript/typescript peer conflict) is independently corroborated. Three non-blocking findings (a README heading regression, a minor fixture-provider efficiency note, and a tsconfig completeness gap for playwright.config.ts) filed as docs/tasks/frontend-e2e-tests-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T07:57:27Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (559 passed, 99.86% coverage) and frontend vitest run --coverage (35 files/205 tests, 99.71% stmts/99.64% branches), both matching pr-reviewer's reported numbers exactly. Independently ran npm run test:e2e against a freshly-started stack: 12/12 specs passed in 18s with real HTTP traffic to the fixture-backed backend, ports released cleanly afterward. Verified in source (not just trusted the review): Settings.data_provider_mode defaults to \"live\" (backend/app/config.py:25) and FINTRADE_DATA_PROVIDER_MODE is set nowhere in the repo except frontend/playwright.config.ts:71's webServer block; --legacy-peer-deps appears nowhere in Makefile's install target, package.json scripts, or any .npmrc (repo has none) -- confirmed via targeted grep, not just review notes. Skimmed the full diff (Makefile, config.py, dependencies.py, fixture_provider.py, playwright.config.ts, vite.config.ts) myself; matches the review's description with no underweighted findings."
   }
 }
