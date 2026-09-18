@@ -30,5 +30,11 @@
       "rationale": "The task's own title ('Every ticker list in the UI shows its BUY/HOLD/SELL signal') is a literal instruction, and RiskPanel's table is a ticker list users look at alongside the others. Exit flags (risk-driven, 'should I get out of a position I already hold') and a fresh entry signal (Elder's Triple Screen, 'would I buy/sell this ticker today') are genuinely different concepts per the task description, but nothing stops them coexisting in the same row -- a HOLD signal next to a stop_hit exit flag is meaningful information, not noise. Rejected: (1) leaving RiskPanel unchanged -- under-delivers on the literal task title for a table that already lists tickers prominently; (2) having the backend add `signal` to RiskPosition -- GET /api/portfolio already returns it per-ticker (api-portfolio-position-signal), so duplicating it into a second response only for RiskPanel's convenience would be scope creep, redundant, and risks the two responses drifting out of sync for a ticker whose signal changes between the two fetches; cross-referencing client-side (the same pattern RiskPanel already uses for its missingTickers note) avoids all of that with no backend change needed. A ticker present in `riskPositions` but with no matching entry in `positions` (or whose PositionOut.signal is null) falls back to the same '—' WatchlistTable/PositionsTable/PositionsGlanceTable use."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-lists-show-signal",
+    "pr_number": 120,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/120",
+    "pushed_at": "2026-09-18T21:17:26Z"
+  }
 }
