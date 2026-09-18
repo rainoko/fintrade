@@ -301,8 +301,9 @@ def get_indicator_history(
     lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
     `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
     task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
-    docstring for why Screen 1/Tide is held at its current value across the whole series
-    rather than recomputed per day.
+    docstring (plus `app.signals.engine._weekly_through_bar_date`) for how Screen 1/Tide is
+    itself recomputed per bar from only the weekly data available as of that bar's own
+    calendar week -- not held fixed at today's value.
 
     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. Malformed
     bars (NaN OHLC, see `app.signals.engine.drop_malformed_daily_bars`) are dropped from
@@ -336,7 +337,7 @@ def get_indicator_history(
 
     points = [
         IndicatorHistoryPoint(
-            date=bar_date.date() if hasattr(bar_date, "date") else bar_date,
+            date=bar_date.date(),
             ema_13=result.indicators["ema_13"],
             ema_26=result.indicators["ema_26"],
             macd_histogram=result.indicators["macd_histogram"],

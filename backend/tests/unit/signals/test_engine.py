@@ -25,17 +25,17 @@ each Screen 1/2/3 + Impulse combination explicitly" guidance:
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from app.signals.confidence import ConfidenceComponent
 from app.signals.engine import (
     _determine_signal,
     _wave_lookback,
+    _weekly_through_bar_date,
     analyse,
     analyse_history,
     drop_malformed_daily_bars,
 )
-from app.signals.triple_screen import TideResult
+from app.signals.triple_screen import TideResult, evaluate_tide
 
 
 def _daily_ohlcv(n: int) -> pd.DataFrame:
@@ -860,11 +860,14 @@ class TestAnalyseHistory:
 
         assert history == []
 
-    def test_weekly_ohlcv_is_never_truncated_tide_constant_across_series(self) -> None:
-        """Screen 1 (Tide) is weekly-derived and, per this function's own documented
-        decision, is held at its current (full weekly_ohlcv) value for every point in the
-        series rather than recomputed from a per-day-truncated weekly frame -- see this
-        task's `decisions` entry."""
+    def test_tide_constant_when_all_weekly_data_precedes_daily_range(self) -> None:
+        """Screen 1 (Tide) IS point-in-time recomputed per bar (see
+        ``TestAnalyseHistoryTideLookAhead`` below) -- but in this particular fixture every
+        weekly bar in ``_dated_buy_weekly_ohlcv()`` (2025 dates) already precedes every daily
+        bar in ``_dated_buy_daily_ohlcv()`` (2026 dates), so each bar's as-of-that-week weekly
+        truncation includes the *entire* weekly series regardless of which daily bar it's
+        computed for -- the constant BULLISH tide here is a property of this fixture's dates,
+        not evidence Tide is held fixed in general."""
         daily_ohlcv = _dated_buy_daily_ohlcv()
         weekly_ohlcv = _dated_buy_weekly_ohlcv()
 
@@ -884,3 +887,101 @@ class TestAnalyseHistory:
 
         ema_13_values = {result.indicators["ema_13"] for _, result in history}
         assert len(ema_13_values) > 1
+
+
+def _flipping_tide_weekly_ohlcv(n_weeks: int = 31) -> pd.DataFrame:
+    """Weekly closes that rise 5%/week for the first 20 weeks (a real BULLISH tide, per
+    ``evaluate_tide``) then fall 10%/week for the rest -- by week ``n_weeks=31`` this produces
+    a BEARISH tide when evaluated against the *full* series (confirmed via
+    ``test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value`` below), while the
+    first ~20 weeks were genuinely BULLISH at the time. Used to catch Screen 1 look-ahead
+    bias: a historical bar within the first 20 weeks must reflect the BULLISH tide that
+    actually held then, not the BEARISH tide the full (today's) series later reaches."""
+    closes = []
+    close = 100.0
+    for week in range(n_weeks):
+        close *= 1.05 if week < 20 else 0.90
+        closes.append(close)
+    index = pd.date_range("2025-01-03", periods=n_weeks, freq="W-FRI", name="date")
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": 1_000_000,
+        },
+        index=index,
+    )
+
+
+def _flat_daily_ohlcv_spanning(weekly_ohlcv: pd.DataFrame) -> pd.DataFrame:
+    """One daily bar per calendar day spanning ``weekly_ohlcv``'s full date range (inclusive),
+    with a flat/placeholder price -- only the dates matter for the look-ahead tests below,
+    which read Screen 1 (Tide) off each bar and don't otherwise depend on daily price action."""
+    index = pd.date_range(weekly_ohlcv.index[0], weekly_ohlcv.index[-1], freq="D", name="date")
+    close = [100.0] * len(index)
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": [c + 0.3 for c in close],
+            "low": [c - 0.3 for c in close],
+            "close": close,
+            "volume": 1_000_000,
+        },
+        index=index,
+    )
+
+
+class TestAnalyseHistoryTideLookAhead:
+    """Regression coverage for the Screen 1 (Tide) look-ahead bias fix (this task's `review`
+    finding on docs/tasks/api-stocks-indicator-history.json): ``analyse_history`` must gate
+    each historical point against the Tide *as of that bar's own date*, not against whatever
+    Tide the full (today's) weekly series currently shows -- see
+    ``app.signals.engine._weekly_through_bar_date``.
+    """
+
+    def test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value(self) -> None:
+        weekly_ohlcv = _flipping_tide_weekly_ohlcv()
+        daily_ohlcv = _flat_daily_ohlcv_spanning(weekly_ohlcv)
+
+        todays_tide = evaluate_tide(weekly_ohlcv).trend
+        assert todays_tide == "BEARISH"  # sanity check on the fixture itself
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+        tides_by_date = {bar_date: result.screens["tide"]["trend"] for bar_date, result in history}
+
+        # An early bar, well within the 20-week bullish run, must reflect the tide that
+        # actually held then -- not today's (since-flipped) BEARISH tide.
+        early_bar_date = weekly_ohlcv.index[4]  # the Friday of week 5, still in the rising run
+        assert tides_by_date[early_bar_date] == "BULLISH"
+        assert tides_by_date[early_bar_date] != todays_tide
+
+    def test_last_point_still_matches_todays_full_series_tide(self) -> None:
+        """The fix must not break the pre-existing "last point matches /analysis" invariant --
+        see this task's `decisions` entry for why truncating by the calendar week containing
+        each bar's date (rather than by the date directly) is what makes this hold."""
+        weekly_ohlcv = _flipping_tide_weekly_ohlcv()
+        daily_ohlcv = _flat_daily_ohlcv_spanning(weekly_ohlcv)
+
+        expected = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        last_date, last_result = history[-1]
+        assert last_date == daily_ohlcv.index[-1]
+        assert last_result.screens["tide"] == expected.screens["tide"]
+
+    def test_earlier_bar_sees_fewer_weekly_bars_than_a_later_bar(self) -> None:
+        """Direct check on the truncation helper itself: an earlier daily bar's as-of weekly
+        window has fewer rows than a later one's, and the latest bar's window is the full
+        weekly series -- confirming the truncation is actually happening (not a no-op) while
+        still preserving the last-point invariant."""
+        weekly_ohlcv = _flipping_tide_weekly_ohlcv()
+        daily_ohlcv = _flat_daily_ohlcv_spanning(weekly_ohlcv)
+
+        early_window = _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[10])
+        late_window = _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[-1])
+
+        assert len(early_window) < len(late_window)
+        assert len(late_window) == len(weekly_ohlcv)
+        pd.testing.assert_frame_equal(late_window, weekly_ohlcv)

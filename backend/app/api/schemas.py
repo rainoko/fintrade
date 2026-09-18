@@ -107,7 +107,7 @@ class IndicatorHistoryPoint(BaseModel):
 
 class IndicatorHistoryResponse(BaseModel):
     ticker: str
-    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) is not point-in-time recomputed per bar -- every entry reflects the current weekly Tide, matching how /analysis itself always uses the latest available weekly series rather than one truncated to a specific date (see the api-stocks-indicator-history task's decisions).")
+    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).")
 
 
 # --- /api/portfolio -------------------------------------------------------
