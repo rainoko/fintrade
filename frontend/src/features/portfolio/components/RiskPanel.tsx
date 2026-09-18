@@ -12,6 +12,7 @@ import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBreachBanner'
 import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
 import StatCard from '../../../components/common/StatCard/StatCard'
+import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, humanizeSnakeCase } from '../../../utils/format'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
@@ -83,7 +84,12 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
   const isMissingPlural = missingTickers.length > 1
 
   const columns: DataTableColumn<RiskPosition>[] = [
-    { key: 'ticker', header: 'Ticker', sortable: true },
+    {
+      key: 'ticker',
+      header: 'Ticker',
+      sortable: true,
+      render: (row) => <TickerLink ticker={row.ticker} />,
+    },
     {
       key: 'protective_stop',
       header: 'Protective Stop',
@@ -97,7 +103,10 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
       align: 'right',
       sortable: true,
       render: (row) => (
-        <RiskPercent value={row.position_risk_pct} breached={row.two_percent_rule_breached} />
+        <RiskPercent
+          value={row.position_risk_pct}
+          breached={row.two_percent_rule_breached}
+        />
       ),
     },
     {
@@ -127,8 +136,8 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
           message={
             <>
               6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
-              equity (limit 6%). Consider trimming or closing your highest-risk position(s)
-              first.
+              equity (limit 6%). Consider trimming or closing your highest-risk
+              position(s) first.
             </>
           }
         />
@@ -149,8 +158,9 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
         >
           <Typography variant="body2" color="text.secondary">
             No risk data available for {missingTickers.join(', ')} —{' '}
-            {isMissingPlural ? 'their price' : 'its price'} or history couldn't be fetched, so{' '}
-            {isMissingPlural ? "they're" : "it's"} excluded from the risk table and total below.
+            {isMissingPlural ? 'their price' : 'its price'} or history couldn't be
+            fetched, so {isMissingPlural ? "they're" : "it's"} excluded from the risk
+            table and total below.
           </Typography>
         </Box>
       )}

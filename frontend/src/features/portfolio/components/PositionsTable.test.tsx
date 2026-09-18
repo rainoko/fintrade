@@ -1,11 +1,20 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { PositionOut } from '../../../api/portfolio'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
-import PositionsTable from './PositionsTable'
+import PositionsTable, { type PositionsTableProps } from './PositionsTable'
+
+function renderPositionsTable(positions: PositionsTableProps['positions']) {
+  return renderWithProviders(
+    <MemoryRouter>
+      <PositionsTable positions={positions} />
+    </MemoryRouter>,
+  )
+}
 
 const positions: PositionOut[] = [
   {
@@ -30,20 +39,23 @@ const positions: PositionOut[] = [
 
 describe('PositionsTable', () => {
   it('renders a row per position with formatted currency/percentage cells', () => {
-    renderWithProviders(<PositionsTable positions={positions} />)
+    renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
     const rows = within(table).getAllByRole('row').slice(1)
     expect(rows).toHaveLength(2)
 
-    expect(within(rows[0]).getByText('AAPL')).toBeInTheDocument()
+    expect(within(rows[0]).getByRole('link', { name: 'AAPL' })).toHaveAttribute(
+      'href',
+      '/stocks/AAPL',
+    )
     expect(within(rows[0]).getByText('$195.30')).toBeInTheDocument()
     expect(within(rows[0]).getByText('$228.90')).toBeInTheDocument()
     expect(within(rows[0]).getByText('+17.20%')).toBeInTheDocument()
   })
 
   it('renders an em dash for null current_price/unrealized_pnl_pct', () => {
-    renderWithProviders(<PositionsTable positions={positions} />)
+    renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
     const rows = within(table).getAllByRole('row').slice(1)
@@ -55,7 +67,7 @@ describe('PositionsTable', () => {
   })
 
   it('renders the empty state when there are no positions', () => {
-    renderWithProviders(<PositionsTable positions={[]} />)
+    renderPositionsTable([])
 
     expect(
       screen.getByText('No positions yet. Add one to get started.'),
@@ -65,7 +77,7 @@ describe('PositionsTable', () => {
 
   it('opens a confirm dialog before deleting, and cancels without deleting', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<PositionsTable positions={positions} />)
+    renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
 
@@ -79,7 +91,7 @@ describe('PositionsTable', () => {
 
   it('deletes the position on confirm', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<PositionsTable positions={positions} />)
+    renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
     await user.click(screen.getByRole('button', { name: 'Delete' }))
@@ -95,7 +107,7 @@ describe('PositionsTable', () => {
       ),
     )
     const user = userEvent.setup()
-    renderWithProviders(<PositionsTable positions={positions} />)
+    renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
     await user.click(screen.getByRole('button', { name: 'Delete' }))

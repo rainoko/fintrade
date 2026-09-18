@@ -1,11 +1,20 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetPortfolioStore } from '../../tests/mocks/handlers'
 import { server } from '../../tests/mocks/server'
 import { renderWithProviders } from '../../tests/renderWithProviders'
 import PortfolioPage from './PortfolioPage'
+
+function renderPortfolioPage() {
+  return renderWithProviders(
+    <MemoryRouter>
+      <PortfolioPage />
+    </MemoryRouter>,
+  )
+}
 
 describe('PortfolioPage', () => {
   beforeEach(() => {
@@ -17,7 +26,7 @@ describe('PortfolioPage', () => {
   })
 
   it('shows a loading state, then the equity stat cards and positions table', async () => {
-    renderWithProviders(<PortfolioPage />)
+    renderPortfolioPage()
 
     expect(screen.getByText('Loading portfolio...')).toBeInTheDocument()
 
@@ -53,7 +62,7 @@ describe('PortfolioPage', () => {
       ),
     )
 
-    renderWithProviders(<PortfolioPage />)
+    renderPortfolioPage()
 
     await waitFor(() =>
       expect(
@@ -66,7 +75,7 @@ describe('PortfolioPage', () => {
   it('surfaces a network-level ApiError via common/ErrorState', async () => {
     server.use(http.get('/api/portfolio', () => HttpResponse.error()))
 
-    renderWithProviders(<PortfolioPage />)
+    renderPortfolioPage()
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Connection error')).toBeInTheDocument()
@@ -74,7 +83,7 @@ describe('PortfolioPage', () => {
 
   it('adds a new position end to end and reflects it in the refreshed table', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<PortfolioPage />)
+    renderPortfolioPage()
 
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
@@ -102,7 +111,7 @@ describe('PortfolioPage', () => {
 
   it('deletes a position end to end and removes it from the refreshed table', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<PortfolioPage />)
+    renderPortfolioPage()
 
     await waitFor(() => expect(screen.getByText('AAPL')).toBeInTheDocument())
 

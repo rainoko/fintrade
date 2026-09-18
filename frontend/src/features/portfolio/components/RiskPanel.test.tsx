@@ -1,11 +1,20 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { PositionOut, RiskResponse } from '../../../api/portfolio'
 import { theme } from '../../../theme/theme'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
-import RiskPanel from './RiskPanel'
+import RiskPanel, { type RiskPanelProps } from './RiskPanel'
+
+function renderRiskPanel(positions: RiskPanelProps['positions']) {
+  return renderWithProviders(
+    <MemoryRouter>
+      <RiskPanel positions={positions} />
+    </MemoryRouter>,
+  )
+}
 
 const aaplPosition: PositionOut = {
   id: 'pos_123',
@@ -56,7 +65,7 @@ describe('RiskPanel', () => {
       ],
     })
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition, msftPosition]} />)
+    renderRiskPanel([aaplPosition, msftPosition])
 
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
@@ -68,6 +77,16 @@ describe('RiskPanel', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     // No exit flags on either row.
     expect(screen.getAllByText('—')).toHaveLength(2)
+
+    // Ticker cells link into stock detail (common/TickerLink).
+    expect(screen.getByRole('link', { name: 'AAPL' })).toHaveAttribute(
+      'href',
+      '/stocks/AAPL',
+    )
+    expect(screen.getByRole('link', { name: 'MSFT' })).toHaveAttribute(
+      'href',
+      '/stocks/MSFT',
+    )
 
     const aaplRow = screen.getByText('AAPL').closest('tr')
     expect(aaplRow).not.toHaveStyle({
@@ -99,7 +118,7 @@ describe('RiskPanel', () => {
       ],
     })
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition, msftPosition]} />)
+    renderRiskPanel([aaplPosition, msftPosition])
 
     await waitFor(() => expect(screen.getByText('AAPL')).toBeInTheDocument())
 
@@ -146,7 +165,7 @@ describe('RiskPanel', () => {
       ],
     })
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition]} />)
+    renderRiskPanel([aaplPosition])
 
     const banner = await screen.findByRole('alert')
     expect(banner).toHaveTextContent('6% rule breached')
@@ -173,12 +192,14 @@ describe('RiskPanel', () => {
       ],
     })
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition, msftPosition]} />)
+    renderRiskPanel([aaplPosition, msftPosition])
 
     const note = await screen.findByRole('status')
     expect(note).toHaveTextContent('MSFT')
     // Singular pronoun agreement for exactly one missing ticker.
-    expect(note).toHaveTextContent("its price or history couldn't be fetched, so it's excluded")
+    expect(note).toHaveTextContent(
+      "its price or history couldn't be fetched, so it's excluded",
+    )
 
     // MSFT never appears as a misleading zero-risk row in the risk table.
     const table = screen.getByRole('table', { name: 'Portfolio risk' })
@@ -193,7 +214,7 @@ describe('RiskPanel', () => {
     })
 
     // Both AAPL and MSFT are held but absent from the risk response.
-    renderWithProviders(<RiskPanel positions={[aaplPosition, msftPosition]} />)
+    renderRiskPanel([aaplPosition, msftPosition])
 
     const note = await screen.findByRole('status')
     expect(note).toHaveTextContent('AAPL, MSFT')
@@ -218,7 +239,7 @@ describe('RiskPanel', () => {
       ],
     })
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition]} />)
+    renderRiskPanel([aaplPosition])
 
     expect(await screen.findByText('Some future flag')).toBeInTheDocument()
   })
@@ -230,7 +251,7 @@ describe('RiskPanel', () => {
       ),
     )
 
-    renderWithProviders(<RiskPanel positions={[aaplPosition]} />)
+    renderRiskPanel([aaplPosition])
 
     expect(screen.getByText('Loading risk data...')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())

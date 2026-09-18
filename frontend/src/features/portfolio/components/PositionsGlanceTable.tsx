@@ -1,10 +1,9 @@
-import Link from '@mui/material/Link'
-import { Link as RouterLink } from 'react-router-dom'
 import type { PositionOut } from '../../../api/portfolio'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatNullableCurrency } from '../../../utils/format'
 
 export interface PositionsGlanceTableProps {
@@ -18,7 +17,10 @@ export interface PositionsGlanceTableProps {
  * management (add/delete, cost basis, entry date) stays on the Portfolio
  * page. The ticker cell links to /stocks/:ticker, giving the "quick path
  * into stock analysis" this page's description calls for directly from a
- * held position, alongside TickerSearchBox's free-text lookup.
+ * held position, alongside TickerSearchBox's free-text lookup. Ticker cell
+ * uses the shared common/TickerLink component (frontend-ticker-link) rather
+ * than its own inline Link, so this and every other ticker-displaying table
+ * (PositionsTable, RiskPanel, WatchlistTable) share one implementation.
  */
 export default function PositionsGlanceTable({ positions }: PositionsGlanceTableProps) {
   const columns: DataTableColumn<PositionOut>[] = [
@@ -26,11 +28,7 @@ export default function PositionsGlanceTable({ positions }: PositionsGlanceTable
       key: 'ticker',
       header: 'Ticker',
       sortable: true,
-      render: (row) => (
-        <Link component={RouterLink} to={`/stocks/${encodeURIComponent(row.ticker)}`}>
-          {row.ticker}
-        </Link>
-      ),
+      render: (row) => <TickerLink ticker={row.ticker} />,
     },
     { key: 'quantity', header: 'Quantity', sortable: true, align: 'right' },
     {

@@ -9,6 +9,7 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
 
@@ -26,7 +27,12 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const deletePosition = useDeletePosition()
 
   const columns: DataTableColumn<PositionOut>[] = [
-    { key: 'ticker', header: 'Ticker', sortable: true },
+    {
+      key: 'ticker',
+      header: 'Ticker',
+      sortable: true,
+      render: (row) => <TickerLink ticker={row.ticker} />,
+    },
     { key: 'quantity', header: 'Quantity', sortable: true, align: 'right' },
     {
       key: 'avg_cost_basis',
