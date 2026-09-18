@@ -3,7 +3,7 @@
   "title": "New skill: e2e-test — run and maintain the browser end-to-end test suite",
   "area": "tooling",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-e2e-tests"],
   "references": [
     "docs/tasks/frontend-e2e-tests.json",
@@ -14,12 +14,25 @@
   ],
   "description": "frontend-e2e-tests adds a real, committed browser e2e test suite. Create a `.claude/skills/e2e-test` (name TBD, record the actual choice) skill that runs and maintains it — analogous to static-verify (lint/type-check) and check-coverage (unit/component coverage gate) — giving agents and humans a documented, repeatable way to run the full e2e suite and interpret failures. This is distinct from task-qa-reviewer's existing ad hoc single-task Playwright browser walkthrough: that's an interactive, one-off manual check during task verification, while this skill runs the persisted, versioned e2e spec files frontend-e2e-tests adds.",
   "checklist": [
-    { "step": "Design the skill's scope (run the full e2e suite, report pass/fail per spec with enough detail to debug a failure) and how it differs from/relates to task-qa-reviewer's existing browser-walkthrough step; record as a decisions entry.", "done": false },
-    { "step": "Create .claude/skills/<name>/SKILL.md implementing the chosen approach, following existing skill file conventions (see static-verify, check-coverage).", "done": false },
-    { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": false },
-    { "step": "Decide whether pr-reviewer and/or task-qa-reviewer should be updated to invoke this skill for UI-facing PRs/tasks (similar to how static-verify was wired into pr-reviewer.md/task-qa-reviewer.md), and make that change if so; record the decision either way as a decisions entry.", "done": false },
-    { "step": "Run the skill once for real against the current e2e suite as a smoke test and report what it found.", "done": false }
+    { "step": "Design the skill's scope (run the full e2e suite, report pass/fail per spec with enough detail to debug a failure) and how it differs from/relates to task-qa-reviewer's existing browser-walkthrough step; record as a decisions entry.", "done": true },
+    { "step": "Create .claude/skills/<name>/SKILL.md implementing the chosen approach, following existing skill file conventions (see static-verify, check-coverage).", "done": true },
+    { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": true },
+    { "step": "Decide whether pr-reviewer and/or task-qa-reviewer should be updated to invoke this skill for UI-facing PRs/tasks (similar to how static-verify was wired into pr-reviewer.md/task-qa-reviewer.md), and make that change if so; record the decision either way as a decisions entry.", "done": true },
+    { "step": "Run the skill once for real against the current e2e suite as a smoke test and report what it found.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T08:17:49Z",
+      "recorded_by": "task-worker",
+      "decision": "New skill named `e2e-test`, at `.claude/skills/e2e-test/SKILL.md`. Scope: check prerequisites (Chromium binary present, ports 8000/5173 free), run `make e2e` (the full persisted suite, non-interactively, via the real Playwright Test runner), report pass/fail per spec file with test names for failures, and point to the artifacts Playwright already collects (`frontend/playwright-report/`, traces, screenshots, piped webServer stdout/stderr) to distinguish a real regression from a flake/environment issue. It never fixes a failing spec or the app code behind it, and never loosens an assertion to force green (same \"don't fake the bar\" convention as `check-coverage`/`test-90`).",
+      "rationale": "Mirrors `static-verify`/`check-coverage`'s own scope (run existing tooling, report status, don't fix) rather than `test-90`'s (actively close gaps) — there is no existing e2e-equivalent of `test-90` needed yet since the suite is small and new; if e2e coverage gaps become a recurring problem, a `test-90`-style counterpart can be added later as its own decision. Named `e2e-test` (matching the task title's own suggested name, and reading naturally next to `test-90`/`check-coverage`) rather than e.g. `check-e2e` or `run-e2e` — no other skill uses a `check-`/`run-` verb prefix for a whole-suite runner except `check-coverage`, and `e2e-test` reads as 'the e2e counterpart to `test-90`' without implying it also *writes* tests. Distinguished explicitly from `task-qa-reviewer`/`pr-reviewer`'s existing ad hoc Playwright **MCP** browser walkthrough in the skill's own \"Relationship to Other Checks\" section: that walkthrough is an interactive, one-off exploration of one specific task/PR's new behavior, driven tool-call by tool-call and improvised each time; this skill instead runs the **persisted, versioned** spec files (`frontend/tests/e2e/*.spec.ts`) through the actual Playwright Test runner — a fixed regression suite that exists independently of any one review, and can catch a regression in a page the current change never touched. The two are complementary (documented as \"run both, neither substitutes for the other\"), not a replacement of one by the other."
+    },
+    {
+      "timestamp": "2026-09-18T08:17:49Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired the new `e2e-test` skill into both `pr-reviewer.md` (new step 9a, immediately after the existing browser-walkthrough step 9) and `task-qa-reviewer.md` (new step 5a, after the existing browser-walkthrough step 5) — both agents now run the full persisted e2e suite for any PR/task where the existing browser-walkthrough step already applies (UI-facing work), and a non-flake failing spec is treated as review-blocking (pr-reviewer) / at least `major` (task-qa-reviewer).",
+      "rationale": "Same rationale that already justified wiring `static-verify` into both agents: the suite is fast (~18s for the current 4 spec files / 12 tests, confirmed by this task's own smoke test run), fully automated (no MCP tool-call-by-tool-call scripting needed), and catches a class of regression neither the manual walkthrough (scoped to the current change only) nor the mocked vitest/pytest suites (no real browser, no real cross-process HTTP) can: whether this PR/task silently broke an *unrelated* already-covered golden-path flow. Considered leaving it unwired and only documenting it as something a human/agent could run manually on request — rejected because that would make it exactly the kind of check CLAUDE.md's task-board rationale warns against for PR comments: valuable but easy to forget to actually run, when wiring it into the two review agents' existing steps costs one extra `Skill` call each and turns 'available if remembered' into 'always exercised for UI-facing work,' matching how `static-verify` was already treated as too important to leave optional."
+    }
+  ],
   "questions": []
 }
