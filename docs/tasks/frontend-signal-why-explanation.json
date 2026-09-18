@@ -36,5 +36,11 @@
       "alternatives_considered": "A modal/Dialog (rejected: content length doesn't warrant full-viewport focus, and a Popover keeps the explanation visually anchored to the signal it explains). A plain MUI Tooltip instead of a Popover (rejected: Tooltip's hover/focus-only trigger model doesn't suit a tap/click-to-open, dismiss-on-click-away interaction as well as Popover, and MUI's own docs steer 'rich, interactive content' toward Popover). Waiting for frontend-stock-detail-metric-help to land first and building nothing until then (rejected: the two tasks are explicitly independent with no ordering requirement, and blocking on an unstarted sibling task would stall this one for no documented reason)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-signal-why-explanation",
+    "pr_number": 125,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/125",
+    "pushed_at": "2026-09-18T23:14:46Z"
+  }
 }
