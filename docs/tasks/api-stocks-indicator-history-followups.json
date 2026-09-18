@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #100 review (api-stocks-indicator-history)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "docs/tasks/api-stocks-indicator-history.json",
@@ -13,13 +13,27 @@
   "checklist": [
     {
       "step": "backend/app/signals/engine.py's analyse_history() is O(range_size x full_history_length) -- each per-bar analyse() call recomputes EMA/MACD/Elder-Ray/Stochastic/Force-Index (plus up to 5 extra evaluate_wave calls via _wave_lookback) from scratch over an increasingly large slice, synchronously in the request handler. Accepted as a documented tradeoff for the default range=1y, but range=max is an explicitly supported, tested input and a real multi-second-plus latency risk for tickers with several years of daily history. Consider a caching layer or an incremental (non-recompute-from-scratch) implementation.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/app/api/routers/stocks.py:339 -- `bar_date.date() if hasattr(bar_date, \"date\") else bar_date` guards a branch that can't currently occur (daily_ohlcv.index is always a DatetimeIndex of pd.Timestamps by this point), so the else is dead code that gives false protection. Either drop the hasattr guard (call .date() directly) or add a comment explaining why it's defensive, and confirm a future non-Timestamp index would fail loudly (Pydantic validation) rather than silently passing through.",
       "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T21:57:14Z",
+      "recorded_by": "task-worker",
+      "decision": "Worked this task from the actual task JSON's checklist state (item 1, the O(range_size x history_length) analyse_history() performance item, was the real remaining `done: false` item; item 2, the dead hasattr branch, was already `done: true` -- and confirmed already removed from backend/app/api/routers/stocks.py in PR #100's own second round, per that PR's commit history) rather than the dispatch instruction's summary, which had the two items' done/remaining status backwards. No code change was needed or made for item 2; this PR's entire diff addresses item 1.",
+      "rationale": "The task file (the authoritative source per CLAUDE.md's task-board rules) and the actual repository state (backend/app/api/routers/stocks.py:340 already reads `date=bar_date.date()` with no hasattr guard anywhere in the file, confirmed via `git show` on the PR #100 merge commit) both directly contradicted the dispatch summary. Re-doing an already-completed, already-verified fix would have been wasted/risky busywork; leaving the genuinely open O(n^2) performance item undone would have left the task incomplete despite the dispatch text's framing."
+    },
+    {
+      "timestamp": "2026-09-18T21:57:14Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the O(range_size x history_length) cost by precomputing every causal/rolling-window indicator analyse_history() needs exactly once over the full (cleaned) daily_ohlcv/weekly_ohlcv, then passing analyse() a cheap positional .iloc[:k] slice of each precomputed series per bar instead of letting analyse() (and, transitively, _wave_lookback/evaluate_wave/evaluate_tide) rederive them from each bar's own truncated window. Extended this to all five indicators the checklist item named (EMA(13)/EMA(26)/MACD-Histogram/Stochastic-%K/Force-Index-2EMA, via new optional keyword params on analyse()/evaluate_wave()/_wave_lookback()) plus, after profiling showed it was actually the next-largest remaining cost, Screen 1 (Tide)'s own weekly EMA(13)/EMA(26)/MACD-Histogram (new optional weekly_ema_13/weekly_ema_26/weekly_histogram params on analyse(), forwarded to evaluate_tide()'s pre-existing like-named params from the portfolio-exit-rules-followups task) and the redundant per-bar drop_malformed_daily_bars rescan (a new private analyse(..., _daily_ohlcv_already_clean=True) escape hatch used only by analyse_history(), which already cleans the full frame once up front). Did not further optimize _weekly_through_bar_date's own boolean-mask construction or the volume-rolling-average call inside analyse()'s confidence-scoring branch -- both are real per-bar costs but were not named in the checklist item and profiling after the above fixes showed neither stands out as a remaining O(n) time sink (verified via cProfile at n=2000/4000 bars; scaling from n=1000 to n=4000 daily bars is now linear, ~2x time per 2x bars, not quadratic).",
+      "rationale": "The five named daily indicators were the checklist item's explicit target and the biggest cost by far in an initial profile (~2x wall-clock improvement alone). But profiling after that first pass showed Screen 1's weekly-side recompute and the redundant drop_malformed_daily_bars rescan had become the new dominant costs (together >50% of remaining time) -- leaving them unaddressed would have left the checklist item's own stated concern (\"a real multi-second-plus latency risk for tickers with several years of daily history\") only partially resolved. All three additions reuse the same established, already-precedented pattern in this codebase (evaluate_tide/evaluate_impulse's own optional precomputed-series parameters, from the portfolio-exit-rules-followups task) rather than inventing a new caching layer or duplicating any Screen/signal logic -- lower risk than the alternative of maintaining a second, parallel implementation of analyse()'s orchestration just for the history endpoint. Chose a private (leading-underscore) keyword-only parameter for the drop_malformed_daily_bars skip specifically, rather than making it public, since it depends on a caller-provided guarantee (already-clean input) that only analyse_history() can actually prove -- an ordinary public caller must not be able to opt out of the safety check by mistake. Measured net effect: analyse_history() over a synthetic 2000-daily-bar/~400-weekly-bar series dropped from ~6.0s to ~1.4s (a ~4.3x speedup), with linear (not quadratic) scaling confirmed up to 5000 bars (~3.6s) -- verified via a throwaway benchmark script (not committed) comparing against the pre-change implementation checked out via `git show`.",
+      "alternatives_considered": "A full caching layer (e.g. per-ticker memoized indicator series keyed by a cache invalidation policy) was rejected as unnecessary complexity for a single-request code path with no cross-request reuse need -- the existing app.data.cache module already handles the actual cross-request caching concern (raw OHLCV fetches), and this task's cost is pure in-process recomputation, not I/O. Skipping the weekly-Tide and drop_malformed_daily_bars optimizations (stopping at just the five named daily indicators) was considered and rejected after profiling showed they'd become the dominant remaining cost, per the rationale above."
+    }
+  ],
   "questions": []
 }
