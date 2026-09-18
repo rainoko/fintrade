@@ -26,21 +26,27 @@
       "done": true
     }
   ],
+  "git": {
+    "branch": "task/frontend-signal-why-explanation-followups",
+    "pr_number": 126,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/126",
+    "pushed_at": "2026-09-18T23:34:33Z"
+  },
   "decisions": [
     {
-      "timestamp": "2026-09-18T00:00:00Z",
+      "timestamp": "2026-09-18T23:34:33Z",
       "recorded_by": "task-worker",
       "decision": "Fixed the subject-verb agreement bug by picking 'aren't' vs 'isn't' based on `otherBlockers.length > 1` rather than rephrasing the sentence to avoid a shared verb entirely.",
       "rationale": "Keeps the existing single-blocker wording (and its existing test assertions in signalExplanation.test.ts, e.g. /the Impulse gate also isn.t met/ and /Trigger.*isn.t met/) unchanged, minimizing the diff, while fixing the only actually-wrong case (both blockers present). A full rephrase (e.g. 'neither X nor Y is met') was considered and rejected as a larger, non-required change to text that's otherwise correct."
     },
     {
-      "timestamp": "2026-09-18T00:00:00Z",
+      "timestamp": "2026-09-18T23:34:33Z",
       "recorded_by": "task-worker",
       "decision": "For the Trigger 'not fired' detail, special-cased `screens.trigger.reference === 'not_applicable'` to render \"there isn't enough daily price history yet to compare today's close against a prior high/low\" instead of the normal \"price hasn't closed back above/below... (reference: Not applicable)\" wording, leaving `met` (already `false` in this state) untouched.",
       "rationale": "The task's own analysis (checklist item 2) already narrowed this to a <2-daily-bars edge case, distinct from the Tide-Neutral case (which is handled earlier and never reaches this directional branch at all). The new wording names the actual reason (insufficient daily history) rather than a generic 'not applicable', avoiding the self-contradiction of pairing a directional claim with 'reference: Not applicable' while making no claim about whether price crossed a level that can't yet be computed. No change to any condition's `met` value, per the task description's own note that these findings don't affect correctness of `met`."
     },
     {
-      "timestamp": "2026-09-18T00:00:00Z",
+      "timestamp": "2026-09-18T23:34:33Z",
       "recorded_by": "task-worker",
       "decision": "Added the missing 'Wave already shows today, but Impulse/Trigger blocks' HOLD test(s) using the task's suggested fixture (tide BULLISH, waveState OVERSOLD_PULLBACK, impulse RED) split into an Impulse-only-blocks case (triggerFired true) and a both-block case (triggerFired false), rather than a single combined test.",
       "rationale": "The Impulse-only case matches the task's exact suggested example and asserts the single-blocker headline; the both-block variant was added alongside it since it's the same code path already touched by the subject-verb-agreement fix in this task and costs little to cover explicitly rather than leaving it implied by the other two changes' individual tests."
