@@ -3,7 +3,7 @@
   "title": "Backend: watchlist CRUD endpoints, annotated with each ticker's current signal",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["watchlist-domain-models"],
   "references": [
     "docs/Analyse.md#5-signal-logic-buy--sell--hold",
@@ -14,12 +14,25 @@
   ],
   "description": "User request: watchlist should signal when to buy. Add CRUD endpoints for the watchlist added by watchlist-domain-models: GET /api/watchlist (list every watched ticker, each annotated with its current signal/confidence by reusing the existing signal engine per docs/Analyse.md §5 -- the same analyse() logic /api/stocks/{ticker}/analysis already calls, NOT a separately-implemented buy check, per the project's 'one place, testable once' principle), POST /api/watchlist (add a ticker), DELETE /api/watchlist/{ticker} (remove one). Decide and record as a decisions entry how to handle a ticker whose signal computation fails (e.g. an invalid/delisted ticker, or a data-provider failure) -- most consistent with PositionOut's existing current_price/unrealized_pnl_pct nullable-on-failure pattern is a nullable signal field on that watchlist entry rather than failing the whole list.",
   "checklist": [
-    { "step": "Decide the failure-mode handling for a watchlist ticker whose signal can't be computed (nullable field vs. per-item error marker) and record as a decisions entry.", "done": false },
-    { "step": "Implement GET /api/watchlist, POST /api/watchlist, DELETE /api/watchlist/{ticker} in a new backend/app/api/routers/watchlist.py, reusing the existing signal engine (backend/app/signals/) rather than reimplementing buy-check logic.", "done": false },
-    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": false },
-    { "step": "Tests: adding/removing a ticker, listing with a mix of computable and failing signals, duplicate-add handling (decide and record behavior, mirroring the duplicate-ticker decision already made for api-portfolio-add-position).", "done": false },
-    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": false }
+    { "step": "Decide the failure-mode handling for a watchlist ticker whose signal can't be computed (nullable field vs. per-item error marker) and record as a decisions entry.", "done": true },
+    { "step": "Implement GET /api/watchlist, POST /api/watchlist, DELETE /api/watchlist/{ticker} in a new backend/app/api/routers/watchlist.py, reusing the existing signal engine (backend/app/signals/) rather than reimplementing buy-check logic.", "done": true },
+    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": true },
+    { "step": "Tests: adding/removing a ticker, listing with a mix of computable and failing signals, duplicate-add handling (decide and record behavior, mirroring the duplicate-ticker decision already made for api-portfolio-add-position).", "done": true },
+    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A watchlist entry whose signal can't be computed right now (unknown/delisted ticker -> TickerNotFoundError, <26 weeks of weekly history -> InsufficientHistoryError, or the data provider being unreachable -> DataProviderUnavailableError -- collectively caught as the shared app.data.exceptions.DataProviderError base) gets a nullable signal/confidence/confidence_band on that GET /api/watchlist entry (all three null together, never a partial mix), rather than the whole list request failing or that entry being silently dropped from `items`.",
+      "rationale": "Matches the task description's own steer and directly mirrors the precedent PositionOut already set for current_price/unrealized_pnl_pct in GET /api/portfolio: a per-item enrichment step (market data fetch, here feeding the signal engine instead of a price lookup) can fail independently of the item's own validity, and the existing convention in this codebase is null-that-field, not fail-the-whole-response. Rejected the GET /api/portfolio/risk precedent (silently excluding the position from the list entirely) as the wrong model here: that endpoint's own decisions record explicitly reasons from RiskPosition being a *non-nullable* schema (every field required, no natural null slot) -- WatchlistItemOut has no such constraint, and a user's watchlist is specifically a set of *tickers they typed in and want to keep watching*; silently vanishing one because of a transient data-provider hiccup would look like their own remove action fired without them doing it, which is worse than a visibly-blank signal cell. Rejected a per-item error-code/string marker in the same field/an adjacent field as needlessly heavier: the API.md-documented error taxonomy (404/422/503) already exists at the endpoint level for the two /api/stocks/{ticker}/* routes and a client that wants the specific failure reason for a given ticker can already re-fetch GET /api/stocks/{ticker}/analysis directly to get it; this endpoint's job is just 'can I currently show you a signal for this ticker, yes or no'. The catch is scoped to DataProviderError only (not a bare except Exception) so a genuine bug inside analyse() itself still surfaces as a loud test/CI failure rather than being silently absorbed into a null."
+    },
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "POST /api/watchlist for a ticker that's already on the watchlist is an idempotent no-op: the existing row (with its original added_at, unchanged) is returned, still with 201, rather than creating a duplicate, rejecting with 409/422, or resetting added_at to now.",
+      "rationale": "Checked the api-portfolio-add-position precedent this checklist item explicitly points at: that task chose merge-not-reject because PositionIn/PositionOut carry mergeable numeric fields (quantity, avg_cost_basis) where averaging up/down mirrors real brokerage behavior. WatchlistItemIn/WatchlistItemORM carries no such field -- the entire identity of a watchlist row IS its ticker (ticker is the primary key per watchlist-domain-models' own decision record), and added_at is a system-set timestamp, not user input, so there is nothing for a second POST of the same ticker to actually merge; the only real question is what happens to added_at. Resetting added_at to 'now' on a re-add was considered and rejected: it would silently discard the fact this ticker has genuinely been watched since its original add date (visible in a future 'watching since' UI), for no benefit -- the user's watchlist membership doesn't change by POSTing again. Rejecting with 409/422 was also considered and rejected: unlike the portfolio-positions case there's no ambiguity to force the client to resolve (there's only one possible existing state to converge to -- 'still on the watchlist'), so a 409 would just make the client's own 'ensure this ticker is on my watchlist' logic (the realistic caller-side use case, e.g. an 'add' button that doesn't first check whether it's already there) do a GET-then-conditionally-POST dance for no benefit; a plain idempotent no-op is standard REST practice for an operation whose target state (this ticker is watched) is already satisfied. Always returning 201 (not 200) keeps this consistent with add_position's own established convention -- 'the response is always 201 ... whether the request created a new row or merged into one' -- extended here to 'or matched one already there'."
+    }
+  ],
   "questions": []
 }

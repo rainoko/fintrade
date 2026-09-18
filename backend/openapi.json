@@ -657,6 +657,104 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WatchlistItemIn": {
+        "properties": {
+          "ticker": {
+            "description": "Stock ticker symbol to watch, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker already on the watchlist is a no-op that returns the existing entry unchanged (original added_at kept) rather than creating a duplicate row or rejecting with 409/422 -- see the api-watchlist task's `decisions`.",
+            "minLength": 1,
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker"
+        ],
+        "title": "WatchlistItemIn",
+        "type": "object"
+      },
+      "WatchlistItemOut": {
+        "properties": {
+          "added_at": {
+            "description": "When this ticker was added to the watchlist (UTC).",
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same 0-100 weighted composite score as AnalysisResponse.confidence. Null under the same condition as `signal`.",
+            "title": "Confidence"
+          },
+          "confidence_band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Low",
+                  "Medium",
+                  "High"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.",
+            "title": "Confidence Band"
+          },
+          "signal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "BUY",
+                  "SELL",
+                  "HOLD"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis uses (docs/Analyse.md \u00a75) -- not a separately-implemented buy check. Null only if the signal couldn't be computed for this ticker right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable), mirroring PositionOut's current_price null-on-failure pattern -- see the api-watchlist task's `decisions`.",
+            "title": "Signal"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticker",
+          "added_at"
+        ],
+        "title": "WatchlistItemOut",
+        "type": "object"
+      },
+      "WatchlistResponse": {
+        "properties": {
+          "items": {
+            "description": "Every watched ticker, ordered by when it was added (oldest first).",
+            "items": {
+              "$ref": "#/components/schemas/WatchlistItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "WatchlistResponse",
+        "type": "object"
+      },
       "WaveScreen": {
         "properties": {
           "force_index_2ema": {
@@ -1071,6 +1169,114 @@
         "summary": "Get historical indicator values and the resulting signal for each daily bar",
         "tags": [
           "stocks"
+        ]
+      }
+    },
+    "/api/watchlist": {
+      "get": {
+        "description": "Every ticker on the watchlist, each annotated with its current BUY/SELL/HOLD signal\nand confidence by re-running the same Triple Screen signal engine\n`GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`,\ndocs/Analyse.md \u00a75) -- so \"does the watchlist signal a buy\" always agrees with what a\ndirect lookup of that ticker's analysis page would say, with no second implementation of\nthe buy check to drift out of sync.\n\n`signal`/`confidence`/`confidence_band` are null together on an entry whose signal\ncouldn't be computed right now (unknown/delisted ticker, insufficient history, or the\ndata provider being unavailable) -- this endpoint never fails or drops an entry just\nbecause one watched ticker's data is temporarily/permanently unavailable; see this\ntask's `decisions` entry. Ordered by `added_at` (oldest first), then `ticker` as a\ntiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s deterministic\nordering convention (`app.api.routers.portfolio._ordered_positions`).",
+        "operationId": "get_watchlist",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List every watched ticker with its current signal",
+        "tags": [
+          "watchlist"
+        ]
+      },
+      "post": {
+        "description": "Adds `ticker` to the watchlist. Adding a ticker that's already watched is a no-op:\nthe existing entry (with its original `added_at`) is returned unchanged, still with\n`201`, rather than creating a duplicate row or rejecting with `409`/`422` -- see this\ntask's `decisions` entry for the full rationale.\n\n`signal`/`confidence`/`confidence_band` are always `null` in this response: annotation\nhappens on read (`GET /api/watchlist`), not on write -- mirroring\n`POST /api/portfolio/positions`'s `current_price`/`unrealized_pnl_pct`\nnull-on-write convention.",
+        "operationId": "add_watchlist_item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistItemIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add a ticker to the watchlist",
+        "tags": [
+          "watchlist"
+        ]
+      }
+    },
+    "/api/watchlist/{ticker}": {
+      "delete": {
+        "description": "Removes `ticker` from the watchlist entirely. `ticker` is normalized to uppercase,\nmatching every other `/api/watchlist` and `/api/stocks/*` route.",
+        "operationId": "delete_watchlist_item",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticker",
+            "required": true,
+            "schema": {
+              "title": "Ticker",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Ticker not on the watchlist"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove a ticker from the watchlist",
+        "tags": [
+          "watchlist"
         ]
       }
     },

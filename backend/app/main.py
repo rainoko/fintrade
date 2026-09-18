@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.routers import portfolio, stocks
+from app.api.routers import portfolio, stocks, watchlist
 from app.db.models import Base
 from app.db.session import engine
 
@@ -33,6 +33,7 @@ app = FastAPI(
 
 app.include_router(stocks.router)
 app.include_router(portfolio.router)
+app.include_router(watchlist.router)
 
 
 def _drop_non_finite_floats(value: Any) -> Any:

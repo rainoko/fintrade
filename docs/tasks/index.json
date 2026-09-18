@@ -670,7 +670,7 @@
       "id": "api-watchlist",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/api-watchlist.json"
     },
     {
