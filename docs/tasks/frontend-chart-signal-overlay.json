@@ -3,7 +3,7 @@
   "title": "Frontend: show backend-calculated signals on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -49,5 +49,23 @@
     "pr_number": 107,
     "pr_url": "https://github.com/rainoko/fintrade/pull/107",
     "pushed_at": "2026-09-18T09:04:26Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T09:13:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/107",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: switching the chart's range preset or interval toggle after the EMA/marker overlay has rendered once crashes the whole page (AppErrorBoundary's 'Something went wrong'), reproduced live in both `npm run dev` and a production `vite build && vite preview` build against the fixture data provider (GOOGL, which has a real SELL transition). Root cause: PriceChart.tsx's two useEffects both depend on `historyQuery.data`; the code comment at lines 208-213 claims the overlay effect's cleanup runs before the candlestick effect's cleanup 'per React's reverse-declaration-order rule' -- that's backwards. React runs sibling effects' cleanups in declaration order (not reversed) when a shared dependency changes, so `chart.remove()` (effect declared first) disposes the whole chart before the overlay effect's cleanup calls `chart.removeSeries(ema13Series)` on it, which Lightweight Charts throws on synchronously ('Value is undefined' in ensureDefined/ChartApi.removeSeries). This contradicts the task's own third decisions entry that a slow/failed/empty overlay should never block the underlying chart -- in practice this is worse than blocking, it destroys the whole page on essentially any use of the chart's own existing range/interval controls once the overlay has mounted.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 214
+      },
+      {
+        "summary": "The pre-existing e2e spec (stock-analysis.spec.ts's 'range and interval toggles reload the price chart without erroring') exercises exactly the range/interval-toggle path where this crash lives, but doesn't wait for /indicators to resolve before clicking through, so it doesn't reliably catch the regression as currently written -- worth strengthening alongside the fix.",
+        "file": "frontend/tests/e2e/stock-analysis.spec.ts",
+        "line": 55
+      }
+    ],
+    "notes": "Full review run: backend pytest+coverage (99.86%, 559 passed, no regression vs. main), frontend vitest+coverage (99.53%/99.12%/100%/99.52%, 238 passed -- matches PR description), backend ruff+mypy clean, frontend eslint+tsc clean, Storybook build clean, no openapi.json/API-types diff needed (no schema change in this PR). useIndicatorHistory's shape/keying looks genuinely reusable for frontend-oscillator-chart as intended. All three decisions entries are well-reasoned and the checklist's 'decide X' item has a corresponding decision record. The golden-path browser walkthrough (initial load) renders the EMA13/EMA26 lines and a correctly-placed transition-only SELL marker exactly as designed -- the blocking finding is specifically about post-load interaction (range/interval change), not the initial overlay rendering itself. Two minor non-blocking findings (repeated 3x array iteration, duplicated JSX guard condition) plus the e2e-coverage gap above filed on docs/tasks/frontend-chart-signal-overlay-followups.json. Posted verdict as a COMMENTED-type PR review (gh pr review 107 --comment), not a formal approve/request-changes."
   }
 }

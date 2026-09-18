@@ -663,8 +663,15 @@
       "id": "frontend-chart-signal-overlay",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-chart-signal-overlay.json"
+    },
+    {
+      "id": "frontend-chart-signal-overlay-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-chart-signal-overlay-followups.json"
     },
     {
       "id": "frontend-oscillator-chart",

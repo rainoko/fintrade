@@ -1,0 +1,31 @@
+{
+  "id": "frontend-chart-signal-overlay-followups",
+  "title": "Non-blocking follow-ups from PR #107 review (frontend-chart-signal-overlay)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-chart-signal-overlay"],
+  "references": [
+    "docs/tasks/frontend-chart-signal-overlay.json",
+    "https://github.com/rainoko/fintrade/pull/107",
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/tests/e2e/stock-analysis.spec.ts"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #107 (frontend-chart-signal-overlay), recorded here so they aren't lost once that PR merges. None of these blocked the PR on their own (the blocking finding — the effect-cleanup-ordering crash — is tracked as a needs_work verdict on the parent task itself, not here).",
+  "checklist": [
+    {
+      "step": "PriceChart.tsx's overlay effect iterates `points` three separate times (once each for the EMA13 series data, the EMA26 series data, and inside buildSignalMarkers) instead of building all three outputs in a single pass. Harmless at current data sizes but wasted work that scales with the requested range (up to 'max').",
+      "done": false
+    },
+    {
+      "step": "The four-clause overlay-state guard (`historyQuery.isSuccess && hasBars && overlayEnabled && ...`) is duplicated verbatim across three separate JSX blocks (loading/error/empty) in PriceChart.tsx instead of being computed once into a single boolean and reused — a maintenance hazard if the gating condition ever needs to change.",
+      "done": false
+    },
+    {
+      "step": "frontend/tests/e2e/stock-analysis.spec.ts's 'range and interval toggles reload the price chart without erroring' test exercises the exact range/interval-toggle path where the parent task's blocking crash was found, but doesn't wait for the /indicators overlay to actually mount before interacting, so it doesn't reliably catch overlay-related regressions on that path. Once the parent task's crash fix lands, strengthen this spec (or add a new one) to explicitly wait for the overlay to render before toggling range/interval, and assert the chart (and ideally the overlay) survives the interaction rather than only checking price-chart-canvas visibility.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
