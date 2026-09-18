@@ -3,18 +3,37 @@
   "title": "Verify `npm install` completes cleanly in frontend/",
   "area": "frontend/tooling",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/package.json"
   ],
   "description": "Verify that `npm install` in frontend/ completes without errors on a clean checkout (no stale node_modules/package-lock.json), and triage any warnings (peer dependency conflicts, deprecated package notices, engine mismatches) — fixing what's actionable and explicitly recording what's intentionally left as-is. A standalone verification/audit task, not gated on other frontend work.",
   "checklist": [
-    { "step": "Run `npm install` in frontend/ from a clean state (remove node_modules and re-run, or use `npm ci` against the committed package-lock.json) and capture the full output.", "done": false },
-    { "step": "Triage every warning/error surfaced: fix what's actionable (a version bump, a resolution/override); for anything intentionally left as-is (e.g. an upstream deprecation notice with no safe fix currently available), record why as a decisions entry rather than silently ignoring it.", "done": false },
-    { "step": "Confirm `npm run build`, `npm test`, and `npm run lint` still pass after any dependency changes made.", "done": false },
-    { "step": "Record the final `npm install` verdict (clean, or exactly what remains and why) as a decisions entry.", "done": false }
+    { "step": "Run `npm install` in frontend/ from a clean state (remove node_modules and re-run, or use `npm ci` against the committed package-lock.json) and capture the full output.", "done": true },
+    { "step": "Triage every warning/error surfaced: fix what's actionable (a version bump, a resolution/override); for anything intentionally left as-is (e.g. an upstream deprecation notice with no safe fix currently available), record why as a decisions entry rather than silently ignoring it.", "done": true },
+    { "step": "Confirm `npm run build`, `npm test`, and `npm run lint` still pass after any dependency changes made.", "done": true },
+    { "step": "Record the final `npm install` verdict (clean, or exactly what remains and why) as a decisions entry.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T12:40:09Z",
+      "recorded_by": "task-worker",
+      "decision": "Removed `frontend/node_modules` and ran a clean `npm install`; it failed with `ERESOLVE could not resolve` on `openapi-typescript@7.13.0` (its published `peerDependencies` pins `typescript@^5.x`) against the repo's `typescript@~6.0.2` (resolves to `6.0.3`). This exactly matches the conflict `frontend-e2e-tests` and `frontend-api-client` each independently worked around one-off with `--legacy-peer-deps` and flagged as this task's job to actually resolve. Confirmed via `npm view openapi-typescript@7.13.0 peerDependencies` (and every published 7.x version, `latest` included) that no released version of openapi-typescript has widened this peer range yet, and found the upstream tracking issue confirming it's a known, still-open gap: https://github.com/openapi-ts/openapi-typescript/issues/2723 ('Add support for TypeScript 6', opened 2026-03-27, still open as of this task).",
+      "rationale": "Established the conflict is real, reproducible on a clean checkout, and not something already fixed upstream that a version bump alone could resolve — openapi-typescript's own dependency list (not devDependency) shows it never requires `typescript` as a hard runtime dependency, only as a peer (used via the TS compiler API it calls into), which is exactly the kind of case a resolution/override can safely paper over rather than needing to actually downgrade the project's own TypeScript version."
+    },
+    {
+      "timestamp": "2026-09-18T12:40:09Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the conflict with an npm `overrides` entry in `frontend/package.json` — `{ \"overrides\": { \"openapi-typescript\": { \"typescript\": \"$typescript\" } } }` — which tells npm's resolver to satisfy `openapi-typescript`'s `typescript` peer/dependency with the project's own root `typescript` version (the `$typescript` back-reference) instead of enforcing its declared `^5.x` peer range. Verified this makes both `npm install` and `npm ci` fully clean (no `ERESOLVE`, no `npm warn deprecated`, 0 vulnerabilities from `npm audit`) from a clean `node_modules`/against the committed lockfile, and re-ran `npm run generate:api-types` afterward — `src/api/types.ts` came out byte-for-byte identical to the committed file, confirming `openapi-typescript` genuinely works correctly against `typescript@6.0.3` at runtime and the peer range was just stale, not a real incompatibility. Rejected: (1) downgrading the project's `typescript` to `^5.x` to satisfy the peer cleanly — would revert a deliberate, already-committed project-wide version and touch far more than this conflict warrants; (2) leaving `--legacy-peer-deps` as the standing workaround (e.g. baked into a root `.npmrc` or `make install`) — that flag disables ALL peer-dependency checking repo-wide, silently masking any future unrelated peer conflict too, whereas the `overrides` entry is scoped to exactly the one package/one peer this conflict is about; (3) waiting on the upstream fix and leaving the task as 'intentionally left as-is' — rejected because the task's own checklist explicitly names 'a version bump, a resolution/override' as the actionable-fix category, and an override was available and verified safe today rather than genuinely unfixable.",
+      "rationale": "An `overrides` entry is npm's documented, first-class mechanism for exactly this situation (a peer range that's stricter than reality) and is scoped to the single affected package, unlike `--legacy-peer-deps` which is a blunt, install-command-wide (or repo-wide, if put in `.npmrc`) opt-out. Verifying the generated API types are unchanged rules out the override silently producing wrong output from a version mismatch the peer check was actually protecting against."
+    },
+    {
+      "timestamp": "2026-09-18T12:40:09Z",
+      "recorded_by": "task-worker",
+      "decision": "Final verdict: `npm install` (and `npm ci`) in `frontend/` now complete with zero errors, zero warnings (no `ERESOLVE`, no `npm warn deprecated`, no engine mismatches — no `engines` field is declared in `package.json` and none of the checked dependency trees require a newer Node/npm than this dev container's Node 22.23.2/npm 10.9.8), and 0 vulnerabilities per `npm audit`. `npm outdated` still lists a few packages with newer majors available (`@types/node` 24.13.5→26.6.1, `typescript` 6.0.3→7.0.2, `jsdom` 30.0.1→30.1.0, `prettier` 3.9.7→3.9.8) — left as-is deliberately since these are routine, already-pinned-on-purpose version currency (not install warnings/errors, and a major TypeScript bump in particular is its own separate decision this task's narrow scope of 'does install complete cleanly' shouldn't force). Confirmed `npm run build` (tsc -b + vite build), `npm test` (vitest: 44 files / 269 tests passed), and `npm run lint` (eslint) all still pass after the `overrides` change, plus `make install` end to end and `npm run generate:api-types` (output unchanged) as extra verification. Package-lock diff from this change is minimal: the new `overrides` block in `package.json`, and one line in `package-lock.json` where `@types/react`'s lockfile entry drops a stale `\"dev\": true` marker (npm's own resolver bookkeeping once `openapi-typescript`'s peer is satisfied through the real, already-installed React type tree instead of a legacy-mode skip) — no unrelated package version changes.",
+      "rationale": "Records the concrete, checkable state ('clean, with this specific override') per the checklist's own requirement, distinguishes the one thing worth fixing (the peer conflict, now fixed) from routine version staleness (not a warning, not in scope), and gives the next person who reruns `npm install` and sees a different `npm outdated` list confidence that nothing regressed silently."
+    }
+  ],
   "questions": []
 }
