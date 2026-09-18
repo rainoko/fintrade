@@ -754,8 +754,8 @@
       "id": "scripts-validate-tasks",
       "area": "tooling",
       "skill": null,
-      "state": "implementing",
-      "path": "docs/tasks/scripts-validate-tasks.json"
+      "state": "done",
+      "path": "docs/tasks/done/scripts-validate-tasks.json"
     },
     {
       "id": "scripts-validate-tasks-followups",

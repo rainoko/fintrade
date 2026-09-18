@@ -23,6 +23,14 @@
     {
       "step": "scripts/validate_tasks.py's `tasks_by_id[task_id] = (data, path)` (in `run()`) silently overwrites an earlier entry when two task files share the same `id` (e.g. a stale copy left behind after an incomplete `git mv` to docs/tasks/done/). The duplicate is flagged once as \"duplicate id ... found elsewhere on the board\", but every subsequent cross-check (index.json state/path mirror, depends_on resolution) then only ever runs against whichever file was processed last -- a genuine, independent drift on the earlier/stale duplicate is never separately checked beyond that one generic line. Consider keying by (task_id, path) for the cross-check loops, or at least noting in the duplicate-id violation message that only one of the copies was cross-checked.",
       "done": true
+    },
+    {
+      "step": "Non-blocking (round 2, PR #113): `scripts/tests/test_validate_tasks.py` carries a `#!/usr/bin/env python3` shebang but isn't chmod +x (unlike `scripts/validate_tasks.py`, which is), so a bare `ruff check scripts/` (no top-level pyproject.toml/ruff.toml, so ruff falls back to its own default rule set rather than backend's configured `select`) reports one `EXE001` finding on it. Not part of the enforced lint gate (no top-level ruff config exists for `scripts/`, same precedent as `backend/scripts/`), and the file's own docstring already documents running it via `python3 scripts/tests/test_validate_tasks.py`, not direct execution, so this is cosmetic. Fix by either `chmod +x` on the file or dropping the shebang line since it isn't meant to be run directly.",
+      "done": false
+    },
+    {
+      "step": "Non-blocking (round 2, PR #113): the four `isinstance(value, str) and value not in <VALID_SET>` guards added to fix the PR #113 round-1 TypeError crash (test.verdict, review.verdict, test.gap_analysis[].severity, index.json per-task state) are near-identical inline blocks. task-worker's own `decisions` entry on the parent task already considered and rejected a shared `expect_str_in(value, valid_set, field_name)` helper for round 2 to keep that diff minimal; worth revisiting as a small follow-up simplification since the duplication is now a permanent fixture of the file, not just a two-line fix.",
+      "done": false
     }
   ],
   "decisions": [
