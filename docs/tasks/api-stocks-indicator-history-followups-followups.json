@@ -47,5 +47,11 @@
       "alternatives_considered": "None -- the checklist item already specified the exact one-line fix, and it's the lowest-risk option (no change to any other call site, no new parameter)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-indicator-history-followups-followups",
+    "pr_number": 122,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/122",
+    "pushed_at": "2026-09-18T22:26:01Z"
+  }
 }
