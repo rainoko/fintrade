@@ -54,5 +54,11 @@
       "rationale": "Pre-trimming daily_ohlcv to the requested range before looping would degrade (NaN-tail) the earliest emitted bars' indicators, which would be a worse, silent correctness bug for a charting feature whose whole point is to show real indicator values over time. The performance tradeoff is bounded by the default range (1y, ~252 bars) matching /history's own default, and yfinance/Stooq-scale histories (thousands of bars for old tickers) only get expensive under an explicit range=max request -- acceptable for MVP scope; if it becomes a real problem, a caching layer or a lower-level vectorized recomputation of just the daily-cadence pieces (not re-deriving Tide, which doesn't change per bar here) would be the follow-up, not something to build speculatively now."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-indicator-history",
+    "pr_number": 100,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/100",
+    "pushed_at": "2026-09-18T06:25:46Z"
+  }
 }
