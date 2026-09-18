@@ -3,7 +3,7 @@
   "title": "Every ticker list in the UI shows its BUY/HOLD/SELL signal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["api-portfolio-position-signal"],
   "references": [
     "frontend/src/features/portfolio/components/PositionsTable.tsx",
@@ -36,5 +36,18 @@
     "pr_number": 120,
     "pr_url": "https://github.com/rainoko/fintrade/pull/120",
     "pushed_at": "2026-09-18T21:17:26Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T21:24:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/120",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "RiskPanel.tsx's new Signal column uses `key: 'signal'` on a `DataTableColumn<RiskPosition>[]`, but `RiskPosition` (GET /api/portfolio/risk's schema) has no `signal` field -- `DataTableColumn<T>.key` is typed `keyof T`, so `tsc -b --noEmit` fails with TS2322 and `yarn build` (tsc -b && vite build) is broken. vitest/eslint/make e2e all stay green since none of them run a full project type-check, so this passed the PR's own stated bar undetected. Fix: reuse a real RiskPosition field name for the key (matching PositionsTable.tsx's own `key: 'id'` synthetic-column precedent), or widen DataTableColumn to accept a synthetic key.",
+        "file": "frontend/src/features/portfolio/components/RiskPanel.tsx",
+        "line": 115
+      }
+    ],
+    "notes": "Backend (pytest, 565 passed, 99.86% cov) and frontend (vitest, 270 passed, 99.6%/99.2% cov) suites both pass; ruff/mypy/eslint all clean; make e2e 13/13 passed. Browser walkthrough (real Chromium, live backend + a route-mocked edge case) confirmed the Signal column renders consistently across PositionsGlanceTable/PositionsTable/RiskPanel for real positions, the null-signal '—' fallback works in all three, and RiskPanel's client-side positions/riskPositions cross-reference degrades gracefully (no crash, '—' fallback) for a ticker present in the risk response but missing from the portfolio response (the /api/portfolio vs /api/portfolio/risk desync scenario flagged for this review). The RiskPanel signal-column decision is properly recorded in `decisions`. handlers.ts's mockWatchlistSignals -> mockTickerSignals generalization does not mask the null-signal case -- PositionsTable.test.tsx, PositionsGlanceTable.test.tsx, and RiskPanel.test.tsx all retain explicit null-signal fixtures/assertions. Sole blocking finding is the tsc build error above; no non-blocking findings surfaced (independently corroborated by the code-review skill's own pass), so no follow-up task was filed."
   }
 }
