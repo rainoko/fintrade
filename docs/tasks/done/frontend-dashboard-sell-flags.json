@@ -3,7 +3,7 @@
   "title": "Dashboard: list of held positions currently flagged to sell",
   "area": "frontend/pages/dashboard",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/pages/DashboardPage.tsx",
@@ -39,5 +39,35 @@
     "pr_number": 110,
     "pr_url": "https://github.com/rainoko/fintrade/pull/110",
     "pushed_at": "2026-09-18T10:46:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T10:52:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/110",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified genuine reuse: EXIT_FLAG_LABELS was extracted from RiskPanel.tsx into a shared features/portfolio/exitFlagLabels.ts and both RiskPanel and the new SellFlaggedPositionsCard call humanizeSnakeCase(flag, EXIT_FLAG_LABELS) against it, producing identical wording ('2% rule breached', '6% rule contributor', etc.) for the same flag -- confirmed live in a browser walkthrough, not just by reading the diff.",
+        "file": "frontend/src/features/portfolio/exitFlagLabels.ts"
+      },
+      {
+        "summary": "Non-blocking: the Stack-of-Chips renderer built on top of EXIT_FLAG_LABELS is itself duplicated near-verbatim between RiskPanel.tsx and SellFlaggedPositionsCard.tsx, the same class of drift risk the PR's own decisions entry says extracting the label map was meant to prevent. Filed as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 23
+      },
+      {
+        "summary": "Non-blocking: SellFlaggedPositionsCard manually branches on flaggedPositions.length === 0 to render common/EmptyState before calling DataTable, duplicating logic DataTable already implements internally via its own emptyMessage prop. Filed as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 74
+      },
+      {
+        "summary": "Component placement checked explicitly (CLAUDE.md pr-reviewer step 7a): SellFlaggedPositionsCard renders portfolio-risk domain concepts (a position, a ticker, an exit flag) and owns its own usePortfolioRisk call, matching RiskSummaryCard/RiskPanel's existing precedent in the same feature folder -- features/portfolio/components/ placement (not components/common/) is correct, no finding.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx"
+      },
+      {
+        "summary": "Scope decision (risk-driven exit_flags only, deferring fresh technical SELL) is reasonable: it matches the task description's own explicit allowance to defer that extension, avoids an N+1 GET /api/stocks/{ticker}/analysis fan-out per held position, and correctly identifies that including it would require backend design work (a new batched field/endpoint) out of scope for a frontend-only task. No backend follow-up task exists yet for that extension -- not required by this task, but worth noting if a future task decides to build it.",
+        "file": "docs/tasks/frontend-dashboard-sell-flags.json"
+      }
+    ],
+    "notes": "Full review: backend suite 559 passed, 99.86% coverage; frontend suite 266 passed, 99.6%/99.21%/100%/99.59% stmt/branch/func/line coverage -- both well above the 90% gate and no regression (this PR touches frontend only). ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) found the two non-blocking duplication findings above and no correctness bugs. No API/schema change in this PR, so no OpenAPI snapshot check applies. Browser walkthrough (fixture-mode backend + dev frontend, driven via a scripted headless Chromium since no Playwright MCP tool was available in this session): added a TSLA position that triggered two_percent_rule_breached + six_percent_rule_contributor, confirmed the new 'Positions Flagged to Sell' card rendered the position with correctly-labeled chips ('2% rule breached', '6% rule contributor') matching RiskPanel's wording, its TickerLink navigated to /stocks/TSLA correctly, no console errors or failed network requests; then deleted the position and confirmed the empty-state message 'No positions currently flagged to sell.' rendered in place of the table. e2e-test skill run (make e2e): all 13 specs passed, including dashboard.spec.ts's updated assertions for the new card's populated/empty states. Both checklist 'decide' items (scope, placement) have corresponding decisions entries. No blocking findings."
   }
 }
