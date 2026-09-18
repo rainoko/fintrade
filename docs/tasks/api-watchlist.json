@@ -3,7 +3,7 @@
   "title": "Backend: watchlist CRUD endpoints, annotated with each ticker's current signal",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["watchlist-domain-models"],
   "references": [
     "docs/Analyse.md#5-signal-logic-buy--sell--hold",
@@ -34,5 +34,11 @@
       "rationale": "Checked the api-portfolio-add-position precedent this checklist item explicitly points at: that task chose merge-not-reject because PositionIn/PositionOut carry mergeable numeric fields (quantity, avg_cost_basis) where averaging up/down mirrors real brokerage behavior. WatchlistItemIn/WatchlistItemORM carries no such field -- the entire identity of a watchlist row IS its ticker (ticker is the primary key per watchlist-domain-models' own decision record), and added_at is a system-set timestamp, not user input, so there is nothing for a second POST of the same ticker to actually merge; the only real question is what happens to added_at. Resetting added_at to 'now' on a re-add was considered and rejected: it would silently discard the fact this ticker has genuinely been watched since its original add date (visible in a future 'watching since' UI), for no benefit -- the user's watchlist membership doesn't change by POSTing again. Rejecting with 409/422 was also considered and rejected: unlike the portfolio-positions case there's no ambiguity to force the client to resolve (there's only one possible existing state to converge to -- 'still on the watchlist'), so a 409 would just make the client's own 'ensure this ticker is on my watchlist' logic (the realistic caller-side use case, e.g. an 'add' button that doesn't first check whether it's already there) do a GET-then-conditionally-POST dance for no benefit; a plain idempotent no-op is standard REST practice for an operation whose target state (this ticker is watched) is already satisfied. Always returning 201 (not 200) keeps this consistent with add_position's own established convention -- 'the response is always 201 ... whether the request created a new row or merged into one' -- extended here to 'or matched one already there'."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-watchlist",
+    "pr_number": 102,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/102",
+    "pushed_at": "2026-09-18T07:12:48Z"
+  }
 }
