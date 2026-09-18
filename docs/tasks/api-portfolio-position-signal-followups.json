@@ -21,5 +21,11 @@
     }
   ],
   "decisions": [],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-position-signal-followups",
+    "pr_number": 119,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/119",
+    "pushed_at": "2026-09-18T20:59:25Z"
+  }
 }
