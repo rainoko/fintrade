@@ -20,6 +20,10 @@
     {
       "step": "OscillatorChart.tsx's Force Index and MACD Histogram pane setup (the HistogramSeries creation, sign-based color computation, and dotted zero-baseline price line) is near-duplicated between the two panes with only the series title/paneIndex differing -- could be factored into one small shared helper to reduce the ~20 lines of duplication, mirroring the 'single buildOscillatorSeriesData pass' consolidation already done for the data-building side.",
       "done": false
+    },
+    {
+      "step": "OscillatorChart.tsx's createChart() call (line ~135) uses the exact same options object (`{ autoSize: true, layout: { background: { color: 'transparent' } } }`) as PriceChart.tsx's own chart-creation effect, duplicated verbatim in a second file -- a shared helper (e.g. a small `createBaseChart(container)` in a features/stocks lib module) would remove the duplication and the risk of the two drifting apart if the base chart options ever need to change. (Surfaced by a code-review skill pass on this PR.)",
+      "done": false
     }
   ],
   "decisions": [],
