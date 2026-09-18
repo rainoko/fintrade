@@ -6,7 +6,9 @@ import pandas as pd
 from app.indicators.elder_ray import bear_power as elder_bear_power
 from app.indicators.elder_ray import bull_power as elder_bull_power
 from app.indicators.ema import ema
+from app.indicators.force_index import force_index
 from app.indicators.macd import macd_components
+from app.indicators.stochastic import stochastic_oscillator
 from app.signals.confidence import (
     WEIGHTS,
     ConfidenceComponent,
@@ -123,7 +125,13 @@ def _latest(series: pd.Series) -> float:
     return float(series.iloc[-1])
 
 
-def _wave_lookback(daily_ohlcv: pd.DataFrame, tide: str) -> tuple[dict, bool, bool]:
+def _wave_lookback(
+    daily_ohlcv: pd.DataFrame,
+    tide: str,
+    *,
+    stochastic_k: pd.Series | None = None,
+    force_index_2ema: pd.Series | None = None,
+) -> tuple[dict, bool, bool]:
     """Today's Wave (Screen 2) result, plus whether the last ``_WAVE_LOOKBACK_DAYS`` daily
     bars (today inclusive) "show/showed" the oversold-pullback or overbought-rally state, in
     a single pass over ``evaluate_wave``.
@@ -157,9 +165,18 @@ def _wave_lookback(daily_ohlcv: pd.DataFrame, tide: str) -> tuple[dict, bool, bo
     Within the achievable direction, the scan checks today's bar first (already computed
     above) and walks backwards, stopping as soon as a match is found rather than always
     re-deriving the full window.
+
+    ``stochastic_k``/``force_index_2ema``, if given, are passed straight through to every
+    ``evaluate_wave`` call this function makes (sliced to match each call's own truncated
+    ``daily_ohlcv.iloc[:end]``, per ``evaluate_wave``'s own index-alignment contract) instead
+    of each of the up-to-``_WAVE_LOOKBACK_DAYS + 1`` calls independently recomputing the
+    Stochastic/Force Index from scratch over its own (growing, in the caller's case) prefix of
+    the daily series -- see ``evaluate_wave``'s own docstring and this task's `decisions` entry.
     """
     n = len(daily_ohlcv)
-    wave = evaluate_wave(daily_ohlcv, tide)
+    wave = evaluate_wave(
+        daily_ohlcv, tide, stochastic_k=stochastic_k, force_index_2ema=force_index_2ema
+    )
     if tide == "BULLISH":
         target_state = "OVERSOLD_PULLBACK"
     elif tide == "BEARISH":
@@ -171,7 +188,17 @@ def _wave_lookback(daily_ohlcv: pd.DataFrame, tide: str) -> tuple[dict, bool, bo
     if target_state is not None and not showed_target and n > 0:
         start = max(1, n - _WAVE_LOOKBACK_DAYS + 1)
         for end in range(n - 1, start - 1, -1):
-            if evaluate_wave(daily_ohlcv.iloc[:end], tide)["state"] == target_state:
+            lookback_stochastic_k = stochastic_k.iloc[:end] if stochastic_k is not None else None
+            lookback_force_index_2ema = (
+                force_index_2ema.iloc[:end] if force_index_2ema is not None else None
+            )
+            lookback_wave = evaluate_wave(
+                daily_ohlcv.iloc[:end],
+                tide,
+                stochastic_k=lookback_stochastic_k,
+                force_index_2ema=lookback_force_index_2ema,
+            )
+            if lookback_wave["state"] == target_state:
                 showed_target = True
                 break
 
@@ -202,7 +229,21 @@ def _determine_signal(
     return "HOLD"
 
 
-def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) -> SignalResult:
+def analyse(
+    ticker: str,
+    daily_ohlcv: pd.DataFrame,
+    weekly_ohlcv: pd.DataFrame,
+    *,
+    ema_13: pd.Series | None = None,
+    ema_26: pd.Series | None = None,
+    histogram: pd.Series | None = None,
+    stochastic_k: pd.Series | None = None,
+    force_index_2ema: pd.Series | None = None,
+    weekly_ema_13: pd.Series | None = None,
+    weekly_ema_26: pd.Series | None = None,
+    weekly_histogram: pd.Series | None = None,
+    _daily_ohlcv_already_clean: bool = False,
+) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
 
     See docs/architecture/Backend.md §5 and docs/Analyse.md §5. Evaluates, in the order
@@ -248,30 +289,75 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
     nor silently corrupt Screen 2/3's or the Impulse gate's own comparisons -- see this task's
     `decisions` entry and ``drop_malformed_daily_bars``'s own docstring for why this lives here
     rather than only being tolerated downstream.
-    """
-    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
 
-    tide_result = evaluate_tide(weekly_ohlcv)
+    ``ema_13``/``ema_26``/``histogram``/``stochastic_k``/``force_index_2ema``, if given, are
+    used as the already-computed ``ema(daily_ohlcv['close'], 13)`` /
+    ``ema(daily_ohlcv['close'], 26)`` / ``macd_components(daily_ohlcv['close']).histogram`` /
+    ``stochastic_oscillator(daily_ohlcv['high'], daily_ohlcv['low'], daily_ohlcv['close'])['k']``
+    / ``force_index(daily_ohlcv['close'], daily_ohlcv['volume'], ema_period=2)`` instead of
+    recomputing them here (each must be index-aligned with ``daily_ohlcv`` post-
+    ``drop_malformed_daily_bars``, exactly like ``evaluate_impulse``'s/``evaluate_tide``'s own
+    equivalent parameters). All five are independent (a caller may supply any subset); anything
+    omitted is computed internally exactly as before these parameters existed. This lets a
+    caller who evaluates many growing prefixes of the same underlying daily series --
+    ``analyse_history``, once per bar in the requested range -- compute each of these causal/
+    rolling-window indicators once over the full series and slice them per call instead of every
+    one of up to thousands of calls independently re-deriving its own EMA/MACD/Stochastic/Force
+    Index pass from scratch (the O(range_size x history_length) cost this task's `decisions`
+    entry addresses).
+
+    ``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` are the equivalent passthrough for
+    Screen 1 -- forwarded straight to ``evaluate_tide``'s own like-named parameters (see its
+    docstring), letting ``analyse_history`` share one weekly EMA/MACD pass across every bar's
+    Tide evaluation the same way it does for the five daily-side parameters above, instead of
+    every bar's ``evaluate_tide`` call re-deriving the weekly EMA(13)/EMA(26)/MACD-Histogram
+    from scratch over its own truncated ``weekly_ohlcv`` window.
+
+    ``_daily_ohlcv_already_clean`` is a private, ``analyse_history``-only optimization escape
+    hatch -- not part of this function's public contract -- that skips the
+    ``drop_malformed_daily_bars`` call above entirely when the caller can *prove* (not just
+    promise) ``daily_ohlcv`` is already clean, because it's itself a positional prefix slice of
+    a frame ``analyse_history`` already cleaned in full before ever truncating it. Every other
+    caller (including every existing test) must leave this at its default ``False`` -- the
+    ordinary path still re-derives cleanliness itself rather than trusting an undocumented
+    caller promise. See ``analyse_history``'s own docstring for why this specific redundant
+    O(i)-per-call ``dropna`` scan (repeated ``range_size`` times over an increasingly large
+    slice) was worth eliminating on top of the five/eight precomputed-series parameters above.
+    """
+    if not _daily_ohlcv_already_clean:
+        daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+
+    tide_result = evaluate_tide(
+        weekly_ohlcv,
+        histogram=weekly_histogram,
+        ema_13=weekly_ema_13,
+        ema_26=weekly_ema_26,
+    )
     tide = tide_result.trend
 
     daily_close = daily_ohlcv["close"]
-    ema_13_series = ema(daily_close, 13)
-    ema_26_series = ema(daily_close, 26)
-    histogram_series = macd_components(daily_close).histogram
+    if ema_13 is None:
+        ema_13 = ema(daily_close, 13)
+    if ema_26 is None:
+        ema_26 = ema(daily_close, 26)
+    if histogram is None:
+        histogram = macd_components(daily_close).histogram
 
-    impulse = evaluate_impulse(daily_ohlcv, ema_13=ema_13_series, histogram=histogram_series)
-    wave, wave_showed_pullback, wave_showed_rally = _wave_lookback(daily_ohlcv, tide)
+    impulse = evaluate_impulse(daily_ohlcv, ema_13=ema_13, histogram=histogram)
+    wave, wave_showed_pullback, wave_showed_rally = _wave_lookback(
+        daily_ohlcv, tide, stochastic_k=stochastic_k, force_index_2ema=force_index_2ema
+    )
     trigger = evaluate_trigger(daily_ohlcv, tide)
 
     signal = _determine_signal(tide, impulse, wave_showed_pullback, wave_showed_rally, trigger["fired"])
 
-    bull_power_series = elder_bull_power(daily_ohlcv["high"], ema_13_series)
-    bear_power_series = elder_bear_power(daily_ohlcv["low"], ema_13_series)
+    bull_power_series = elder_bull_power(daily_ohlcv["high"], ema_13)
+    bear_power_series = elder_bear_power(daily_ohlcv["low"], ema_13)
 
     indicators = {
-        "ema_13": _latest(ema_13_series),
-        "ema_26": _latest(ema_26_series),
-        "macd_histogram": _latest(histogram_series),
+        "ema_13": _latest(ema_13),
+        "ema_26": _latest(ema_26),
+        "macd_histogram": _latest(histogram),
         "bull_power": _latest(bull_power_series),
         "bear_power": _latest(bear_power_series),
     }
@@ -382,10 +468,16 @@ def analyse_history(
     ``<= bar_date`` filter ran into).
 
     ``daily_ohlcv``/``weekly_ohlcv`` are expected already cleaned by the caller (e.g. via
-    ``drop_malformed_daily_bars``), matching every other function in this module --
-    ``analyse()`` re-applies ``drop_malformed_daily_bars`` to its own truncated slice
-    regardless (idempotent, negligible cost), so a malformed bar earlier in ``daily_ohlcv``
-    can't leak into any truncated window either.
+    ``drop_malformed_daily_bars``), matching every other function in this module -- this
+    function re-applies ``drop_malformed_daily_bars`` to ``daily_ohlcv`` itself up front (once,
+    not per bar) regardless, both so a malformed bar earlier in ``daily_ohlcv`` can't leak into
+    any truncated window (``analyse()`` would otherwise re-derive this per call on its own
+    truncated slice, which is what made this idempotent either way) and, since this function
+    now precomputes several daily indicator series once over the full ``daily_ohlcv`` (see
+    below), so those precomputed series and every per-bar truncated slice ``analyse()`` itself
+    still cleans are guaranteed to agree on which rows exist -- a caller passing already-dirty
+    data straight through would otherwise risk an index-mismatch ``ValueError`` from
+    ``app.indicators.elder_ray`` instead of a silently-wrong result.
 
     ``from_index`` lets the caller skip recomputing bars it doesn't intend to return (e.g. a
     ``range``-trimmed output window) while ``daily_ohlcv`` itself still carries the full
@@ -393,20 +485,100 @@ def analyse_history(
     already-trimmed ``daily_ohlcv`` instead would degrade (NaN-tail) the indicators for bars
     near the start of the window. Negative values behave like ``0`` (the full series).
 
+    Performance: naively calling ``analyse()`` once per bar on an ``i``-bar-growing slice of
+    ``daily_ohlcv`` would make every one of its EMA(13)/EMA(26)/MACD-Histogram/Stochastic/Force
+    Index computations -- each themselves O(i) -- recompute from scratch each time, an
+    O(range_size x history_length) total cost that's a real multi-second-plus latency risk for
+    ``range=max`` on a ticker with years of daily history (see this task's `decisions` entry,
+    docs/tasks/api-stocks-indicator-history-followups.json). All five of those daily indicator
+    series -- plus, on the weekly side, Screen 1 (Tide)'s own EMA(13)/EMA(26)/MACD-Histogram --
+    are causal/rolling-window (a value at index *t* depends only on data up to *t*), so this
+    function instead computes each of them exactly once over the full (cleaned) ``daily_ohlcv``/
+    ``weekly_ohlcv`` and passes ``analyse()`` a same-truncated *slice* of each precomputed series
+    per bar (via ``analyse()``'s own ``ema_13``/``ema_26``/``histogram``/``stochastic_k``/
+    ``force_index_2ema``/``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` parameters --
+    see its docstring) -- a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead
+    of letting ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/
+    ``evaluate_tide``) rederive them from each bar's own truncated ``daily_ohlcv``/
+    ``weekly_ohlcv`` window. This turns the O(range_size x history_length) cost into
+    O(history_length) total, still reusing ``analyse()`` unchanged for every non-precomputed
+    part of the orchestration (Screen 1/Tide's own BULLISH/BEARISH/NEUTRAL classification,
+    Screen 3/Trigger, the Impulse gate's own GREEN/RED/BLUE classification, confidence scoring)
+    rather than duplicating any Screen/signal logic here. The weekly series is precomputed only
+    when it actually has enough history/columns for ``evaluate_tide`` to use them (2+ rows and
+    a ``close`` column) -- otherwise every call hits ``evaluate_tide``'s own (cheap, guard-clause)
+    NEUTRAL/missing-column path regardless, so there's nothing worth precomputing. This function
+    also passes ``analyse()``'s private ``_daily_ohlcv_already_clean=True`` (see its docstring),
+    since ``daily_ohlcv`` was already fully cleaned once above -- avoiding a further redundant
+    O(i)-per-bar ``drop_malformed_daily_bars``/``dropna`` rescan of each bar's own (already-clean)
+    truncated slice, which profiling showed was otherwise the single largest remaining cost even
+    after the precomputation above.
+
     Returns a list of ``(bar_date, SignalResult)`` pairs, oldest first, one per daily bar from
     ``from_index`` through the last available bar (empty if ``daily_ohlcv`` has no bars in
     that range).
     """
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+
     n = len(daily_ohlcv)
     start = max(from_index, 0)
-    return [
-        (
-            daily_ohlcv.index[i],
-            analyse(
-                ticker,
-                daily_ohlcv.iloc[: i + 1],
-                _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[i]),
-            ),
+    if start >= n:
+        return []
+
+    daily_close = daily_ohlcv["close"]
+    ema_13_full = ema(daily_close, 13)
+    ema_26_full = ema(daily_close, 26)
+    histogram_full = macd_components(daily_close).histogram
+    stochastic_k_full = stochastic_oscillator(
+        daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"]
+    )["k"]
+    force_index_2ema_full = force_index(daily_ohlcv["close"], daily_ohlcv["volume"], ema_period=2)
+
+    weekly_ema_13_full = weekly_ema_26_full = weekly_histogram_full = None
+    if len(weekly_ohlcv) >= 2 and "close" in weekly_ohlcv.columns:
+        weekly_close = weekly_ohlcv["close"]
+        weekly_ema_13_full = ema(weekly_close, 13)
+        weekly_macd_full = macd_components(weekly_close)
+        weekly_ema_26_full = weekly_macd_full.ema_slow
+        weekly_histogram_full = weekly_macd_full.histogram
+
+    results = []
+    for i in range(start, n):
+        bar_date = daily_ohlcv.index[i]
+        weekly_window = _weekly_through_bar_date(weekly_ohlcv, bar_date)
+        weekly_kwargs: dict[str, pd.Series] = {}
+        if (
+            weekly_ema_13_full is not None
+            and weekly_ema_26_full is not None
+            and weekly_histogram_full is not None
+        ):
+            # `weekly_window` is always the leading (earliest) rows of ``weekly_ohlcv`` --
+            # ``_weekly_through_bar_date``'s boolean ``index <= week_friday`` mask over a
+            # sorted-ascending index can only ever keep a prefix -- so a cheap positional
+            # ``.iloc[:k]`` slice of each precomputed full series lands on the exact same rows
+            # a label-based ``.loc[weekly_window.index]`` lookup would, at a fraction of the
+            # per-call cost (no index-equality/type-checking machinery).
+            weekly_window_length = len(weekly_window)
+            weekly_kwargs = {
+                "weekly_ema_13": weekly_ema_13_full.iloc[:weekly_window_length],
+                "weekly_ema_26": weekly_ema_26_full.iloc[:weekly_window_length],
+                "weekly_histogram": weekly_histogram_full.iloc[:weekly_window_length],
+            }
+        results.append(
+            (
+                bar_date,
+                analyse(
+                    ticker,
+                    daily_ohlcv.iloc[: i + 1],
+                    weekly_window,
+                    ema_13=ema_13_full.iloc[: i + 1],
+                    ema_26=ema_26_full.iloc[: i + 1],
+                    histogram=histogram_full.iloc[: i + 1],
+                    stochastic_k=stochastic_k_full.iloc[: i + 1],
+                    force_index_2ema=force_index_2ema_full.iloc[: i + 1],
+                    _daily_ohlcv_already_clean=True,
+                    **weekly_kwargs,
+                ),
+            )
         )
-        for i in range(start, n)
-    ]
+    return results

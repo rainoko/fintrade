@@ -218,7 +218,13 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     return bool(abs(latest) > _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER * rolling_std)
 
 
-def evaluate_wave(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
+def evaluate_wave(
+    daily_ohlcv: pd.DataFrame,
+    tide: str,
+    *,
+    stochastic_k: pd.Series | None = None,
+    force_index_2ema: pd.Series | None = None,
+) -> dict:
     """Screen 2: oscillator state evaluated against the tide direction (docs/Analyse.md §2).
 
     Computes the daily Stochastic Oscillator (%K 5, %D 3, smoothing 3) and the 2-period-EMA
@@ -257,6 +263,23 @@ def evaluate_wave(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
     just 1 row, so a 1-row ``daily_ohlcv`` reaches ``"NO_WAVE"`` through the ordinary
     NaN-degrades-to-``"NO_WAVE"`` path below instead of needing its own guard (see
     ``test_single_row_daily_ohlcv_degrades_to_no_wave_instead_of_raising``).
+
+    ``stochastic_k``/``force_index_2ema``, if given, are used as the already-computed
+    ``stochastic_oscillator(daily_ohlcv['high'], daily_ohlcv['low'], daily_ohlcv['close'])['k']``
+    / ``force_index(daily_ohlcv['close'], daily_ohlcv['volume'], ema_period=2)`` instead of
+    recomputing them here (each must be index-aligned with ``daily_ohlcv``, i.e. the exact
+    output of calling those functions on ``daily_ohlcv`` itself -- or an equal-length prefix
+    slice of a call against a longer frame whose own leading rows equal ``daily_ohlcv``, since
+    both are causal/rolling-window indicators: a value at index *t* depends only on data up to
+    *t*, so slicing a full-series computation gives identical values to recomputing over the
+    truncated series). Both are independent (a caller may supply either, both, or neither);
+    anything omitted is computed internally exactly as before this parameter existed. This lets
+    a caller who evaluates the wave over many growing prefixes of the same underlying daily
+    series -- ``app.signals.engine.analyse_history`` (once per bar) and its own
+    ``_wave_lookback`` (up to ``_WAVE_LOOKBACK_DAYS`` more times per bar, for the "showed"
+    lookback) -- compute the Stochastic/Force Index series once over the full series and slice
+    it per call instead of each call independently re-deriving its own rolling-window pass --
+    see the ``api-stocks-indicator-history-followups`` task's `decisions` entry.
     """
     if len(daily_ohlcv) == 0:
         return {
@@ -265,29 +288,33 @@ def evaluate_wave(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
             "state": "NO_WAVE",
         }
 
-    stochastic = stochastic_oscillator(daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"])
-    force_index_2ema = force_index(daily_ohlcv["close"], daily_ohlcv["volume"], ema_period=2)
+    if stochastic_k is None:
+        stochastic_k = stochastic_oscillator(
+            daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"]
+        )["k"]
+    if force_index_2ema is None:
+        force_index_2ema = force_index(daily_ohlcv["close"], daily_ohlcv["volume"], ema_period=2)
 
-    stochastic_k = stochastic["k"].iloc[-1]
+    stochastic_k_latest = stochastic_k.iloc[-1]
     force_index_latest = force_index_2ema.iloc[-1]
 
     state = "NO_WAVE"
-    if not pd.isna(stochastic_k):
+    if not pd.isna(stochastic_k_latest):
         if (
             tide == "BULLISH"
-            and stochastic_k < STOCHASTIC_OVERSOLD
+            and stochastic_k_latest < STOCHASTIC_OVERSOLD
             and _is_force_index_spike(force_index_2ema, negative=True)
         ):
             state = "OVERSOLD_PULLBACK"
         elif (
             tide == "BEARISH"
-            and stochastic_k > STOCHASTIC_OVERBOUGHT
+            and stochastic_k_latest > STOCHASTIC_OVERBOUGHT
             and _is_force_index_spike(force_index_2ema, negative=False)
         ):
             state = "OVERBOUGHT_RALLY"
 
     return {
-        "stochastic_k": float(stochastic_k),
+        "stochastic_k": float(stochastic_k_latest),
         "force_index_2ema": float(force_index_latest),
         "state": state,
     }

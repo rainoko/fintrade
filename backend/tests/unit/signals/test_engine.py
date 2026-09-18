@@ -22,6 +22,7 @@ each Screen 1/2/3 + Impulse combination explicitly" guidance:
    real SELL, including the "Wave showed" (not "shows") lookback case in both directions.
 """
 
+import math
 from unittest.mock import patch
 
 import pandas as pd
@@ -36,6 +37,18 @@ from app.signals.engine import (
     drop_malformed_daily_bars,
 )
 from app.signals.triple_screen import TideResult, evaluate_tide
+
+
+def _nan_tolerant_equal(a: object, b: object) -> bool:
+    """Like ``a == b``, except two ``float('nan')`` leaves anywhere inside a (possibly nested)
+    dict compare equal -- plain ``==``/dict-equality treats NaN as unequal to itself (IEEE 754),
+    which would make an otherwise-identical ``screens``/``indicators`` snapshot spuriously fail
+    a cross-check assertion whenever an indicator is still in its NaN warm-up window."""
+    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+        return True
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_nan_tolerant_equal(a[k], b[k]) for k in a)
+    return a == b
 
 
 def _daily_ohlcv(n: int) -> pd.DataFrame:
@@ -247,7 +260,9 @@ class TestWaveLookback:
     def test_matches_on_todays_bar_without_further_calls(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
 
-        def side_effect(df: pd.DataFrame, tide: str) -> dict:
+        def side_effect(
+            df: pd.DataFrame, tide: str, *, stochastic_k=None, force_index_2ema=None
+        ) -> dict:
             state = "OVERSOLD_PULLBACK" if len(df) == 10 else "NO_WAVE"
             return {"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": state}
 
@@ -258,12 +273,16 @@ class TestWaveLookback:
         assert showed_pullback is True
         assert showed_rally is False
         # Matched on the first (today's) call -- no further evaluate_wave calls needed.
-        mock_wave.assert_called_once_with(daily_ohlcv, "BULLISH")
+        mock_wave.assert_called_once_with(
+            daily_ohlcv, "BULLISH", stochastic_k=None, force_index_2ema=None
+        )
 
     def test_matches_within_lookback_window_but_not_on_todays_bar(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
 
-        def side_effect(df: pd.DataFrame, tide: str) -> dict:
+        def side_effect(
+            df: pd.DataFrame, tide: str, *, stochastic_k=None, force_index_2ema=None
+        ) -> dict:
             # Qualifies 3 bars ago (len == 7 of 10), within the 5-day lookback window.
             state = "OVERSOLD_PULLBACK" if len(df) == 7 else "NO_WAVE"
             return {"stochastic_k": 0.0, "force_index_2ema": 0.0, "state": state}
@@ -278,7 +297,9 @@ class TestWaveLookback:
     def test_does_not_match_outside_lookback_window(self) -> None:
         daily_ohlcv = _daily_ohlcv(10)
 
-        def side_effect(df: pd.DataFrame, tide: str) -> dict:
+        def side_effect(
+            df: pd.DataFrame, tide: str, *, stochastic_k=None, force_index_2ema=None
+        ) -> dict:
             # Qualifies 6 bars ago (len == 4 of 10) -- one bar older than the 5-day window
             # (which covers bars with len in [6, 10] for a 10-row frame).
             state = "OVERSOLD_PULLBACK" if len(df) == 4 else "NO_WAVE"
@@ -318,7 +339,9 @@ class TestWaveLookback:
         assert showed_pullback is False
         assert showed_rally is False
         # Only today's (the sole, empty) bar is ever evaluated -- no window to loop over.
-        mock_wave.assert_called_once_with(daily_ohlcv, "BULLISH")
+        mock_wave.assert_called_once_with(
+            daily_ohlcv, "BULLISH", stochastic_k=None, force_index_2ema=None
+        )
 
     def test_neutral_tide_never_matches_and_evaluates_wave_only_once(self) -> None:
         """NEUTRAL tide can never produce OVERSOLD_PULLBACK or OVERBOUGHT_RALLY (see
@@ -336,7 +359,9 @@ class TestWaveLookback:
 
         assert showed_pullback is False
         assert showed_rally is False
-        mock_wave.assert_called_once_with(daily_ohlcv, "NEUTRAL")
+        mock_wave.assert_called_once_with(
+            daily_ohlcv, "NEUTRAL", stochastic_k=None, force_index_2ema=None
+        )
 
     def test_bearish_tide_only_ever_reports_rally_never_pullback(self) -> None:
         """A BEARISH tide can only ever show a rally, never a pullback (and vice versa for
@@ -887,6 +912,137 @@ class TestAnalyseHistory:
 
         ema_13_values = {result.indicators["ema_13"] for _, result in history}
         assert len(ema_13_values) > 1
+
+
+class TestAnalyseHistoryPerformance:
+    """Regression coverage for the O(range_size x history_length) -> O(history_length) fix
+    (docs/tasks/api-stocks-indicator-history-followups.json's `decisions` entry): every daily
+    EMA(13)/EMA(26)/MACD-Histogram/Stochastic/Force-Index computation, plus every weekly
+    EMA(13)/EMA(26)/MACD-Histogram computation feeding Screen 1 (Tide), must happen exactly once
+    per ``analyse_history()`` call -- not once per emitted bar -- regardless of how many bars
+    are in range. Uses ``wraps=`` (not a stub ``return_value``) so the real indicator math
+    still runs and every other test's correctness assertions (e.g. ``TestAnalyseHistory``'s
+    "last point matches /analysis") keep meaning something -- this class only adds a call-count
+    assertion on top.
+    """
+
+    def test_daily_and_weekly_ema_and_macd_computed_once_regardless_of_bar_count(self) -> None:
+        import app.signals.engine as engine_module
+
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        with (
+            patch("app.signals.engine.ema", wraps=engine_module.ema) as mock_ema,
+            patch(
+                "app.signals.engine.macd_components", wraps=engine_module.macd_components
+            ) as mock_macd,
+        ):
+            history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        # Daily ema_13 + ema_26 + weekly ema_13, precomputed once each over their respective
+        # full series -- not once per bar.
+        assert mock_ema.call_count == 3
+        # Daily MACD-Histogram + weekly MACD-Histogram, precomputed once each -- not once per
+        # bar.
+        assert mock_macd.call_count == 2
+
+    def test_stochastic_and_force_index_computed_once_regardless_of_bar_or_lookback_count(
+        self,
+    ) -> None:
+        import app.signals.triple_screen as triple_screen_module
+
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        with (
+            patch(
+                "app.signals.engine.stochastic_oscillator",
+                wraps=triple_screen_module.stochastic_oscillator,
+            ) as mock_stochastic,
+            patch(
+                "app.signals.engine.force_index", wraps=triple_screen_module.force_index
+            ) as mock_force_index,
+            patch(
+                "app.signals.triple_screen.stochastic_oscillator"
+            ) as mock_stochastic_inside_wave,
+            patch("app.signals.triple_screen.force_index") as mock_force_index_inside_wave,
+        ):
+            history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        # Precomputed exactly once each in analyse_history() itself...
+        assert mock_stochastic.call_count == 1
+        assert mock_force_index.call_count == 1
+        # ...and, since every evaluate_wave call (the "shows" call plus every "showed"
+        # lookback call, across every bar) is always given the precomputed slice, neither
+        # evaluate_wave nor _wave_lookback ever falls back to recomputing internally.
+        mock_stochastic_inside_wave.assert_not_called()
+        mock_force_index_inside_wave.assert_not_called()
+
+    def test_evaluate_tide_never_recomputes_weekly_ema_macd_internally(self) -> None:
+        """Mirrors the Stochastic/Force-Index test above, for Screen 1's weekly side: since
+        every ``analyse()`` call is given a precomputed, per-bar-sliced ``weekly_ema_13``/
+        ``weekly_ema_26``/``weekly_histogram``, ``evaluate_tide`` itself should never fall back
+        to its own internal ``ema``/``macd_components`` calls."""
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        with (
+            patch("app.signals.triple_screen.ema") as mock_ema_inside_tide,
+            patch("app.signals.triple_screen.macd_components") as mock_macd_inside_tide,
+        ):
+            history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        mock_ema_inside_tide.assert_not_called()
+        mock_macd_inside_tide.assert_not_called()
+
+    def test_skips_weekly_precompute_entirely_when_weekly_ohlcv_too_short(self) -> None:
+        """A <2-row weekly_ohlcv can never produce anything for evaluate_tide to use (its own
+        guard clause returns NEUTRAL before touching any precomputed series) -- there is
+        nothing to precompute, and this function must not spend the (small but real) cost of
+        computing a weekly EMA/MACD nobody will ever read, nor raise on the resulting
+        insufficient-history frame."""
+        import app.signals.engine as engine_module
+
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        # 1 row -- below evaluate_tide's own 2-row minimum -- while still keeping a real
+        # DatetimeIndex (_weekly_through_bar_date requires one to compare against bar dates).
+        weekly_ohlcv = _dated_buy_weekly_ohlcv().iloc[:1]
+
+        with patch("app.signals.engine.ema", wraps=engine_module.ema) as mock_ema:
+            history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        # ema() is still called twice for the daily side (ema_13/ema_26) -- but never for the
+        # weekly side, since there was nothing worth precomputing.
+        assert mock_ema.call_count == 2
+        tides = {result.screens["tide"]["trend"] for _, result in history}
+        assert tides == {"NEUTRAL"}
+
+    def test_matches_independently_computed_analyse_for_every_bar(self) -> None:
+        """The precompute-and-slice optimization must not change a single emitted value --
+        cross-checks every bar (not just the last one, already covered by
+        ``test_last_point_matches_a_full_history_analyse_call``) against an independent
+        ``analyse()`` call on that exact same (per-bar) truncated daily/weekly window."""
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        for i, (bar_date, result) in enumerate(history):
+            expected = analyse(
+                "TEST",
+                daily_ohlcv.iloc[: i + 1],
+                _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[i]),
+            )
+            assert bar_date == daily_ohlcv.index[i]
+            assert result.signal == expected.signal
+            assert result.confidence == expected.confidence
+            assert _nan_tolerant_equal(result.indicators, expected.indicators)
+            assert _nan_tolerant_equal(result.screens, expected.screens)
 
 
 def _flipping_tide_weekly_ohlcv(n_weeks: int = 31) -> pd.DataFrame:
