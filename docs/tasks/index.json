@@ -656,7 +656,7 @@
       "id": "migrate-yarn2",
       "area": "infra",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/migrate-yarn2.json"
     },
     {

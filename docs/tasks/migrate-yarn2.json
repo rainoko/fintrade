@@ -3,7 +3,7 @@
   "title": "Migrate frontend package manager from npm to Yarn 2+ (Yarn Berry)",
   "area": "infra",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/package.json",
@@ -57,7 +57,7 @@
     "branch": "task/migrate-yarn2",
     "pr_number": 116,
     "pr_url": "https://github.com/rainoko/fintrade/pull/116",
-    "pushed_at": "2026-09-18T13:08:01Z"
+    "pushed_at": "2026-09-18T14:10:00Z"
   },
   "review": {
     "reviewed_at": "2026-09-18T13:18:25Z",
