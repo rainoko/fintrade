@@ -63,6 +63,35 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 
 `signal` ∈ `BUY | SELL | HOLD`. `confidence` is an integer 0–100. `confidence_band` ∈ `Low | Medium | High` per Analyse.md §6.
 
+### `GET /api/stocks/{ticker}/indicators`
+
+Historical indicator values and the resulting signal for each daily bar — the time-series counterpart to `/analysis`'s latest-bar-only snapshot, for charting an indicator overlay (Analyse.md §4-5).
+
+Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` | `<N>m` | `<N>y` | `max`, default `1y`). Daily bars only — no `interval` param, since every indicator/Screen this endpoint computes is itself daily-cadence.
+
+```json
+{
+  "ticker": "AAPL",
+  "points": [
+    {
+      "date": "2026-09-11",
+      "ema_13": 226.4,
+      "ema_26": 221.7,
+      "macd_histogram": 1.82,
+      "bull_power": 3.1,
+      "bear_power": -1.4,
+      "stochastic_k": 24.3,
+      "force_index_2ema": -18234.5,
+      "signal": "BUY",
+      "confidence": 72,
+      "confidence_band": "High"
+    }
+  ]
+}
+```
+
+`points` is oldest-first, one entry per daily bar in the requested range, produced by re-running the signal engine (`app.signals.engine.analyse`) once per bar using only that bar's own history — including Screen 1 (Tide), which is recomputed from only the weekly bars as-of that day's own calendar week (`app.signals.engine._weekly_through_bar_date`), not held fixed at today's value — so `signal`/`confidence`/Tide all genuinely vary day to day, not just the underlying daily indicators, with no look-ahead. The last entry always matches `GET /api/stocks/{ticker}/analysis` for the same ticker at the same date: for the most recent daily bar, "the weekly bars as-of that bar's calendar week" naturally reduces to the full weekly series `/analysis` itself uses — see the `api-stocks-indicator-history` task's `decisions` for the full rationale (including why an earlier, simpler `<= bar_date` truncation attempt would have broken that "last entry matches `/analysis`" guarantee, given how the underlying weekly-resample date labeling works).
+
 ### `GET /api/portfolio`
 
 Current positions plus account equity.
@@ -135,7 +164,7 @@ A position whose risk can't be computed at all (its current price couldn't be fe
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
 - Market data provider unavailable (both yfinance and Stooq fail) → `503` with a clear `detail`, not a raw stack trace.
 - Insufficient history to compute weekly indicators (e.g. newly listed stock, <26 weeks of data) → `422` with `detail` explaining which indicator couldn't be computed, rather than silently returning partial/wrong signals. `GET /api/stocks/{ticker}/history?interval=weekly` enforces this same <26-week floor on the raw weekly series (not just on computed indicators) since it shares the same provider method as `/analysis` — a `daily`-interval request is unaffected.
-- An unrecognized `range` value on `GET /api/stocks/{ticker}/history` → `422` (FastAPI's standard per-field validation error shape, distinct from the insufficient-history `422` above).
+- An unrecognized `range` value on `GET /api/stocks/{ticker}/history` or `GET /api/stocks/{ticker}/indicators` → `422` (FastAPI's standard per-field validation error shape, distinct from the insufficient-history `422` above).
 - Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
 
 ## Contract Snapshot & Parallel Development

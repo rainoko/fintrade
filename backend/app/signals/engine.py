@@ -325,3 +325,88 @@ def analyse(ticker: str, daily_ohlcv: pd.DataFrame, weekly_ohlcv: pd.DataFrame) 
         screens=screens,
         indicators=indicators,
     )
+
+
+def _weekly_through_bar_date(weekly_ohlcv: pd.DataFrame, bar_date: pd.Timestamp) -> pd.DataFrame:
+    """Truncates ``weekly_ohlcv`` to only the weekly bars whose own label falls within or
+    before the calendar week (Saturday-through-Friday) that *contains* ``bar_date`` -- not to
+    weekly bars whose label is ``<= bar_date`` directly.
+
+    ``app.data.stooq_provider.StooqProvider._resample_weekly`` builds ``weekly_ohlcv`` via
+    ``daily.resample("W-FRI")``, which bins each Saturday-through-Friday span and labels it
+    with that span's Friday -- so a bar that fell on, say, a Wednesday shares its bin (and its
+    weekly bar's label) with every other day Monday-through-Friday of that same week, and that
+    label is often a date *after* the Wednesday bar itself, including possibly today's
+    still-forming week. A naive ``weekly_ohlcv.index <= bar_date`` filter would incorrectly
+    drop that in-progress week's bar for every bar_date that isn't itself a Friday-or-later --
+    wrong for the "no look-ahead" bars this function serves, and, at the series' own most
+    recent bar, exactly the failure this task's prior (rejected) attempt at per-day truncation
+    ran into: it would drop the current week's bar even there, disagreeing with
+    ``GET /api/stocks/{ticker}/analysis``'s own (fully untruncated) weekly snapshot.
+
+    Computing the Friday of ``bar_date``'s own week instead resolves both: every bar within
+    the same calendar week maps to the same truncation cutoff (that week's Friday), and for
+    the most recent daily bar specifically, that cutoff is -- by construction, since
+    ``weekly_ohlcv`` was built from a resample keyed the same way -- exactly the label of
+    ``weekly_ohlcv``'s own last row, so the filter keeps the full series unchanged and the
+    "last point matches ``/analysis``" invariant holds without special-casing it.
+    """
+    # `pd.DateOffset`, not `pd.Timedelta` -- see `app.api.routers.stocks._trim_to_range`'s
+    # comment on the same NumPy/pandas DeprecationWarning `pd.Timedelta(days=...)` alone trips
+    # on this pairing.
+    week_friday = bar_date + pd.DateOffset(days=(4 - bar_date.weekday()) % 7)
+    return weekly_ohlcv[weekly_ohlcv.index <= week_friday]
+
+
+def analyse_history(
+    ticker: str,
+    daily_ohlcv: pd.DataFrame,
+    weekly_ohlcv: pd.DataFrame,
+    *,
+    from_index: int = 0,
+) -> list[tuple[pd.Timestamp, SignalResult]]:
+    """Re-runs ``analyse()`` once per daily bar from ``from_index`` (inclusive) through the
+    last bar, truncating ``daily_ohlcv`` to only the bars up to and including that day AND
+    truncating ``weekly_ohlcv`` to only the weekly bars as-of that same day (see
+    ``_weekly_through_bar_date``) each time -- so every historical point reflects what
+    ``analyse()`` would have produced "as of" that day, including Screen 1 (Tide), not a
+    replay of today's fixed Tide backwards. This is what makes the resulting per-bar
+    ``signal``/``indicators`` meaningful for a chart overlay
+    (``app.api.routers.stocks.get_indicator_history``, docs/Analyse.md §4-5) rather than a
+    single value repeated across every date -- see this task's `decisions` entry
+    (docs/tasks/api-stocks-indicator-history.json) for why this loop lives here (reusing
+    ``analyse()`` unchanged) instead of duplicating any indicator/Screen math, and for why an
+    earlier version of this function held ``weekly_ohlcv`` fixed (look-ahead bias on Screen 1,
+    fixed by truncating per calendar week instead of per bar_date -- see
+    ``_weekly_through_bar_date``'s own docstring for why that resolves the tension a naive
+    ``<= bar_date`` filter ran into).
+
+    ``daily_ohlcv``/``weekly_ohlcv`` are expected already cleaned by the caller (e.g. via
+    ``drop_malformed_daily_bars``), matching every other function in this module --
+    ``analyse()`` re-applies ``drop_malformed_daily_bars`` to its own truncated slice
+    regardless (idempotent, negligible cost), so a malformed bar earlier in ``daily_ohlcv``
+    can't leak into any truncated window either.
+
+    ``from_index`` lets the caller skip recomputing bars it doesn't intend to return (e.g. a
+    ``range``-trimmed output window) while ``daily_ohlcv`` itself still carries the full
+    available history every emitted point needs for correct indicator warm-up -- passing an
+    already-trimmed ``daily_ohlcv`` instead would degrade (NaN-tail) the indicators for bars
+    near the start of the window. Negative values behave like ``0`` (the full series).
+
+    Returns a list of ``(bar_date, SignalResult)`` pairs, oldest first, one per daily bar from
+    ``from_index`` through the last available bar (empty if ``daily_ohlcv`` has no bars in
+    that range).
+    """
+    n = len(daily_ohlcv)
+    start = max(from_index, 0)
+    return [
+        (
+            daily_ohlcv.index[i],
+            analyse(
+                ticker,
+                daily_ohlcv.iloc[: i + 1],
+                _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[i]),
+            ),
+        )
+        for i in range(start, n)
+    ]

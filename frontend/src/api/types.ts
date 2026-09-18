@@ -199,6 +199,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stocks/{ticker}/indicators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get historical indicator values and the resulting signal for each daily bar
+         * @description Re-runs the Triple Screen signal engine (`app.signals.engine.analyse`, via
+         *     `app.signals.engine.analyse_history`) once per daily bar in the requested range, each time
+         *     using only that bar's own history (no look-ahead) -- so the frontend can plot indicator
+         *     lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
+         *     `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
+         *     task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
+         *     docstring (plus `app.signals.engine._weekly_through_bar_date`) for how Screen 1/Tide is
+         *     itself recomputed per bar from only the weekly data available as of that bar's own
+         *     calendar week -- not held fixed at today's value.
+         *
+         *     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. Malformed
+         *     bars (NaN OHLC, see `app.signals.engine.drop_malformed_daily_bars`) are dropped from
+         *     `daily_ohlcv` up front, same as `/analysis`. The full (untrimmed) daily history is always
+         *     fetched first so every emitted point -- including ones near the start of the requested
+         *     `range` -- has correct indicator warm-up context; `range` only controls which already-
+         *     computed points are included in the response, not how much history feeds the computation.
+         *     The last entry in `points` always matches `GET /api/stocks/{ticker}/analysis`'s
+         *     `signal`/`confidence`/`indicators` for this same ticker at the same date, since it's
+         *     produced from the exact same (untruncated) inputs.
+         */
+        get: operations["get_stock_indicator_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -243,6 +281,7 @@ export interface components {
              * @description Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.
              */
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
+            /** @description Latest-bar-only snapshot. For the same 7 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             screens: components["schemas"]["Screens"];
             /**
@@ -305,6 +344,76 @@ export interface components {
              * @enum {string}
              */
             interval: "daily" | "weekly";
+            /** Ticker */
+            ticker: string;
+        };
+        /** IndicatorHistoryPoint */
+        IndicatorHistoryPoint: {
+            /**
+             * Bear Power
+             * @description Elder-Ray Bear Power = Low - EMA(13), for this bar.
+             */
+            bear_power: number;
+            /**
+             * Bull Power
+             * @description Elder-Ray Bull Power = High - EMA(13), for this bar.
+             */
+            bull_power: number;
+            /**
+             * Confidence
+             * @description Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.
+             */
+            confidence: number;
+            /**
+             * Confidence Band
+             * @description Low <40, Medium 40-70, High >70, for this bar's confidence.
+             * @enum {string}
+             */
+            confidence_band: "Low" | "Medium" | "High";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Ema 13
+             * @description Same definition as AnalysisResponse.indicators.ema_13, for this bar.
+             */
+            ema_13: number;
+            /**
+             * Ema 26
+             * @description Same definition as AnalysisResponse.indicators.ema_26, for this bar.
+             */
+            ema_26: number;
+            /**
+             * Force Index 2Ema
+             * @description Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar.
+             */
+            force_index_2ema: number;
+            /**
+             * Macd Histogram
+             * @description Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.
+             */
+            macd_histogram: number;
+            /**
+             * Signal
+             * @description BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.
+             * @enum {string}
+             */
+            signal: "BUY" | "SELL" | "HOLD";
+            /**
+             * Stochastic K
+             * @description Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar.
+             */
+            stochastic_k: number;
+        };
+        /** IndicatorHistoryResponse */
+        IndicatorHistoryResponse: {
+            /**
+             * Points
+             * @description Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
+             */
+            points: components["schemas"]["IndicatorHistoryPoint"][];
             /** Ticker */
             ticker: string;
         };
@@ -710,6 +819,58 @@ export interface operations {
                 };
             };
             /** @description Either of two distinct shapes, both under HTTP 422: `range` doesn't match the accepted pattern (FastAPI's standard HTTPValidationError — `detail` is a list of per-field errors), or the requested weekly interval has fewer than 26 weeks of history (`detail` is a single string, ErrorDetail) — same dual-shape pattern as `POST /api/portfolio/positions`. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Market data provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_stock_indicator_history: {
+        parameters: {
+            query?: {
+                /** @description Same lookback-window grammar as GET /api/stocks/{ticker}/history's `range`: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date. Daily bars only -- unlike /history, this endpoint has no `interval` param, since every indicator/Screen it computes (docs/Analyse.md §4) is itself daily-cadence; see this task's `decisions` entry. */
+                range?: string;
+            };
+            header?: never;
+            path: {
+                ticker: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndicatorHistoryResponse"];
+                };
+            };
+            /** @description Unknown ticker */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Either of two distinct shapes, both under HTTP 422: `range` doesn't match the accepted pattern (FastAPI's standard HTTPValidationError -- `detail` is a list of per-field errors), or the ticker has fewer than 26 weeks of weekly history to compute Screen 1's Tide (`detail` is a single string, ErrorDetail) -- same dual-shape pattern as `GET /api/stocks/{ticker}/history`. */
             422: {
                 headers: {
                     [name: string]: unknown;
