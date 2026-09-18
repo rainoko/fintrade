@@ -1,0 +1,43 @@
+{
+  "id": "api-portfolio-position-signal-followups",
+  "title": "Portfolio position signal annotation -- non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["api-portfolio-position-signal"],
+  "references": [
+    "docs/tasks/api-portfolio-position-signal.json#review",
+    "https://github.com/rainoko/fintrade/pull/118"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #118 (api-portfolio-position-signal), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "No test asserts that POST /api/portfolio/positions (add_position) returns signal/confidence/confidence_band as null, even though the code explicitly sets them and API.md/openapi.json document it as intentional. test_create_new_position_returns_201 (backend/tests/integration/test_portfolio_positions.py) only asserts current_price/unrealized_pnl_pct are null. Behavior is correct and documented, just untested explicitly -- add an explicit assertion (either extend the existing test or add a dedicated one).",
+      "done": true
+    },
+    {
+      "step": "Non-blocking, PR #118 round 2 (task/api-portfolio-position-signal): `PositionOut.signal`/`.confidence`/`.confidence_band` `Field(description=...)` in backend/app/api/schemas.py (and the identical text this generates into backend/openapi.json's components.schemas.PositionOut and frontend/src/api/types.ts's PositionOut JSDoc) still only lists two null-triggering conditions (current_price fetch failed; the weekly-history fetch failed) after commit 94691d8's fix added a third (the latest daily bar has a valid close but NaN open/high/low and so doesn't survive drop_malformed_daily_bars's strict filter). `_compute_position_signal`'s docstring and `get_portfolio`'s own route docstring both document the third condition correctly -- only the Pydantic field-level description (the actual public API contract source) is stale. docs/architecture/API.md's GET /api/portfolio section has the same gap (only two of three null conditions listed). Update both to mention all three conditions and regenerate backend/openapi.json.",
+      "done": true
+    }
+  ],
+  "decisions": [],
+  "questions": [],
+  "git": {
+    "branch": "task/api-portfolio-position-signal-followups",
+    "pr_number": 119,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/119",
+    "pushed_at": "2026-09-18T20:59:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T21:04:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/119",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure documentation/contract-description change, no runtime logic touched. Verified: (1) the three null-triggering conditions now listed in PositionOut.signal's Field(description=...) match _compute_position_signal's actual implementation in backend/app/api/routers/portfolio.py exactly -- e.daily_ohlcv is None (price fetch failed), weekly_ohlcv fetch raises DataProviderError, and drop_malformed_daily_bars dropping/altering the latest bar (valid close, NaN OHLC). (2) Re-ran `python scripts/export_openapi.py` and `yarn generate:api-types` myself -- zero diff against the committed backend/openapi.json and frontend/src/api/types.ts, confirming they're genuinely in sync with schemas.py. (3) Confirmed the claimed second pre-existing staleness is real: at fa91dc7 (PR #118's merge, before this PR), backend/openapi.json's get_portfolio route description already had the three-condition text (from commit 94691d8) but frontend/src/api/types.ts's JSDoc for the same operation still had the old two-condition text -- this PR's regeneration correctly picked that up, and cross-checking the added prose found no new inaccuracy. docs/architecture/API.md updated to match. Both checklist items on this task were genuinely resolved (the first, an explicit null-signal assertion on POST /api/portfolio/positions, was already added in PR #118 round 2 / commit 94691d8; verified test_portfolio_positions.py:49 asserts body[\"signal\"] is None). Backend: 565 tests passed, 99.86% coverage, ruff+mypy clean. Frontend: 269 tests passed, 99.6%/99.21% line/branch coverage, eslint+tsc clean. code-review skill (medium effort) found zero findings. No UI surface touched (schema description/docs only, no component/route-behavior change) -- browser walkthrough and e2e suite (steps 9/9a) explicitly skipped as inapplicable. No checklist item is phrased as 'decide X' and none needed a decisions entry. No non-blocking findings to track as follow-ups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T21:08:30Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read _compute_position_signal in backend/app/api/routers/portfolio.py line-by-line and confirmed all three claimed null-triggering conditions (daily_ohlcv is None; weekly_ohlcv fetch raises DataProviderError; drop_malformed_daily_bars drops/alters the latest bar) are exactly what the code does. Re-ran `python scripts/export_openapi.py` and `yarn generate:api-types` myself -- zero diff against committed backend/openapi.json and frontend/src/api/types.ts. Re-ran full suites myself: backend 565 passed / 99.86% coverage, frontend 269 passed / 99.6% line / 99.21% branch coverage -- matches pr-reviewer's numbers exactly; also re-ran ruff, mypy, eslint, tsc (schemas.py itself is ruff-clean; the 6 ruff findings that exist repo-wide are all in test files this PR never touched and pre-exist unchanged on origin/main, e.g. tests/unit/data/test_stooq_provider.py:41, so they don't affect this PR's mergeability). Skimmed the full diff (schemas.py, openapi.json, API.md, types.ts, task/index.json bookkeeping only) -- no runtime logic touched, confirmed test_portfolio_positions.py:49 asserts body[\"signal\"] is None as claimed."
+  }
+}
