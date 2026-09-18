@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #107 review (frontend-chart-signal-overlay)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["frontend-chart-signal-overlay"],
   "references": [
     "docs/tasks/frontend-chart-signal-overlay.json",
