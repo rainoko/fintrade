@@ -159,6 +159,50 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 
 A position whose risk can't be computed at all (its current price couldn't be fetched, same degrade-gracefully rule as `GET /api/portfolio`; too little daily/weekly history; a weekly-history fetch failure) is silently excluded from `positions` and from `total_open_risk_pct`, rather than appearing with partial/null fields — every field on a `positions` entry is required (see the `api-portfolio-risk` task's `decisions` for the full rationale).
 
+### `GET /api/watchlist`
+
+Every watched ticker, annotated with its current signal/confidence via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check.
+
+```json
+{
+  "items": [
+    {
+      "ticker": "AAPL",
+      "added_at": "2026-09-18T14:03:00Z",
+      "signal": "BUY",
+      "confidence": 72,
+      "confidence_band": "High"
+    },
+    {
+      "ticker": "ZZZZ",
+      "added_at": "2026-09-10T09:15:00Z",
+      "signal": null,
+      "confidence": null,
+      "confidence_band": null
+    }
+  ]
+}
+```
+
+`signal`/`confidence`/`confidence_band` are `null` together on an entry whose signal couldn't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) — mirroring `PositionOut`'s `current_price`/`unrealized_pnl_pct` null-on-failure pattern rather than dropping the entry entirely (see the `api-watchlist` task's `decisions`). Ordered by `added_at` (oldest first).
+
+### `POST /api/watchlist`
+
+Add a ticker to the watchlist.
+
+Request:
+```json
+{ "ticker": "AAPL" }
+```
+
+Response: `201 Created`, the created/existing entry (same shape as an item in `GET /api/watchlist`). `signal`/`confidence`/`confidence_band` are always `null` in this response — annotation happens on read, not on write, mirroring `POST /api/portfolio/positions`'s `current_price`/`unrealized_pnl_pct` convention.
+
+Adding a ticker that's already watched is a **no-op**: the existing entry (original `added_at` kept) is returned unchanged, still `201`, rather than creating a duplicate row or rejecting with `409`/`422` (see the `api-watchlist` task's `decisions` for the full rationale).
+
+### `DELETE /api/watchlist/{ticker}`
+
+Removes a ticker from the watchlist. `204 No Content` on success, `404` if the ticker isn't on the watchlist.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
@@ -166,6 +210,9 @@ A position whose risk can't be computed at all (its current price couldn't be fe
 - Insufficient history to compute weekly indicators (e.g. newly listed stock, <26 weeks of data) → `422` with `detail` explaining which indicator couldn't be computed, rather than silently returning partial/wrong signals. `GET /api/stocks/{ticker}/history?interval=weekly` enforces this same <26-week floor on the raw weekly series (not just on computed indicators) since it shares the same provider method as `/analysis` — a `daily`-interval request is unaffected.
 - An unrecognized `range` value on `GET /api/stocks/{ticker}/history` or `GET /api/stocks/{ticker}/indicators` → `422` (FastAPI's standard per-field validation error shape, distinct from the insufficient-history `422` above).
 - Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
+- Duplicate watchlist add for the same ticker → no-op, returns the existing entry unchanged (see `POST /api/watchlist` above), not a `409`/`422` reject.
+- `DELETE /api/watchlist/{ticker}` for a ticker not on the watchlist → `404`.
+- A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).
 
 ## Contract Snapshot & Parallel Development
 

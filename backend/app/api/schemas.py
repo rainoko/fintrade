@@ -7,7 +7,7 @@ the generated OpenAPI schema self-explanatory — see CLAUDE.md's API
 documentation standard.
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -165,6 +165,56 @@ class RiskResponse(BaseModel):
     total_open_risk_pct: float = Field(description="Sum of position_risk_pct across all positions (the 6% rule).")
     six_percent_rule_breached: bool
     positions: list[RiskPosition]
+
+
+# --- /api/watchlist ---------------------------------------------------
+
+
+class WatchlistItemOut(BaseModel):
+    ticker: str
+    added_at: datetime = Field(description="When this ticker was added to the watchlist (UTC).")
+    signal: Signal | None = Field(
+        default=None,
+        description="BUY/SELL/HOLD from the exact same Triple Screen signal engine "
+        "GET /api/stocks/{ticker}/analysis uses (docs/Analyse.md §5) -- not a "
+        "separately-implemented buy check. Null only if the signal couldn't be computed "
+        "for this ticker right now (unknown/delisted ticker, insufficient history, or the "
+        "data provider being unavailable), mirroring PositionOut's current_price "
+        "null-on-failure pattern -- see the api-watchlist task's `decisions`.",
+    )
+    confidence: int | None = Field(
+        default=None,
+        description="Same 0-100 weighted composite score as AnalysisResponse.confidence. "
+        "Null under the same condition as `signal`.",
+    )
+    confidence_band: ConfidenceBand | None = Field(
+        default=None,
+        description="Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.",
+    )
+
+
+class WatchlistResponse(BaseModel):
+    items: list[WatchlistItemOut] = Field(
+        description="Every watched ticker, ordered by when it was added (oldest first)."
+    )
+
+
+class WatchlistItemIn(BaseModel):
+    ticker: str = Field(
+        min_length=1,
+        description="Stock ticker symbol to watch, normalized to uppercase (leading/trailing "
+        "whitespace is stripped). Adding a ticker already on the watchlist is a no-op that "
+        "returns the existing entry unchanged (original added_at kept) rather than creating "
+        "a duplicate row or rejecting with 409/422 -- see the api-watchlist task's `decisions`.",
+    )
+
+    @field_validator("ticker")
+    @classmethod
+    def _strip_and_require_non_blank_ticker(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("ticker must not be blank or whitespace-only")
+        return stripped
 
 
 # --- shared error shape (FastAPI default, documented for clarity) ---------
