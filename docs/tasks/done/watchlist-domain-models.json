@@ -3,7 +3,7 @@
   "title": "Backend: watchlist domain model (DB table + migration)",
   "area": "backend/db",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/db/models.py",
@@ -32,5 +32,32 @@
     "pr_number": 101,
     "pr_url": "https://github.com/rainoko/fintrade/pull/101",
     "pushed_at": "2026-09-18T06:56:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T06:59:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/101",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Migration verified sound: `alembic upgrade head` against a fresh throwaway SQLite DB builds `watchlist_items` with exactly the columns the ORM model declares, and `alembic check` afterward reports no drift. `down_revision` correctly chains onto the existing head (6fae12abf862). Full backend suite passes (523 passed) with 99.84% coverage (gate 90%, app/db/models.py at 100%). ruff and mypy both clean.",
+        "file": "backend/app/db/migrations/versions/e1503fd151de_add_watchlist_items_table.py"
+      },
+      {
+        "summary": "Primary-key design (ticker as PK, no synthetic id) is reasonable and well-justified: consistent with OHLCVCacheORM's existing natural-key convention, matches the stated future usage (DELETE /api/watchlist/{ticker} addressing rows by ticker directly, no multi-lot-per-ticker use case), and the reasoning is recorded both in the task's decisions entry and in a docstring on the model itself.",
+        "file": "backend/app/db/models.py",
+        "line": 30
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's DB table enumeration (~line 90) wasn't updated to mention the new watchlist_items table. Filed as a follow-up (watchlist-domain-models-followups) rather than blocking on it.",
+        "file": "docs/architecture/Backend.md",
+        "line": 90
+      },
+      {
+        "summary": "Non-blocking: backend/tests/unit/test_db_models.py's module docstring still lists only PositionORM/AccountORM/OHLCVCacheORM, not the newly-added WatchlistItemORM tests. Filed as a follow-up.",
+        "file": "backend/tests/unit/test_db_models.py",
+        "line": 1
+      }
+    ],
+    "notes": "Backend-only persistence-layer change (no API route, no frontend), so the API-doc-snapshot check and the browser walkthrough don't apply here -- explicitly noted rather than silently skipped. area is backend/db and skill is null, so verify-elder-signal doesn't apply either; this doesn't add a new module/dependency/layer (it extends the existing db/models.py + migrations/ pattern), so architecture-review wasn't warranted beyond the ad hoc convention check already done. Checklist's one 'decide X' item has a matching decisions entry recording both the field-set choice and the primary-key choice, with rejected alternatives and rationale. Ran code-review skill (medium effort) against the diff independently; it also found zero correctness issues, corroborating this review."
   }
 }
