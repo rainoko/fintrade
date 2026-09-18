@@ -670,8 +670,8 @@
       "id": "api-watchlist",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/api-watchlist.json"
+      "state": "done",
+      "path": "docs/tasks/done/api-watchlist.json"
     },
     {
       "id": "frontend-watchlist-page",
@@ -707,6 +707,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/api-stocks-indicator-history-followups.json"
+    },
+    {
+      "id": "api-watchlist-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/api-watchlist-followups.json"
     }
   ]
 }

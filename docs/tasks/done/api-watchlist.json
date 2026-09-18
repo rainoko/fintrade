@@ -3,7 +3,7 @@
   "title": "Backend: watchlist CRUD endpoints, annotated with each ticker's current signal",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["watchlist-domain-models"],
   "references": [
     "docs/Analyse.md#5-signal-logic-buy--sell--hold",
@@ -40,5 +40,48 @@
     "pr_number": 102,
     "pr_url": "https://github.com/rainoko/fintrade/pull/102",
     "pushed_at": "2026-09-18T07:12:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T07:19:26Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/102",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the signal reuse is genuine: _compute_signal in watchlist.py runs the exact same fetch -> drop_malformed_daily_bars -> analyse() pipeline as GET /api/stocks/{ticker}/analysis (app/api/routers/stocks.py get_analysis), catching only the shared DataProviderError base (not a bare except Exception) so a real analyse() bug would still surface as a loud failure. No buy-check logic is reimplemented.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 32
+      },
+      {
+        "summary": "Nullable-on-failure pattern implemented correctly: signal/confidence/confidence_band are always nulled together (never partial), the catch is scoped to DataProviderError only, and this is exercised by tests for both TickerNotFoundError and DataProviderUnavailableError plus a mixed computable/failing list. Matches the decisions entry and PositionOut precedent.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 55
+      },
+      {
+        "summary": "Idempotent duplicate-add semantics match what's implemented and what's claimed: ticker is genuinely the WatchlistItemORM primary key (no mergeable field), add_watchlist_item only inserts+commits when the row doesn't already exist and always returns 201 with the original added_at preserved on a re-add -- verified directly and by test_duplicate_add_is_a_no_op_and_keeps_original_added_at.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 106
+      },
+      {
+        "summary": "backend/openapi.json and docs/architecture/API.md were both regenerated/updated in this PR and match the implemented routes/schemas. Backend suite: 536 passed, 99.85% coverage (watchlist.py itself at 100%). ruff and mypy clean. No frontend changes in this PR (no UI surface yet) so the browser-walkthrough step doesn't apply here.",
+        "file": "backend/openapi.json",
+        "line": 1
+      },
+      {
+        "summary": "Non-blocking: backend/openapi.json gained the /api/watchlist routes/schemas but frontend/src/api/types.ts was never regenerated (still has zero watchlist references), despite the governing add-api-endpoint skill listing that as a required step after every snapshot update, and the precedent api-stocks-indicator-history PR (also backend-only) having done it. Not blocking since CLAUDE.md's own wording allows deferring until a frontend consumer exists, and none does yet. Tracked as a checklist item on api-watchlist-followups.",
+        "file": "frontend/src/api/types.ts",
+        "line": 1
+      },
+      {
+        "summary": "Non-blocking: _compute_signal calls drop_malformed_daily_bars(daily_ohlcv) before analyse(), but analyse() already runs that same filter internally as its first step, and (unlike stocks.py's get_analysis, which reuses the pre-filtered frame for as_of) the pre-filtered frame here is never used again -- a harmless but redundant extra DataFrame pass per watched ticker on every GET /api/watchlist. Tracked as a checklist item on api-watchlist-followups.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 51
+      },
+      {
+        "summary": "Non-blocking test-coverage completeness gaps: no spot-test for InsufficientHistoryError specifically in the nullable-signal path (only TickerNotFoundError/DataProviderUnavailableError are exercised, though the shared DataProviderError catch makes this a documentation gap rather than a functional one), and no test for a ticker value with real content padded by leading/trailing whitespace (only blank-only-whitespace rejection and already-clean-casing are tested). Both tracked as checklist items on api-watchlist-followups.",
+        "file": "backend/tests/integration/test_watchlist.py",
+        "line": 1
+      }
+    ],
+    "notes": "Full review: backend test suite (536 passed) + coverage (99.85% overall, watchlist.py 100%), ruff+mypy clean via static-verify, code-review skill (medium effort, no route collisions, two minor non-blocking findings), verify-elder-signal checklist (this endpoint only reuses analyse() unmodified -- no Screen/confidence logic added, so methodology conformance holds by construction), architecture-review (thin router matching the existing portfolio.py/stocks.py pattern, no new module/dependency/layer, API.md updated in the same change). Both decisions entries (nullable-signal-on-failure, idempotent duplicate-add) are well-reasoned and match what's actually implemented, not just claimed. No frontend changes in this PR, so no browser walkthrough applies. No blocking findings; four non-blocking findings filed as checklist items on api-watchlist-followups (docs/tasks/api-watchlist-followups.json)."
   }
 }
