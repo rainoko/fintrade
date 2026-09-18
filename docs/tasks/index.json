@@ -642,8 +642,15 @@
       "id": "frontend-verify-npm-install",
       "area": "frontend/tooling",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-verify-npm-install.json"
+    },
+    {
+      "id": "frontend-verify-npm-install-followups",
+      "area": "frontend/tooling",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-verify-npm-install.json"
+      "path": "docs/tasks/frontend-verify-npm-install-followups.json"
     },
     {
       "id": "migrate-yarn2",
