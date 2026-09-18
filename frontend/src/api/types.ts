@@ -453,9 +453,9 @@ export interface components {
             ema_26: number;
             /**
              * Force Index 2Ema
-             * @description Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar.
+             * @description Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~2 prior bars) -- same warm-up-only caveat as stochastic_k above.
              */
-            force_index_2ema: number;
+            force_index_2ema?: number | null;
             /**
              * Macd Histogram
              * @description Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.
@@ -469,9 +469,9 @@ export interface components {
             signal: "BUY" | "SELL" | "HOLD";
             /**
              * Stochastic K
-             * @description Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar.
+             * @description Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~11 prior bars) -- unlike WaveScreen.stochastic_k on GET /api/stocks/{ticker}/analysis, which is always non-null since /analysis only ever reports the latest bar, by definition never still warming up.
              */
-            stochastic_k: number;
+            stochastic_k?: number | null;
         };
         /** IndicatorHistoryResponse */
         IndicatorHistoryResponse: {

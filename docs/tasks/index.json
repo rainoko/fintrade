@@ -684,7 +684,7 @@
       "id": "frontend-oscillator-chart-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-oscillator-chart-followups.json"
     },
     {
