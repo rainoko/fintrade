@@ -198,6 +198,16 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     Returns False (not a spike) if there isn't enough history yet to compute the rolling
     standard deviation, or if that standard deviation is zero (a perfectly flat recent
     Force Index, where any nonzero value would trivially count as "outsized").
+
+    Only ever reads the trailing ``_FORCE_INDEX_SPIKE_WINDOW`` bars of ``force_index_2ema``
+    (see the slice below) -- a caller (``analyse_history()``, via ``evaluate_wave``/
+    ``_wave_lookback``) may hand this a much longer series representing a growing history
+    window, but ``rolling(window=_FORCE_INDEX_SPIKE_WINDOW)`` followed by ``.iloc[-1]`` only
+    ever reads that trailing window's own worth of data regardless of how much of the series
+    precedes it, so pre-slicing first turns this into O(1) work per call instead of
+    O(len(force_index_2ema)) (docs/tasks/api-stocks-indicator-history-followups-followups.json)
+    -- the computed value is unchanged either way, since a rolling standard deviation at a
+    fixed position never depends on rows outside its own window.
     """
     latest = force_index_2ema.iloc[-1]
     if pd.isna(latest):
@@ -211,7 +221,13 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     if sign * latest <= 0:
         return False
 
-    rolling_std = force_index_2ema.rolling(window=_FORCE_INDEX_SPIKE_WINDOW).std().iloc[-1]
+    # Sliced to the trailing window *before* `.rolling(...).std()`, not after -- rolling over
+    # the full (potentially much longer) series just to discard every value but the last is
+    # O(len(force_index_2ema)) work for an O(1)-shaped question. `.iloc[-_FORCE_INDEX_SPIKE_
+    # WINDOW:]` on a series shorter than the window returns the whole (too-short) series
+    # unchanged, so the "not enough history yet" NaN case below is unaffected.
+    trailing_window = force_index_2ema.iloc[-_FORCE_INDEX_SPIKE_WINDOW:]
+    rolling_std = trailing_window.rolling(window=_FORCE_INDEX_SPIKE_WINDOW).std().iloc[-1]
     if pd.isna(rolling_std) or rolling_std == 0:
         return False
 
