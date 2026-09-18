@@ -12,8 +12,8 @@ const FRONTEND_PORT = 5173
  * End-to-end test suite (frontend-e2e-tests task): real, running backend +
  * frontend, driven with a real browser — a separate, un-mocked category from
  * the vitest/pytest suites under Testing.md's 90%-coverage gate, which is
- * unaffected by this file (see `npm run test:e2e` in package.json and the
- * root Makefile's `e2e` target, neither wired into `make test`/`npm test`).
+ * unaffected by this file (see `yarn test:e2e` in package.json and the
+ * root Makefile's `e2e` target, neither wired into `make test`/`yarn test`).
  *
  * Decision (frontend-e2e-tests task, recorded in docs/tasks/frontend-e2e-tests.json):
  * Playwright Test, matching the Playwright MCP tooling already used for ad hoc manual
@@ -79,7 +79,7 @@ export default defineConfig({
     {
       // No env overrides needed: vite.config.ts's dev-server proxy already forwards '/api'
       // to http://localhost:8000, matching the backend webServer above.
-      command: `npm run dev -- --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort`,
+      command: `yarn dev --host 127.0.0.1 --port ${FRONTEND_PORT} --strictPort`,
       cwd: __dirname,
       url: `http://127.0.0.1:${FRONTEND_PORT}`,
       reuseExistingServer: false,

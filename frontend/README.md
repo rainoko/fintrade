@@ -8,18 +8,18 @@ coverage gate.
 
 ## Scripts
 
-| Script                            | Purpose                                                                                                         |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                     | Vite dev server                                                                                                 |
-| `npm run build`                   | Type-check (`tsc -b`) + production build                                                                        |
-| `npm run preview`                 | Preview a production build locally                                                                              |
-| `npm run lint`                    | ESLint                                                                                                          |
-| `npm run generate:api-types`      | Regenerate `src/api/types.ts` from the committed `../backend/openapi.json` snapshot — never hand-edit that file |
-| `npm run format` / `format:check` | Prettier write / check                                                                                          |
-| `npm run test`                    | Run the vitest suite once                                                                                       |
-| `npm run test:coverage`           | Run the suite with coverage, enforcing the 90% lines/branches/functions/statements gate from `vite.config.ts`   |
-| `npm run storybook`               | Storybook dev server for `src/components/common/*`                                                              |
-| `npm run build-storybook`         | Static Storybook build                                                                                          |
+| Script                              | Purpose                                                                                                         |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `yarn dev`                          | Vite dev server                                                                                                 |
+| `yarn build`                        | Type-check (`tsc -b`) + production build                                                                        |
+| `yarn preview`                      | Preview a production build locally                                                                              |
+| `yarn lint`                         | ESLint                                                                                                          |
+| `yarn generate:api-types`           | Regenerate `src/api/types.ts` from the committed `../backend/openapi.json` snapshot — never hand-edit that file |
+| `yarn format` / `yarn format:check` | Prettier write / check                                                                                          |
+| `yarn test`                         | Run the vitest suite once                                                                                       |
+| `yarn test:coverage`                | Run the suite with coverage, enforcing the 90% lines/branches/functions/statements gate from `vite.config.ts`   |
+| `yarn storybook`                    | Storybook dev server for `src/components/common/*`                                                              |
+| `yarn build-storybook`              | Static Storybook build                                                                                          |
 
 ## Testing
 

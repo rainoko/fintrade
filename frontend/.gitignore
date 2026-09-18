@@ -33,3 +33,11 @@ storybook-static
 /test-results
 /blob-report
 /playwright/.cache
+
+# Yarn Berry (nodeLinker: node-modules, see .yarnrc.yml) -- keep the vendored release
+# binary (yarn-*.cjs) so `yarn` works with no network fetch, but not the regenerated
+# install-state cache or a local package cache should one ever appear (this project
+# uses Yarn's global cache by default, so /.yarn/cache shouldn't normally exist here).
+/.yarn/*
+!/.yarn/releases
+/.yarn/install-state.gz

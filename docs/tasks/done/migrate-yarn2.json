@@ -1,0 +1,95 @@
+{
+  "id": "migrate-yarn2",
+  "title": "Migrate frontend package manager from npm to Yarn 2+ (Yarn Berry)",
+  "area": "infra",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "frontend/package.json",
+    "Makefile",
+    ".devcontainer/post-create.sh",
+    "README.md"
+  ],
+  "description": "Migrate frontend/ from npm to Yarn 2+ (\"Yarn Berry\") via Corepack: replace package-lock.json with a Yarn lockfile (.yarnrc.yml, .yarn/releases), and update every command across the repo that currently shells out to npm — the root Makefile's frontend/install/test/dev targets, .devcontainer/post-create.sh, README.md, and any .claude/skills or .claude/agents files that reference npm commands directly (check add-frontend-feature, static-verify, check-coverage, test-90, revalidate-done-tasks, and any e2e-testing skill/task landed by then) — to their Yarn equivalents. Account for whatever frontend npm scripts exist at the time of this task (including test:e2e if frontend-e2e-tests has landed by then).",
+  "checklist": [
+    { "step": "Decide the Yarn Berry linker mode (node-modules vs PnP) and record as a decisions entry with rationale — PnP is more idiomatic Yarn Berry but can surface compatibility issues with tools expecting a real node_modules tree (editor tsserver, Storybook, Playwright, etc.); the node-modules linker is the safer default for a migration like this unless there's a clear reason to prefer PnP.", "done": true },
+    { "step": "Enable Yarn via Corepack and run `yarn set version berry` in frontend/; remove package-lock.json; commit the new yarn.lock, .yarnrc.yml, and .yarn/releases.", "done": true },
+    { "step": "Update every reference to npm commands across the repo: root Makefile (backend/frontend/install/test/dev targets), .devcontainer/post-create.sh, README.md, CLAUDE.md if it references npm, and any skill/agent files under .claude/ that shell out to npm.", "done": true },
+    { "step": "Confirm `yarn install`, `yarn build`, `yarn test`/coverage, `yarn lint`, and `yarn build-storybook` all work equivalently to their prior npm counterparts.", "done": true },
+    { "step": "Re-run the full frontend suite + coverage gate to confirm no regression from the package-manager switch.", "done": true },
+    { "step": "Update .devcontainer/devcontainer.json/post-create.sh if Yarn needs explicit provisioning (e.g. `corepack enable`) so a fresh container gets it automatically.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Use the node-modules linker (nodeLinker: node-modules in frontend/.yarnrc.yml), not Plug'n'Play.",
+      "rationale": "Matches the task's own stated default and this project's tooling: Storybook (@storybook/react-vite), Playwright, and editor tsserver all expect a real node_modules tree on disk. PnP would need extra SDK/editor shims (yarn dlx @yarnpkg/sdks) and has known rough edges with Storybook's Vite builder and some ESM/CJS interop in this dependency set. node-modules keeps the working tree's file layout (and therefore every existing tool config) unchanged, which is the point of a low-risk package-manager swap rather than a bigger tooling migration."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Vendor the Yarn release binary at frontend/.yarn/releases/yarn-4.18.0.cjs with .yarnrc.yml's yarnPath pointing at it (the classic 'committed release' Yarn Berry setup), in addition to keeping packageManager: yarn@4.18.0 in package.json.",
+      "rationale": "Corepack 0.34's own `yarn set version stable` only updates package.json's packageManager field and relies on Corepack's own per-user cache/network fetch to resolve that version at run time; it does not vendor a project-local copy. The task's checklist explicitly asks for '.yarn/releases' to be committed, and a vendored release is what makes `yarn <anything>` work offline/hermetically for any contributor or CI runner without a first-time Corepack network fetch (consistent with this repo's no-live-network-call testing philosophy, even though this specific file isn't fetched by tests). Copied the exact 4.18.0 bundle Corepack had already downloaded (byte-identical to what `corepack pack`/a real `yarn set version stable` would fetch) rather than hand-rolling one."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Translated frontend/package.json's npm `overrides` (added in frontend-verify-npm-install, PR #115) to Yarn's `resolutions` field as `\"openapi-typescript/typescript\": \"$typescript\"` (a flat 'package/dependency' key instead of npm's nested-object form), keeping the same `$typescript` self-reference syntax.",
+      "rationale": "Verified this resolves correctly: `yarn install` hoists a single top-level node_modules/typescript@6.0.3 (matching the project's own ~6.0.2-range typescript devDependency) with no nested copy under node_modules/openapi-typescript, and `yarn generate:api-types` reproduces src/api/types.ts byte-for-byte identical to the committed file (diffed before/after). Yarn's post-resolution validation still prints a YN0060 peer-mismatch warning ('typescript ... doesn't satisfy what openapi-typescript ... request(s) ^5.0.0') — this is expected and harmless (same category of warning npm's overrides mechanism was working around in the first place: openapi-typescript's own peerDependencies range predates TS 6.x), not a sign the resolution failed to apply."
+    },
+    {
+      "timestamp": "2026-09-18T13:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Pinned devDependencies.jsdom to an exact \"30.0.1\" (previously \"^30.0.1\") instead of letting the fresh Yarn lockfile resolve the range's newest match.",
+      "rationale": "A clean `yarn install` from the range initially resolved jsdom to 30.1.0 (vs. 30.0.1 frozen in the old package-lock.json) and that alone broke 9 previously-passing vitest tests (ConfirmDialog, AddPositionDialog) with `TypeError: nodeToRestore.current.focus is not a function` inside MUI's FocusTrap unmount path — a jsdom 30.1.0 behavior change in focus/element handling, not anything caused by Yarn itself. Re-resolving with jsdom pinned back to 30.0.1 made all 269 tests pass again with no other change. Rejected chasing/patching the jsdom 30.1.0 incompatibility itself as out of scope for a package-manager migration (that's real, unrelated frontend maintenance work); rejected leaving it broken since 'no regression from the package-manager switch' is this task's own explicit bar. A future task can deliberately revisit the jsdom upgrade (and whatever MUI/jsdom compat fix it needs) on its own."
+    },
+    {
+      "timestamp": "2026-09-18T14:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed frontend/README.md's Scripts table padding with `yarn format` scoped to just that file (verified via a subsequent isolated `prettier --check README.md`), and did not apply the broader `yarn format --write .` output to the ~22 other files it also touched (RiskPercent.tsx, several stocks-feature components/tests, e2e specs, etc.).",
+      "rationale": "Confirmed via `git diff --stat main...task/migrate-yarn2` that this PR never touched any of those other files, and via `git stash` + a repo-wide `yarn format:check` on the pre-fix branch state that all ~22 already fail Prettier's check independent of this PR (pre-existing drift on main, unrelated to the npm->yarn migration). Reformatting them here would be an unrelated, out-of-scope change riding on this PR; left them alone so the diff stays scoped to the review's actual blocking finding (README.md) plus the requested non-blocking comment fixes."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/migrate-yarn2",
+    "pr_number": 116,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/116",
+    "pushed_at": "2026-09-18T14:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T13:29:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/116",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round-2 re-review. Confirmed frontend/README.md's Scripts table now passes Prettier: `node_modules/.bin/prettier --check README.md` and a full `yarn format:check` (from a fresh `yarn install --immutable`) both pass with the table's current padding. The round-1 blocking finding is resolved.",
+        "file": "frontend/README.md",
+        "line": 11
+      },
+      {
+        "summary": "Confirmed backend/app/config.py and backend/app/data/fixture_provider.py now say `yarn test:e2e` instead of `npm run test:e2e`. The round-1 non-blocking finding is resolved; corresponding migrate-yarn2-followups checklist entry marked done.",
+        "file": "backend/app/config.py",
+        "line": 19
+      },
+      {
+        "summary": "Independently verified the task-worker's repo-wide Prettier drift claim: `yarn format:check` on this branch fails on the same 22 files regardless of this PR. Checked out origin/main into a separate git worktree and ran the identical prettier binary/version against it directly (not via the branch's node_modules to rule out a linker-mode artifact) -- the same 22-file list already fails on main, predating this PR. This PR's own README.md fix is the only file it needed to be clean on, and it is. Filed as a new non-blocking followup on migrate-yarn2-followups (not just this comment) since ~22 files failing the format gate on main is a real, separate problem worth tracking on its own.",
+        "file": "frontend/README.md",
+        "line": 0
+      },
+      {
+        "summary": "code-review skill (medium effort, independent pass) raised one new minor, non-blocking observation: frontend/package.json's `resolutions` field (`\"openapi-typescript/typescript\": \"$typescript\"`, translated from npm's prior `overrides`) is likely a no-op under Yarn since `typescript` is only a peerDependency of `openapi-typescript`, not a real dependency edge -- Yarn's `resolutions` only rewrites actual dependency edges. Not a functional bug (peer resolution already converges correctly without it, as already verified), just possibly-vestigial config. Filed as a non-blocking followup on migrate-yarn2-followups.",
+        "file": "frontend/package.json",
+        "line": 58
+      }
+    ],
+    "notes": "Retry round 2 of 3. Re-verified from a clean state: `yarn install --immutable` in frontend/ succeeds with no npm involvement, no warnings beyond the pre-existing benign YN0060 typescript-peer-range notice already explained in this task's decisions. Ran and confirmed passing on this branch: yarn format:check (README.md clean; repo-wide 22-file drift confirmed pre-existing on main, see below), yarn lint (clean), yarn tsc -b --noEmit (clean), yarn test:coverage (269/269 tests passed across 44 test files, 99.6%/99.21%/100%/99.6% statements/branches/functions/lines, consistent with round 1's numbers, no regression), make e2e (13/13 specs pass via the real yarn dev/yarn test:e2e wiring, ports 8000/5173 confirmed free before the run), backend ruff (clean), backend mypy (clean, 39 source files), backend pytest --cov (560/560 passed, 99.86% total coverage, no regression). No openapi.json changes needed (no API/schema touched by this PR). No frontend component/page was added or changed by this PR (pure tooling + doc/comment fixes) so there is no new UI surface for a Playwright MCP walkthrough beyond what make e2e's real-Chromium run already exercises (13/13, including the no-console-errors-on-load spec) -- stating this explicitly per review process rather than silently skipping it. Independently re-verified the pre-existing repo-wide Prettier drift claim from the task's newest decisions entry: used a git worktree of origin/main and ran the exact same prettier binary/version from this branch's node_modules directly against that worktree (ruling out any linker-mode-driven false read) -- the identical 22-file list (RiskPercent.tsx, several stocks-feature components/tests, DashboardPage.test.tsx, StockDetailPage.test.tsx, two e2e specs, etc.) already fails `prettier --check` on main, unrelated to and predating this migration; frontend/README.md itself passes cleanly on main (as expected, since this PR's own edit is what broke and then re-fixed it). Filed that drift, plus one new minor non-blocking finding from an independent code-review skill pass (frontend/package.json's `resolutions` entry is likely inert under Yarn since typescript is only a peerDependency of openapi-typescript, not a real dependency edge -- not a bug, just possibly-vestigial config), as new checklist entries on migrate-yarn2-followups (already existing, still planned) rather than duplicating a new followups task; also marked that followups task's original npm-comment entry done since this PR's fix resolves it. code-review skill otherwise cleared the diff with no other correctness bugs (also independently confirmed the .gitignore `/.yarn/*` + `!/.yarn/releases` negation pattern works via `git check-ignore`, and found no missed npm references anywhere in the repo beyond the two already-tracked-and-now-fixed backend comments). No pr_decision existed on this task from a prior pass, so nothing to clear. Verdict: accepted -- the round-1 blocking README.md Prettier finding is fixed and verified, the round-1 non-blocking comment finding is fixed and verified, and both new findings surfaced this round are non-blocking and now tracked on the board rather than left only in this PR's comment history."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T13:35:11Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified from a clean state (rm -rf node_modules): sha256 of frontend/.yarn/releases/yarn-4.18.0.cjs matches the binary fetched fresh from repo.yarnpkg.com byte-for-byte; `yarn install --immutable` succeeds with no npm involvement; yarn lint, yarn tsc -b --noEmit, yarn build, and yarn build-storybook all clean; yarn test:coverage reproduced 269/269 tests passing across 44 files at 99.6%/99.21%/100%/99.6% stmt/branch/fn/line coverage, matching the review's numbers exactly; make e2e reproduced 13/13 Playwright specs passing; backend pytest --cov reproduced 560/560 passed at 99.86% coverage. Confirmed node_modules/typescript resolves to a single top-level 6.0.3 with no nested copy, and yarn generate:api-types reproduced src/api/types.ts byte-identical to the committed file (diffed before/after). Ran yarn format:check myself: the same 22-file list fails, none of which appear in this PR's own diff (git diff --stat origin/main...HEAD touches only frontend/README.md plus config/doc/comment files), corroborating the pre-existing-on-main claim independently of the review's own worktree check; frontend/README.md itself is clean. Skimmed the full diff (26 files) myself, including the .claude/skills, Makefile, README.md, devcontainer, and config.py/fixture_provider.py npm->yarn comment updates -- all consistent with the review's description, no undersold findings. Also confirmed migrate-yarn2-followups.json exists and carries the two non-blocking findings from review.comments. Accept holds."
+  }
+}

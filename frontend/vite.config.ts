@@ -13,7 +13,7 @@ export default defineConfig({
   // base URL ('' — every request path already includes the '/api' prefix),
   // meant for a deployment behind a single reverse proxy. In dev, "same
   // origin" is the Vite dev server's own port, which has no knowledge of
-  // '/api/*' routes — proxy those through to the backend so `vite`/`npm run
+  // '/api/*' routes — proxy those through to the backend so `vite`/`yarn
   // dev` works out of the box without requiring VITE_API_BASE_URL to be set.
   server: {
     proxy: {
@@ -28,7 +28,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     css: true,
-    // tests/e2e/*.spec.ts are Playwright specs (playwright.config.ts, `npm run test:e2e`) --
+    // tests/e2e/*.spec.ts are Playwright specs (playwright.config.ts, `yarn test:e2e`) --
     // a real, un-mocked, separate test category (frontend-e2e-tests task) that must never
     // run under vitest (its `test`/`expect` come from '@playwright/test', not vitest) or
     // count toward this suite's 90% coverage gate (docs/architecture/Testing.md).

@@ -9,7 +9,7 @@ Stock/portfolio analysis app that signals BUY/SELL/HOLD with a confidence percen
 
 ## Dev container
 
-Development happens inside the dev container in `.devcontainer/` — it has everything preinstalled: Python 3.12, Node 22, git, the GitHub CLI, and Claude Code itself. Open the repo in VS Code (or any [Dev Containers spec](https://containers.dev/) tool) and choose **Reopen in Container**.
+Development happens inside the dev container in `.devcontainer/` — it has everything preinstalled: Python 3.12, Node 22 (with Corepack enabled, so `yarn` resolves to the version pinned in `frontend/package.json`'s `packageManager` field), git, the GitHub CLI, and Claude Code itself. Open the repo in VS Code (or any [Dev Containers spec](https://containers.dev/) tool) and choose **Reopen in Container**.
 
 On first creation it prints setup instructions for the GitHub MCP server and generating an SSH key, and it **automatically configures git commit signing** (`gpg.format`, `user.signingkey`, `commit.gpgsign`, `allowed_signers`) as soon as a key exists — it can't generate the key or register it on GitHub for you (both need a human decision), but the local git config itself is done for you, not just printed. Re-run any time with `fintrade-help`; see `.devcontainer/setup-help.sh` for the exact logic.
 
@@ -22,7 +22,7 @@ need to remember each service's own invocation:
 make backend   # run the backend dev server (FastAPI/uvicorn --reload) on :8000
 make frontend  # run the frontend dev server (Vite) on :5173
 make dev       # run both together; Ctrl-C stops both cleanly
-make install   # set up backend/.venv and frontend/node_modules
+make install   # set up backend/.venv and frontend/node_modules (via yarn)
 make test      # run backend (pytest) and frontend (vitest) test suites
 make e2e       # run the frontend's Playwright end-to-end suite (see "End-to-end tests" below)
 make help      # list all targets
@@ -87,13 +87,13 @@ separate, real-browser test category from the vitest/pytest suites `make test` r
 drives an actual running backend + frontend through a real Chromium browser, rather than
 mocking the API boundary (vitest+MSW) or calling routers in-process (pytest+`TestClient`).
 It is **not** part of the 90% coverage gate (see [Testing.md](docs/architecture/Testing.md))
-and is never run by `make test`/`npm test`.
+and is never run by `make test`/`yarn test`.
 
 ```bash
 make e2e                       # from the repo root
 # or, equivalent:
-cd frontend && npm run test:e2e
-cd frontend && npm run test:e2e:ui   # Playwright's interactive UI mode, for debugging
+cd frontend && yarn test:e2e
+cd frontend && yarn test:e2e:ui   # Playwright's interactive UI mode, for debugging
 ```
 
 Both commands start their own backend and frontend processes (Playwright's `webServer`
@@ -105,10 +105,10 @@ provider serving a handful of synthetic tickers — see that module's docstring)
 dedicated `backend/e2e.db` SQLite database that's wiped before every run, so the suite never
 depends on live yfinance/Stooq calls or leftover portfolio state from a previous run.
 
-The first run downloads a Chromium browser build via `npx playwright install chromium`
+The first run downloads a Chromium browser build via `yarn playwright install chromium`
 (already done in the dev container's `node_modules` cache once installed) and, outside the
 dev container's prebuilt image, its system-level dependencies via
-`sudo npx playwright install-deps chromium`.
+`sudo yarn playwright install-deps chromium`.
 
 ## MCP servers
 

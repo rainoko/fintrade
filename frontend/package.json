@@ -50,7 +50,7 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "eslint-plugin-storybook": "^10.6.0",
     "globals": "^17.12.0",
-    "jsdom": "^30.0.1",
+    "jsdom": "30.0.1",
     "msw": "^2.15.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.7",
@@ -60,9 +60,8 @@
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
   },
-  "overrides": {
-    "openapi-typescript": {
-      "typescript": "$typescript"
-    }
-  }
+  "resolutions": {
+    "openapi-typescript/typescript": "$typescript"
+  },
+  "packageManager": "yarn@4.18.0"
 }

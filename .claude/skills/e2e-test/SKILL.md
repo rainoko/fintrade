@@ -21,13 +21,13 @@ ordinary implementation work). It also never loosens what a spec asserts to make
 ## Steps
 
 1. **Check prerequisites before running anything:**
-   - **Chromium browser binary.** `npx playwright install chromium` inside `frontend/`
+   - **Chromium browser binary.** `yarn playwright install chromium` inside `frontend/`
      downloads it if missing (cached at `~/.cache/ms-playwright`, already provisioned in
      this dev container's image — a fresh environment needs this once). Outside the dev
      container, its system-level dependencies also need
-     `sudo npx playwright install-deps chromium` — see README.md's "End-to-end tests"
+     `sudo yarn playwright install-deps chromium` — see README.md's "End-to-end tests"
      section. Don't skip this check and let the run fail opaquely; confirm the binary is
-     present first (`ls ~/.cache/ms-playwright` or let `npx playwright install chromium`
+     present first (`ls ~/.cache/ms-playwright` or let `yarn playwright install chromium`
      itself report "already installed").
    - **Ports 8000 and 5173 free.** Playwright's `webServer` config always starts its own
      backend+frontend processes (`reuseExistingServer: false`, unconditionally) rather than
@@ -49,7 +49,7 @@ ordinary implementation work). It also never loosens what a spec asserts to make
    ```
    make e2e
    ```
-   (equivalent to `cd frontend && npm run test:e2e`, i.e. `playwright test` under
+   (equivalent to `cd frontend && yarn test:e2e`, i.e. `playwright test` under
    `playwright.config.ts`). This is a single, non-interactive run of every spec in
    `frontend/tests/e2e/*.spec.ts`, serially (`workers: 1`), starting its own backend+frontend
    and tearing them down afterward. Expect roughly 15-30s for the current suite size:
@@ -59,7 +59,7 @@ ordinary implementation work). It also never loosens what a spec asserts to make
    "End-to-end (Playwright)" section for exactly what each covers.
 
    For interactive debugging of a specific failure (not for a routine run/report pass),
-   `npm run test:e2e:ui` opens Playwright's UI mode instead.
+   `yarn test:e2e:ui` opens Playwright's UI mode instead.
 
 3. **Report pass/fail per spec file**, not just a single suite-wide verdict — list which
    `.spec.ts` files passed and which failed, with the test name for any failure (Playwright's
@@ -99,7 +99,7 @@ ordinary implementation work). It also never loosens what a spec asserts to make
 - **`check-coverage`/`static-verify`** govern the mocked vitest/pytest suites and lint/type
   tooling respectively — this suite is deliberately outside the 90% coverage gate (real
   network-free-but-unmocked HTTP round-trips through a real browser aren't what that gate
-  measures) and isn't run by `make test`/`npm test`. Run this skill as an additional,
+  measures) and isn't run by `make test`/`yarn test`. Run this skill as an additional,
   separate check, never as a substitute for either of those.
 - If a new UI flow is added, the underlying task should also add or extend an e2e spec for
   it (that's implementation work for whichever skill governs the change, e.g.

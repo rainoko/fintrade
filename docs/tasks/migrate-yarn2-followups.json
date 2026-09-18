@@ -1,0 +1,29 @@
+{
+  "id": "migrate-yarn2-followups",
+  "title": "Yarn Berry migration — non-blocking review follow-ups",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["migrate-yarn2"],
+  "references": [
+    "docs/tasks/migrate-yarn2.json#review",
+    "https://github.com/rainoko/fintrade/pull/116"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #116 (migrate-yarn2), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "backend/app/config.py:19 and backend/app/data/fixture_provider.py:2 still say \"run via `npm run test:e2e`\" in their docstrings/comments -- missed by migrate-yarn2's repo-wide npm-to-yarn sweep (both files are outside that task's own `references` list, which is presumably why the sweep didn't catch them). Comment-only, no functional effect, but should read `yarn test:e2e` to match the rest of the repo post-migration.",
+      "done": true
+    },
+    {
+      "step": "Repo-wide Prettier drift on `main`: `yarn format:check` (`prettier --check .`) currently fails on ~22 files unrelated to the npm->yarn migration (e.g. src/components/common/RiskPercent/RiskPercent.tsx, several src/features/stocks/components/*.tsx and their tests, src/pages/DashboardPage.test.tsx, src/pages/StockDetailPage.test.tsx, tests/e2e/dashboard.spec.ts, tests/e2e/stock-analysis.spec.ts). Confirmed via pr-reviewer round 2 of PR #116: checked out origin/main into a separate git worktree and ran the exact same prettier binary/version against it -- the identical 22-file list already fails on main, independent of and predating this PR (migrate-yarn2 itself only touched frontend/README.md's table padding, which is clean). Worth a dedicated cleanup pass (a scoped `yarn format --write .` limited to these files, reviewed for any unintended behavior change from the reformat) since a red `format:check` on main undermines the gate's value as a regression check.",
+      "done": false
+    },
+    {
+      "step": "frontend/package.json's `resolutions` field (`\"openapi-typescript/typescript\": \"$typescript\"`, translated from the pre-migration npm `overrides` in PR #116) is likely a no-op in Yarn's dependency graph: `typescript` is only a `peerDependency` of `openapi-typescript`, not a regular dependency, and Yarn's `resolutions` only rewrites entries that exist as actual dependency edges. Not a functional bug -- peer resolution already converges on a single top-level typescript@6.0.3 without it, per migrate-yarn2's own verification -- but likely vestigial config carried over from the npm overrides syntax that no longer does anything under Yarn. Worth either removing it (with a follow-up check that peer resolution still converges the same way) or adding a comment noting it's intentionally inert, so a future reader doesn't assume it's load-bearing. Raised independently by the code-review skill during pr-reviewer's round-2 pass on PR #116.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

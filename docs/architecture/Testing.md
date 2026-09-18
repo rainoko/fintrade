@@ -6,7 +6,7 @@ This coverage gate governs the backend (pytest) and frontend (vitest) suites des
 this document, both of which mock every external boundary (market data providers,
 the API layer). It does **not** apply to the separate end-to-end suite described in
 [End-to-end (Playwright)](#end-to-end-playwright) below, which deliberately does the opposite
-— a real, running, un-mocked stack — and is never run as part of `make test`/`npm test` or
+— a real, running, un-mocked stack — and is never run as part of `make test`/`yarn test` or
 counted toward either coverage number.
 
 ## Backend (Python)
@@ -67,7 +67,7 @@ Both coverage gates run on every PR. A PR that drops either side below 90% fails
 ## End-to-end (Playwright)
 
 `frontend/tests/e2e/` (`frontend/playwright.config.ts`, run via `make e2e` /
-`npm run test:e2e` — see [README.md](../../README.md#end-to-end-tests)) is a distinct test
+`yarn test:e2e` — see [README.md](../../README.md#end-to-end-tests)) is a distinct test
 category from everything above: real browser (Chromium via Playwright), real running
 backend + frontend processes, no mocking at any layer. It exists to catch the class of bug
 the mocked suites structurally can't — a real HTTP round-trip through Vite's dev-server

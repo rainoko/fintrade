@@ -36,13 +36,13 @@ explanation.
 
 3. **Frontend lint.** From `frontend/`:
    ```
-   npm run lint
+   yarn lint
    ```
    (Runs `eslint .` per `frontend/package.json`'s `lint` script and `eslint.config.js`.)
 
 4. **Frontend type check.** From `frontend/`:
    ```
-   npx tsc -b --noEmit
+   yarn tsc -b --noEmit
    ```
    Project-references build (`tsconfig.app.json` + `tsconfig.node.json`, both `strict:
    true`) — catches type errors across `src/`, `tests/`, and `.storybook/`.
