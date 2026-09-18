@@ -71,6 +71,21 @@ def is_nonempty_str(value: Any) -> TypeGuard[str]:
     return isinstance(value, str) and value.strip() != ""
 
 
+def is_invalid_str_choice(value: Any, valid_values: set[str]) -> bool:
+    """True if `value` isn't a string member of `valid_values`.
+
+    Shared by every "must be one of these string values" check in this module
+    (test.verdict, review.verdict, gap_analysis[].severity, index.json entry
+    state) so the isinstance-and-membership condition itself -- which is what
+    made those four checks crash on a non-scalar value before that bug was
+    fixed -- isn't repeated at each call site. Each call site still owns its
+    own violation message wording, since those differ enough (field path,
+    whether the valid-values list is echoed back) that unifying the message
+    too would cost more than it saves.
+    """
+    return not (isinstance(value, str) and value in valid_values)
+
+
 def load_json(path: Path) -> tuple[Any, str | None]:
     try:
         return json.loads(path.read_text()), None
@@ -201,9 +216,7 @@ def check_task_shape(task_id: str, data: dict[str, Any], filename_stem: str) -> 
                 or not all(isinstance(m, str) for m in test["method"])
             ):
                 fail("test.method must be a list of strings when present")
-            if "verdict" in test and (
-                not isinstance(test["verdict"], str) or test["verdict"] not in VALID_TEST_VERDICTS
-            ):
+            if "verdict" in test and is_invalid_str_choice(test["verdict"], VALID_TEST_VERDICTS):
                 fail(f"test.verdict must be one of {sorted(VALID_TEST_VERDICTS)}, got {test['verdict']!r}")
             if "gap_analysis" in test:
                 if not isinstance(test["gap_analysis"], list):
@@ -216,7 +229,7 @@ def check_task_shape(task_id: str, data: dict[str, Any], filename_stem: str) -> 
                         if not is_nonempty_str(gap.get("summary")):
                             fail(f"test.gap_analysis[{i}].summary must be a non-empty string")
                         severity = gap.get("severity")
-                        if not isinstance(severity, str) or severity not in VALID_SEVERITIES:
+                        if is_invalid_str_choice(severity, VALID_SEVERITIES):
                             fail(
                                 f"test.gap_analysis[{i}].severity must be one of "
                                 f"{sorted(VALID_SEVERITIES)}, got {severity!r}"
@@ -233,9 +246,8 @@ def check_task_shape(task_id: str, data: dict[str, Any], filename_stem: str) -> 
                 fail("review.reviewed_at must be a non-empty string when present")
             if "pr_url" in review and not is_nonempty_str(review["pr_url"]):
                 fail("review.pr_url must be a non-empty string when present")
-            if "verdict" in review and (
-                not isinstance(review["verdict"], str)
-                or review["verdict"] not in VALID_REVIEW_VERDICTS
+            if "verdict" in review and is_invalid_str_choice(
+                review["verdict"], VALID_REVIEW_VERDICTS
             ):
                 fail(
                     f"review.verdict must be one of {sorted(VALID_REVIEW_VERDICTS)}, "
@@ -296,7 +308,13 @@ def run() -> list[Violation]:
     if not isinstance(index_data, dict) or not isinstance(index_data.get("tasks"), list):
         return [Violation("index.json", "top-level 'tasks' field is missing or not a list")]
 
-    index_by_id: dict[str, dict[str, Any]] = {}
+    # Keyed by id -> list of entries, not a single entry: two rows in index.json
+    # can share an id (mirrors the tasks_by_id fix below for duplicate task
+    # files). Keeping every copy here, rather than letting a later row silently
+    # overwrite an earlier one, means the state/path mirror cross-check further
+    # down still runs against *each* duplicate independently instead of only
+    # whichever row happened to be processed last.
+    index_by_id: dict[str, list[dict[str, Any]]] = {}
     for i, entry in enumerate(index_data["tasks"]):
         if not isinstance(entry, dict) or not is_nonempty_str(entry.get("id")):
             violations.append(Violation("index.json", f"tasks[{i}] is missing a valid 'id'"))
@@ -304,12 +322,12 @@ def run() -> list[Violation]:
         task_id = entry["id"]
         if task_id in index_by_id:
             violations.append(Violation("index.json", f"duplicate id {task_id!r} in tasks list"))
-        index_by_id[task_id] = entry
+        index_by_id.setdefault(task_id, []).append(entry)
         for field in ("area", "skill", "state", "path"):
             if field not in entry:
                 violations.append(Violation(task_id, f"index.json entry is missing '{field}'"))
         index_state = entry.get("state")
-        if not isinstance(index_state, str) or index_state not in VALID_STATES:
+        if is_invalid_str_choice(index_state, VALID_STATES):
             violations.append(
                 Violation(task_id, f"index.json entry has invalid state {index_state!r}")
             )
@@ -370,30 +388,35 @@ def run() -> list[Violation]:
     for task_id, entries in tasks_by_id.items():
         for data, path in entries:
             rel_path = str(path.relative_to(REPO_ROOT))
-            entry = index_by_id.get(task_id)
-            if entry is None:
+            index_entries = index_by_id.get(task_id)
+            if not index_entries:
                 violations.append(
                     Violation(
                         task_id, f"file exists at {rel_path} but has no entry in docs/tasks/index.json"
                     )
                 )
                 continue
-            if entry.get("state") != data.get("state"):
-                violations.append(
-                    Violation(
-                        task_id,
-                        f"index.json state ({entry.get('state')!r}) does not match the task "
-                        f"file's own state ({data.get('state')!r}) at {rel_path}",
+            # Cross-check against every index.json row sharing this id, not just
+            # one -- otherwise a genuine drift on an earlier duplicate row is
+            # silently skipped whenever a later, non-drifted duplicate happens to
+            # be the one a single-entry lookup would have returned.
+            for entry in index_entries:
+                if entry.get("state") != data.get("state"):
+                    violations.append(
+                        Violation(
+                            task_id,
+                            f"index.json state ({entry.get('state')!r}) does not match the task "
+                            f"file's own state ({data.get('state')!r}) at {rel_path}",
+                        )
                     )
-                )
-            if entry.get("path") != rel_path:
-                violations.append(
-                    Violation(
-                        task_id,
-                        f"index.json path ({entry.get('path')!r}) does not match the task's "
-                        f"actual file location ({rel_path!r})",
+                if entry.get("path") != rel_path:
+                    violations.append(
+                        Violation(
+                            task_id,
+                            f"index.json path ({entry.get('path')!r}) does not match the task's "
+                            f"actual file location ({rel_path!r})",
+                        )
                     )
-                )
 
     for task_id in index_by_id:
         if task_id not in tasks_by_id:
