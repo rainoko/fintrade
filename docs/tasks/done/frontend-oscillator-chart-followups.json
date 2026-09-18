@@ -1,0 +1,89 @@
+{
+  "id": "frontend-oscillator-chart-followups",
+  "title": "Non-blocking follow-ups from PR #108 review (frontend-oscillator-chart)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-oscillator-chart"],
+  "references": [
+    "docs/tasks/frontend-oscillator-chart.json",
+    "https://github.com/rainoko/fintrade/pull/108",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "backend/app/api/schemas.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #108 (frontend-oscillator-chart), recorded here so they aren't lost once that PR merges. The blocking finding -- OscillatorChart.tsx crashing the whole app when a plotted point has a null stochastic_k/force_index_2ema (e.g. selecting the 'Max' range, which includes the indicator warm-up bars) -- is tracked as the needs_work verdict on the parent task itself, not here.",
+  "checklist": [
+    {
+      "step": "backend: GET /api/stocks/{ticker}/indicators' IndicatorHistoryPoint.stochastic_k/force_index_2ema are declared `type: number` (required, non-nullable) in backend/app/api/schemas.py and backend/openapi.json, but the runtime response can legitimately emit `null` for early-history bars still inside the indicator's warm-up window (Stochastic %K(5,3,3) needs ~11 bars, confirmed live: GET /api/stocks/AAPL/indicators?range=max returns 6 points with stochastic_k=null and 1 with force_index_2ema=null). This is a distinct cause from the one api-stocks-analysis-nullable-indicators already fixed for /analysis (that fix drops malformed-OHLC bars; these nulls come from legitimate warm-up insufficiency on otherwise well-formed bars, so the same fix doesn't apply). Decide and implement: either mark these fields Optional/nullable in schemas.py (regenerating openapi.json + frontend types) so the contract is honest, or trim not-yet-warmed-up points from the response before it's returned.",
+      "done": true
+    },
+    {
+      "step": "OscillatorChart.tsx's Force Index and MACD Histogram pane setup (the HistogramSeries creation, sign-based color computation, and dotted zero-baseline price line) is near-duplicated between the two panes with only the series title/paneIndex differing -- could be factored into one small shared helper to reduce the ~20 lines of duplication, mirroring the 'single buildOscillatorSeriesData pass' consolidation already done for the data-building side.",
+      "done": true
+    },
+    {
+      "step": "OscillatorChart.tsx's createChart() call (line ~135) uses the exact same options object (`{ autoSize: true, layout: { background: { color: 'transparent' } } }`) as PriceChart.tsx's own chart-creation effect, duplicated verbatim in a second file -- a shared helper (e.g. a small `createBaseChart(container)` in a features/stocks lib module) would remove the duplication and the risk of the two drifting apart if the base chart options ever need to change. (Surfaced by a code-review skill pass on this PR.)",
+      "done": true
+    },
+    {
+      "step": "Non-blocking (round-2 re-review, PR #108): the new `createBaseChart` helper landed at `frontend/src/features/stocks/lib/chart.ts`, but per docs/architecture/Frontend.md §3's explicit utils/-vs-features placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component -> utils/'), it arguably belongs in `frontend/src/utils/` instead -- it takes only a raw `HTMLElement` and returns a generic `IChartApi`, with no reference to ticker/position/signal or any stocks-domain concept, the same test that puts `utils/format.ts` outside any single feature folder. Frontend.md's own documented directory tree also only lists `hooks/` and `components/` under each `features/<domain>/` folder, not a `lib/` subfolder, so this is a new, undocumented structural pattern as well as an arguable placement call. Genuinely arguable rather than clear-cut though: its only two consumers (PriceChart.tsx, OscillatorChart.tsx) are both in features/stocks today, unlike format.ts's cross-feature usage that motivated the utils/ example -- worth a decision either way (move to utils/, or document the features/<domain>/lib/ pattern in Frontend.md as an accepted convention) rather than leaving it unresolved.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T10:10:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed the two frontend-only follow-ups (near-duplicated Force Index/MACD Histogram pane setup, and the duplicated createChart() options object) as part of the frontend-oscillator-chart PR #108 needs_work fix round, since both were small and directly touched the same file already being fixed for the blocking bug. Added `addZeroBaselineHistogramPane` (a shared helper in OscillatorChart.tsx) for the first, and a new `features/stocks/lib/chart.ts` with `createBaseChart(container)` (used by both PriceChart.tsx and OscillatorChart.tsx) for the second. Left the first checklist item (backend schemas.py nullable-fields decision) untouched -- that's genuinely backend-area work outside a frontend PR's natural scope, and this fix round's frontend null-guard already makes the crash-safety fix independent of which backend approach is eventually chosen there.",
+      "rationale": "Both fixes verified via the same test run as the parent task's blocking fix: vitest (259 passed, coverage unaffected), eslint, tsc -b --noEmit, and make e2e (13/13 passed) -- see frontend-oscillator-chart's own decisions entry for full detail. Not marking this whole task's `state` as `done` since checklist item 1 (backend) remains open and is out of scope for a frontend change."
+    },
+    {
+      "timestamp": "2026-09-18T11:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Marked IndicatorHistoryPoint.stochastic_k/force_index_2ema Optional (`float | None = Field(default=None, ...)`) in backend/app/api/schemas.py, rather than trimming not-yet-warmed-up points out of the response. Regenerated backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (npm run generate:api-types) from it.",
+      "rationale": "Trimming was rejected: a bar within Stochastic's 6-bar or Force Index's ~2-bar warm-up window still has perfectly valid ema_13/ema_26/macd_histogram/bull_power/bear_power/signal/confidence values (confirmed by tracing app/indicators/stochastic.py and app/indicators/force_index.py -- pandas ewm-based indicators never produce NaN even on the very first bar, only the rolling-window-based Stochastic and the diff-seeded Force Index do, and only for their own first few bars respectively), and PriceChart.tsx's EMA/signal overlay is fed from this same endpoint's same points -- trimming the whole point would silently drop valid EMA/signal data for those early bars too, degrading the price-chart overlay to fix an oscillator-pane-only problem. Nullable-schema keeps every point present with only the two genuinely-undefined fields marked as such, matching how OscillatorChart.tsx's buildOscillatorSeriesData already filters each of its three series independently (a null stochastic_k on a bar doesn't suppress that same bar's valid force_index_2ema). This is a different situation from api-stocks-analysis-nullable-indicators' NaN-from-malformed-OHLC fix (which correctly chose to drop the bad bar instead of widening the schema) -- that NaN represented actually-corrupt input data cascading into a wrong trigger/wave computation, a correctness bug; this null represents a structurally well-formed bar that simply doesn't have enough trailing history yet for one specific rolling-window indicator, which is expected and bounded (always exactly the first few bars of whatever range was requested) rather than a data-quality problem. Verified the new nullable behavior with a new backend test (test_early_bars_have_null_stochastic_k_and_force_index in tests/integration/test_stocks_indicator_history.py) asserting the exact warm-up bar counts (6 for stochastic_k, 1 for force_index_2ema) traced from each indicator's own docstring, and confirmed every other field stays non-null across the same warm-up window. Also updated OscillatorChart.tsx's isFiniteValue doc comment to note the type/reality mismatch it originally worked around is now fixed, while keeping the runtime guard itself (an honestly-nullable-typed value is exactly as unplottable to Lightweight Charts as a dishonestly-typed one that happens to be null) -- the guard's `unknown` parameter type is intentionally kept rather than narrowed to the new `number | null | undefined` generated type, so it keeps working unconditionally regardless of a caller's declared type, consistent with PriceChart.tsx's analogous hasFiniteOhlc guard."
+    },
+    {
+      "timestamp": "2026-09-18T11:25:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Moved createBaseChart from frontend/src/features/stocks/lib/chart.ts to frontend/src/utils/chart.ts, updating both PriceChart.tsx's and OscillatorChart.tsx's imports. Did not introduce a features/<domain>/lib/ convention.",
+      "rationale": "Applied Frontend.md §3's utils/-vs-features placement test literally: createBaseChart takes a raw HTMLElement and returns a generic IChartApi, referencing no stocks-domain concept (ticker/position/signal) at all -- exactly the 'domain-agnostic and not a component -> utils/' case the doc spells out, and the same test (not merely the same outcome) that already places utils/format.ts outside any single feature folder despite format.ts also having started from feature-specific consumers. Rejected the alternative (documenting a new features/<domain>/lib/ convention in Frontend.md instead): Frontend.md §3's directory tree is explicit that a features/<domain>/ folder owns only hooks/ and components/, and introducing a third subfolder kind for exactly one two-line helper is more structural surface than the problem needs when an existing, already-documented location (utils/) fits it exactly. The 'both consumers are in features/stocks today' argument the follow-up task raised as a countervailing point doesn't actually distinguish this from format.ts's history (format.ts's own initial consumer set was similarly narrow before a second feature adopted it) and the placement test itself is about what the helper *is* (domain-agnostic, no props/rendering), not how many current call sites happen to share a folder."
+    },
+    {
+      "timestamp": "2026-09-18T12:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the review-blocking '~11 prior bars' inaccuracy by replacing the hardcoded figure with the actual formula, `(k_period - 1) + (smooth - 1)` (= 6 with the current k_period=5/smooth=3 defaults), in backend/app/api/schemas.py's stochastic_k Field description, then regenerated backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (npm run generate:api-types) from it, and updated the matching doc comment in frontend/src/features/stocks/components/OscillatorChart.tsx and this task's own prior decisions-entry rationale (which had the same wrong '~11-bar' figure). Also updated docs/architecture/API.md's GET /api/stocks/{ticker}/indicators section to document the stochastic_k/force_index_2ema nullability and warm-up cause (the non-blocking finding filed on frontend-oscillator-chart-followups-followups, checklist item 1 -- marked done there since it's directly related to this same fix and was convenient to do now).",
+      "rationale": "Chose the formula-based description over a bare '~6' to avoid the exact failure mode that caused this needs_work round in the first place: a hardcoded number silently drifts out of sync if k_period/smooth (both plain function parameters, not fixed constants) ever change, whereas the formula stays correct by construction and the parenthetical '6 with the current defaults' still gives a reader the concrete number without it being the only source of truth. Left force_index_2ema's existing '~2 prior bars' wording alone -- it wasn't flagged by pr-reviewer, is a much smaller and defensible approximation (raw Force Index needs a prior close to compute a diff at all, i.e. effectively 2 bars of underlying data for the first non-null output), and touching it risked introducing an unreviewed change outside this fix's actual scope. Did not touch the parent frontend-oscillator-chart-followups-followups' second (pre-existing, unrelated range=max performance) checklist item -- explicitly called out as out of scope for this fix round."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-oscillator-chart-followups",
+    "pr_number": 112,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/112",
+    "pushed_at": "2026-09-18T11:35:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T11:42:01Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/112",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round-2 re-review: the prior round's blocking finding (stochastic_k's warm-up window mis-stated as '~11 prior bars' when the actual math and the PR's own test both show 6) is fixed. Verified by reading the committed text directly (not trusting the worker's report) in all four duplicated locations: backend/app/api/schemas.py's stochastic_k Field description now reads '(k_period - 1) + (smooth - 1) prior bars -- 6 with the current defaults, k_period=5/smooth=3', matching app/indicators/stochastic.py's own docstring formula exactly ((5-1)+(3-1)=6) and test_early_bars_have_null_stochastic_k_and_force_index's assertion (points[:6] null). Re-ran `python scripts/export_openapi.py` and `npm run generate:api-types` from the committed schemas.py/openapi.json -- both produced zero diff, confirming backend/openapi.json and frontend/src/api/types.ts are byte-identical to what's committed (no stale snapshot). frontend/src/features/stocks/components/OscillatorChart.tsx's doc comment carries the same corrected formula. The task's own prior decisions entry (which had self-contradicted '~11-bar' against its own '6' test-count sentence) is also corrected in the new decisions entry's text. No other files reference the old '~11' figure (grepped for 'prior bars'/'k_period' across backend and frontend).",
+        "file": "backend/app/api/schemas.py",
+        "line": 101
+      },
+      {
+        "summary": "Non-blocking follow-up folded in during this fix round: docs/architecture/API.md's GET /api/stocks/{ticker}/indicators section now documents stochastic_k/force_index_2ema nullability and the warm-up cause. Verified the added prose matches the corrected formula. The corresponding checklist item on frontend-oscillator-chart-followups-followups was marked done.",
+        "file": "docs/architecture/API.md",
+        "line": 95
+      }
+    ],
+    "notes": "Re-review (retry round 2 of 3): checked out PR #112 (already on task/frontend-oscillator-chart-followups), read the diff between the prior needs_work commit (1b7fb54) and the fix commit (fc5f349) -- a minimal, targeted 2-line-in-spirit text change across schemas.py + OscillatorChart.tsx's doc comment, with openapi.json/types.ts as pure regeneration output (confirmed byte-identical on re-generation) and the task JSON's own decisions entry corrected. No application logic changed. Backend: 560 passed, 99.86% coverage (python -m pytest --cov=app). Frontend: 269 passed, 44 files, 99.6%/99.21%/100%/99.6% (stmt/branch/func/line) via vitest --coverage. Both well above the 90% gate, no regression from the prior round's numbers. Static analysis: ruff (app/) clean, mypy clean (39 source files), eslint clean, tsc -b --noEmit clean. Ran the new backend test module directly (tests/integration/test_stocks_indicator_history.py, 16 passed) to confirm test_early_bars_have_null_stochastic_k_and_force_index's asserted 6-bar warm-up count independently. Since this touches an API field with a frontend consumer (OscillatorChart.tsx) and the Swagger-rendered Field description itself, re-ran make e2e as a light re-verification given the prior round already did a full interactive browser walkthrough on this same (functionally unchanged) code: 13/13 passed, including stock-analysis.spec.ts's Max-range oscillator-pane regression spec -- confirms nothing broke from the doc-text-only fix. No new blocking or non-blocking findings this round. Working tree was clean at review start/end; two pre-existing, unrelated stashes (task/watchlist-domain-models 'do not discard', task/indicator-elder-ray) were present in git stash list -- left untouched, not created by this review."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T11:45:57Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read app/indicators/stochastic.py's own rolling-window math myself (fast %K NaN for k_period-1 bars, %K additionally NaN for smooth-1 more -- (5-1)+(3-1)=6 with current defaults) and confirmed the formula-based description is byte-consistent across all four locations (schemas.py, openapi.json, types.ts, OscillatorChart.tsx's doc comment). Re-ran `python scripts/export_openapi.py` and `npm run generate:api-types` myself from the committed schemas.py -- both produced zero diff against the committed openapi.json/types.ts. Re-ran the full suites myself rather than trusting the reported numbers: backend 560 passed/99.86% coverage, frontend 269 passed (44 files)/99.6% stmt/99.21% branch/100% func/99.6% line -- exact match to pr-reviewer's figures. ruff/mypy/eslint/tsc all clean. Skimmed the full diff (git diff origin/main...HEAD): schemas.py nullable-field change, the new warm-up test, the API.md doc addition, and the createBaseChart utils/ move all match what review.comments and decisions describe, nothing undersold. Working tree was clean at start and end."
+  },
+  "questions": []
+}

@@ -19,7 +19,7 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockHistory } from '../hooks/useStockHistory'
-import { createBaseChart } from '../lib/chart'
+import { createBaseChart } from '../../../utils/chart'
 
 export interface PriceChartProps {
   ticker: string

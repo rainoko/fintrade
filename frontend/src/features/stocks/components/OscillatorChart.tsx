@@ -16,7 +16,7 @@ import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
-import { createBaseChart } from '../lib/chart'
+import { createBaseChart } from '../../../utils/chart'
 
 export interface OscillatorChartProps {
   ticker: string
@@ -47,22 +47,30 @@ interface OscillatorSeriesData {
 }
 
 /**
- * The generated OpenAPI type declares `stochastic_k`/`force_index_2ema`/
- * `macd_histogram` as non-nullable `number` (backend/app/api/schemas.py),
- * but the runtime response can legitimately return `null` for early bars
- * still inside an indicator's warm-up window (e.g. Stochastic %K(5,3,3)
- * needs ~11 prior bars) — confirmed live via GET
+ * `stochastic_k`/`force_index_2ema` are declared `number | null | undefined`
+ * in the generated OpenAPI type (backend/app/api/schemas.py's
+ * `IndicatorHistoryPoint` was widened to `float | None` for exactly this
+ * reason — see the frontend-oscillator-chart-followups task's `decisions`
+ * entry), since the runtime response can legitimately return `null` for
+ * early bars still inside an indicator's warm-up window (e.g. Stochastic
+ * %K(5,3,3) needs (k_period - 1) + (smooth - 1) prior bars — 6 with the
+ * current defaults) — confirmed live via GET
  * /api/stocks/AAPL/indicators?range=max, which returns points with
- * stochastic_k/force_index_2ema literally `null`. This is the same class of
- * schema/reality mismatch `PriceChart.tsx`'s `hasFiniteOhlc` guards against
- * for OHLCV bars (filed as a backend follow-up on
- * frontend-oscillator-chart-followups; this guard doesn't assume that gets
- * fixed and stays regardless of which backend approach is eventually
- * chosen). Lightweight Charts' `setData` throws synchronously on a
- * non-numeric value, which — uncaught — crashes the whole app via the
- * root `AppErrorBoundary`, not just this pane. `unknown` (not `number`) is
- * used for the parameter type here specifically because the generated type
- * can't be trusted for this field at runtime.
+ * stochastic_k/force_index_2ema literally `null`. `macd_histogram` stays
+ * non-nullable (EMA-seeded indicators never produce NaN, even on the first
+ * bar) but is still run through this same guard for defense-in-depth,
+ * matching `PriceChart.tsx`'s `hasFiniteOhlc` guard for OHLCV bars.
+ *
+ * The type fix alone doesn't remove the need for this runtime guard:
+ * Lightweight Charts' `setData` throws synchronously on a non-numeric
+ * value, which — uncaught — crashes the whole app via the root
+ * `AppErrorBoundary`, not just this pane, and an honestly-`null`-typed
+ * value is exactly as unplottable as a dishonestly-`number`-typed one that
+ * happens to be `null` at runtime — a type only prevents a *type* error, not
+ * a value TradingView's chart library can't render. `unknown` (rather than
+ * the field's own `number | null | undefined` type) is still used for the
+ * parameter here so this guard keeps working unconditionally regardless of
+ * a caller's declared type.
  */
 function isFiniteValue(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
