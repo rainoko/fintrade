@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
@@ -24,6 +24,9 @@ const aaplPosition: PositionOut = {
   entry_date: '2026-05-14',
   current_price: 228.9,
   unrealized_pnl_pct: 17.2,
+  signal: 'BUY',
+  confidence: 72,
+  confidence_band: 'High',
 }
 
 const msftPosition: PositionOut = {
@@ -34,6 +37,9 @@ const msftPosition: PositionOut = {
   entry_date: '2026-06-01',
   current_price: 410.5,
   unrealized_pnl_pct: 36.8,
+  signal: 'HOLD',
+  confidence: 45,
+  confidence_band: 'Medium',
 }
 
 function mockRisk(response: RiskResponse) {
@@ -88,10 +94,54 @@ describe('RiskPanel', () => {
       '/stocks/MSFT',
     )
 
+    // Signal column cross-references the held-position list passed in via
+    // `positions` (RiskPosition itself has no `signal` field) -- reusing
+    // common/SignalBadge, same as WatchlistTable/PositionsTable.
     const aaplRow = screen.getByText('AAPL').closest('tr')
     expect(aaplRow).not.toHaveStyle({
       backgroundColor: theme.palette.riskBreach.background,
     })
+    expect(within(aaplRow as HTMLElement).getByTestId('signal-badge')).toHaveTextContent(
+      'BUY',
+    )
+    const msftRow = screen.getByText('MSFT').closest('tr')
+    expect(within(msftRow as HTMLElement).getByTestId('signal-badge')).toHaveTextContent(
+      'HOLD',
+    )
+  })
+
+  it('renders an em dash in the Signal column for a held position whose signal could not be computed', async () => {
+    mockRisk({
+      total_open_risk_pct: 1.8,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          protective_stop: 210.15,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+
+    const positionWithNullSignal: PositionOut = {
+      ...aaplPosition,
+      signal: null,
+      confidence: null,
+      confidence_band: null,
+    }
+    renderRiskPanel([positionWithNullSignal])
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
+    )
+    const aaplRow = screen.getByText('AAPL').closest('tr') as HTMLElement
+    expect(within(aaplRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
+    // Both the (empty) Exit Flags cell and the null-signal Signal cell fall
+    // back to '—'.
+    expect(within(aaplRow).getAllByText('—')).toHaveLength(2)
   })
 
   it('visually flags the row and lists readable exit-flag labels when the 2% rule is breached on one position', async () => {

@@ -9,6 +9,7 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
+import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
@@ -21,6 +22,9 @@ export interface PositionsTableProps {
  * Positions table for the Portfolio page, built on common/DataTable. Owns
  * the delete-position flow end to end (confirm dialog + useDeletePosition
  * mutation) so PortfolioPage itself stays a thin composition (Frontend.md §3).
+ * The Signal column reuses the exact common/SignalBadge + '—' null-fallback
+ * pattern WatchlistTable established (frontend-lists-show-signal) rather than
+ * a second implementation.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
@@ -61,6 +65,15 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         ) : (
           <PercentChange value={row.unrealized_pnl_pct} />
         ),
+    },
+    {
+      key: 'signal',
+      header: 'Signal',
+      // `signal` is optional-and-nullable in PositionOut, matching
+      // WatchlistItemOut's own null-on-failure case (API.md) — same '—'
+      // fallback, loose `== null` narrowing both `undefined` and `null` in
+      // one check.
+      render: (row) => (row.signal == null ? '—' : <SignalBadge signal={row.signal} />),
     },
     {
       key: 'id',

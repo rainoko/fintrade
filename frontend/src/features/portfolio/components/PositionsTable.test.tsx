@@ -25,6 +25,9 @@ const positions: PositionOut[] = [
     entry_date: '2026-05-14',
     current_price: 228.9,
     unrealized_pnl_pct: 17.2,
+    signal: 'BUY',
+    confidence: 72,
+    confidence_band: 'High',
   },
   {
     id: 'pos_456',
@@ -34,11 +37,14 @@ const positions: PositionOut[] = [
     entry_date: '2026-06-01',
     current_price: null,
     unrealized_pnl_pct: null,
+    signal: null,
+    confidence: null,
+    confidence_band: null,
   },
 ]
 
 describe('PositionsTable', () => {
-  it('renders a row per position with formatted currency/percentage cells', () => {
+  it('renders a row per position with formatted currency/percentage cells and a signal badge', () => {
     renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
@@ -52,9 +58,11 @@ describe('PositionsTable', () => {
     expect(within(rows[0]).getByText('$195.30')).toBeInTheDocument()
     expect(within(rows[0]).getByText('$228.90')).toBeInTheDocument()
     expect(within(rows[0]).getByText('+17.20%')).toBeInTheDocument()
+    const aaplBadge = within(rows[0]).getByTestId('signal-badge')
+    expect(aaplBadge).toHaveTextContent('BUY')
   })
 
-  it('renders an em dash for null current_price/unrealized_pnl_pct', () => {
+  it('renders an em dash for null current_price/unrealized_pnl_pct/signal', () => {
     renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
@@ -64,6 +72,7 @@ describe('PositionsTable', () => {
     expect(within(zzzzRow).getByText('ZZZZ')).toBeInTheDocument()
     const cells = within(zzzzRow).getAllByRole('cell')
     expect(cells.map((cell) => cell.textContent)).toContain('—')
+    expect(within(zzzzRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
   })
 
   it('renders the empty state when there are no positions', () => {

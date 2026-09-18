@@ -3,7 +3,7 @@
   "title": "Every ticker list in the UI shows its BUY/HOLD/SELL signal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["api-portfolio-position-signal"],
   "references": [
     "frontend/src/features/portfolio/components/PositionsTable.tsx",
@@ -15,13 +15,20 @@
   ],
   "description": "User request: all lists must show the BUY/HOLD/SELL signal, even the watchlist. WatchlistTable (frontend-watchlist-page, merged) already does this via common/SignalBadge -- no change needed there, confirm it still holds. The actual gap is the Portfolio-domain tables: PositionsTable (Portfolio page) and PositionsGlanceTable (Dashboard page) show ticker/quantity/price/P&L but no signal today, since GET /api/portfolio never returned one -- api-portfolio-position-signal (depends_on) adds it. Add a Signal column to both tables using the exact same common/SignalBadge treatment WatchlistTable already established (reuse, do not reinvent), with the same null-signal '—' fallback pattern WatchlistTable uses. Decide whether RiskPanel's table should also get a signal column (it currently shows risk-driven exit_flags, a different concept from a fresh entry signal -- both could usefully coexist) and record as a decisions entry either way.",
   "checklist": [
-    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsTable.tsx (Portfolio page), reusing WatchlistTable's exact pattern.", "done": false },
-    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsGlanceTable.tsx (Dashboard page), same pattern.", "done": false },
-    { "step": "Decide whether RiskPanel's table also gets a signal column, and implement if so; record the decision either way.", "done": false },
-    { "step": "Confirm WatchlistTable's existing signal display still works unchanged (regression check only, no code change expected there).", "done": false },
-    { "step": "Update/add tests for each changed table's new column (MSW-mocked, including the null-signal case).", "done": false },
-    { "step": "Confirm 90% coverage gate still holds; run make e2e to confirm nothing broke on the Portfolio/Dashboard pages.", "done": false }
+    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsTable.tsx (Portfolio page), reusing WatchlistTable's exact pattern.", "done": true },
+    { "step": "Add a Signal column (common/SignalBadge, null-safe) to PositionsGlanceTable.tsx (Dashboard page), same pattern.", "done": true },
+    { "step": "Decide whether RiskPanel's table also gets a signal column, and implement if so; record the decision either way.", "done": true },
+    { "step": "Confirm WatchlistTable's existing signal display still works unchanged (regression check only, no code change expected there).", "done": true },
+    { "step": "Update/add tests for each changed table's new column (MSW-mocked, including the null-signal case).", "done": true },
+    { "step": "Confirm 90% coverage gate still holds; run make e2e to confirm nothing broke on the Portfolio/Dashboard pages.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T21:16:45Z",
+      "recorded_by": "task-worker",
+      "decision": "RiskPanel's per-position table also gets a Signal column, sourced by cross-referencing the already-fetched `positions` prop (PositionOut[], from GET /api/portfolio) by ticker -- not by having the backend add a `signal` field to RiskPosition/GET /api/portfolio/risk.",
+      "rationale": "The task's own title ('Every ticker list in the UI shows its BUY/HOLD/SELL signal') is a literal instruction, and RiskPanel's table is a ticker list users look at alongside the others. Exit flags (risk-driven, 'should I get out of a position I already hold') and a fresh entry signal (Elder's Triple Screen, 'would I buy/sell this ticker today') are genuinely different concepts per the task description, but nothing stops them coexisting in the same row -- a HOLD signal next to a stop_hit exit flag is meaningful information, not noise. Rejected: (1) leaving RiskPanel unchanged -- under-delivers on the literal task title for a table that already lists tickers prominently; (2) having the backend add `signal` to RiskPosition -- GET /api/portfolio already returns it per-ticker (api-portfolio-position-signal), so duplicating it into a second response only for RiskPanel's convenience would be scope creep, redundant, and risks the two responses drifting out of sync for a ticker whose signal changes between the two fetches; cross-referencing client-side (the same pattern RiskPanel already uses for its missingTickers note) avoids all of that with no backend change needed. A ticker present in `riskPositions` but with no matching entry in `positions` (or whose PositionOut.signal is null) falls back to the same '—' WatchlistTable/PositionsTable/PositionsGlanceTable use."
+    }
+  ],
   "questions": []
 }

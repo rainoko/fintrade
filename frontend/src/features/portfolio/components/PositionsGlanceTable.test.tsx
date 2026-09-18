@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { PositionOut } from '../../../api/portfolio'
+import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import PositionsGlanceTable from './PositionsGlanceTable'
 
 const aaplPosition: PositionOut = {
@@ -12,6 +13,9 @@ const aaplPosition: PositionOut = {
   entry_date: '2026-05-14',
   current_price: 228.9,
   unrealized_pnl_pct: 17.2,
+  signal: 'BUY',
+  confidence: 72,
+  confidence_band: 'High',
 }
 
 const unpricedPosition: PositionOut = {
@@ -22,6 +26,9 @@ const unpricedPosition: PositionOut = {
   entry_date: '2026-01-01',
   current_price: null,
   unrealized_pnl_pct: null,
+  signal: null,
+  confidence: null,
+  confidence_band: null,
 }
 
 const highPricedPosition: PositionOut = {
@@ -32,10 +39,13 @@ const highPricedPosition: PositionOut = {
   entry_date: '2026-02-01',
   current_price: 1234.5,
   unrealized_pnl_pct: 23.4,
+  signal: 'HOLD',
+  confidence: 45,
+  confidence_band: 'Medium',
 }
 
 function renderWithRouter(positions: PositionOut[]) {
-  return render(
+  return renderWithProviders(
     <MemoryRouter>
       <PositionsGlanceTable positions={positions} />
     </MemoryRouter>,
@@ -43,7 +53,7 @@ function renderWithRouter(positions: PositionOut[]) {
 }
 
 describe('PositionsGlanceTable', () => {
-  it('renders a row per position with a ticker link into stock detail', () => {
+  it('renders a row per position with a ticker link into stock detail and its signal badge', () => {
     renderWithRouter([aaplPosition])
 
     expect(screen.getByRole('table', { name: 'Positions at a glance' })).toBeInTheDocument()
@@ -51,6 +61,7 @@ describe('PositionsGlanceTable', () => {
     expect(link).toHaveAttribute('href', '/stocks/AAPL')
     expect(screen.getByText('$228.90')).toBeInTheDocument()
     expect(screen.getByText('+17.20%')).toBeInTheDocument()
+    expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY')
   })
 
   it('renders a 4-digit price with a thousands separator', () => {
@@ -59,11 +70,12 @@ describe('PositionsGlanceTable', () => {
     expect(screen.getByText('$1,234.50')).toBeInTheDocument()
   })
 
-  it('renders an em dash for a position with no known price', () => {
+  it('renders an em dash for a position with no known price or signal', () => {
     renderWithRouter([unpricedPosition])
 
     const dashes = screen.getAllByText('—')
-    expect(dashes).toHaveLength(2)
+    expect(dashes).toHaveLength(3)
+    expect(screen.queryByTestId('signal-badge')).not.toBeInTheDocument()
   })
 
   it('shows the empty state when there are no positions', () => {
