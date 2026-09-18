@@ -733,8 +733,8 @@
       "id": "frontend-dashboard-sell-flags-followups",
       "area": "frontend/pages/dashboard",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-dashboard-sell-flags-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-dashboard-sell-flags-followups.json"
     },
     {
       "id": "frontend-ticker-link",

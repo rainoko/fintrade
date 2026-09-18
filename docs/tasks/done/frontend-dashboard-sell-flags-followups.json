@@ -1,0 +1,49 @@
+{
+  "id": "frontend-dashboard-sell-flags-followups",
+  "title": "Dashboard sell-flagged positions card — non-blocking review follow-ups",
+  "area": "frontend/pages/dashboard",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-dashboard-sell-flags"],
+  "references": [
+    "docs/tasks/frontend-dashboard-sell-flags.json#review",
+    "https://github.com/rainoko/fintrade/pull/110"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #110 (frontend-dashboard-sell-flags), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "The exit_flags-to-Chip-list column renderer is duplicated near-verbatim between RiskPanel.tsx (~line 103) and SellFlaggedPositionsCard.tsx (~line 23), even though this PR extracted the adjacent EXIT_FLAG_LABELS map specifically to avoid that kind of drift -- the shared label map is reused but the Stack-of-Chips renderer built on top of it isn't. A future change to how exit flags are displayed (severity color, tooltip, a new flag's chip variant) has to be made in two places and can silently drift. Extract a shared ExitFlagChips component (or a renderExitFlags column-render helper) into features/portfolio/ and use it from both RiskPanel and SellFlaggedPositionsCard.",
+      "done": true
+    },
+    {
+      "step": "SellFlaggedPositionsCard.tsx manually branches on flaggedPositions.length === 0 to render common/EmptyState before ever calling DataTable, duplicating logic DataTable already implements internally via its own emptyMessage prop (DataTable.tsx renders EmptyState itself whenever rows.length === 0). Passing emptyMessage=\"No positions currently flagged to sell.\" straight to DataTable and always rendering it would produce identical output while dropping the extra EmptyState import and the manual ternary.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T11:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared Chip-list renderer as ExitFlagChips.tsx, a flat file in features/portfolio/components/ (matching the existing flat-file convention there, e.g. RiskPanel.tsx/SellFlaggedPositionsCard.tsx — not a TickerLink-style component/test/stories folder), taking a single `flags: string[]` prop and internally handling both the non-empty Chip-Stack case and the empty-array '—' fallback (previously only present in RiskPanel's inline ternary, since SellFlaggedPositionsCard always filtered exit_flags to non-empty before rendering). Both RiskPanel and SellFlaggedPositionsCard now call <ExitFlagChips flags={row.exit_flags} /> from their `exit_flags` column's `render`.",
+      "rationale": "The task's own checklist wording already named the target location ('into features/portfolio/'), so no live ambiguity on common/ vs feature placement — consistent with the parent PR's EXIT_FLAG_LABELS decision: every value ExitFlagChips renders (an exit flag) is portfolio-risk domain vocabulary, not a generic/presentational concern, so components/common/'s Storybook-catalog convention doesn't apply here (confirmed no existing features/portfolio/components/ file has a matching .stories.tsx). Folding the empty-array fallback into the shared component (rather than leaving it as a caller-side ternary around <ExitFlagChips />) means a future column that reuses it for a possibly-empty exit_flags list gets the '—' behavior for free instead of every caller having to remember to add it, and keeps RiskPanel's existing rendered output ('—' per empty-flags row) byte-identical after the refactor. Rejected: a bare renderExitFlags() function returning ReactNode instead of a component (rejected because it collapses to the same JSX either way and a component keeps the per-flag key stability and prop typing explicit at the call site, matching how DataTable's other custom renderers in this codebase are already components, e.g. RiskPercent/TickerLink); rejected leaving the empty-array fallback to each caller (rejected because it re-introduces exactly the kind of per-caller duplication this task exists to remove)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-dashboard-sell-flags-followups",
+    "pr_number": 111,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/111",
+    "pushed_at": "2026-09-18T11:03:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T11:07:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/111",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Clean, purely mechanical follow-up refactor with no blocking or non-blocking findings. Verified: (1) ExitFlagChips.tsx's JSX is byte-identical to the two inline renderers it replaces (Stack/Chip markup, humanizeSnakeCase(flag, EXIT_FLAG_LABELS) label, same key); RiskPanel's empty-array '—' fallback was folded in and SellFlaggedPositionsCard never hit that branch before (always pre-filtered to non-empty), so no behavior change either side. (2) SellFlaggedPositionsCard's emptyMessage='No positions currently flagged to sell.' passed to DataTable renders through DataTable's existing `rows.length === 0 -> <EmptyState message={emptyMessage} />` path, identical to the manual ternary it replaced (same EmptyState component, same message, no emptyAction previously present either). (3) No dead imports left behind -- grepped for humanizeSnakeCase/EXIT_FLAG_LABELS/EmptyState in both touched files, none remain; Stack is still used and correctly still imported in both. Placement check (step 7a): ExitFlagChips renders exit-flag domain vocabulary (EXIT_FLAG_LABELS), so features/portfolio/components/ is correct per docs/architecture/Frontend.md Sec.3, not components/common/ -- matches the task's own recorded decision. No API route/schema touched, so no openapi.json snapshot question applies. Full verification run: backend untouched by this PR (last known state per #110's review, not re-run); frontend `vitest run --coverage` 269/269 passed, 99.6% stmt / 99.21% branch / 100% func / 99.6% lines (>=90% gate, touched files at 100% except pre-existing PriceChart.tsx/WatchlistTable.tsx/TickerForm.tsx gaps unrelated to this PR); backend ruff+mypy clean; frontend eslint+tsc -b --noEmit clean; code-review skill (medium) found zero issues; `make e2e` 13/13 specs passed including dashboard.spec.ts's sell-flagged-card assertions. Browser walkthrough (no Playwright MCP tools available in this session, so driven directly via playwright-core against `make dev`'s live backend+frontend): Dashboard's SellFlaggedPositionsCard correctly renders the DataTable emptyMessage ('No positions currently flagged to sell.', with EmptyState's inbox icon) since the current dev-fixture portfolio has no flagged positions, zero console errors, zero failed /api/ requests; Portfolio page's RiskPanel Exit Flags column correctly renders the em-dash fallback for the same reason. The flags-present Chip-rendering path itself wasn't exercised live (no flagged position in the running fixture data to click through to), but is directly covered by ExitFlagChips.test.tsx's three cases (multi-flag render, unknown-flag humanized fallback, empty-array dash) plus RiskPanel.test.tsx/SellFlaggedPositionsCard.test.tsx, and the diff review already confirmed the extracted JSX is unchanged from what those pre-existing suites exercised."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T11:10:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `vitest run --coverage`: 269/269 tests passed, 99.6% stmt / 99.21% branch / 100% func / 99.6% lines, matching pr-reviewer's reported numbers exactly; also confirmed eslint and `tsc -b --noEmit` clean on the touched files. Skimmed the full diff (git diff origin/main...HEAD) myself: diffed ExitFlagChips.tsx's JSX against the pre-refactor RiskPanel.tsx and SellFlaggedPositionsCard.tsx renderers (commit 582f664~1) and confirmed it is byte-for-byte identical to both, including the '—' empty-array fallback; confirmed DataTable.tsx's `rows.length === 0` branch renders the same EmptyState/message DataTable replaced; grepped for humanizeSnakeCase/EXIT_FLAG_LABELS/EmptyState in both touched files and confirmed no dead imports remain (Stack is still used and imported in RiskPanel.tsx elsewhere). Backend untouched by this PR, so no backend suite re-run needed. No human PR comments/reviews override the accept (gh pr view 111 --json comments,reviews shows only pr-reviewer's own COMMENTED review)."
+  }
+}

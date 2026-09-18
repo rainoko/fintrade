@@ -1,5 +1,4 @@
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
@@ -13,8 +12,8 @@ import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBr
 import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
 import StatCard from '../../../components/common/StatCard/StatCard'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
-import { formatCurrency, humanizeSnakeCase } from '../../../utils/format'
-import { EXIT_FLAG_LABELS } from '../exitFlagLabels'
+import { formatCurrency } from '../../../utils/format'
+import ExitFlagChips from './ExitFlagChips'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
 export interface RiskPanelProps {
@@ -100,20 +99,7 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
     {
       key: 'exit_flags',
       header: 'Exit Flags',
-      render: (row) =>
-        row.exit_flags.length === 0 ? (
-          '—'
-        ) : (
-          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
-            {row.exit_flags.map((flag) => (
-              <Chip
-                key={flag}
-                label={humanizeSnakeCase(flag, EXIT_FLAG_LABELS)}
-                size="small"
-              />
-            ))}
-          </Stack>
-        ),
+      render: (row) => <ExitFlagChips flags={row.exit_flags} />,
     },
   ]
 
