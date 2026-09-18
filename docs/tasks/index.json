@@ -810,8 +810,8 @@
       "id": "api-portfolio-position-signal-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/api-portfolio-position-signal-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/api-portfolio-position-signal-followups.json"
     },
     {
       "id": "frontend-lists-show-signal",
