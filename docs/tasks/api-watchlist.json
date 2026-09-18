@@ -1,0 +1,25 @@
+{
+  "id": "api-watchlist",
+  "title": "Backend: watchlist CRUD endpoints, annotated with each ticker's current signal",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": ["watchlist-domain-models"],
+  "references": [
+    "docs/Analyse.md#5-signal-logic-buy--sell--hold",
+    "backend/app/signals/engine.py",
+    "backend/app/api/routers/portfolio.py",
+    "backend/app/api/routers/stocks.py",
+    "docs/tasks/watchlist-domain-models.json"
+  ],
+  "description": "User request: watchlist should signal when to buy. Add CRUD endpoints for the watchlist added by watchlist-domain-models: GET /api/watchlist (list every watched ticker, each annotated with its current signal/confidence by reusing the existing signal engine per docs/Analyse.md §5 -- the same analyse() logic /api/stocks/{ticker}/analysis already calls, NOT a separately-implemented buy check, per the project's 'one place, testable once' principle), POST /api/watchlist (add a ticker), DELETE /api/watchlist/{ticker} (remove one). Decide and record as a decisions entry how to handle a ticker whose signal computation fails (e.g. an invalid/delisted ticker, or a data-provider failure) -- most consistent with PositionOut's existing current_price/unrealized_pnl_pct nullable-on-failure pattern is a nullable signal field on that watchlist entry rather than failing the whole list.",
+  "checklist": [
+    { "step": "Decide the failure-mode handling for a watchlist ticker whose signal can't be computed (nullable field vs. per-item error marker) and record as a decisions entry.", "done": false },
+    { "step": "Implement GET /api/watchlist, POST /api/watchlist, DELETE /api/watchlist/{ticker} in a new backend/app/api/routers/watchlist.py, reusing the existing signal engine (backend/app/signals/) rather than reimplementing buy-check logic.", "done": false },
+    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": false },
+    { "step": "Tests: adding/removing a ticker, listing with a mix of computable and failing signals, duplicate-add handling (decide and record behavior, mirroring the duplicate-ticker decision already made for api-portfolio-add-position).", "done": false },
+    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

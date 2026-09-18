@@ -1,0 +1,25 @@
+{
+  "id": "frontend-chart-signal-overlay",
+  "title": "Frontend: show backend-calculated signals on the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["api-stocks-indicator-history"],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "docs/architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports",
+    "docs/Analyse.md#5-signal-logic-buy--sell--hold",
+    "docs/tasks/api-stocks-indicator-history.json"
+  ],
+  "description": "User request: signals should be visible on the chart, with the backend doing the calculation and the UI only rendering it — no client-side signal/indicator recomputation, matching the existing 'backend computes, frontend displays' principle already documented in PriceChart.tsx's own comment and Frontend.md §5 (and per the depended-on task api-stocks-indicator-history, which is what makes this possible in the first place). Extend PriceChart.tsx (or add a sibling component it composes) to plot the historical signal (BUY/SELL/HOLD, and/or the EMA13/EMA26 lines used in Screen 1) sourced from the new historical-indicator-history endpoint, overlaid on the existing candlestick series. Decide the concrete visual treatment (e.g. markers on bars where the signal fired/changed, a colored background band per signal state, EMA line overlays, or a combination) and record as a decisions entry — favor clarity and Lightweight Charts' native marker/line-series capabilities over a custom-drawn overlay.",
+  "checklist": [
+    { "step": "Decide the visual treatment for signals on the chart (markers, EMA line overlays, background bands, or a combination) and record as a decisions entry with rationale.", "done": false },
+    { "step": "Wire a TanStack Query hook for the new historical indicator/signal endpoint (docs/architecture/Frontend.md conventions), keyed consistently with useStockHistory's existing range/interval params.", "done": false },
+    { "step": "Implement the overlay in PriceChart.tsx (or a new component it composes), keeping the 'no client-side indicator math' invariant — every plotted value must come directly from the backend response.", "done": false },
+    { "step": "Handle loading/error/empty states for the new data source consistently with the rest of the page (reuse LoadingState/ErrorState/EmptyState per Frontend.md conventions).", "done": false },
+    { "step": "Tests: component test(s) for the new overlay rendering logic, keeping the suite's no-live-network invariant (MSW-mocked).", "done": false },
+    { "step": "Confirm 90% coverage gate still holds and Storybook still builds if any new common/ component was added.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -1,0 +1,25 @@
+{
+  "id": "frontend-ticker-link",
+  "title": "Every ticker in the UI links to its stock detail page (shared TickerLink component)",
+  "area": "frontend/components/common",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "frontend/src/features/portfolio/components/PositionsGlanceTable.tsx",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "frontend/src/features/portfolio/components/RiskPanel.tsx",
+    "frontend/src/components/common/DataTable/DataTable.tsx"
+  ],
+  "description": "User request: wherever a ticker appears in the UI, it must be a link to that ticker's stock detail page (/stocks/:ticker), using one shared common/ component rather than each place reimplementing its own link. Current state: PositionsGlanceTable already links its ticker column, but does so with its own inline `<Link component={RouterLink}>` (duplicated logic, no shared component); PositionsTable and RiskPanel both render their ticker column as plain unlinked text (`{ key: 'ticker', header: 'Ticker', sortable: true }`, no render function). Add a new components/common/TickerLink component (ticker text, links to /stocks/:ticker, properly URI-encoded) and use it everywhere a ticker is displayed as a reference to another entity -- including PositionsGlanceTable (refactored to use it instead of its own inline Link), PositionsTable, and RiskPanel. Do NOT link a ticker to itself where it's already the current page's own subject (e.g. the ticker shown in StockDetailPage's own header, or the text typed into TickerSearchBox) -- those aren't references to a different page. Future ticker-displaying features (e.g. the watchlist page) should use this component too, but making sure of that is each of those tasks' own responsibility, not retroactively in scope here.",
+  "checklist": [
+    { "step": "Create frontend/src/components/common/TickerLink (component + Storybook story + test), following existing common/ component conventions.", "done": false },
+    { "step": "Audit every place a ticker is rendered across frontend/src and apply TickerLink to every reference-to-another-entity case, skipping the current-page's-own-subject case (decide the exact boundary and record as a decisions entry if any spot is ambiguous).", "done": false },
+    { "step": "Refactor PositionsGlanceTable's existing inline ticker Link to use the new TickerLink component instead of duplicating the logic.", "done": false },
+    { "step": "Add a linked ticker column (via TickerLink) to PositionsTable and RiskPanel, which currently render ticker as plain unlinked text.", "done": false },
+    { "step": "Update/add tests wherever ticker-rendering behavior changed (PositionsTable/RiskPanel now render an anchor, not plain text) and for TickerLink itself.", "done": false },
+    { "step": "Confirm 90% coverage gate still holds and Storybook build succeeds.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

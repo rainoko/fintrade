@@ -1,0 +1,27 @@
+{
+  "id": "scripts-validate-tasks",
+  "title": "Python script + skill: validate docs/tasks/ JSON structure",
+  "area": "tooling",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "CLAUDE.md#Task board (docs/tasks/)",
+    "docs/tasks/index.json",
+    "backend/scripts/export_openapi.py",
+    ".claude/skills/static-verify/SKILL.md",
+    ".claude/skills/revalidate-done-tasks/SKILL.md"
+  ],
+  "description": "User request: a Python script for validating docs/tasks/ JSON structure, plus a skill wrapping it. Implement a validator checking every docs/tasks/*.json and docs/tasks/done/*.json against the invariants CLAUDE.md's 'Task board' section documents: the required top-level shape (id, title, area, skill, state, depends_on, references, description, checklist, and the optional decisions/questions/git/test/review/pr_decision fields when present) and each field's type; `state` is one of the five documented values; each checklist item has `step` (string) and `done` (boolean); each `decisions` entry has `decision`+`rationale` (plus `timestamp`/`recorded_by`) and each `questions` entry has `question`+`context` (plus `timestamp`/`raised_by`) -- a bare 'changed X' is exactly what CLAUDE.md calls out as NOT a valid decision record; every `depends_on` id actually exists somewhere on the board; `docs/tasks/index.json`'s per-task `state`/`path` exactly mirrors that task's own file (the 'mirror, not a separate source of truth' rule) with no drift; and a task's file is under `docs/tasks/done/` if and only if its `state` is `\"done\"` (the exact invariant CLAUDE.md calls out by name). This is a repo-wide bookkeeping concern, not backend-specific -- decide the script's location (a new top-level scripts/ vs. backend/scripts/) and whether it should be stdlib-only (so it needs no venv/install step) as part of this task, recording the choice as a decisions entry.",
+  "checklist": [
+    { "step": "Decide the script's location and dependency footprint (prefer a new top-level scripts/ directory and stdlib-only Python, since this validates repo-wide task-board JSON, not backend application code) and record as a decisions entry.", "done": false },
+    { "step": "Implement the validator per the invariants listed in this task's description, sourced from CLAUDE.md's Task board section (required fields/types, valid state values, checklist/decisions/questions entry shape, depends_on resolution, index.json mirror consistency, the done<=>docs/tasks/done/ path invariant).", "done": false },
+    { "step": "Exit non-zero with a clear, per-task list of every violation found on failure; exit 0 with a brief summary on success, so it works both interactively and as a gate.", "done": false },
+    { "step": "Run it once for real against the current board and report what it finds (fixing anything trivially wrong is fine; anything requiring a judgment call about board content itself is out of scope for this task -- report it instead).", "done": false },
+    { "step": "Create a `.claude/skills/` entry wrapping the script (name TBD, record the actual choice), following existing skill conventions (see static-verify for a similar 'run a checker, report results' skill).", "done": false },
+    { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": false },
+    { "step": "Decide whether to wire this validator into any existing skill/agent (e.g. as an orchestrate-tasks preflight step, or part of revalidate-done-tasks) and make that change only if it's small and clearly beneficial; record the decision either way.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

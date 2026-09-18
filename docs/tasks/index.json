@@ -602,6 +602,97 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/dev-makefile-followups-followups.json"
+    },
+    {
+      "id": "frontend-e2e-tests",
+      "area": "frontend/testing",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-e2e-tests.json"
+    },
+    {
+      "id": "skill-e2e-testing",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/skill-e2e-testing.json"
+    },
+    {
+      "id": "frontend-verify-npm-install",
+      "area": "frontend/tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-verify-npm-install.json"
+    },
+    {
+      "id": "migrate-yarn2",
+      "area": "infra",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/migrate-yarn2.json"
+    },
+    {
+      "id": "api-stocks-indicator-history",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-stocks-indicator-history.json"
+    },
+    {
+      "id": "frontend-chart-signal-overlay",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-chart-signal-overlay.json"
+    },
+    {
+      "id": "frontend-oscillator-chart",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-oscillator-chart.json"
+    },
+    {
+      "id": "watchlist-domain-models",
+      "area": "backend/db",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/watchlist-domain-models.json"
+    },
+    {
+      "id": "api-watchlist",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/api-watchlist.json"
+    },
+    {
+      "id": "frontend-watchlist-page",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-watchlist-page.json"
+    },
+    {
+      "id": "frontend-dashboard-sell-flags",
+      "area": "frontend/pages/dashboard",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-dashboard-sell-flags.json"
+    },
+    {
+      "id": "frontend-ticker-link",
+      "area": "frontend/components/common",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-ticker-link.json"
+    },
+    {
+      "id": "scripts-validate-tasks",
+      "area": "tooling",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/scripts-validate-tasks.json"
     }
   ]
 }
