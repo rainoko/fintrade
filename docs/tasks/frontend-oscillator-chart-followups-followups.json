@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #112 review (frontend-oscillator-chart-followups)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-oscillator-chart-followups"],
   "references": [
     "docs/tasks/frontend-oscillator-chart-followups.json",
@@ -19,7 +19,16 @@
     },
     {
       "step": "GET /api/stocks/{ticker}/indicators?range=max is very slow against the live (non-fixture) data provider for a long-lived ticker: observed >120s and climbing CPU-bound single-request time for AAPL (whose real history goes back to 1980), since the endpoint re-runs the full per-bar Triple Screen signal engine (analyse_history) once per daily bar in the requested range with no caching of the computed per-bar results -- OHLCV itself is cached (app/data/cache.py) but the derived signal/indicator history is recomputed from scratch on every request. Pre-existing behavior, not introduced by PR #112's diff (backend/app/api/routers/stocks.py is unchanged in that PR) -- surfaced incidentally while doing PR #112's required browser walkthrough of the Max range case (which had to be re-run against FINTRADE_DATA_PROVIDER_MODE=fixture to get a usable response time). Worth profiling/caching analyse_history's per-bar output, or at least documenting the expected latency for a 'max' range on a decades-old ticker.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Verified (did not just trust) that the second checklist item -- GET /api/stocks/{ticker}/indicators?range=max being very slow (>120s and climbing) for a decades-old ticker -- is genuinely resolved by the already-merged PR #121 (\"Fix analyse_history() O(range_size x history_length) recompute\") and its own followup PR #122, then marked it done rather than doing further optimization work. Also added a short latency note to docs/architecture/API.md's `GET /api/stocks/{ticker}/indicators` section (measured ~1ms/bar, ~10s for a ~45-year/~11,500-bar series) to close out the checklist item's 'or at least documenting the expected latency' alternative, since the fix makes latency bounded/linear but not literally fast for the longest realistic history.",
+      "rationale": "Two independent checks, both against the current (post-#121/#122) code, not just reading the diff: (1) backend/tests/unit/signals/test_engine.py's already-committed TestAnalyseHistoryPerformance class (17 tests, all passing) structurally asserts every daily/weekly EMA/MACD/Stochastic/Force-Index series is computed exactly once per analyse_history() call regardless of bar count -- a real regression guard against the O(range_size x history_length) recompute, not just a one-off benchmark. (2) A fresh, independent wall-clock benchmark (not reusing the prior task's script) built a synthetic ~11,500-bar daily series (matching AAPL's real trading-day count since its 1980-12-12 listing, i.e. the actual worst case the original finding named) and measured analyse_history() directly at n=500/1000/2000/4000/8000/11500: per-bar cost stayed flat at ~0.9ms/bar across the full range (23x growth in n produced 22x growth in time, not the ~529x a quadratic algorithm would show), and a full end-to-end GET /api/stocks/AAPL/indicators?range=max request (via FastAPI's TestClient against a stub DataProvider serving that same 11,500-bar series -- no live network call, matching Testing.md) completed in ~10.25s, not the >120s-and-climbing originally observed. This directly confirms the fix at the actual scale the checklist item's own AAPL example implies, going further than the prior task's synthetic benchmark which only ran up to n=4000. No further optimization (e.g. extending the precompute-and-slice pattern to elder_bull_power/elder_bear_power, or adding a response cache) was implemented, since the fix already turns the reported pathological/unbounded-growth behavior into bounded, linear, predictable latency -- matching the prior task's own (independently reached) conclusion that the residual O(n) term is negligible in practice.",
+      "alternatives_considered": "Caching analyse_history's computed per-bar output (e.g. keyed by ticker+range, invalidated alongside app/data/cache.py's OHLCV cache) was considered, since the checklist item explicitly offers it as an option, but rejected: ~10s for the single longest-lived real-world ticker's full history is a bounded, one-time-per-request cost, not the runaway (unbounded, worse than linear) behavior the item originally reported, and a response cache would add real invalidation complexity (new cache entries going stale exactly when the OHLCV cache refreshes) to shave a latency that's already an order of magnitude improved and does not scale with request volume. Implementing a wholly new performance fix from scratch was also considered and rejected once the verification above confirmed PR #121/#122 already resolved the reported pathological behavior -- redoing that work would duplicate already-merged, already-tested code for no behavioral gain."
     }
   ],
   "questions": []

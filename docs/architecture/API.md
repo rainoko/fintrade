@@ -94,6 +94,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 
 `stochastic_k` and `force_index_2ema` are nullable: a bar still inside that indicator's own warm-up window (Stochastic %K(5,3,3) needs `(k_period - 1) + (smooth - 1)` prior bars — 6 with the current defaults; Force Index's raw `volume * close.diff()` input is undefined for the range's very first bar, which has no prior close) reports `null` for that field only, while every other field on the same point (including `ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which are EMA-seeded and never produce `NaN`) stays populated. This only affects early bars of a long-enough range (e.g. `range=max`); unlike `/analysis`, which always reports the latest bar and is therefore never still warming up.
 
+Latency scales linearly with the number of daily bars in the ticker's *full* available history (not just the requested `range`), since `app.signals.engine.analyse_history` always needs the complete series for correct indicator warm-up even when `range` trims the response — see its own docstring for the precompute-and-slice design that makes this O(history_length) rather than the O(range_size × history_length) an earlier implementation had. Measured at roughly 1ms/bar (a `range=max` request against a synthetic ~11,500-bar series — about as long as AAPL's real daily history back to 1980 — completes in ~10s end to end), so a request against a ticker with decades of daily history is a multi-second, not sub-second, response; a ticker with a few years of history responds in well under a second.
+
 ### `GET /api/portfolio`
 
 Current positions plus account equity.
