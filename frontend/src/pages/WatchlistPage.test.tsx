@@ -1,11 +1,20 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetWatchlistStore } from '../../tests/mocks/handlers'
 import { server } from '../../tests/mocks/server'
 import { renderWithProviders } from '../../tests/renderWithProviders'
 import WatchlistPage from './WatchlistPage'
+
+function renderWatchlistPage() {
+  return renderWithProviders(
+    <MemoryRouter>
+      <WatchlistPage />
+    </MemoryRouter>,
+  )
+}
 
 describe('WatchlistPage', () => {
   beforeEach(() => {
@@ -17,7 +26,7 @@ describe('WatchlistPage', () => {
   })
 
   it('shows a loading state, then the watchlist table with the seeded tickers', async () => {
-    renderWithProviders(<WatchlistPage />)
+    renderWatchlistPage()
 
     expect(screen.getByText('Loading watchlist...')).toBeInTheDocument()
 
@@ -32,7 +41,7 @@ describe('WatchlistPage', () => {
   it('shows the empty state when the watchlist has no tickers', async () => {
     server.use(http.get('/api/watchlist', () => HttpResponse.json({ items: [] })))
 
-    renderWithProviders(<WatchlistPage />)
+    renderWatchlistPage()
 
     await waitFor(() =>
       expect(
@@ -45,7 +54,7 @@ describe('WatchlistPage', () => {
   it('surfaces a network-level ApiError via common/ErrorState', async () => {
     server.use(http.get('/api/watchlist', () => HttpResponse.error()))
 
-    renderWithProviders(<WatchlistPage />)
+    renderWatchlistPage()
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Connection error')).toBeInTheDocument()
@@ -53,7 +62,7 @@ describe('WatchlistPage', () => {
 
   it('adds a new ticker end to end and reflects it in the refreshed table', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<WatchlistPage />)
+    renderWatchlistPage()
 
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Watchlist' })).toBeInTheDocument(),
@@ -70,7 +79,7 @@ describe('WatchlistPage', () => {
 
   it('removes a ticker end to end and drops it from the refreshed table', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<WatchlistPage />)
+    renderWatchlistPage()
 
     await waitFor(() => expect(screen.getByText('AAPL')).toBeInTheDocument())
 

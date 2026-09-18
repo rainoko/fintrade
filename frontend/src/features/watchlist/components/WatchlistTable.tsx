@@ -10,6 +10,7 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
+import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatDate } from '../../../utils/format'
 import { useRemoveWatchlistItem } from '../hooks/useRemoveWatchlistItem'
 
@@ -28,18 +29,23 @@ export interface WatchlistTableProps {
  * whose signal couldn't be computed (API.md's nullable-on-failure case) shows
  * '—' in both cells rather than a broken badge — SignalBadge/ConfidenceGauge
  * both require a non-null value, so null is handled here rather than pushed
- * into either component. Ticker itself renders as plain text, not a link:
- * the shared `common/TickerLink` component doesn't exist yet
- * (frontend-ticker-link is still `planned`) — see this task's `decisions`.
- * Owns the remove-ticker flow end to end (confirm dialog + useRemoveWatchlistItem
- * mutation) so WatchlistPage itself stays a thin composition (Frontend.md §3).
+ * into either component. Ticker cell uses the shared common/TickerLink
+ * component (frontend-ticker-link), same as every other ticker-displaying
+ * table. Owns the remove-ticker flow end to end (confirm dialog +
+ * useRemoveWatchlistItem mutation) so WatchlistPage itself stays a thin
+ * composition (Frontend.md §3).
  */
 export default function WatchlistTable({ items }: WatchlistTableProps) {
   const [pendingRemove, setPendingRemove] = useState<WatchlistItemOut | null>(null)
   const removeWatchlistItem = useRemoveWatchlistItem()
 
   const columns: DataTableColumn<WatchlistItemOut>[] = [
-    { key: 'ticker', header: 'Ticker', sortable: true },
+    {
+      key: 'ticker',
+      header: 'Ticker',
+      sortable: true,
+      render: (row) => <TickerLink ticker={row.ticker} />,
+    },
     {
       key: 'added_at',
       header: 'Added',

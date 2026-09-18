@@ -1,11 +1,20 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { WatchlistItemOut } from '../../../api/watchlist'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
-import WatchlistTable from './WatchlistTable'
+import WatchlistTable, { type WatchlistTableProps } from './WatchlistTable'
+
+function renderWatchlistTable(items: WatchlistTableProps['items']) {
+  return renderWithProviders(
+    <MemoryRouter>
+      <WatchlistTable items={items} />
+    </MemoryRouter>,
+  )
+}
 
 const items: WatchlistItemOut[] = [
   {
@@ -33,11 +42,17 @@ const items: WatchlistItemOut[] = [
 
 describe('WatchlistTable', () => {
   it('renders a row per watched ticker with its signal badge distinguishing BUY from HOLD', () => {
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     const table = screen.getByRole('table', { name: 'Watchlist' })
     const rows = within(table).getAllByRole('row').slice(1)
     expect(rows).toHaveLength(3)
+
+    // Ticker cell links into stock detail (common/TickerLink).
+    expect(within(rows[0]!).getByRole('link', { name: 'AAPL' })).toHaveAttribute(
+      'href',
+      '/stocks/AAPL',
+    )
 
     const aaplBadges = within(rows[0]!).getAllByTestId('signal-badge')
     expect(aaplBadges).toHaveLength(1)
@@ -55,7 +70,7 @@ describe('WatchlistTable', () => {
   })
 
   it('shows the confidence gauge for a ticker with a computed signal', () => {
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     const table = screen.getByRole('table', { name: 'Watchlist' })
     const rows = within(table).getAllByRole('row').slice(1)
@@ -64,7 +79,7 @@ describe('WatchlistTable', () => {
   })
 
   it('renders an em dash for a ticker whose signal could not be computed', () => {
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     const table = screen.getByRole('table', { name: 'Watchlist' })
     const rows = within(table).getAllByRole('row').slice(1)
@@ -77,7 +92,7 @@ describe('WatchlistTable', () => {
   })
 
   it('renders the empty state when the watchlist has no tickers', () => {
-    renderWithProviders(<WatchlistTable items={[]} />)
+    renderWatchlistTable([])
 
     expect(
       screen.getByText('Your watchlist is empty. Add a ticker to get started.'),
@@ -87,7 +102,7 @@ describe('WatchlistTable', () => {
 
   it('opens a confirm dialog before removing, and cancels without removing', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     await user.click(screen.getByRole('button', { name: 'Remove AAPL' }))
 
@@ -101,7 +116,7 @@ describe('WatchlistTable', () => {
 
   it('removes the ticker on confirm', async () => {
     const user = userEvent.setup()
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     await user.click(screen.getByRole('button', { name: 'Remove AAPL' }))
     await user.click(screen.getByRole('button', { name: 'Remove' }))
@@ -117,7 +132,7 @@ describe('WatchlistTable', () => {
       ),
     )
     const user = userEvent.setup()
-    renderWithProviders(<WatchlistTable items={items} />)
+    renderWatchlistTable(items)
 
     await user.click(screen.getByRole('button', { name: 'Remove AAPL' }))
     await user.click(screen.getByRole('button', { name: 'Remove' }))
