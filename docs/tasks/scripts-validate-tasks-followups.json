@@ -53,5 +53,11 @@
       "alternatives_considered": "For (2), considered chmod +x instead (the other option the checklist text offered); rejected because nothing in the codebase invokes this file as `./scripts/tests/test_validate_tasks.py` and adding an executable bit to a test module not meant for direct execution would be the more surprising choice, not the more conservative one. For (3), considered a fuller helper that also unifies the message text (e.g. `expect_str_in(value, valid_set, field_name) -> str | None` returning a formatted message); rejected because the four messages differ in structure enough (index.json's omits the 'must be one of' phrasing and valid-values echo that the other three include) that unifying them would have required either changing an existing, test-asserted message string or keeping an awkward per-call-site override parameter -- more churn for a purely cosmetic message-format alignment than the actual duplication (the condition) warranted. Also considered leaving all three deferred per the checklist's own 'read the text for what was deferred and use your judgment' framing; rejected because none of the three carried real risk or ambiguity once traced through, and leaving them open would just mean a future task-worker re-reading the same context again."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/scripts-validate-tasks-followups",
+    "pr_number": 114,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/114",
+    "pushed_at": "2026-09-18T12:27:26Z"
+  }
 }
