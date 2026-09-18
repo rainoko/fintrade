@@ -5,6 +5,7 @@ import PageHeader from '../components/common/PageHeader/PageHeader'
 import StatCard from '../components/common/StatCard/StatCard'
 import PositionsGlanceTable from '../features/portfolio/components/PositionsGlanceTable'
 import RiskSummaryCard from '../features/portfolio/components/RiskSummaryCard'
+import SellFlaggedPositionsCard from '../features/portfolio/components/SellFlaggedPositionsCard'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
 import TickerSearchBox from '../features/stocks/components/TickerSearchBox'
 import { formatCurrency } from '../utils/format'
@@ -12,11 +13,11 @@ import { formatCurrency } from '../utils/format'
 /**
  * The landing page ('/'): an at-a-glance summary composed entirely from
  * data/hooks the Portfolio page and its risk panel already wired
- * (usePortfolio, usePortfolioRisk via RiskSummaryCard) plus a ticker lookup
- * for jumping straight into stock analysis — no new API calls, per this
- * task's description. Stays thin per Frontend.md §3: all fetching lives in
- * usePortfolio/usePortfolioRisk, all domain rendering lives in
- * RiskSummaryCard/PositionsGlanceTable.
+ * (usePortfolio, usePortfolioRisk via RiskSummaryCard/SellFlaggedPositionsCard)
+ * plus a ticker lookup for jumping straight into stock analysis — no new API
+ * calls, per this task's description. Stays thin per Frontend.md §3: all
+ * fetching lives in usePortfolio/usePortfolioRisk, all domain rendering lives
+ * in RiskSummaryCard/SellFlaggedPositionsCard/PositionsGlanceTable.
  */
 export default function DashboardPage() {
   const portfolioQuery = usePortfolio()
@@ -46,6 +47,8 @@ export default function DashboardPage() {
           </Stack>
 
           <RiskSummaryCard />
+
+          <SellFlaggedPositionsCard />
 
           <PositionsGlanceTable positions={portfolioQuery.data.positions} />
         </Stack>

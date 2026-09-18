@@ -47,6 +47,11 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Positions Breaching 2% Rule')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
+    // No positions flagged in the default fixture.
+    expect(
+      screen.getByText('No positions currently flagged to sell.'),
+    ).toBeInTheDocument()
+
     // Ticker lookup entry point is present alongside the summary.
     expect(screen.getByLabelText('Look up a ticker')).toBeInTheDocument()
   })
@@ -108,6 +113,15 @@ describe('DashboardPage', () => {
 
     await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument())
     expect(screen.getByText('Positions Breaching 2% Rule')).toBeInTheDocument()
+
+    // The breaching position also shows up in the sell-flagged list, with
+    // human-readable flag labels.
+    const sellFlaggedTable = await screen.findByRole('table', {
+      name: 'Positions flagged to sell',
+    })
+    expect(sellFlaggedTable).toHaveTextContent('AAPL')
+    expect(screen.getByText('2% rule breached')).toBeInTheDocument()
+    expect(screen.getByText('6% rule contributor')).toBeInTheDocument()
   })
 
   it('surfaces a network-level ApiError via common/ErrorState', async () => {

@@ -1,0 +1,78 @@
+{
+  "id": "frontend-dashboard-sell-flags",
+  "title": "Dashboard: list of held positions currently flagged to sell",
+  "area": "frontend/pages/dashboard",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "frontend/src/pages/DashboardPage.tsx",
+    "frontend/src/features/portfolio/components/RiskSummaryCard.tsx",
+    "docs/Analyse.md#existing-position-exit-signals-beyond-fresh-technical-sell",
+    "backend/app/api/schemas.py"
+  ],
+  "description": "User request: the dashboard should also show a list of tickers with a sell flag. GET /api/portfolio/risk already returns exit_flags per held position (docs/Analyse.md's 'Existing-position exit signals' section -- e.g. 'stop_hit', 'tide_flipped_bearish') -- RiskSummaryCard currently condenses this to an aggregate count only ('Positions Breaching 2% Rule'), not a per-ticker list. The simplest correct implementation is a new dashboard component listing every position with a non-empty exit_flags (data already available, no backend change needed). Decide and record as a decisions entry whether 'sell flag' should ALSO include a position whose fresh technical signal (GET /api/stocks/{ticker}/analysis) is SELL -- Analyse.md distinguishes fresh technical SELL from risk-driven exit flags as related but separate concepts -- and if so, how to get that per held position without an N+1 call pattern (may require a backend follow-up task rather than being done here); the risk-driven exit_flags list alone is a complete, independently useful implementation of this task even if that extension is deferred.",
+  "checklist": [
+    { "step": "Decide the scope of 'sell flag' (risk-driven exit_flags only, vs. also fresh technical SELL) and record as a decisions entry, including whether any backend follow-up task is needed for the fresh-signal case.", "done": true },
+    { "step": "Add a new component (e.g. SellFlaggedPositionsCard) listing every position from usePortfolioRisk with a non-empty exit_flags, showing the ticker and which flag(s) fired -- reuse DataTable/existing common/ components rather than a bespoke table.", "done": true },
+    { "step": "Compose it into DashboardPage.tsx alongside the existing RiskSummaryCard/PositionsGlanceTable.", "done": true },
+    { "step": "Handle the empty case (no positions currently flagged) with EmptyState or an inline message, not a blank gap.", "done": true },
+    { "step": "Tests: component test(s) for the flagged-list rendering (including the empty case), MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T10:45:38Z",
+      "recorded_by": "task-worker",
+      "decision": "Scope 'sell flag' on the dashboard to the risk-driven exit_flags list only (GET /api/portfolio/risk), not also a fresh technical SELL signal from GET /api/stocks/{ticker}/analysis. No backend follow-up task filed for the fresh-signal extension at this time.",
+      "rationale": "The risk-driven exit_flags list is already returned per held position by /api/portfolio/risk (no backend change needed) and is a complete, independently useful answer to the user request ('the dashboard should also show a list of tickers with a sell flag'), matching this task's own description that says the flags-only version is sufficient even if deferred. Also including fresh technical SELL would require either an N+1 GET /api/stocks/{ticker}/analysis call per held position from the dashboard (a client-side fan-out this task's checklist explicitly warns against) or a new backend endpoint/field that batches fresh signals for the held-position set -- a genuine backend design decision (new response shape, caching/perf tradeoffs) out of scope for a frontend-only task. Rejected: doing the N+1 client-side fetch anyway (rejected as an anti-pattern per Frontend.md's hooks-per-API-concern rule and the checklist's own explicit warning); rejected inventing a backend batch endpoint inline in this task (rejected because it's backend design work that belongs in its own add-api-endpoint-governed task, and no such endpoint/field currently exists in backend/openapi.json). If wanted later, a new task (e.g. 'api-portfolio-fresh-signals' or extending GET /api/portfolio/risk's response) should add a per-position fresh-signal field so the frontend can consume it without N+1 calls."
+    },
+    {
+      "timestamp": "2026-09-18T10:45:38Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed SellFlaggedPositionsCard under features/portfolio/components/ (not components/common/), and extracted the exit-flag label map (previously private to RiskPanel) into a shared features/portfolio/exitFlagLabels.ts module reused by both RiskPanel and SellFlaggedPositionsCard.",
+      "rationale": "Every field the new component renders (a position, a ticker, an exit flag) is a portfolio-risk domain concept and it owns its own usePortfolioRisk call, matching RiskSummaryCard/RiskPanel's existing placement precedent in the same file (add-frontend-feature skill step 2). The EXIT_FLAG_LABELS map duplicated verbatim between RiskPanel and the new card would have been exactly the kind of near-duplicate the skill flags for consolidation (step 2's 'check whether something close enough already exists' rule) -- extracting it to a shared module keeps RiskPanel's full risk table and the dashboard's flagged-only list from drifting on wording for the same underlying flag over time. Rejected: leaving a second copy of the label map inline in the new component (rejected as the exact duplication the skill warns against); rejected promoting it to components/common/ instead (rejected because the map's keys/values are portfolio-risk domain vocabulary, not a generic/presentational concern, so it belongs alongside the feature it describes)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-dashboard-sell-flags",
+    "pr_number": 110,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/110",
+    "pushed_at": "2026-09-18T10:46:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T10:52:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/110",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified genuine reuse: EXIT_FLAG_LABELS was extracted from RiskPanel.tsx into a shared features/portfolio/exitFlagLabels.ts and both RiskPanel and the new SellFlaggedPositionsCard call humanizeSnakeCase(flag, EXIT_FLAG_LABELS) against it, producing identical wording ('2% rule breached', '6% rule contributor', etc.) for the same flag -- confirmed live in a browser walkthrough, not just by reading the diff.",
+        "file": "frontend/src/features/portfolio/exitFlagLabels.ts"
+      },
+      {
+        "summary": "Non-blocking: the Stack-of-Chips renderer built on top of EXIT_FLAG_LABELS is itself duplicated near-verbatim between RiskPanel.tsx and SellFlaggedPositionsCard.tsx, the same class of drift risk the PR's own decisions entry says extracting the label map was meant to prevent. Filed as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 23
+      },
+      {
+        "summary": "Non-blocking: SellFlaggedPositionsCard manually branches on flaggedPositions.length === 0 to render common/EmptyState before calling DataTable, duplicating logic DataTable already implements internally via its own emptyMessage prop. Filed as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 74
+      },
+      {
+        "summary": "Component placement checked explicitly (CLAUDE.md pr-reviewer step 7a): SellFlaggedPositionsCard renders portfolio-risk domain concepts (a position, a ticker, an exit flag) and owns its own usePortfolioRisk call, matching RiskSummaryCard/RiskPanel's existing precedent in the same feature folder -- features/portfolio/components/ placement (not components/common/) is correct, no finding.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx"
+      },
+      {
+        "summary": "Scope decision (risk-driven exit_flags only, deferring fresh technical SELL) is reasonable: it matches the task description's own explicit allowance to defer that extension, avoids an N+1 GET /api/stocks/{ticker}/analysis fan-out per held position, and correctly identifies that including it would require backend design work (a new batched field/endpoint) out of scope for a frontend-only task. No backend follow-up task exists yet for that extension -- not required by this task, but worth noting if a future task decides to build it.",
+        "file": "docs/tasks/frontend-dashboard-sell-flags.json"
+      }
+    ],
+    "notes": "Full review: backend suite 559 passed, 99.86% coverage; frontend suite 266 passed, 99.6%/99.21%/100%/99.59% stmt/branch/func/line coverage -- both well above the 90% gate and no regression (this PR touches frontend only). ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) found the two non-blocking duplication findings above and no correctness bugs. No API/schema change in this PR, so no OpenAPI snapshot check applies. Browser walkthrough (fixture-mode backend + dev frontend, driven via a scripted headless Chromium since no Playwright MCP tool was available in this session): added a TSLA position that triggered two_percent_rule_breached + six_percent_rule_contributor, confirmed the new 'Positions Flagged to Sell' card rendered the position with correctly-labeled chips ('2% rule breached', '6% rule contributor') matching RiskPanel's wording, its TickerLink navigated to /stocks/TSLA correctly, no console errors or failed network requests; then deleted the position and confirmed the empty-state message 'No positions currently flagged to sell.' rendered in place of the table. e2e-test skill run (make e2e): all 13 specs passed, including dashboard.spec.ts's updated assertions for the new card's populated/empty states. Both checklist 'decide' items (scope, placement) have corresponding decisions entries. No blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T10:56:38Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything: backend `pytest --cov=app` 559 passed / 99.86% coverage, frontend `vitest run --coverage` 266 passed / 99.6%-99.21%-100%-99.59% stmt-branch-func-line, `make e2e` 13/13 passed, eslint and tsc both clean -- all exactly matching pr-reviewer's reported numbers. Skimmed the full diff myself (SellFlaggedPositionsCard.tsx, exitFlagLabels.ts extraction, RiskPanel.tsx, DashboardPage.tsx, both test files, dashboard.spec.ts) and confirmed the two non-blocking findings hold up as genuinely non-blocking: verified DataTable.tsx does have its own emptyMessage prop (line 96) that renders EmptyState internally, matching the filed follow-up's claim, and confirmed the Chip-Stack renderer is indeed duplicated near-verbatim between RiskPanel and the new card. SellFlaggedPositionsCard.test.tsx exercises empty-state, flagged-filtering, unknown-flag fallback, and error-state paths and all pass. frontend-dashboard-sell-flags-followups.json exists with both findings tracked. Accept holds."
+  }
+}
