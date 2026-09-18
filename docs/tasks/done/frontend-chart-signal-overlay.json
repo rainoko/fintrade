@@ -1,0 +1,93 @@
+{
+  "id": "frontend-chart-signal-overlay",
+  "title": "Frontend: show backend-calculated signals on the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["api-stocks-indicator-history"],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "docs/architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports",
+    "docs/Analyse.md#5-signal-logic-buy--sell--hold",
+    "docs/tasks/api-stocks-indicator-history.json"
+  ],
+  "description": "User request: signals should be visible on the chart, with the backend doing the calculation and the UI only rendering it — no client-side signal/indicator recomputation, matching the existing 'backend computes, frontend displays' principle already documented in PriceChart.tsx's own comment and Frontend.md §5 (and per the depended-on task api-stocks-indicator-history, which is what makes this possible in the first place). Extend PriceChart.tsx (or add a sibling component it composes) to plot the historical signal (BUY/SELL/HOLD, and/or the EMA13/EMA26 lines used in Screen 1) sourced from the new historical-indicator-history endpoint, overlaid on the existing candlestick series. Decide the concrete visual treatment (e.g. markers on bars where the signal fired/changed, a colored background band per signal state, EMA line overlays, or a combination) and record as a decisions entry — favor clarity and Lightweight Charts' native marker/line-series capabilities over a custom-drawn overlay.",
+  "checklist": [
+    { "step": "Decide the visual treatment for signals on the chart (markers, EMA line overlays, background bands, or a combination) and record as a decisions entry with rationale.", "done": true },
+    { "step": "Wire a TanStack Query hook for the new historical indicator/signal endpoint (docs/architecture/Frontend.md conventions), keyed consistently with useStockHistory's existing range/interval params.", "done": true },
+    { "step": "Implement the overlay in PriceChart.tsx (or a new component it composes), keeping the 'no client-side indicator math' invariant — every plotted value must come directly from the backend response.", "done": true },
+    { "step": "Handle loading/error/empty states for the new data source consistently with the rest of the page (reuse LoadingState/ErrorState/EmptyState per Frontend.md conventions).", "done": true },
+    { "step": "Tests: component test(s) for the new overlay rendering logic, keeping the suite's no-live-network invariant (MSW-mocked).", "done": true },
+    { "step": "Confirm 90% coverage gate still holds and Storybook still builds if any new common/ component was added.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "Combination overlay: EMA13/EMA26 as two native Lightweight Charts LineSeries drawn on the same pane as the candlesticks, PLUS a BUY/SELL marker (via the v5 createSeriesMarkers series-markers plugin, arrowUp/arrowDown, colored from theme.palette.signal) placed only at the bar where the signal actually TRANSITIONS into BUY or SELL (not on every bar carrying that signal, and never for HOLD).",
+      "rationale": "The task explicitly favors Lightweight Charts' native marker/line-series capabilities over a custom-drawn overlay, and explicitly offers 'a combination' as an option. EMA13/EMA26 makes Screen 1's trend-following pair (docs/Analyse.md §2/§4) visible as a continuous line, which a marker-only treatment can't convey; markers make the discrete BUY/SELL signal transitions ('Trigger fired', per docs/Analyse.md §5's own language) visible as discrete events, which a line series can't convey on its own -- the two are complementary, not redundant. Rejected a colored background band per signal state: Lightweight Charts has no first-party background-band primitive for arbitrary time ranges (the closest built-ins are per-series styling, not a time-range fill), so it would have needed a custom-drawn overlay (a canvas/DOM layer synced to the chart's own coordinate space) -- exactly what the task asks to avoid in favor of native capabilities. Rejected marking every bar that carries a BUY/SELL signal (vs. only transitions): Elder's methodology only calls a signal 'fired' at the moment Trigger crosses (docs/Analyse.md §5), and a real BUY/SELL run can span many consecutive daily bars -- marking all of them would bury the actually meaningful transition moments under a wall of identical arrows, especially at longer ranges (1y/max).",
+      "revisit_if": "A future task wants raw per-bar signal coloring (e.g. a colored dot under every bar regardless of transition) for a denser visual density preference -- that would be a different, additive decision, not a reversal of this one."
+    },
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "The overlay (EMA13/EMA26 lines + signal markers) is only fetched and rendered while the Daily interval is selected -- switching PriceChart's own interval toggle to Weekly detaches/removes the overlay and stops requesting GET /api/stocks/{ticker}/indicators entirely (useIndicatorHistory's `enabled` option is set to `interval === 'daily'`).",
+      "rationale": "GET /api/stocks/{ticker}/indicators has no `interval` param -- every value it returns is daily-cadence, by design (see api-stocks-indicator-history's decisions and API.md). Plotting daily-cadence EMA13/EMA26 lines or daily-bar signal markers against a *weekly*-interval candlestick series would silently misalign the two datasets on the time axis (a daily EMA line drawn under weekly candles isn't a meaningful weekly EMA, and a marker dated to a daily bar wouldn't necessarily land on a weekly bar boundary) -- a worse, confusing-but-not-obviously-wrong result than just not showing an overlay. Rejected requesting /indicators unconditionally (regardless of interval) and plotting it as-is against whichever candlestick interval is selected: rejected for exactly the misalignment reason above, and because it would mean paying for a request whose response is never actually shown correctly in the weekly case.",
+      "revisit_if": "A future backend task adds weekly-cadence indicators to this endpoint (or a separate one) -- at that point the interval gating could extend to cover both cadences instead of being daily-only."
+    },
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "A failed, loading, or empty /indicators response never blocks or hides the underlying candlestick chart -- the overlay's own LoadingState/ErrorState/EmptyState render as additional content below the chart canvas (gated on `historyQuery.isSuccess && hasBars && overlayEnabled`), rather than the whole PriceChart falling back to a full-page loading/error/empty state the way it does for the primary /history query.",
+      "rationale": "The candlestick chart (from /history) is this component's primary content and was fully functional before this task; the signal overlay (from /indicators) is additive. Making the whole chart disappear because a secondary, additive data source is still loading or failed would be a regression for every existing PriceChart consumer, and doesn't match how IndicatorsPanel/ScreensPanel already treat /analysis's indicators as one section among several on StockDetailPage rather than a page-blocking dependency. The checklist's 'handle loading/error/empty states... reuse LoadingState/ErrorState/EmptyState' requirement is satisfied by rendering those same shared components for the overlay's own three states, just scoped to the overlay's own section of the page rather than gating the whole component.",
+      "revisit_if": "Product feedback indicates users find a chart with no visible overlay/error message confusing as to whether the overlay is coming at all -- could add a persistent 'Signal overlay: Daily interval only' caption when interval is 'weekly', instead of silently omitting the overlay section."
+    },
+    {
+      "timestamp": "2026-09-18T09:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the review-blocking crash (PR #107 review comment) by guarding the overlay effect's cleanup with a 'is this chart/series still the one I set up' check against `chartRef.current`/`seriesRef.current`, rather than restructuring the two effects into one. Also corrected the wrong claim in the code comment above the overlay effect (previously: 'this effect's cleanup runs before the candlestick effect's cleanup, per React's reverse-declaration-order rule') -- that was backwards and is the actual root cause of the crash.",
+      "rationale": "React runs sibling effects' CLEANUP functions in DECLARATION order (not reversed) when a shared dependency changes -- verified against React's real commit-phase behavior (all cleanups run first, in declaration order, then all setups run, in declaration order; this is why parent-then-child and sibling-declaration-order cleanup ordering both hold within one commit). The candlestick effect is declared first, so on a range/interval change its cleanup (`chart.remove()`, then nulling `chartRef.current`/`seriesRef.current`) always finishes running before the overlay effect's cleanup runs -- meaning by the time the overlay cleanup executes, `chart`/`series` (its own closed-over locals) may already reference a disposed `ChartApi`, and calling `chart.removeSeries(...)` on it throws synchronously (Lightweight Charts' `ensureDefined`). Because the candlestick effect's cleanup deterministically nulls the refs before the overlay effect's cleanup ever runs, comparing `chartRef.current`/`seriesRef.current` against the overlay cleanup's own closed-over `chart`/`series` correctly detects 'already disposed' and skips redundant/unsafe cleanup, while leaving the normal in-place-swap path (only `indicatorsQuery.data`/`theme` changing, `historyQuery.data` unchanged) fully intact -- verified with a new component test that forces exactly that swap path via `queryClient.invalidateQueries` and asserts `removeSeries`/`detach` are actually called for real in that case. Rejected consolidating both series lifecycles into one effect (an option the review comment offered): it's the simplest fix to reason about, but forces the whole candlestick chart (not just the overlay) to be torn down and recreated on *every* `/indicators` refetch (which resolves independently of and often after `/history`), reintroducing the 'jarring full-chart teardown/recreate' the two-effect split was deliberately built to avoid (per this task's second decisions entry's sibling reasoning, and the original effect's own doc comment) -- the guard achieves the same crash-safety without giving up that behavior. Rejected a blanket try/catch around the cleanup body: it would have silenced the crash without an underlying reason for why it's safe to ignore, and could mask a genuinely different failure the same way.",
+      "revisit_if": "A future refactor removes the ref-based chart/series tracking (`chartRef`/`seriesRef`) in favor of some other mechanism -- the guard would need to move with it, using whatever new mechanism still lets the overlay cleanup detect 'my chart is already gone.'"
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-signal-overlay",
+    "pr_number": 107,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/107",
+    "pushed_at": "2026-09-18T09:24:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T09:33:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/107",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round-2 re-review of the crash fix. Verified the fix's own reasoning against React's real effect-cleanup-ordering semantics (sibling effects run their cleanups in declaration order, not reversed, within the same commit -- confirmed independently, not just taken on the comment's word). Traced all four re-run paths by hand: (1) range/interval change -- candlestick effect's cleanup runs first (`chart.remove()`, nulls `chartRef`/`seriesRef`), then the overlay effect's cleanup sees the refs no longer match its captured `chart`/`series` and correctly no-ops instead of calling `chart.removeSeries(...)` on an already-disposed chart; new candlestick setup runs, then new overlay setup reads the fresh refs and re-attaches correctly. (2) indicators-only refetch (historyQuery.data unchanged) -- only the overlay effect re-runs, refs still match, cleanup genuinely removes the stale EMA/marker series and the new ones are added (verified this path is NOT silently skipped by the same guard, via the new 'swaps the overlay series in place' test). (3) overlayEnabled toggling false (interval -> weekly) -- refs already nulled by the same-commit candlestick cleanup, overlay setup's own `!overlayEnabled` check additionally skips re-adding. (4) unmount -- same declaration-order cleanup sequence, no crash. The guard is sound for the exact race that caused the original crash.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 279
+      },
+      {
+        "summary": "Reproduced the exact original crash repro myself against a running backend (fixture provider, GOOGL, which has a real SELL transition on 2026-06-25) plus the frontend: golden-path load, then range toggle (6M/1Y), interval toggle (Weekly/Daily back and forth), and a rapid-toggle stress sequence, in both `npm run dev` and a production `vite build && vite preview` build. No crash, no AppErrorBoundary fallback, no console/page errors, no failed network requests in either mode -- screenshot confirms EMA13/EMA26 lines and the SELL marker render correctly post-toggle.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": null
+      },
+      {
+        "summary": "New regression test (PriceChart.test.tsx) mocks `createChart()` to return a chart that genuinely throws from `removeSeries` once `remove()` has been called on it, mirroring Lightweight Charts' real `ensureDefined` throw -- a meaningful guard against this exact regression reappearing, not a mock that would pass either way. A second new test exercises the in-place-swap path (indicators-only refetch) and asserts `removeSeries`/`detach` ARE called for real in that case, confirming the guard doesn't over-skip.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": null
+      },
+      {
+        "summary": "All three round-1 non-blocking follow-ups were genuinely addressed in this same fix: buildOverlayData now builds EMA13/EMA26/markers in a single pass over points; the four-clause overlay-state guard is computed once into showOverlaySection and reused across the three JSX blocks; frontend/tests/e2e/stock-analysis.spec.ts's range/interval-toggle spec now waits for the /indicators overlay to resolve before toggling and uses GOOGL specifically to exercise a real signal transition. Ran the full e2e suite (`make e2e`): all 12 specs across dashboard/navigation/portfolio/stock-analysis pass, including this strengthened spec.",
+        "file": "frontend/tests/e2e/stock-analysis.spec.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full re-review run against the fix commit (15a0cb1): backend pytest+coverage unchanged from round 1 (99.86%, 559 passed -- no backend files touched this round, confirmed via diff), frontend vitest+coverage 99.54%/99.13%/100%/99.53%, 246 passed (up from 238 -- two new regression tests), no regression, backend ruff+mypy clean, frontend eslint+tsc clean, no openapi.json diff needed (no schema change this round). code-review skill (medium effort) independently corroborated: no correctness/reuse/simplification/efficiency findings. Minor task-board observation (not filed as a new follow-up -- pure bookkeeping, not a PR-code finding): frontend-chart-signal-overlay-followups.json's checklist is now fully done=true; moved it to done/ as part of this review since its work is verified complete. Posted verdict as a COMMENTED-type PR review (gh pr review 107 --comment), not a formal approve/request-changes."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T09:38:42Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest+coverage (559 passed, 99.86%, matches review exactly) and frontend vitest+coverage (99.54%/99.13%/100%/99.53% lines, matches exactly; my own run showed 247 passed vs review's reported 246 -- confirmed no frontend files changed since commit 15a0cb1, so this is a miscount in the review's notes, not stale/fabricated numbers). Read PriceChart.tsx's two effects and cleanup guard myself and confirmed React's real semantics (sibling effect cleanups run in declaration order within a commit, not reversed) match the fix's reasoning; traced all four re-run paths (range/interval change, indicators-only refetch, interval->weekly, unmount) by hand against the chartRef/seriesRef guard. Independently reproduced the original crash repro with a real Playwright/Chromium run (`npx playwright test tests/e2e/stock-analysis.spec.ts`) against a real backend (fixture provider, GOOGL's real signal transition), toggling range and interval after the overlay rendered -- all 3 specs passed, no crash. Confirmed the two new PriceChart.test.tsx regression tests are genuine (mock chart throws from removeSeries only post-remove(), mirroring the real library) and skimmed the full diff -- no client-side indicator recomputation, all three round-1 follow-ups genuinely addressed."
+  }
+}

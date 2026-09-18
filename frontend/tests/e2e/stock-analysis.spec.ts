@@ -55,14 +55,47 @@ test.describe('stock analysis page', () => {
   test('range and interval toggles reload the price chart without erroring', async ({
     page,
   }) => {
-    await page.goto('/stocks/AAPL')
+    // GOOGL (backend/app/data/fixture_provider.py: zero drift, pure noise)
+    // is the fixture ticker that actually produces a BUY/SELL signal
+    // transition within the default 1y range, unlike AAPL's steady uptrend
+    // -- exercising the EMA13/EMA26 line series *and* the transition marker
+    // from PriceChart's signal overlay (features/stocks/components/
+    // PriceChart.tsx), not just an overlay with nothing plotted on it.
+    await page.goto('/stocks/GOOGL')
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+
+    // Regression test for a real crash (frontend-chart-signal-overlay task
+    // review): switching the range/interval toggle after the overlay had
+    // already rendered once used to throw from PriceChart's overlay-cleanup
+    // effect touching a chart the candlestick effect's own cleanup had
+    // already disposed, crashing the whole page into AppErrorBoundary. That
+    // race only exists once the overlay has actually mounted onto the
+    // chart, so this waits for the `/indicators` response (and the loading
+    // caption it drives) to fully resolve before clicking through the
+    // range/interval controls below -- without this wait, a toggle could
+    // land before the overlay ever mounts and miss the race entirely.
+    const overlayLoading = page.getByText('Loading signal overlay for GOOGL...')
+    await overlayLoading.waitFor({ state: 'hidden' }).catch(() => {
+      // Fast enough responses may never show the loading caption at all --
+      // that's fine, it just means there's nothing to wait to disappear.
+    })
 
     await page.getByRole('button', { name: '6M' }).click()
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+    // The page must still be the stock analysis page, not
+    // AppErrorBoundary's fallback -- confirms the range toggle didn't crash
+    // the tree the way the reported bug did.
+    await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Weekly' }).click()
     await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
+
+    // Back to Daily re-fetches and re-mounts the overlay -- toggling away
+    // from it and back again must not crash either.
+    await page.getByRole('button', { name: 'Daily' }).click()
+    await expect(page.getByTestId('price-chart-canvas')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Go' })).toBeVisible()
   })
 
   test('looking up an unknown ticker shows a not-found error state', async ({ page }) => {

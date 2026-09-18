@@ -73,11 +73,12 @@ frontend/
         hooks/
           useStockAnalysis.ts
           useStockHistory.ts
+          useIndicatorHistory.ts        # GET /.../indicators — shared by PriceChart's overlay and frontend-oscillator-chart
         components/
           SignalSummary.tsx            # SignalBadge + ConfidenceGauge + confidence_breakdown table
           ScreensPanel.tsx                # Tide/Impulse/Wave/Trigger structured display
           IndicatorsPanel.tsx               # latest ema_13/ema_26/macd_histogram/bull_power/bear_power, as data — not a chart overlay (see §5)
-          PriceChart.tsx                     # Lightweight Charts candlestick wrapper over /history
+          PriceChart.tsx                     # Lightweight Charts candlestick wrapper over /history, with an EMA13/EMA26 + BUY/SELL signal overlay from /indicators (see §5)
     pages/                  # route-level composition ONLY — layout + hooks + components, no business logic, no direct fetch() calls
       DashboardPage.tsx
       PortfolioPage.tsx
@@ -120,7 +121,9 @@ Feature-specific components (`features/<domain>/components/`) and pages do **not
 
 `GET /api/stocks/{ticker}/history` returns raw OHLCV bars only — no indicator values. `GET /api/stocks/{ticker}/analysis` returns indicator values for the *latest* bar only (`ema_13`, `ema_26`, `macd_histogram`, `bull_power`, `bear_power`) — not a historical series. **Decision: the frontend does not recompute Elder's indicators in TypeScript to backfill a historical overlay.** Doing so would duplicate the backend's indicator math in a second language with no test-cross-checking, directly against the project's "confidence scores and signals are computed entirely in the backend... one place, testable once" principle (`Architecture.md` §3) — and the same reasoning extends to indicator math generally, not just final scoring.
 
-`GET /api/stocks/{ticker}/indicators` (see [API.md](API.md#get-apistocksstickerindicators)) closes this gap: for a given `range`, it returns `ema_13`, `ema_26`, `macd_histogram`, `bull_power`, `bear_power`, `stochastic_k`, `force_index_2ema`, and the resulting `signal`/`confidence`/`confidence_band` (Analyse.md §4-5), one entry per daily bar, oldest first — reusing `app.signals.engine.analyse` per bar rather than a second indicator implementation. `PriceChart.tsx` currently still renders candlesticks only (via TradingView Lightweight Charts), with `IndicatorsPanel.tsx` showing `/analysis`'s latest-bar snapshot alongside it — wiring `/indicators` into an actual line/marker overlay and a separate oscillator pane is tracked as the `frontend-chart-signal-overlay` and `frontend-oscillator-chart` tasks, which depend on this endpoint now that it exists.
+`GET /api/stocks/{ticker}/indicators` (see [API.md](API.md#get-apistocksstickerindicators)) closes this gap: for a given `range`, it returns `ema_13`, `ema_26`, `macd_histogram`, `bull_power`, `bear_power`, `stochastic_k`, `force_index_2ema`, and the resulting `signal`/`confidence`/`confidence_band` (Analyse.md §4-5), one entry per daily bar, oldest first — reusing `app.signals.engine.analyse` per bar rather than a second indicator implementation.
+
+`PriceChart.tsx` fetches this via the shared `useIndicatorHistory` hook (`features/stocks/hooks/useIndicatorHistory.ts`) and overlays it on the candlestick series using Lightweight Charts' own native primitives rather than a custom-drawn overlay: `ema_13`/`ema_26` as two `LineSeries`, plus a `createSeriesMarkers`-based BUY/SELL arrow at each bar where the signal actually *changed* (not one marker per bar carrying that signal — see the `frontend-chart-signal-overlay` task's `decisions` entry for the full rationale, including why the overlay is daily-interval-only). `IndicatorsPanel.tsx` remains the separate latest-bar-only snapshot from `/analysis`, shown alongside the chart rather than on it. A stochastic/Force Index oscillator pane fed by the same `useIndicatorHistory` hook is tracked separately as the `frontend-oscillator-chart` task.
 
 ## 6. Key Dependencies
 
