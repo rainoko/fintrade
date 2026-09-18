@@ -11,6 +11,11 @@ import type {
   HistoryInterval,
   HistoryResponse,
 } from '../../src/api/stocks'
+import type {
+  WatchlistItemIn,
+  WatchlistItemOut,
+  WatchlistResponse,
+} from '../../src/api/watchlist'
 
 // Handlers mirroring docs/architecture/API.md, including every error case
 // listed in API.md's "Error Cases to Cover in Tests" section (see
@@ -35,6 +40,12 @@ import type {
 // Sentinel POST /api/portfolio/positions payloads:
 //   quantity <= 0 or avg_cost_basis <= 0 -> 422 HTTPValidationError (per-field)
 //   ticker === 'OVERFLOW'                -> 422 ErrorDetail (merge would overflow)
+// Watchlist tickers: any ticker not present in `mockWatchlistSignals` below
+// annotates as signal/confidence/confidence_band all null on GET /api/watchlist
+// (API.md's nullable-on-failure case) rather than needing its own sentinel —
+// this mirrors mockPrices' "unknown ticker -> null price" convention above.
+// Sentinel watchlist tickers:
+//   any ticker not present in the in-memory watchlist store -> 404 (DELETE)
 
 const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
@@ -178,6 +189,56 @@ const PROVIDER_DOWN_TICKER = 'NOPROVIDER'
 
 const RANGE_PATTERN = /^(max|\d{1,4}[dwmy])$/
 
+// Mock signal/confidence backing GET /api/watchlist's per-ticker annotation
+// (the real backend re-runs app.signals.engine.analyse per ticker; this mock
+// layer never re-implements that — it just returns canned per-ticker
+// results). A ticker with no entry here annotates as
+// signal/confidence/confidence_band all null, the same "signal couldn't be
+// computed" case API.md documents. Includes one of each signal value so a
+// test can assert BUY renders visually distinct from HOLD/SELL.
+const mockWatchlistSignals: Record<
+  string,
+  Pick<WatchlistItemOut, 'signal' | 'confidence' | 'confidence_band'>
+> = {
+  AAPL: { signal: 'BUY', confidence: 72, confidence_band: 'High' },
+  MSFT: { signal: 'HOLD', confidence: 45, confidence_band: 'Medium' },
+  TSLA: { signal: 'SELL', confidence: 30, confidence_band: 'Low' },
+}
+
+// Core, always-known fields for a stored watchlist item — deliberately
+// excludes signal/confidence/confidence_band, which are annotated at *read*
+// time (see `enrichWatchlistItem` below) rather than stored, mirroring
+// StoredPosition's same "enrichment happens on read, not on write" pattern
+// above for current_price/unrealized_pnl_pct.
+type StoredWatchlistItem = Pick<WatchlistItemOut, 'ticker' | 'added_at'>
+
+const initialWatchlistItems: StoredWatchlistItem[] = [
+  { ticker: 'AAPL', added_at: '2026-09-10T09:15:00Z' },
+  { ticker: 'MSFT', added_at: '2026-09-12T09:15:00Z' },
+]
+
+function enrichWatchlistItem(item: StoredWatchlistItem): WatchlistItemOut {
+  const signalData = mockWatchlistSignals[item.ticker]
+  return {
+    ...item,
+    signal: signalData?.signal ?? null,
+    confidence: signalData?.confidence ?? null,
+    confidence_band: signalData?.confidence_band ?? null,
+  }
+}
+
+// Mutable in-memory watchlist store backing GET/POST/DELETE /api/watchlist,
+// the same pattern (and reset convention) `positions`/`resetPortfolioStore`
+// establish above. `resetWatchlistStore` puts it back to
+// `initialWatchlistItems` between tests (call from `beforeEach`).
+let watchlistItems: StoredWatchlistItem[] = initialWatchlistItems.map((item) => ({
+  ...item,
+}))
+
+export function resetWatchlistStore(): void {
+  watchlistItems = initialWatchlistItems.map((item) => ({ ...item }))
+}
+
 export const handlers: HttpHandler[] = [
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
 
@@ -320,5 +381,48 @@ export const handlers: HttpHandler[] = [
     }
 
     return HttpResponse.json(buildHistoryFixture(ticker, interval))
+  }),
+
+  http.get('/api/watchlist', () => {
+    const response: WatchlistResponse = { items: watchlistItems.map(enrichWatchlistItem) }
+    return HttpResponse.json(response)
+  }),
+
+  http.post('/api/watchlist', async ({ request }) => {
+    const body = (await request.json()) as WatchlistItemIn
+    const ticker = body.ticker.trim().toUpperCase()
+    const existing = watchlistItems.find((item) => item.ticker === ticker)
+
+    // Idempotent no-op on a duplicate add (API.md): the existing item, with
+    // its original added_at, is returned unchanged rather than a new row
+    // being created or added_at being reset to "now".
+    const stored = existing ?? { ticker, added_at: new Date().toISOString() }
+    if (!existing) {
+      watchlistItems.push(stored)
+    }
+
+    // signal/confidence/confidence_band are always null in the POST
+    // response itself (API.md) — annotation happens on read, not on write.
+    const created: WatchlistItemOut = {
+      ticker: stored.ticker,
+      added_at: stored.added_at,
+      signal: null,
+      confidence: null,
+      confidence_band: null,
+    }
+    return HttpResponse.json(created, { status: 201 })
+  }),
+
+  http.delete('/api/watchlist/:ticker', ({ params }) => {
+    const ticker = String(params.ticker).toUpperCase()
+    const index = watchlistItems.findIndex((item) => item.ticker === ticker)
+    if (index === -1) {
+      return HttpResponse.json(
+        { detail: `${ticker} is not on the watchlist.` },
+        { status: 404 },
+      )
+    }
+    watchlistItems.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
   }),
 ]

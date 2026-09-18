@@ -237,6 +237,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/watchlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every watched ticker with its current signal
+         * @description Every ticker on the watchlist, each annotated with its current BUY/SELL/HOLD signal
+         *     and confidence by re-running the same Triple Screen signal engine
+         *     `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`,
+         *     docs/Analyse.md §5) -- so "does the watchlist signal a buy" always agrees with what a
+         *     direct lookup of that ticker's analysis page would say, with no second implementation of
+         *     the buy check to drift out of sync.
+         *
+         *     `signal`/`confidence`/`confidence_band` are null together on an entry whose signal
+         *     couldn't be computed right now (unknown/delisted ticker, insufficient history, or the
+         *     data provider being unavailable) -- this endpoint never fails or drops an entry just
+         *     because one watched ticker's data is temporarily/permanently unavailable; see this
+         *     task's `decisions` entry. Ordered by `added_at` (oldest first), then `ticker` as a
+         *     tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s deterministic
+         *     ordering convention (`app.api.routers.portfolio._ordered_positions`).
+         */
+        get: operations["get_watchlist"];
+        put?: never;
+        /**
+         * Add a ticker to the watchlist
+         * @description Adds `ticker` to the watchlist. Adding a ticker that's already watched is a no-op:
+         *     the existing entry (with its original `added_at`) is returned unchanged, still with
+         *     `201`, rather than creating a duplicate row or rejecting with `409`/`422` -- see this
+         *     task's `decisions` entry for the full rationale.
+         *
+         *     `signal`/`confidence`/`confidence_band` are always `null` in this response: annotation
+         *     happens on read (`GET /api/watchlist`), not on write -- mirroring
+         *     `POST /api/portfolio/positions`'s `current_price`/`unrealized_pnl_pct`
+         *     null-on-write convention.
+         */
+        post: operations["add_watchlist_item"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watchlist/{ticker}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a ticker from the watchlist
+         * @description Removes `ticker` from the watchlist entirely. `ticker` is normalized to uppercase,
+         *     matching every other `/api/watchlist` and `/api/stocks/*` route.
+         */
+        delete: operations["delete_watchlist_item"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -598,6 +664,48 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WatchlistItemIn */
+        WatchlistItemIn: {
+            /**
+             * Ticker
+             * @description Stock ticker symbol to watch, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker already on the watchlist is a no-op that returns the existing entry unchanged (original added_at kept) rather than creating a duplicate row or rejecting with 409/422 -- see the api-watchlist task's `decisions`.
+             */
+            ticker: string;
+        };
+        /** WatchlistItemOut */
+        WatchlistItemOut: {
+            /**
+             * Added At
+             * Format: date-time
+             * @description When this ticker was added to the watchlist (UTC).
+             */
+            added_at: string;
+            /**
+             * Confidence
+             * @description Same 0-100 weighted composite score as AnalysisResponse.confidence. Null under the same condition as `signal`.
+             */
+            confidence?: number | null;
+            /**
+             * Confidence Band
+             * @description Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.
+             */
+            confidence_band?: ("Low" | "Medium" | "High") | null;
+            /**
+             * Signal
+             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis uses (docs/Analyse.md §5) -- not a separately-implemented buy check. Null only if the signal couldn't be computed for this ticker right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable), mirroring PositionOut's current_price null-on-failure pattern -- see the api-watchlist task's `decisions`.
+             */
+            signal?: ("BUY" | "SELL" | "HOLD") | null;
+            /** Ticker */
+            ticker: string;
+        };
+        /** WatchlistResponse */
+        WatchlistResponse: {
+            /**
+             * Items
+             * @description Every watched ticker, ordered by when it was added (oldest first).
+             */
+            items: components["schemas"]["WatchlistItemOut"][];
+        };
         /** WaveScreen */
         WaveScreen: {
             /**
@@ -886,6 +994,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_watchlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchlistResponse"];
+                };
+            };
+        };
+    };
+    add_watchlist_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchlistItemIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchlistItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_watchlist_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticker: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Ticker not on the watchlist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

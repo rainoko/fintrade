@@ -15,6 +15,7 @@ describe('App', () => {
   it.each([
     ['/', 'Dashboard'],
     ['/portfolio', 'Portfolio'],
+    ['/watchlist', 'Watchlist'],
     ['/stocks/AAPL', 'AAPL'],
   ])('renders the page mapped to %s', (path, heading) => {
     renderWithProviders(
@@ -45,5 +46,6 @@ describe('App', () => {
 
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /portfolio/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /watchlist/i })).toBeInTheDocument()
   })
 })

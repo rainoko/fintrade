@@ -1,0 +1,83 @@
+{
+  "id": "frontend-watchlist-page",
+  "title": "Frontend: Watchlist page (add/remove tickers, highlight buy signals)",
+  "area": "frontend/pages/watchlist",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["api-watchlist"],
+  "references": [
+    "frontend/src/pages/DashboardPage.tsx",
+    "frontend/src/features/portfolio",
+    "docs/tasks/api-watchlist.json"
+  ],
+  "description": "User request: there should be watchlists, and the watchlist should signal when to buy. New page (e.g. /watchlist) backed by api-watchlist: list watched tickers with their current signal prominently shown (visually distinguish BUY from HOLD/SELL, matching whatever signal-display convention the stock analysis page already uses -- reuse it, do not invent a second one), an add-ticker control, and a remove action per row. Add a nav entry in the app shell alongside the existing Dashboard/Portfolio/Stocks entries.",
+  "checklist": [
+    { "step": "Wire a TanStack Query hook (list) and mutations (add/remove) for GET/POST/DELETE /api/watchlist, following the existing usePortfolio/useAddPosition-style conventions (Frontend.md).", "done": true },
+    { "step": "Build the Watchlist page: table of watched tickers with signal/confidence displayed using the same visual treatment as the stock analysis page (reuse, do not duplicate, the existing signal-badge/color convention), an add-ticker input, and a remove action per row.", "done": true },
+    { "step": "Add a route and app-shell navigation entry for the new page, consistent with the existing Dashboard/Portfolio/Stocks entries.", "done": true },
+    { "step": "Handle loading/error/empty states consistently (LoadingState/ErrorState/EmptyState).", "done": true },
+    { "step": "Tests: component/page tests for list/add/remove and the buy-signal highlighting, MSW-mocked; confirm 90% coverage gate still holds and Storybook covers any new common/ component.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T08:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "frontend/src/api/types.ts was regenerated from the committed backend/openapi.json (npm run generate:api-types) as the first step of this task, even though that was flagged as a non-blocking gap on api-watchlist's own review (deferred there since no frontend consumer existed yet). This task is that consumer, so the deferral condition no longer holds.",
+      "rationale": "CLAUDE.md's API documentation standard and Frontend.md §7 both require api/types.ts to be generated from the committed openapi.json snapshot before the frontend consumes a route; api-watchlist's review explicitly deferred it pending a real consumer, not indefinitely. Regenerating up front (rather than hand-writing the WatchlistItemIn/Out/Response shapes into api/watchlist.ts) keeps this task's types.ts diff purely additive (199 lines, only new Watchlist* schemas) and guarantees the frontend types match the backend's Pydantic schemas exactly rather than a manually-transcribed approximation."
+    },
+    {
+      "timestamp": "2026-09-18T08:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "WatchlistTable and AddTickerForm live under features/watchlist/components/, not components/common/, and the ticker cell renders as plain text rather than a link.",
+      "rationale": "Both components reference watchlist-domain concepts directly (WatchlistItemOut's ticker/added_at/signal/confidence/confidence_band shape, the idempotent-add semantics), so per Frontend.md §3's placement test they belong under features/<domain>/, matching PositionsTable/AddPositionDialog's own placement for the equivalent portfolio-domain components. The ticker cell was considered for a Link (as PositionsGlanceTable.tsx does to /stocks/:ticker) but left as plain text: frontend-ticker-link (a shared common/TickerLink component meant to consolidate this exact pattern) is still 'planned', and the task description explicitly says not to block on it or invent it here since that task will retrofit it later. A one-off inline <Link> was rejected as it would just be more duplication for frontend-ticker-link to later replace, working against the consolidation that task exists to do."
+    },
+    {
+      "timestamp": "2026-09-18T08:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A watchlist entry's null signal/confidence/confidence_band renders as a plain '—' em dash in the table (not inside SignalBadge/ConfidenceGauge, and not a distinct third component).",
+      "rationale": "common/SignalBadge's `signal` prop and common/ConfidenceGauge's `confidence` prop are both typed as non-nullable (Signal = 'BUY'|'SELL'|'HOLD'; confidence: number) by design (Frontend.md §3 calls SignalBadge a component that 'doesn't fetch or know how the signal was derived' -- a plain string-union prop, not an Optional one) since every other current caller (SignalSummary, wired to AnalysisResponse) always has a resolved value. Widening either prop to accept null just for this one caller would push a watchlist-specific nullability concern into two otherwise-simple domain-agnostic components. Rejected: rendering a badge with a synthetic 'UNKNOWN'/'N/A' fourth signal value (invents a value Analyse.md never defines, and SignalBadge's color palette has no case for it). '—' matches the exact same null-rendering convention formatNullableCurrency/formatNullableNumber and PositionsTable/PositionsGlanceTable's own null current_price/unrealized_pnl_pct cells already establish elsewhere in this codebase."
+    },
+    {
+      "timestamp": "2026-09-18T08:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The add-ticker control (AddTickerForm) is a single-field inline form embedded directly in the page's PageHeader action slot, not a modal dialog like portfolio's AddPositionDialog, and it shows no distinct 'already watching' success message when the add is an idempotent no-op.",
+      "rationale": "AddPositionDialog's modal form exists because adding a position has four required fields and a genuine merge outcome (quantity/cost-basis re-averaging) worth summarizing before returning to the table. POST /api/watchlist takes exactly one field (ticker) and its duplicate-add outcome is a no-op with zero visible effect (the existing row, unchanged, is already what's on screen) -- there is nothing for a confirmation screen to usefully summarize, unlike the portfolio merge case. An inline form (mirroring TickerSearchBox's existing row-of-TextField-plus-Button structure, but calling useAddWatchlistItem's mutation instead of navigating) keeps the common case (adding a new ticker) to a single click with no extra modal step, which weighed more than dialog-based consistency with AddPositionDialog given the two forms' genuinely different shapes."
+    },
+    {
+      "timestamp": "2026-09-18T08:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `formatDate` helper to utils/format.ts (pinned to `'en-US'` and `timeZone: 'UTC'`) to render WatchlistItemOut.added_at, rather than showing the raw ISO datetime string or a one-off formatter local to WatchlistTable.tsx.",
+      "rationale": "added_at is the first ISO date-*time* value (not a plain YYYY-MM-DD date like PositionOut.entry_date, which the codebase already renders unformatted) this app has needed to display, so no existing helper covered it. It's domain-agnostic (operates on any ISO date/date-time string, doesn't know what a 'watchlist' is) and not a component, so per Frontend.md §3's placement rule (mirrored by this file's own header comment for every other helper here) it belongs in utils/format.ts rather than components/common/ or features/watchlist/. `timeZone: 'UTC'` is pinned (a stricter version of formatCurrency's existing en-US locale pin) so the rendered calendar date doesn't shift by a day for a negative-UTC-offset host when a future caller passes a date-only string."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-watchlist-page",
+    "pr_number": 106,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/106",
+    "pushed_at": "2026-09-18T08:38:17Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T08:45:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/106",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "WatchlistTable's per-row Remove IconButton isn't disabled while useRemoveWatchlistItem is isPending, so a fast double-click on the same row can fire two DELETE requests; the second 404s and surfaces a confusing 'Not found' ErrorState for what was actually a successful removal. Pre-existing pattern in features/portfolio/components/PositionsTable.tsx too, reproduced rather than fixed here. Non-blocking; tracked as frontend-watchlist-page-followups.",
+        "file": "frontend/src/features/watchlist/components/WatchlistTable.tsx",
+        "line": 83
+      },
+      {
+        "summary": "No Playwright e2e spec (frontend/tests/e2e/watchlist.spec.ts) was added for the new /watchlist page, unlike every other top-level nav destination (dashboard/navigation/portfolio/stock-analysis all have one). Page-level vitest/MSW coverage (WatchlistPage.test.tsx) is thorough, so this isn't a regression risk today, but it's a gap in the persisted real-browser regression suite. Non-blocking; tracked as frontend-watchlist-page-followups.",
+        "file": "frontend/tests/e2e",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: gh pr checkout 106. Backend+frontend suites both pass well above the 90% gate (backend 559 tests, 99.86% coverage; frontend 232 tests, 99.49% statements/99% branches -- matches PR description). ruff/mypy/eslint/tsc all clean. No backend changes in this PR (api-watchlist already merged in #102); frontend/src/api/types.ts regenerates byte-identical to the committed backend/openapi.json via `npm run generate:api-types`, confirming a genuine regeneration rather than a hand-edit, so no OpenAPI-sync gap. code-review skill (medium effort) found one genuine minor issue (the double-click race noted above) and nothing else after verification. Placement check (step 7a): WatchlistTable/AddTickerForm both reference watchlist-domain concepts (WatchlistItemOut shape, idempotent-add semantics) so features/watchlist/components/ is correct per Frontend.md §3 -- no near-duplicate of an existing common/ or feature component, and SignalBadge/ConfidenceGauge reuse is genuine (unmodified common/ components, null-handling done at the WatchlistTable call site rather than pushed into either component, matching the recorded decision). Browser walkthrough (Playwright driven via a scratch script against a fixture-mode backend + Vite dev server, since no interactive Playwright MCP tool was available in this session): added AAPL and TSLA (both rendered with signal badge + confidence gauge), re-added AAPL as a duplicate (idempotent no-op, no UI error), added an unknown ticker (row appears with '—'/'—' for signal/confidence per the documented null-on-failure case, not a form error -- correctly distinguishes 'add succeeded, signal computation pending/failed' from 'add failed'), opened and cancelled the remove-confirm dialog, then confirmed removal of AAPL and watched it drop from the table. No console errors, no failed network requests observed. All local fixture tickers (AAPL/MSFT/TSLA/GOOGL) happen to compute HOLD today so a live BUY badge wasn't observed in the walkthrough itself, but BUY-vs-HOLD visual distinctness is directly unit-tested (WatchlistTable.test.tsx, SignalBadge.test.tsx) against mocked BUY data, so this isn't a coverage gap. e2e-test skill: ran `make e2e` -- all 12 existing specs across dashboard/navigation/portfolio/stock-analysis passed, no regression from this PR; confirmed no watchlist.spec.ts exists (tracked as a non-blocking follow-up, not blocking since neither the task checklist nor add-frontend-feature skill mandates one and nothing existing regressed). Checklist cross-check: no 'decide X' checklist item lacks a decisions entry -- all 5 judgment calls (types.ts regen timing, common/-vs-feature placement + ticker-link deferral, null-signal rendering, inline-form-vs-dialog, new formatDate helper placement) are recorded with rationale. No new module/dependency/layer added, so architecture-review wasn't separately invoked; area is frontend/pages, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply (the signal computation itself is unchanged, reused via existing GET /api/watchlist)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T08:51:34Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (559 passed, 99.86% coverage) and frontend vitest (39 files/232 tests passed, 99.49% statements/99% branches) -- both match review notes exactly. Ran `make e2e` myself: 12/12 specs passed. Skimmed the full diff (all 24 changed files, not just the summary) -- consistent with the review's description, no undersold findings. Independently drove the page with a scratch Playwright script against the fixture-mode backend: added AAPL/TSLA (badge+gauge rendered), re-added AAPL as a no-op duplicate, added an unknown ticker (rendered '—'/'—'), cancelled then confirmed the remove-confirm dialog for AAPL (row disappeared, no console errors). One artifact surfaced only by my scratch script (Chromium's `requestfailed` event fires on the DELETE's 204 response, due to uvicorn's `Connection: close` header under the Vite dev proxy) turned out to be pre-existing and identical on portfolio's DELETE flow too (verified with a second scratch script) -- not introduced by this PR, not a real bug (UI updates correctly, no console error), so doesn't change the verdict. Confirmed index.json/path mirroring and the frontend-watchlist-page-followups task both correctly capture the two non-blocking findings."
+  }
+}

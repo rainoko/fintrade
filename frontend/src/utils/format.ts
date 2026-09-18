@@ -58,7 +58,10 @@
  * other value falls back to underscores-to-spaces plus capitalizing the
  * first letter.
  */
-export function humanizeSnakeCase(value: string, labelMap?: Record<string, string>): string {
+export function humanizeSnakeCase(
+  value: string,
+  labelMap?: Record<string, string>,
+): string {
   const known = labelMap?.[value]
   if (known) {
     return known
@@ -131,4 +134,27 @@ export function formatCurrency(value: number): string {
  */
 export function formatNullableCurrency(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : formatCurrency(value)
+}
+
+/**
+ * Formats an ISO date or date-time string (e.g. `WatchlistItemOut.added_at`,
+ * `"2026-09-18T14:03:00Z"`) as a short human-readable date (`"Sep 18, 2026"`),
+ * dropping the time-of-day component since no current caller needs
+ * sub-day precision. Domain-agnostic (any ISO date/date-time string) and not
+ * a component, so it lives here rather than under `components/common/` or a
+ * `features/<domain>/` folder, same placement rule as every other helper in
+ * this file (Frontend.md §3). Locale is pinned to `'en-US'` for the same
+ * determinism reason `formatCurrency` above pins it; `timeZone: 'UTC'` is
+ * pinned too so a date-only input (parsed by `Date` as UTC midnight, e.g.
+ * `entry_date`-style `"2026-01-05"`) always renders as that same calendar
+ * date regardless of the host's local timezone offset, rather than
+ * potentially shifting a day backward for a negative-offset timezone.
+ */
+export function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
 }

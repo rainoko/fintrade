@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PortfolioPage from './pages/PortfolioPage'
 import StockDetailPage from './pages/StockDetailPage'
+import WatchlistPage from './pages/WatchlistPage'
 
 // Route table. Every page route nests under AppShell (MUI AppBar +
 // persistent nav, see components/layout/AppShell.tsx) as a layout route, so
@@ -16,6 +17,7 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/watchlist" element={<WatchlistPage />} />
         <Route path="/stocks/:ticker" element={<StockDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
