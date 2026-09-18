@@ -3,14 +3,15 @@
   "title": "Frontend: oscillator chart (Stochastic, Force Index) beneath the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
     "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
     "docs/Analyse.md#4-indicator-summary-table",
     "docs/Analyse.md#screen-2--the-wave-medium-term-daily-chart",
-    "docs/tasks/api-stocks-indicator-history.json"
+    "docs/tasks/api-stocks-indicator-history.json",
+    "docs/tasks/frontend-oscillator-chart-followups.json"
   ],
   "description": "User request: the oscillator(s) used by Screen 2 (docs/Analyse.md — Stochastic %K(5,3,3) and Force Index, 2-period EMA) must also appear as a chart in the UI, sourced from the backend (no client-side recomputation, same principle as frontend-chart-signal-overlay). Add a new chart pane — a separate synced panel beneath/alongside the price chart (the conventional oscillator-pane layout, since these values are on a different scale than price and don't belong on the same axis as candlesticks) — plotting the historical Stochastic %K and Force Index series from the api-stocks-indicator-history endpoint, with reference lines at the documented oversold/overbought thresholds (30/70 for Stochastic per docs/Analyse.md §4). If MACD Histogram (Screen 1's weekly slope input, also table-listed in §4) is also wanted as a plotted oscillator rather than just the point-in-time value already in IndicatorsPanel, include it here too — decide and record as a decisions entry. Additional chart panels beyond what's listed here may be added if needed for clarity (e.g. splitting Stochastic and Force Index into separate panes instead of one shared one) — record any such addition as a decisions entry explaining why.",
   "checklist": [
@@ -64,5 +65,27 @@
     "pr_number": 108,
     "pr_url": "https://github.com/rainoko/fintrade/pull/108",
     "pushed_at": "2026-09-18T09:53:43Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T10:01:35Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/108",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: OscillatorChart.tsx crashes the entire app (not just the oscillator pane) when a plotted point has a legitimately null stochastic_k/force_index_2ema -- reproduced live via a browser walkthrough. buildOscillatorSeriesData (lines 60-82) pushes point.stochastic_k/force_index_2ema/macd_histogram straight into the series-data arrays with no finite-number guard, unlike PriceChart.tsx's own hasFiniteOhlc pattern for the analogous OHLCV-null problem. GET /api/stocks/AAPL/indicators?range=max (fixture data) returns 6 points with stochastic_k=null and 1 with force_index_2ema=null -- bars still inside the Stochastic %K(5,3,3)/Force Index warm-up window. Selecting 'Max' range on the stock detail page (a directly clickable, mainline control) throws an uncaught 'Assertion failed: Line series item data value must be a number, got=object, value=null' from Lightweight Charts' own checkLineItem inside stochasticSeries.setData(stochastic) (line 156), which propagates to the app-root AppErrorBoundary (frontend/src/main.tsx) and replaces the ENTIRE page with a generic 'Something went wrong' screen -- confirmed via screenshot. This reproduces for any ticker's Max range, since every ticker's earliest bars lack full indicator warm-up by construction (backend/app/api/routers/stocks.py's get_indicator_history docstring: the endpoint always fetches the full untrimmed history first specifically so downstream points have warm-up context, but the very first bars of that full history still can't have it). None of the PR's own tests catch this: OscillatorChart.test.tsx mocks the entire lightweight-charts module (so the real library's own value-type assertion, which is what actually throws, is never exercised), and the extended e2e stock-analysis.spec.ts only toggles 6M/Weekly/Daily, never Max.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 156
+      },
+      {
+        "summary": "Non-blocking (filed as a checklist item on docs/tasks/frontend-oscillator-chart-followups.json): the OpenAPI schema for IndicatorHistoryPoint.stochastic_k/force_index_2ema declares type: number (required, non-nullable) but the runtime can legitimately return null for early-history bars, an API contract mismatch of the same class api-stocks-analysis-nullable-indicators fixed for /analysis -- but that fix (dropping malformed-OHLC bars) doesn't cover this endpoint's distinct cause (legitimate warm-up insufficiency on well-formed bars). Backend-area follow-up, outside this frontend PR's scope, but the frontend null-guard fix above is needed regardless of which backend approach is eventually chosen.",
+        "file": "backend/app/api/schemas.py"
+      },
+      {
+        "summary": "Non-blocking (filed as a checklist item on docs/tasks/frontend-oscillator-chart-followups.json): Force Index's and MACD Histogram's HistogramSeries setup (sign-based color computation + dotted zero-baseline price line) is near-duplicated between the two panes with only the series title/paneIndex differing -- could be factored into a small shared helper.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 174
+      }
+    ],
+    "notes": "Full review. Backend: pytest --cov=app -- 559 passed, 99.86% coverage (no backend changes in this PR; last-known state, still gates clean). Frontend: vitest run --coverage -- 258 passed, 99.58%/99.18%/100%/99.57% (statements/branches/functions/lines), matches the PR's reported numbers. Static analysis clean both sides: ruff, mypy ('Success: no issues found in 39 source files'), eslint, tsc -b --noEmit. No backend route/schema touched by this PR, so the openapi.json-freshness check (CLAUDE.md's API documentation standard) doesn't apply. Frontend component placement (step 7a): both OscillatorChart.tsx and StockCharts.tsx correctly live under features/stocks/components/ (not components/common/) -- both reference domain concepts (stochastic_k/force_index_2ema/macd_histogram, ticker/range/interval), matching the task's own placement decision; no near-duplicate of an existing common/ component. All checklist 'decide X' items have corresponding decisions entries. e2e-test skill run (make e2e): all 12 specs pass, including the extended stock-analysis.spec.ts -- confirms the persisted suite doesn't happen to cover the range that triggers the blocking crash (it only exercises 6M/Weekly/Daily, never Max). Browser walkthrough (Playwright driven directly via the frontend's own installed `playwright` package against a manually-started fixture-mode backend+frontend, since no chromium-cli/Playwright MCP tool was available in this session): confirmed correct golden-path rendering (three stacked panes -- Stochastic %K with 30/70 dashed reference lines, Force Index and MACD Histogram with dotted zero baselines -- all sourced from the backend, range/interval selectors mirrored correctly between PriceChart and StockCharts/OscillatorChart on first render and after every toggle), and confirmed the Weekly-interval EmptyState message renders correctly with no crash (task-worker's third specific concern in the review brief) -- but selecting 'Max' range reproduced the blocking crash above. Network requests showed exactly one /indicators request per range change (no duplicate fetch), confirming the TanStack Query dedup claim in the PR's decisions entry. No correctness issues found in the callback-mirror sync pattern itself (PriceChart <-> StockCharts <-> OscillatorChart) -- no stale-closure or effect-ordering issue reproduced; the crash is a data-validation gap, not a lifecycle/ordering bug of the kind PR #107 had. A code-review skill pass was also launched in the background for the diff but did not return a result within this review's session; findings above are from direct manual reading of every changed file plus the live repro, which is sufficient to establish the blocking verdict."
   }
 }

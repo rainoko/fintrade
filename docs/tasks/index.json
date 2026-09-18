@@ -677,8 +677,15 @@
       "id": "frontend-oscillator-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-oscillator-chart.json"
+    },
+    {
+      "id": "frontend-oscillator-chart-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-oscillator-chart-followups.json"
     },
     {
       "id": "watchlist-domain-models",

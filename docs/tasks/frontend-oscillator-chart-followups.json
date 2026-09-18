@@ -1,0 +1,27 @@
+{
+  "id": "frontend-oscillator-chart-followups",
+  "title": "Non-blocking follow-ups from PR #108 review (frontend-oscillator-chart)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-oscillator-chart"],
+  "references": [
+    "docs/tasks/frontend-oscillator-chart.json",
+    "https://github.com/rainoko/fintrade/pull/108",
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "backend/app/api/schemas.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #108 (frontend-oscillator-chart), recorded here so they aren't lost once that PR merges. The blocking finding -- OscillatorChart.tsx crashing the whole app when a plotted point has a null stochastic_k/force_index_2ema (e.g. selecting the 'Max' range, which includes the indicator warm-up bars) -- is tracked as the needs_work verdict on the parent task itself, not here.",
+  "checklist": [
+    {
+      "step": "backend: GET /api/stocks/{ticker}/indicators' IndicatorHistoryPoint.stochastic_k/force_index_2ema are declared `type: number` (required, non-nullable) in backend/app/api/schemas.py and backend/openapi.json, but the runtime response can legitimately emit `null` for early-history bars still inside the indicator's warm-up window (Stochastic %K(5,3,3) needs ~11 bars, confirmed live: GET /api/stocks/AAPL/indicators?range=max returns 6 points with stochastic_k=null and 1 with force_index_2ema=null). This is a distinct cause from the one api-stocks-analysis-nullable-indicators already fixed for /analysis (that fix drops malformed-OHLC bars; these nulls come from legitimate warm-up insufficiency on otherwise well-formed bars, so the same fix doesn't apply). Decide and implement: either mark these fields Optional/nullable in schemas.py (regenerating openapi.json + frontend types) so the contract is honest, or trim not-yet-warmed-up points from the response before it's returned.",
+      "done": false
+    },
+    {
+      "step": "OscillatorChart.tsx's Force Index and MACD Histogram pane setup (the HistogramSeries creation, sign-based color computation, and dotted zero-baseline price line) is near-duplicated between the two panes with only the series title/paneIndex differing -- could be factored into one small shared helper to reduce the ~20 lines of duplication, mirroring the 'single buildOscillatorSeriesData pass' consolidation already done for the data-building side.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
