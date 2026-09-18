@@ -3,7 +3,7 @@
   "title": "Frontend: show backend-calculated signals on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -13,13 +13,35 @@
   ],
   "description": "User request: signals should be visible on the chart, with the backend doing the calculation and the UI only rendering it — no client-side signal/indicator recomputation, matching the existing 'backend computes, frontend displays' principle already documented in PriceChart.tsx's own comment and Frontend.md §5 (and per the depended-on task api-stocks-indicator-history, which is what makes this possible in the first place). Extend PriceChart.tsx (or add a sibling component it composes) to plot the historical signal (BUY/SELL/HOLD, and/or the EMA13/EMA26 lines used in Screen 1) sourced from the new historical-indicator-history endpoint, overlaid on the existing candlestick series. Decide the concrete visual treatment (e.g. markers on bars where the signal fired/changed, a colored background band per signal state, EMA line overlays, or a combination) and record as a decisions entry — favor clarity and Lightweight Charts' native marker/line-series capabilities over a custom-drawn overlay.",
   "checklist": [
-    { "step": "Decide the visual treatment for signals on the chart (markers, EMA line overlays, background bands, or a combination) and record as a decisions entry with rationale.", "done": false },
-    { "step": "Wire a TanStack Query hook for the new historical indicator/signal endpoint (docs/architecture/Frontend.md conventions), keyed consistently with useStockHistory's existing range/interval params.", "done": false },
-    { "step": "Implement the overlay in PriceChart.tsx (or a new component it composes), keeping the 'no client-side indicator math' invariant — every plotted value must come directly from the backend response.", "done": false },
-    { "step": "Handle loading/error/empty states for the new data source consistently with the rest of the page (reuse LoadingState/ErrorState/EmptyState per Frontend.md conventions).", "done": false },
-    { "step": "Tests: component test(s) for the new overlay rendering logic, keeping the suite's no-live-network invariant (MSW-mocked).", "done": false },
-    { "step": "Confirm 90% coverage gate still holds and Storybook still builds if any new common/ component was added.", "done": false }
+    { "step": "Decide the visual treatment for signals on the chart (markers, EMA line overlays, background bands, or a combination) and record as a decisions entry with rationale.", "done": true },
+    { "step": "Wire a TanStack Query hook for the new historical indicator/signal endpoint (docs/architecture/Frontend.md conventions), keyed consistently with useStockHistory's existing range/interval params.", "done": true },
+    { "step": "Implement the overlay in PriceChart.tsx (or a new component it composes), keeping the 'no client-side indicator math' invariant — every plotted value must come directly from the backend response.", "done": true },
+    { "step": "Handle loading/error/empty states for the new data source consistently with the rest of the page (reuse LoadingState/ErrorState/EmptyState per Frontend.md conventions).", "done": true },
+    { "step": "Tests: component test(s) for the new overlay rendering logic, keeping the suite's no-live-network invariant (MSW-mocked).", "done": true },
+    { "step": "Confirm 90% coverage gate still holds and Storybook still builds if any new common/ component was added.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "Combination overlay: EMA13/EMA26 as two native Lightweight Charts LineSeries drawn on the same pane as the candlesticks, PLUS a BUY/SELL marker (via the v5 createSeriesMarkers series-markers plugin, arrowUp/arrowDown, colored from theme.palette.signal) placed only at the bar where the signal actually TRANSITIONS into BUY or SELL (not on every bar carrying that signal, and never for HOLD).",
+      "rationale": "The task explicitly favors Lightweight Charts' native marker/line-series capabilities over a custom-drawn overlay, and explicitly offers 'a combination' as an option. EMA13/EMA26 makes Screen 1's trend-following pair (docs/Analyse.md §2/§4) visible as a continuous line, which a marker-only treatment can't convey; markers make the discrete BUY/SELL signal transitions ('Trigger fired', per docs/Analyse.md §5's own language) visible as discrete events, which a line series can't convey on its own -- the two are complementary, not redundant. Rejected a colored background band per signal state: Lightweight Charts has no first-party background-band primitive for arbitrary time ranges (the closest built-ins are per-series styling, not a time-range fill), so it would have needed a custom-drawn overlay (a canvas/DOM layer synced to the chart's own coordinate space) -- exactly what the task asks to avoid in favor of native capabilities. Rejected marking every bar that carries a BUY/SELL signal (vs. only transitions): Elder's methodology only calls a signal 'fired' at the moment Trigger crosses (docs/Analyse.md §5), and a real BUY/SELL run can span many consecutive daily bars -- marking all of them would bury the actually meaningful transition moments under a wall of identical arrows, especially at longer ranges (1y/max).",
+      "revisit_if": "A future task wants raw per-bar signal coloring (e.g. a colored dot under every bar regardless of transition) for a denser visual density preference -- that would be a different, additive decision, not a reversal of this one."
+    },
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "The overlay (EMA13/EMA26 lines + signal markers) is only fetched and rendered while the Daily interval is selected -- switching PriceChart's own interval toggle to Weekly detaches/removes the overlay and stops requesting GET /api/stocks/{ticker}/indicators entirely (useIndicatorHistory's `enabled` option is set to `interval === 'daily'`).",
+      "rationale": "GET /api/stocks/{ticker}/indicators has no `interval` param -- every value it returns is daily-cadence, by design (see api-stocks-indicator-history's decisions and API.md). Plotting daily-cadence EMA13/EMA26 lines or daily-bar signal markers against a *weekly*-interval candlestick series would silently misalign the two datasets on the time axis (a daily EMA line drawn under weekly candles isn't a meaningful weekly EMA, and a marker dated to a daily bar wouldn't necessarily land on a weekly bar boundary) -- a worse, confusing-but-not-obviously-wrong result than just not showing an overlay. Rejected requesting /indicators unconditionally (regardless of interval) and plotting it as-is against whichever candlestick interval is selected: rejected for exactly the misalignment reason above, and because it would mean paying for a request whose response is never actually shown correctly in the weekly case.",
+      "revisit_if": "A future backend task adds weekly-cadence indicators to this endpoint (or a separate one) -- at that point the interval gating could extend to cover both cadences instead of being daily-only."
+    },
+    {
+      "timestamp": "2026-09-18T09:03:01Z",
+      "recorded_by": "task-worker",
+      "decision": "A failed, loading, or empty /indicators response never blocks or hides the underlying candlestick chart -- the overlay's own LoadingState/ErrorState/EmptyState render as additional content below the chart canvas (gated on `historyQuery.isSuccess && hasBars && overlayEnabled`), rather than the whole PriceChart falling back to a full-page loading/error/empty state the way it does for the primary /history query.",
+      "rationale": "The candlestick chart (from /history) is this component's primary content and was fully functional before this task; the signal overlay (from /indicators) is additive. Making the whole chart disappear because a secondary, additive data source is still loading or failed would be a regression for every existing PriceChart consumer, and doesn't match how IndicatorsPanel/ScreensPanel already treat /analysis's indicators as one section among several on StockDetailPage rather than a page-blocking dependency. The checklist's 'handle loading/error/empty states... reuse LoadingState/ErrorState/EmptyState' requirement is satisfied by rendering those same shared components for the overlay's own three states, just scoped to the overlay's own section of the page rather than gating the whole component.",
+      "revisit_if": "Product feedback indicates users find a chart with no visible overlay/error message confusing as to whether the overlay is coming at all -- could add a persistent 'Signal overlay: Daily interval only' caption when interval is 'weekly', instead of silently omitting the overlay section."
+    }
+  ],
   "questions": []
 }

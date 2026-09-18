@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { server } from '../../tests/mocks/server'
 import { ApiError } from './client'
-import { getStockAnalysis, getStockHistory } from './stocks'
+import { getIndicatorHistory, getStockAnalysis, getStockHistory } from './stocks'
 
 describe('api/stocks', () => {
   describe('getStockAnalysis', () => {
@@ -93,6 +93,77 @@ describe('api/stocks', () => {
       const history = await getStockHistory('THINHISTORY', { interval: 'daily' })
 
       expect(history.ticker).toBe('THINHISTORY')
+    })
+  })
+
+  describe('getIndicatorHistory', () => {
+    it('requests with no query params when none are given, using the backend default range', async () => {
+      let requestedUrl: URL | undefined
+      server.use(
+        http.get('/api/stocks/:ticker/indicators', ({ request }) => {
+          requestedUrl = new URL(request.url)
+          return HttpResponse.json({ ticker: 'AAPL', points: [] })
+        }),
+      )
+
+      await getIndicatorHistory('AAPL')
+
+      expect(requestedUrl?.search).toBe('')
+    })
+
+    it('encodes range as a query param when given', async () => {
+      let requestedUrl: URL | undefined
+      server.use(
+        http.get('/api/stocks/:ticker/indicators', ({ request }) => {
+          requestedUrl = new URL(request.url)
+          return HttpResponse.json({ ticker: 'AAPL', points: [] })
+        }),
+      )
+
+      const history = await getIndicatorHistory('AAPL', { range: '6m' })
+
+      expect(requestedUrl?.searchParams.get('range')).toBe('6m')
+      expect(history.ticker).toBe('AAPL')
+    })
+
+    it('URL-encodes the ticker path segment', async () => {
+      let requestedPath: string | undefined
+      server.use(
+        http.get('/api/stocks/:ticker/indicators', ({ request }) => {
+          requestedPath = new URL(request.url).pathname
+          return HttpResponse.json({ ticker: 'BRK.A', points: [] })
+        }),
+      )
+
+      await getIndicatorHistory('BRK/A')
+
+      expect(requestedPath).toBe('/api/stocks/BRK%2FA/indicators')
+    })
+
+    it('returns the historical points for a known ticker', async () => {
+      const history = await getIndicatorHistory('AAPL')
+
+      expect(history.ticker).toBe('AAPL')
+      expect(history.points.length).toBeGreaterThan(0)
+      expect(history.points[0]).toHaveProperty('signal')
+    })
+
+    it('throws a 422 ApiError for an unrecognized range value', async () => {
+      await expect(
+        getIndicatorHistory('AAPL', { range: 'not-a-range' }),
+      ).rejects.toMatchObject({ status: 422 })
+    })
+
+    it('throws a 404 ApiError for an unknown ticker', async () => {
+      await expect(getIndicatorHistory('UNKNOWN')).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('throws a 503 ApiError when the market data provider is unavailable', async () => {
+      await expect(getIndicatorHistory('NOPROVIDER')).rejects.toMatchObject({ status: 503 })
+    })
+
+    it('throws a 422 ApiError for insufficient weekly history regardless of range', async () => {
+      await expect(getIndicatorHistory('THINHISTORY')).rejects.toMatchObject({ status: 422 })
     })
   })
 })

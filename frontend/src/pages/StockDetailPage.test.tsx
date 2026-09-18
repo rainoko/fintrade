@@ -14,10 +14,13 @@ import StockDetailPage from './StockDetailPage'
 vi.mock('lightweight-charts', () => ({
   createChart: () => ({
     addSeries: () => ({ setData: () => {} }),
+    removeSeries: () => {},
     timeScale: () => ({ fitContent: () => {} }),
     remove: () => {},
   }),
+  createSeriesMarkers: () => ({ setMarkers: () => {}, detach: () => {} }),
   CandlestickSeries: 'CandlestickSeries-definition',
+  LineSeries: 'LineSeries-definition',
 }))
 
 function renderStockDetail(ticker: string) {

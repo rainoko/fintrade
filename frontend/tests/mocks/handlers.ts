@@ -10,6 +10,7 @@ import type {
   AnalysisResponse,
   HistoryInterval,
   HistoryResponse,
+  IndicatorHistoryResponse,
 } from '../../src/api/stocks'
 import type {
   WatchlistItemIn,
@@ -32,9 +33,9 @@ import type {
 //
 // Sentinel tickers (case-insensitive, matched after the same uppercase
 // normalization the backend applies — see API.md):
-//   UNKNOWN       -> 404 (stocks: analysis + history)
-//   NOPROVIDER    -> 503 (stocks: analysis + history)
-//   THINHISTORY   -> 422 insufficient weekly history (analysis always; history only when interval=weekly)
+//   UNKNOWN       -> 404 (stocks: analysis + history + indicators)
+//   NOPROVIDER    -> 503 (stocks: analysis + history + indicators)
+//   THINHISTORY   -> 422 insufficient weekly history (analysis + indicators always; history only when interval=weekly)
 // Sentinel position ids:
 //   any id not present in the in-memory portfolio store -> 404 (DELETE)
 // Sentinel POST /api/portfolio/positions payloads:
@@ -95,6 +96,44 @@ function buildHistoryFixture(ticker: string, interval: HistoryInterval): History
         low: 227.5,
         close: 229.7,
         volume: 48012000,
+      },
+    ],
+  }
+}
+
+// One HOLD point followed by a BUY point, matching the two dates in
+// buildHistoryFixture above — enough for a consuming test to see the
+// "signal transitioned into BUY" marker case (frontend-chart-signal-overlay)
+// without every point sharing one signal.
+function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse {
+  return {
+    ticker,
+    points: [
+      {
+        date: '2026-09-01',
+        ema_13: 225.1,
+        ema_26: 220.4,
+        macd_histogram: 1.2,
+        bull_power: 2.5,
+        bear_power: -1.1,
+        stochastic_k: 55.0,
+        force_index_2ema: 1000.0,
+        signal: 'HOLD',
+        confidence: 0,
+        confidence_band: 'Low',
+      },
+      {
+        date: '2026-09-02',
+        ema_13: 226.4,
+        ema_26: 221.7,
+        macd_histogram: 1.82,
+        bull_power: 3.1,
+        bear_power: -1.4,
+        stochastic_k: 24.3,
+        force_index_2ema: -18234.5,
+        signal: 'BUY',
+        confidence: 72,
+        confidence_band: 'High',
       },
     ],
   }
@@ -381,6 +420,46 @@ export const handlers: HttpHandler[] = [
     }
 
     return HttpResponse.json(buildHistoryFixture(ticker, interval))
+  }),
+
+  http.get('/api/stocks/:ticker/indicators', ({ params, request }) => {
+    const ticker = String(params.ticker).toUpperCase()
+    const url = new URL(request.url)
+    const range = url.searchParams.get('range') ?? '1y'
+
+    if (!RANGE_PATTERN.test(range)) {
+      return HttpResponse.json(
+        {
+          detail: [
+            {
+              loc: ['query', 'range'],
+              msg: "String should match pattern '^(max|\\d{1,4}[dwmy])$'",
+              type: 'string_pattern_mismatch',
+            },
+          ],
+        },
+        { status: 422 },
+      )
+    }
+    if (ticker === UNKNOWN_TICKER) {
+      return HttpResponse.json({ detail: `Unknown ticker: ${ticker}` }, { status: 404 })
+    }
+    if (ticker === PROVIDER_DOWN_TICKER) {
+      return HttpResponse.json(
+        { detail: 'Market data provider is currently unavailable. Try again shortly.' },
+        { status: 503 },
+      )
+    }
+    if (ticker === MIN_WEEKLY_BARS_TICKER) {
+      return HttpResponse.json(
+        {
+          detail: `Insufficient weekly history for ${ticker} to compute weekly indicators (< 26 weeks).`,
+        },
+        { status: 422 },
+      )
+    }
+
+    return HttpResponse.json(buildIndicatorHistoryFixture(ticker))
   }),
 
   http.get('/api/watchlist', () => {

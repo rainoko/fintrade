@@ -15,6 +15,8 @@ export type Screens = components['schemas']['Screens']
 export type TideScreen = components['schemas']['TideScreen']
 export type WaveScreen = components['schemas']['WaveScreen']
 export type TriggerScreen = components['schemas']['TriggerScreen']
+export type IndicatorHistoryResponse = components['schemas']['IndicatorHistoryResponse']
+export type IndicatorHistoryPoint = components['schemas']['IndicatorHistoryPoint']
 
 export interface GetStockHistoryParams {
   /**
@@ -46,4 +48,31 @@ export function getStockHistory(
   const queryString = query.toString()
   const path = `/api/stocks/${encodeURIComponent(ticker)}/history${queryString ? `?${queryString}` : ''}`
   return request<HistoryResponse>(path)
+}
+
+export interface GetIndicatorHistoryParams {
+  /**
+   * Same lookback-window grammar as `GetStockHistoryParams['range']`.
+   * Omitted entirely means the backend's own default ('1y').
+   */
+  range?: string
+}
+
+/**
+ * `GET /api/stocks/{ticker}/indicators` — historical indicator values and
+ * the resulting signal for each daily bar (oldest first), the time-series
+ * counterpart to `getStockAnalysis`'s latest-bar-only snapshot. No
+ * `interval` param — every value here is daily-cadence (see API.md).
+ */
+export function getIndicatorHistory(
+  ticker: string,
+  params: GetIndicatorHistoryParams = {},
+): Promise<IndicatorHistoryResponse> {
+  const query = new URLSearchParams()
+  if (params.range !== undefined) {
+    query.set('range', params.range)
+  }
+  const queryString = query.toString()
+  const path = `/api/stocks/${encodeURIComponent(ticker)}/indicators${queryString ? `?${queryString}` : ''}`
+  return request<IndicatorHistoryResponse>(path)
 }

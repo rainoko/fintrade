@@ -663,7 +663,7 @@
       "id": "frontend-chart-signal-overlay",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-chart-signal-overlay.json"
     },
     {

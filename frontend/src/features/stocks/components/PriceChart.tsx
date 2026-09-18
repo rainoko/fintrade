@@ -2,17 +2,23 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import { useTheme } from '@mui/material/styles'
 import {
   CandlestickSeries,
   createChart,
+  createSeriesMarkers,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
+  type SeriesMarker,
+  type Time,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import type { HistoryInterval, HistoryResponse } from '../../../api/stocks'
+import type { HistoryInterval, HistoryResponse, IndicatorHistoryPoint } from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockHistory } from '../hooks/useStockHistory'
 
 export interface PriceChartProps {
@@ -58,6 +64,38 @@ function hasFiniteOhlc(bar: HistoryResponse['bars'][number]): boolean {
 }
 
 /**
+ * Builds one marker per *transition* into a BUY or SELL signal (i.e. the bar
+ * differs from the previous point, and the previous point isn't undefined —
+ * so the very first point is treated as a transition from "no signal" too),
+ * not one marker per bar carrying that signal — Decision (see this
+ * component's own doc comment and this task's `decisions` entry): marking
+ * every BUY/SELL bar in e.g. a multi-week BUY run would bury the actually
+ * meaningful "Trigger fired" moments (docs/Analyse.md §5) under a wall of
+ * identical arrows. HOLD never gets a marker — there's no Elder-Ray/Trigger
+ * event to mark for it, only the absence of one.
+ */
+function buildSignalMarkers(
+  points: readonly IndicatorHistoryPoint[],
+  colors: { buy: string; sell: string },
+): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = []
+  let previousSignal: IndicatorHistoryPoint['signal'] | undefined
+  for (const point of points) {
+    if (point.signal !== 'HOLD' && point.signal !== previousSignal) {
+      markers.push({
+        time: point.date as Time,
+        position: point.signal === 'BUY' ? 'belowBar' : 'aboveBar',
+        shape: point.signal === 'BUY' ? 'arrowUp' : 'arrowDown',
+        color: point.signal === 'BUY' ? colors.buy : colors.sell,
+        text: point.signal,
+      })
+    }
+    previousSignal = point.signal
+  }
+  return markers
+}
+
+/**
  * Candlestick price chart for `GET /api/stocks/{ticker}/history`, built on
  * TradingView Lightweight Charts. Owns its own range/interval selection as
  * local UI state (Frontend.md §2 — not server data, so plain `useState`
@@ -65,13 +103,21 @@ function hasFiniteOhlc(bar: HistoryResponse['bars'][number]): boolean {
  * into `useStockHistory`, which keys its query by both params so a change
  * always triggers a real refetch (see useStockHistory.ts).
  *
- * Renders raw OHLCV bars only — no indicator overlay — per Frontend.md §5:
- * the backend doesn't expose a historical indicator series, and recomputing
- * Elder's indicators in TypeScript would duplicate backend-only math.
- * `IndicatorsPanel` (fed by `/analysis`) is the latest-value counterpart
- * shown alongside this chart, not plotted on it.
+ * Also overlays `GET /api/stocks/{ticker}/indicators` (via
+ * `useIndicatorHistory`) on top of the candlesticks: EMA13/EMA26 as native
+ * Lightweight Charts line series (Screen 1's trend-following pair, per
+ * docs/Analyse.md §2/§4), plus BUY/SELL markers via the series-markers
+ * plugin at each bar where the signal actually changed (see
+ * `buildSignalMarkers` above) — see this task's (frontend-chart-signal-
+ * overlay) `decisions` entry for why this combination was chosen over a
+ * background-band treatment, and why the overlay is daily-only. No
+ * indicator/signal math happens here — every plotted value comes straight
+ * from the backend response, per Frontend.md §5's "backend computes,
+ * frontend displays" rule. `IndicatorsPanel` (fed by `/analysis`) remains
+ * the latest-value-only counterpart shown alongside this chart.
  */
 export default function PriceChart({ ticker }: PriceChartProps) {
+  const theme = useTheme()
   const [range, setRange] = useState<string>(DEFAULT_RANGE)
   const [interval, setInterval] = useState<HistoryInterval>(DEFAULT_INTERVAL)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -85,6 +131,20 @@ export default function PriceChart({ ticker }: PriceChartProps) {
   // and would otherwise crash the whole page, not just this chart.
   const bars = (historyQuery.data?.bars ?? []).filter(hasFiniteOhlc)
   const hasBars = bars.length > 0
+
+  // `/indicators` only computes daily-cadence values (no `interval` param —
+  // see API.md), so plotting its EMA13/EMA26/signal points against a
+  // *weekly*-interval candlestick series would misalign the two entirely
+  // (a daily EMA line drawn over weekly bars is neither a daily nor a
+  // weekly chart). Decision (this task's `decisions` entry): only fetch and
+  // render the overlay while `interval === 'daily'`, rather than requesting
+  // it unconditionally and silently mis-plotting it against weekly bars.
+  const overlayEnabled = interval === 'daily'
+  const indicatorsQuery = useIndicatorHistory(
+    ticker,
+    { range },
+    { enabled: overlayEnabled },
+  )
 
   // Create the chart once a container is mounted and there are bars to
   // plot, and tear it down whenever the underlying data changes (a new
@@ -137,6 +197,61 @@ export default function PriceChart({ ticker }: PriceChartProps) {
       seriesRef.current = null
     }
   }, [historyQuery.data])
+
+  // Adds the EMA13/EMA26 line series + BUY/SELL signal markers onto the
+  // *existing* chart/candlestick series created by the effect above, rather
+  // than recreating the whole chart — this effect's own deps
+  // (`indicatorsQuery.data`, `overlayEnabled`) change independently of
+  // `historyQuery.data` (the indicator fetch resolves separately, often
+  // slightly later, than the OHLCV fetch), so re-running just this effect
+  // swaps the overlay series in place without a jarring full-chart
+  // teardown/recreate. Also depends on `historyQuery.data` so that when the
+  // effect above *does* recreate the chart (new range/interval), this
+  // effect's cleanup (which runs before that effect's own cleanup, per
+  // React's reverse-declaration-order rule for effects with a shared
+  // changed dependency) detaches the overlay from the about-to-be-removed
+  // chart first, rather than trying to touch a chart already torn down.
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    if (!chart || !series || !overlayEnabled) {
+      return
+    }
+    const points = indicatorsQuery.data?.points ?? []
+    if (points.length === 0) {
+      return
+    }
+
+    const ema13Series = chart.addSeries(LineSeries, {
+      color: theme.palette.primary.main,
+      lineWidth: 1,
+      title: 'EMA 13',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    ema13Series.setData(points.map((point) => ({ time: point.date, value: point.ema_13 })))
+
+    const ema26Series = chart.addSeries(LineSeries, {
+      color: theme.palette.secondary.main,
+      lineWidth: 1,
+      title: 'EMA 26',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    ema26Series.setData(points.map((point) => ({ time: point.date, value: point.ema_26 })))
+
+    const markers = buildSignalMarkers(points, {
+      buy: theme.palette.signal.buy,
+      sell: theme.palette.signal.sell,
+    })
+    const markersPlugin = createSeriesMarkers(series, markers)
+
+    return () => {
+      chart.removeSeries(ema13Series)
+      chart.removeSeries(ema26Series)
+      markersPlugin.detach()
+    }
+  }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
 
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
@@ -199,6 +314,31 @@ export default function PriceChart({ ticker }: PriceChartProps) {
           sx={{ width: '100%', height: CHART_HEIGHT }}
         />
       )}
+
+      {/*
+        Signal-overlay states, gated on the underlying candlestick chart
+        already having something to overlay onto (`historyQuery.isSuccess
+        && hasBars`) and the overlay being applicable at all
+        (`overlayEnabled` — daily interval only, see above). These never
+        block the candlestick chart itself from rendering: a slow/failed/
+        empty `/indicators` response degrades to "no overlay", not "no
+        chart" — the chart's own OHLCV data is the primary content here.
+      */}
+      {historyQuery.isSuccess && hasBars && overlayEnabled && indicatorsQuery.isLoading && (
+        <LoadingState message={`Loading signal overlay for ${ticker}...`} />
+      )}
+
+      {historyQuery.isSuccess && hasBars && overlayEnabled && indicatorsQuery.isError && (
+        <ErrorState error={indicatorsQuery.error} />
+      )}
+
+      {historyQuery.isSuccess &&
+        hasBars &&
+        overlayEnabled &&
+        indicatorsQuery.isSuccess &&
+        indicatorsQuery.data.points.length === 0 && (
+          <EmptyState message={`No signal history available for ${ticker}.`} />
+        )}
     </Stack>
   )
 }
