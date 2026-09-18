@@ -1,0 +1,27 @@
+{
+  "id": "api-stocks-indicator-history",
+  "title": "Backend: expose historical indicator + signal time series for charting",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/Analyse.md#4-indicator-summary-table",
+    "docs/Analyse.md#2-triple-screen-trading-system-per-stock-signal-engine",
+    "docs/Analyse.md#5-signal-logic-buy--sell--hold",
+    "docs/architecture/Frontend.md#5-chart--indicator-display-what-the-backend-actually-supports",
+    "backend/app/api/schemas.py",
+    "backend/app/signals/engine.py"
+  ],
+  "description": "docs/architecture/Frontend.md §5 documents this exact gap and explicitly flags it as a future backend task: `GET /api/stocks/{ticker}/history` returns raw OHLCV bars only, and `GET /api/stocks/{ticker}/analysis` returns indicator/screen/signal values for the *latest* bar only — neither exposes a historical time series, which is why PriceChart.tsx currently plots candlesticks only with no indicator overlay (see that component's own doc comment). This task is that future backend work, now wanted: add a way for the frontend to get indicator values (at minimum ema_13, ema_26, macd_histogram, bull_power, bear_power, stochastic_k, force_index_2ema per docs/Analyse.md §4's Indicator Summary Table) AND the resulting signal (per docs/Analyse.md §5) for each historical bar, not just the latest one, so the UI can plot them over time. Decide the endpoint shape as part of this task (e.g. extend GET /api/stocks/{ticker}/history with an optional indicator/signal series, or add a new GET /api/stocks/{ticker}/indicators?range=... endpoint) — record as a decisions entry with rationale, keeping in mind this must not duplicate indicator math in a second place (compute once in the backend's existing signal engine, per Architecture.md §3's 'one place, testable once' principle already cited by Frontend.md §5).",
+  "checklist": [
+    { "step": "Decide the endpoint/response shape for historical indicator+signal data (extend /history vs. a new endpoint; which fields; whether to include weekly-screen-derived fields like tide/impulse per bar or only the daily indicators) and record as a decisions entry.", "done": false },
+    { "step": "Implement the endpoint/response change in backend/app/api/, reusing the existing signal engine (backend/app/signals/) rather than recomputing indicator math separately.", "done": false },
+    { "step": "response_model, error responses (404/422/503 etc.), operation_id, summary, docstring, and Pydantic field descriptions per CLAUDE.md's API documentation standard.", "done": false },
+    { "step": "Hand-computed or fixture-backed reference-value tests confirming the historical series values match the existing single-point /analysis values for the same date (no drift between the two).", "done": false },
+    { "step": "Run `python scripts/export_openapi.py` from backend/ and commit the updated backend/openapi.json.", "done": false },
+    { "step": "Update docs/architecture/Frontend.md §5 to reflect that historical indicator/signal data is now available (it currently documents the gap this task closes), and update backend/app/api/schemas.py field descriptions accordingly.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

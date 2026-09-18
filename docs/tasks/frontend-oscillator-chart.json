@@ -1,0 +1,26 @@
+{
+  "id": "frontend-oscillator-chart",
+  "title": "Frontend: oscillator chart (Stochastic, Force Index) beneath the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["api-stocks-indicator-history"],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/features/stocks/components/IndicatorsPanel.tsx",
+    "docs/Analyse.md#4-indicator-summary-table",
+    "docs/Analyse.md#screen-2--the-wave-medium-term-daily-chart",
+    "docs/tasks/api-stocks-indicator-history.json"
+  ],
+  "description": "User request: the oscillator(s) used by Screen 2 (docs/Analyse.md — Stochastic %K(5,3,3) and Force Index, 2-period EMA) must also appear as a chart in the UI, sourced from the backend (no client-side recomputation, same principle as frontend-chart-signal-overlay). Add a new chart pane — a separate synced panel beneath/alongside the price chart (the conventional oscillator-pane layout, since these values are on a different scale than price and don't belong on the same axis as candlesticks) — plotting the historical Stochastic %K and Force Index series from the api-stocks-indicator-history endpoint, with reference lines at the documented oversold/overbought thresholds (30/70 for Stochastic per docs/Analyse.md §4). If MACD Histogram (Screen 1's weekly slope input, also table-listed in §4) is also wanted as a plotted oscillator rather than just the point-in-time value already in IndicatorsPanel, include it here too — decide and record as a decisions entry. Additional chart panels beyond what's listed here may be added if needed for clarity (e.g. splitting Stochastic and Force Index into separate panes instead of one shared one) — record any such addition as a decisions entry explaining why.",
+  "checklist": [
+    { "step": "Decide which oscillator(s) to plot (Stochastic %K required per the user's request; Force Index required; MACD Histogram optional) and the pane layout (one shared oscillator pane vs. multiple), recording as a decisions entry.", "done": false },
+    { "step": "Wire a TanStack Query hook for the oscillator series (reuse the hook added by frontend-chart-signal-overlay for the same endpoint if it covers this data, rather than duplicating the fetch).", "done": false },
+    { "step": "Implement the oscillator pane using Lightweight Charts (or another already-in-use charting approach — check PriceChart.tsx's library first, prefer consistency over introducing a second charting library) as a new component under features/stocks/components/, synced in time range/interval with PriceChart.", "done": false },
+    { "step": "Add reference lines/shading for the documented oversold/overbought thresholds (docs/Analyse.md §4) so the chart is readable against the methodology, not just raw numbers.", "done": false },
+    { "step": "Handle loading/error/empty states consistently with the rest of the page (reuse LoadingState/ErrorState/EmptyState).", "done": false },
+    { "step": "Tests: component test(s) for the new oscillator chart, keeping the suite's no-live-network invariant (MSW-mocked); confirm 90% coverage gate still holds and Storybook still builds if any new common/ component was added.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}
