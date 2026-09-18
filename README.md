@@ -110,7 +110,7 @@ The first run downloads a Chromium browser build via `npx playwright install chr
 dev container's prebuilt image, its system-level dependencies via
 `sudo npx playwright install-deps chromium`.
 
-
+## MCP servers
 
 MCP server configuration lives in `.mcp.json` (project-scoped, shared via git) and in each contributor's local Claude Code config (personal, not shared — used for anything involving a secret).
 
