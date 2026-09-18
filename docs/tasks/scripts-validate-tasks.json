@@ -22,6 +22,12 @@
     { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": true },
     { "step": "Decide whether to wire this validator into any existing skill/agent (e.g. as an orchestrate-tasks preflight step, or part of revalidate-done-tasks) and make that change only if it's small and clearly beneficial; record the decision either way.", "done": true }
   ],
+  "git": {
+    "branch": "task/scripts-validate-tasks",
+    "pr_number": 113,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/113",
+    "pushed_at": "2026-09-18T11:53:17Z"
+  },
   "decisions": [
     {
       "timestamp": "2026-09-18T11:53:17Z",
