@@ -3,7 +3,7 @@
   "title": "Frontend: show backend-calculated signals on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-stocks-indicator-history"],
   "references": [
     "frontend/src/features/stocks/components/PriceChart.tsx",
@@ -43,5 +43,11 @@
       "revisit_if": "Product feedback indicates users find a chart with no visible overlay/error message confusing as to whether the overlay is coming at all -- could add a persistent 'Signal overlay: Daily interval only' caption when interval is 'weekly', instead of silently omitting the overlay section."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-chart-signal-overlay",
+    "pr_number": 107,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/107",
+    "pushed_at": "2026-09-18T09:04:26Z"
+  }
 }
