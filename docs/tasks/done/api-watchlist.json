@@ -83,5 +83,10 @@
       }
     ],
     "notes": "Full review: backend test suite (536 passed) + coverage (99.85% overall, watchlist.py 100%), ruff+mypy clean via static-verify, code-review skill (medium effort, no route collisions, two minor non-blocking findings), verify-elder-signal checklist (this endpoint only reuses analyse() unmodified -- no Screen/confidence logic added, so methodology conformance holds by construction), architecture-review (thin router matching the existing portfolio.py/stocks.py pattern, no new module/dependency/layer, API.md updated in the same change). Both decisions entries (nullable-signal-on-failure, idempotent duplicate-add) are well-reasoned and match what's actually implemented, not just claimed. No frontend changes in this PR, so no browser walkthrough applies. No blocking findings; four non-blocking findings filed as checklist items on api-watchlist-followups (docs/tasks/api-watchlist-followups.json)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T07:23:51Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend suite myself: 536 passed, 99.85% coverage, watchlist.py 100% -- matches review exactly. Read watchlist.py directly and confirmed _compute_signal calls the real app.signals.engine.analyse (same import stocks.py's get_analysis uses) with no reimplemented buy-check logic, only DataProviderError caught. Skimmed the full diff (schemas.py, main.py, API.md, openapi.json, test_watchlist.py, followups task) -- all consistent with the review's claims; ruff/mypy clean on every file this PR touches (pre-existing unrelated ruff findings elsewhere on main are untouched by this diff)."
   }
 }
