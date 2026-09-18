@@ -3,7 +3,7 @@
   "title": "Verify `npm install` completes cleanly in frontend/",
   "area": "frontend/tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/package.json"
@@ -41,5 +41,50 @@
     "pr_number": 115,
     "pr_url": "https://github.com/rainoko/fintrade/pull/115",
     "pushed_at": "2026-09-18T12:41:26Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T12:47:30Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/115",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Tests/coverage: backend pytest --cov=app --cov-fail-under=90 -- 560 passed, 99.86% coverage. Frontend vitest run --coverage -- 44 files / 269 tests passed, 99.6% statements / 99.21% branches / 100% functions / 99.6% lines. Both comfortably above the 90% gate, no regression vs. main.",
+        "file": null
+      },
+      {
+        "summary": "Static analysis: backend ruff check app/ clean, mypy clean (39 files). Frontend npm run lint (eslint) clean, npx tsc -b --noEmit clean.",
+        "file": null
+      },
+      {
+        "summary": "code-review skill (medium effort, run independently): no correctness bugs found in this small diff.",
+        "file": null
+      },
+      {
+        "summary": "Reproduced the fix myself: rm -rf frontend/node_modules && npm install and npm ci are both clean (0 ERESOLVE, 0 warnings, 0 audit vulnerabilities) with the overrides entry present. package-lock.json's diff against main is exactly one line (@types/react's stale \"dev\": true marker dropped) -- genuinely minimal, not a mass dependency bump.",
+        "file": "frontend/package.json"
+      },
+      {
+        "summary": "Regenerated src/api/types.ts myself (npm run generate:api-types) and diffed against the committed file: byte-identical, confirming the claim.",
+        "file": "frontend/src/api/types.ts"
+      },
+      {
+        "summary": "Grepped the whole tree for --legacy-peer-deps: appears nowhere in any committed script (Makefile, README, no .npmrc, no CI workflows exist in this repo) -- only in the historical decisions text of frontend-e2e-tests/frontend-api-client describing one-off commands that were never persisted anywhere. Nothing left to remove; the premise that this properly supersedes those workarounds holds.",
+        "file": null
+      },
+      {
+        "summary": "Went beyond the PR's own verification on whether openapi-typescript actually works correctly under TS 6 (not just this schema): traced what require('openapi-typescript') loads at runtime. Contrary to what the source's `import type ts from \"typescript\"` suggests, the compiled runtime dist genuinely require('typescript')s and calls real TS compiler-API surface (ts.createSourceFile, ts.factory.createNodeArray, ts.createPrinter().printFile) to build/print the generated AST -- not a type-only, build-time-only relationship. A version-sensitive divergence is structurally possible in principle, though this is a stable, widely-depended-on public TS surface and src/api/types.ts is committed + regenerated/diffed on every future schema change per CLAUDE.md's API documentation standard, so any divergence has a safety net. Checked the current schema's feature footprint: enum/nullable/anyOf/additionalProperties present, but no oneOf/allOf/readOnly/webhooks -- the byte-identical verification is real but not exhaustive over every codegen path. Non-blocking; tracked as a follow-up since the decision entry's wording overclaims slightly ('genuinely works correctly ... at runtime' from a non-exhaustive check).",
+        "file": "frontend/package.json",
+        "line": 62
+      },
+      {
+        "summary": "Task board: python3 scripts/validate_tasks.py -- no violations. index.json's state mirror (planned -> testing) consistent with the task file. No checklist item phrased 'decide X' lacks a corresponding decisions entry.",
+        "file": null
+      },
+      {
+        "summary": "Not applicable to this PR, stated explicitly: no API route/schema touched (backend/openapi.json correctly untouched); no frontend component added/changed (step 7a placement check doesn't apply); no new module/dependency/layer added -- a scoped overrides constraint on an existing devDependency, not a new package -- so architecture-review wasn't run; area is frontend/tooling not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply; PR has no user-facing UI surface (touches only frontend/package.json, frontend/package-lock.json, and task-board JSON), so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are both skipped for that reason.",
+        "file": null
+      }
+    ],
+    "notes": "No blocking findings. Full test/coverage suites, static analysis, and an independent code-review pass all clean; the overrides fix was independently reproduced (clean npm install/npm ci, minimal lockfile diff, byte-identical regenerated types.ts) and --legacy-peer-deps confirmed genuinely removable/absent from every committed script. One deeper-than-required check (tracing openapi-typescript's actual runtime use of the typescript compiler API) surfaced a non-blocking nuance: the override's safety is real but the current verification doesn't exercise every OpenAPI schema feature (no oneOf/allOf/readOnly/webhooks in this repo's schema) and the compiled dist does genuinely call into the real TS compiler API at runtime, not just as a type-only import as the source might suggest -- mitigated by types.ts being a committed, diffed-on-every-schema-change file. Two non-blocking findings (missing inline/doc note near the overrides entry, and the decision-entry's overclaiming wording) filed as docs/tasks/frontend-verify-npm-install-followups.json. Accepted."
   }
 }
