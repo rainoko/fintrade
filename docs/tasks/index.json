@@ -628,8 +628,15 @@
       "id": "skill-e2e-testing",
       "area": "tooling",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/skill-e2e-testing.json"
+    },
+    {
+      "id": "skill-e2e-testing-followups",
+      "area": "tooling",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/skill-e2e-testing.json"
+      "path": "docs/tasks/skill-e2e-testing-followups.json"
     },
     {
       "id": "frontend-verify-npm-install",

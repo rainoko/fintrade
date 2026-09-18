@@ -1,0 +1,97 @@
+{
+  "id": "skill-e2e-testing",
+  "title": "New skill: e2e-test — run and maintain the browser end-to-end test suite",
+  "area": "tooling",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-e2e-tests"],
+  "references": [
+    "docs/tasks/frontend-e2e-tests.json",
+    ".claude/skills/static-verify/SKILL.md",
+    ".claude/skills/check-coverage/SKILL.md",
+    ".claude/agents/task-qa-reviewer.md",
+    ".claude/agents/pr-reviewer.md"
+  ],
+  "description": "frontend-e2e-tests adds a real, committed browser e2e test suite. Create a `.claude/skills/e2e-test` (name TBD, record the actual choice) skill that runs and maintains it — analogous to static-verify (lint/type-check) and check-coverage (unit/component coverage gate) — giving agents and humans a documented, repeatable way to run the full e2e suite and interpret failures. This is distinct from task-qa-reviewer's existing ad hoc single-task Playwright browser walkthrough: that's an interactive, one-off manual check during task verification, while this skill runs the persisted, versioned e2e spec files frontend-e2e-tests adds.",
+  "checklist": [
+    { "step": "Design the skill's scope (run the full e2e suite, report pass/fail per spec with enough detail to debug a failure) and how it differs from/relates to task-qa-reviewer's existing browser-walkthrough step; record as a decisions entry.", "done": true },
+    { "step": "Create .claude/skills/<name>/SKILL.md implementing the chosen approach, following existing skill file conventions (see static-verify, check-coverage).", "done": true },
+    { "step": "Register the new skill in CLAUDE.md's Skills list.", "done": true },
+    { "step": "Decide whether pr-reviewer and/or task-qa-reviewer should be updated to invoke this skill for UI-facing PRs/tasks (similar to how static-verify was wired into pr-reviewer.md/task-qa-reviewer.md), and make that change if so; record the decision either way as a decisions entry.", "done": true },
+    { "step": "Run the skill once for real against the current e2e suite as a smoke test and report what it found.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-18T08:17:49Z",
+      "recorded_by": "task-worker",
+      "decision": "New skill named `e2e-test`, at `.claude/skills/e2e-test/SKILL.md`. Scope: check prerequisites (Chromium binary present, ports 8000/5173 free), run `make e2e` (the full persisted suite, non-interactively, via the real Playwright Test runner), report pass/fail per spec file with test names for failures, and point to the artifacts Playwright already collects (`frontend/playwright-report/`, traces, screenshots, piped webServer stdout/stderr) to distinguish a real regression from a flake/environment issue. It never fixes a failing spec or the app code behind it, and never loosens an assertion to force green (same \"don't fake the bar\" convention as `check-coverage`/`test-90`).",
+      "rationale": "Mirrors `static-verify`/`check-coverage`'s own scope (run existing tooling, report status, don't fix) rather than `test-90`'s (actively close gaps) — there is no existing e2e-equivalent of `test-90` needed yet since the suite is small and new; if e2e coverage gaps become a recurring problem, a `test-90`-style counterpart can be added later as its own decision. Named `e2e-test` (matching the task title's own suggested name, and reading naturally next to `test-90`/`check-coverage`) rather than e.g. `check-e2e` or `run-e2e` — no other skill uses a `check-`/`run-` verb prefix for a whole-suite runner except `check-coverage`, and `e2e-test` reads as 'the e2e counterpart to `test-90`' without implying it also *writes* tests. Distinguished explicitly from `task-qa-reviewer`/`pr-reviewer`'s existing ad hoc Playwright **MCP** browser walkthrough in the skill's own \"Relationship to Other Checks\" section: that walkthrough is an interactive, one-off exploration of one specific task/PR's new behavior, driven tool-call by tool-call and improvised each time; this skill instead runs the **persisted, versioned** spec files (`frontend/tests/e2e/*.spec.ts`) through the actual Playwright Test runner — a fixed regression suite that exists independently of any one review, and can catch a regression in a page the current change never touched. The two are complementary (documented as \"run both, neither substitutes for the other\"), not a replacement of one by the other."
+    },
+    {
+      "timestamp": "2026-09-18T08:17:49Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired the new `e2e-test` skill into both `pr-reviewer.md` (new step 9a, immediately after the existing browser-walkthrough step 9) and `task-qa-reviewer.md` (new step 5a, after the existing browser-walkthrough step 5) — both agents now run the full persisted e2e suite for any PR/task where the existing browser-walkthrough step already applies (UI-facing work), and a non-flake failing spec is treated as review-blocking (pr-reviewer) / at least `major` (task-qa-reviewer).",
+      "rationale": "Same rationale that already justified wiring `static-verify` into both agents: the suite is fast (~18s for the current 4 spec files / 12 tests, confirmed by this task's own smoke test run), fully automated (no MCP tool-call-by-tool-call scripting needed), and catches a class of regression neither the manual walkthrough (scoped to the current change only) nor the mocked vitest/pytest suites (no real browser, no real cross-process HTTP) can: whether this PR/task silently broke an *unrelated* already-covered golden-path flow. Considered leaving it unwired and only documenting it as something a human/agent could run manually on request — rejected because that would make it exactly the kind of check CLAUDE.md's task-board rationale warns against for PR comments: valuable but easy to forget to actually run, when wiring it into the two review agents' existing steps costs one extra `Skill` call each and turns 'available if remembered' into 'always exercised for UI-facing work,' matching how `static-verify` was already treated as too important to leave optional."
+    }
+  ],
+  "git": {
+    "branch": "task/skill-e2e-testing",
+    "pr_number": 105,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/105",
+    "pushed_at": "2026-09-18T08:18:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-18T08:21:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/105",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified: backend pytest --cov=app (559 passed, 99.86% coverage) and frontend vitest run --coverage (99.71% statements/99.64% branches) both pass well above the 90% gate; no regression, no coverage this PR could have affected since it touches no app code.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Verified: backend ruff + mypy clean, frontend eslint + tsc -b --noEmit clean.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran the code-review skill (medium effort) against the PR diff; no correctness bugs or reuse/simplification issues found. Confirmed the diff is genuinely docs/tooling-only (two agent .md files, one new skill file, CLAUDE.md registration, task-board JSON bookkeeping) -- no backend/frontend app code, no API route/schema, so openapi.json, verify-elder-signal (area is 'tooling', not backend/signals or backend/portfolio), architecture-review (no new app module/dependency/layer), and frontend-component-placement (7a, no components touched) all correctly don't apply here.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Actually ran the new skill's documented procedure end to end (`make e2e` from repo root, per SKILL.md step 2, with ports 8000/5173 confirmed free and the Chromium binary already cached first per step 1): all 4 spec files / 12 tests passed in 18.5s, matching the doc's claimed ~15-30s window and spec/test counts exactly. Cross-checked the doc's factual claims (webServer reuseExistingServer:false, FINTRADE_DATA_PROVIDER_MODE=fixture + dedicated e2e.db wiped per run, workers:1 serial execution, trace/screenshot-on-failure config, README.md's 'End-to-end tests' section) against frontend/playwright.config.ts and README.md directly -- all accurate, nothing stale or aspirational in the skill doc.",
+        "file": ".claude/skills/e2e-test/SKILL.md",
+        "line": null
+      },
+      {
+        "summary": "The pr-reviewer.md step 9a / task-qa-reviewer.md step 5a wiring is sensible and not redundant with the existing browser-walkthrough step: 9/5 is an interactive, one-off Playwright MCP exploration scoped to the current change; 9a/5a is a non-interactive run of the persisted, versioned Playwright Test spec files, which can catch a regression in an already-covered flow the current change never touched. The distinction is real, not just definitional -- confirmed by actually running both categories differently (this review's own PR has no UI surface for step 9/5's interactive walkthrough, but 9a/5a's `make e2e` ran and passed regardless, demonstrating they're genuinely independent checks, not two names for the same action).",
+        "file": ".claude/agents/pr-reviewer.md",
+        "line": 33
+      },
+      {
+        "summary": "This PR has no application UI surface (no frontend component/page or backend endpoint touched) -- step 9 (browser walkthrough) and consequently step 9a (persisted e2e suite, gated on step 9 applying) formally don't apply. Ran `make e2e` directly anyway as the task's own requested smoke-test verification (see above); treating that as satisfying the spirit of 9a without claiming a formal UI walkthrough was performed, since none was applicable.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: pr-reviewer.md step 9a labels a non-flake failing e2e spec 'review-blocking', while task-qa-reviewer.md step 5a labels the same underlying signal 'at least a major gap' without saying when it should collapse to task-qa-reviewer's blocker tier instead. Not a defect this PR introduced on its own (the two agents already phrase some other shared checks slightly differently), but worth reconciling. Filed as a checklist entry on docs/tasks/skill-e2e-testing-followups.json rather than left only here.",
+        "file": ".claude/agents/task-qa-reviewer.md",
+        "line": 26
+      },
+      {
+        "summary": "Checklist items 1 and 4 (both phrased as 'decide X ... record as decisions entry') both have corresponding decisions[] entries with real rationale (approach chosen, alternatives rejected and why) -- no undecided-but-implemented judgment call found.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Full review: coverage (backend 99.86%, frontend 99.71%), static-verify (ruff/mypy/eslint/tsc all clean), code-review skill (medium effort, no findings), and the skill's own documented procedure actually executed (`make e2e`, 12/12 passed, 18.5s) with its factual claims spot-checked against playwright.config.ts/README.md. No application code touched (openapi.json correctly untouched). No blocking findings. One non-blocking severity-framing inconsistency between the two agents' wiring, tracked as a follow-up task rather than left only in this comment."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-18T08:24:53Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest --cov=app myself: 559 passed, 99.86% coverage, matching the review exactly. Re-ran the skill's own documented procedure from scratch (make e2e from repo root, ports 8000/5173 confirmed free, Chromium cached): all 4 spec files / 12 tests passed in 18.1s, matching the reported count/timing. Skimmed the full diff (git diff origin/main...HEAD): confirmed it's docs/tooling-only (pr-reviewer.md +1 line step 9a, task-qa-reviewer.md +2 lines step 5a, new e2e-test/SKILL.md, CLAUDE.md registration, task-board bookkeeping) and confirmed pr-decision.md is untouched, so my own behavior is unaffected. Read SKILL.md in full; its factual claims (webServer config, ports, fixture mode) match the actual playwright.config.ts/Makefile. The one non-blocking severity-wording inconsistency between pr-reviewer.md step 9a and task-qa-reviewer.md step 5a is already correctly tracked on docs/tasks/skill-e2e-testing-followups.json rather than left only as a PR comment. Accept holds."
+  },
+  "questions": []
+}
