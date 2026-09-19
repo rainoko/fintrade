@@ -3,7 +3,7 @@
   "title": "Trade-history/ledger table + realized-loss-aware 6% Rule -- non-blocking review follow-ups",
   "area": "backend/db",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-trade-history-table"],
   "references": [
     "docs/tasks/backend-trade-history-table.json#review",
@@ -46,5 +46,11 @@
       "decision": "For checklist item 3, added `realized_losses_this_month_pct` to the three RiskResponse fixtures in DashboardPage.test.tsx (2 occurrences) and PortfolioPage.test.tsx (1 occurrence) that were missing it, matching every other RiskResponse fixture in the codebase. Confirmed via grep that neither test file imports or type-annotates its `HttpResponse.json(...)` payload against the `RiskResponse` type (msw's `HttpResponse.json` isn't generic here) -- so this genuinely was, as the original review noted, an incomplete-but-currently-harmless fixture gap, not a live type-safety hole tsc was silently missing. Fixed anyway per the checklist's own instruction ('for consistency and future-safety'), not because tsc needed it.",
       "rationale": "Confirming the 'genuine gap vs. harmless fixture' question empirically (grep for RiskResponse imports in both files, re-running `yarn tsc -b --noEmit` clean before and after) rather than assuming either way, per the dispatch instructions' own framing of this as something to verify rather than take at face value."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-history-table-followups",
+    "pr_number": 166,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/166",
+    "pushed_at": "2026-09-19T20:51:31Z"
+  }
 }
