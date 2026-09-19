@@ -1,0 +1,107 @@
+{
+  "id": "frontend-channel-overlay",
+  "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-channel-envelope-exposure"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Draw the now-exposed Autoenvelope upper/lower bands (backend-channel-envelope-exposure) on the price chart, plus a visually distinct shaded 'value zone' between the fast/slow EMA -- a concept this app's own confidence scoring and stop logic already reference internally but has never shown a user. This is existing, tested backend math that's simply never been visible before this task. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Implement the channel band rendering (upper/lower lines or a shaded region) and the separate value-zone shading between the fast/slow EMA.",
+      "done": true
+    },
+    {
+      "step": "MetricHelp content explaining the channel (what ~95% of recent price action means, why buying/selling near the bands is the intended read) and the value zone concept, referencing where this is already used internally today (the portfolio exit-flag rule) so the connection is explicit.",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Draw the channel (channel_upper/channel_lower) as two plain dashed LineSeries, not a second shaded region, and draw the value zone (between EMA13/EMA26) as a genuinely-shaded region built from two AreaSeries -- a 'fill' AreaSeries at the pointwise-higher of EMA13/EMA26 (a translucent theme.palette.info.main tint down to the bottom of the pane), then a 'mask' AreaSeries at the pointwise-lower EMA (opaque theme.palette.background.paper, added after so it's on top and repaints everything below the lower EMA back to the plain chart background), leaving only the true region between the two EMAs visibly tinted.",
+      "rationale": "Lightweight Charts v5 has no native 'fill the region between two arbitrary line series' primitive (AreaSeries only fills from one line down to the bottom of the visible price range; a true two-line band needs either this fill+mask two-series trick or a bespoke ICustomSeriesPaneView custom series plugin). Implementing a full custom series plugin for this one overlay was judged disproportionate scope for this task versus the well-known, much cheaper two-AreaSeries technique. Using the shaded-region approach for *both* the channel and the value zone was rejected: two overlapping translucent shaded regions on the same candlestick chart (the value zone typically sits inside/near the channel) would be visually muddy and hard to read at a glance, whereas the task's own description already treats the value zone as the one that needs to read as clearly zone-like ('a visually distinct shaded value zone') and is comfortable with the channel being 'upper/lower lines or a shaded region' (its own checklist wording) -- dashed lines (matching OscillatorChart.tsx's existing dashed-reference-line convention for Stochastic 30/70) keep the channel legible as two precise boundary levels without adding a second overlapping fill."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The value-zone AreaSeries mask color is theme.palette.background.paper (an opaque, hardcoded-light-mode white), relying on this app having no dark-mode/alternate-theme support today (confirmed: frontend/src/theme/theme.ts hardcodes mode: 'light' with no toggle anywhere in the codebase) so that color always matches what's actually rendered behind PriceChart's transparent-background chart (createBaseChart's layout.background.color: 'transparent', which lets this page's own plain white background show through).",
+      "rationale": "This is the standard community technique for faking a two-line band fill in Lightweight Charts (an opaque 'eraser' AreaSeries painted on top in the exact background color), and it's exact -- not an approximation -- as long as the mask color truly matches what's underneath. Verified via a throwaway MUI createTheme({palette:{mode:'light'}}) that both background.paper and background.default default to '#fff', and confirmed no Card/Paper/other-background wrapper sits between PriceChart's container and the page body (StockDetailPage.tsx renders StockCharts directly, no wrapping surface). Documented as a code comment on the zoneBottomMaskSeries call site (not silently assumed) so a future dark-mode task will know to revisit this specific line rather than discovering a rendering bug. Rejected alternative: implement a real custom-series band plugin now to avoid this light-mode dependency entirely -- rejected as disproportionate scope for a task whose backend dependency (backend-channel-envelope-exposure) is itself scoped as 'pure exposure', and because this app has zero dark-mode infrastructure to actually exercise the failure case today."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Compute the value zone's top/bottom as the pointwise max()/min() of EMA13/EMA26 at each bar, not a fixed 'top = EMA13, bottom = EMA26' pairing.",
+      "rationale": "EMA13 and EMA26 cross whenever the trend flips (that's the whole basis of the Tide/Impulse readings elsewhere in this app) -- a fixed pairing would silently invert the shaded fill (drawing garbage between a 'top' that's actually below the 'bottom') during any downtrend. The pointwise max/min approach is correct in both directions and needs no per-bar branching logic beyond Math.max/Math.min, so there was no real alternative worth considering other than the (incorrect) fixed pairing."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the Channel/Value Zone MetricHelp affordances inline in PriceChart.tsx's own JSX (a small legend row with a color swatch + label + MetricHelp icon per element, next to the range/interval controls), rather than adding channel_upper/channel_lower as new StatCards on IndicatorsPanel.tsx (which already shows EMA13/EMA26/MACD-Histogram/Bull/Bear Power as latest-value cards from the same /analysis response) or inventing a new common/ legend component.",
+      "rationale": "channel_upper/channel_lower and the value zone are chart-overlay concepts introduced by and legible only in the context of this specific chart (a band/zone drawn over time, not a single latest value) -- IndicatorsPanel.tsx's own doc comment is explicit that it exists precisely because /analysis only returns a single latest-bar value with nothing to plot over time, which is no longer true for channel_upper/channel_lower now that /indicators exposes a full history of them; duplicating them there as single-value StatCards would read as a second, redundant, less-informative view of the same chart-based concept. A new common/ 'legend row' component was considered and rejected as unnecessary abstraction for a two-item, feature-specific (chart/domain-aware) piece of markup with no other current call site -- inlining it in PriceChart.tsx (matching IndicatorsPanel.tsx's own inline-per-StatCard MetricHelp usage pattern) avoids introducing a component that would also need its own Storybook story for a single consumer."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Promoted the finite-numeric-value guard (typeof value === 'number' && Number.isFinite(value)) from OscillatorChart.tsx's private isFiniteValue helper into a shared utils/chart.ts#isFiniteNumber export, and used it for PriceChart.tsx's new channel_upper/channel_lower null-filtering (the exact same warm-up-window-null shape stochastic_k/force_index_2ema already have).",
+      "rationale": "PriceChart.tsx needed the identical guard OscillatorChart.tsx already had as a private per-file helper; duplicating it a second time would be exactly the kind of near-identical-logic-in-two-feature-files duplication the add-frontend-feature skill's own 'Common Mistakes to Avoid' flags. utils/chart.ts already hosts createBaseChart on the same domain-agnostic-utility rationale (documented in its own doc comment), so this is a natural, low-risk promotion rather than a new module."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "channelHelp/valueZoneHelp's elderContext text is precise about what's actually wired into the backend today versus what's still a documented-but-unimplemented Elder concept: channelHelp cites app.portfolio.exits.evaluate_exit_flags's real, existing profit-taking exit-flag rule (confirmed by reading backend/app/portfolio/exits.py directly); valueZoneHelp explicitly states this app doesn't yet compute an explicit target/stop from the value zone (backend-profit-target is still state: planned per docs/tasks/index.json), rather than reusing the task description's own looser phrasing ('a concept this app's own confidence scoring and stop logic already reference internally') verbatim.",
+      "rationale": "Grepped backend/app and docs/ for 'value zone'/'value_zone' and found zero backend implementation referencing the EMA13/EMA26 value zone specifically -- only the channel/Autoenvelope (a related but distinct Elder ch. 41 concept) is actually used by evaluate_exit_flags. Overclaiming an existing backend usage that doesn't exist would violate this app's own explanatory-pattern standard of grounding help text in verifiable specifics, not just plausible-sounding claims -- the task description's own parenthetical clarification ('evaluate_exit_flags uses this exact autoenvelope() computation') already narrows the concrete claim to the channel, not the value zone, so this reading is consistent with, not a deviation from, the task's own intent."
+    },
+    {
+      "timestamp": "2026-09-19T12:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the review's blocking finding (opaque value-zone mask AreaSeries painting over candlesticks) by calling `series.setSeriesOrder(2)` on the candlestick series once both value-zone AreaSeries exist, rather than reordering the `chart.addSeries(...)` call sites themselves.",
+      "rationale": "Lightweight Charts v5.2.1's `ISeriesApi` exposes `setSeriesOrder(order)`/`seriesOrder()` (confirmed via node_modules/lightweight-charts/dist/typings.d.ts and its internal `_internal_setSeriesOrder` implementation, which reassigns each series' z-order index by splicing it to the given position in the pane's data-source list) -- a genuine, documented API for controlling render order within a pane, not a workaround. This is more robust than manually reordering the `addSeries` calls: the candlestick series is created in a separate, earlier-running effect (chart creation) from the value-zone/EMA/channel series (this overlay effect), so there's no single place to simply move an `addSeries(CandlestickSeries)` call after the zone series without merging the two effects (which the existing code deliberately keeps separate -- see the component's own doc comment on why the overlay effect is independent of the chart-creation effect, so a slow/failed indicators fetch doesn't block or recreate the candlestick chart). `setSeriesOrder(2)` explicitly pins the candlestick series' position (right after the 2 value-zone series) regardless of how many series exist or what order this effect happens to add them in, which is also more resilient to future changes to this effect than relying on add-order alone (the exact assumption that caused the original bug). Verified visually post-fix against TSLA/GOOGL/MSFT at the 1M range with the fixture data provider (the same reproduction the reviewer used) -- all candlesticks, including those trading below the value zone, render fully un-occluded, with the zone fill visible underneath. Also added a regression test (PriceChart.test.tsx) asserting `setSeriesOrder(2)` is called on the candlestick series, and extended the shared `lightweight-charts` mocks in StockCharts.test.tsx/StockDetailPage.test.tsx with a no-op `setSeriesOrder` so they keep matching the real `ISeriesApi` shape. Rejected alternatives: (1) lowering the mask's opacity instead of keeping it opaque -- rejected because it would make the mask's erase effect imprecise/an approximation rather than exact, and doesn't address the actual bug (still literally painting over the candles, just more faintly); (2) moving the value zone to a separate pane via `moveToPane` -- rejected because that draws a genuinely separate sub-chart below/above the price pane, not an overlay on the same price axis, which isn't what a 'shaded zone on the price chart' calls for; (3) a bespoke `ICustomSeriesPaneView` plugin -- same disproportionate-scope rejection as the original two-AreaSeries decision, and unnecessary now that the real bug turned out to be an ordering bug, not a fundamental limitation of the two-AreaSeries technique itself."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-channel-overlay",
+    "pr_number": 151,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/151",
+    "pushed_at": "2026-09-19T11:55:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T12:21:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/151",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Retry round 1 (post prior needs_work): the setSeriesOrder(2) fix for the candlestick-occlusion bug is genuinely correct, not just plausible. Confirmed setSeriesOrder/seriesOrder are real, documented ISeriesApi methods in the actually-installed lightweight-charts@5.2.1 (node_modules/lightweight-charts/dist/typings.d.ts:2606-2623, matching package.json's ^5.2.1 and package.json's resolved version). Confirmed it's called in the right place with effect ordering that survives re-renders: the overlay effect (deps historyQuery.data/indicatorsQuery.data/overlayEnabled/theme) fully tears down (removeSeries on both zone series + EMA/channel series) and rebuilds the zone series plus re-calls setSeriesOrder(2) every time it reruns -- not a mount-only call -- so the pin doesn't go stale as the zone series get added/removed dynamically across range/interval/theme changes.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 411
+      },
+      {
+        "summary": "Own real browser walkthrough (Playwright, not the reported screenshots) against a manually-started fixture-mode backend+frontend, independent of task-worker's own verification: TSLA/GOOGL/MSFT at 1M (the original repro conditions) all render every candlestick fully un-occluded, including wicks/bodies trading below the value zone. Also checked two conditions beyond the original repro: GOOGL at Max range (a dense multi-year view where price tracks tightly inside/along the zone for long stretches) and TSLA with 7 rapid range-switch clicks ending back at 1M (exercises repeated effect teardown/rebuild) -- both still render correctly, no occlusion, zero browser console errors, zero failed network requests across the whole walkthrough. Dark mode is not applicable: confirmed (again) the app has no dark-mode/theme-toggle infrastructure, so that edge case doesn't exist yet to regress.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (tracked as a new checklist entry on frontend-channel-overlay-followups, already 'planned'): setSeriesOrder(2)'s target index is a literal magic number tied to 'exactly 2 series added before this line in the effect today', not derived from the actual series count at call time. Correct now (traced against the real minified source: addSeries appends to the pane's data-source list, setSeriesOrder splices/reclamps against that list's length), but a future change adding/removing a series before this call without updating the literal would silently reintroduce the occlusion bug, and the existing regression test (asserting setSeriesOrder was called with exactly 2) wouldn't catch it since it only checks the literal argument, not the resulting z-order relative to the zone series.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 411
+      }
+    ],
+    "notes": "Retry round 1 verification, independent of task-worker's own re-verification. Full backend (639 passed, 99.89% coverage) and frontend (383 passed, coverage 99.73%/99.49%/100%/99.72% stmts/branches/functions/lines) suites pass well above the 90% gate; ruff/mypy/eslint/tsc all clean; no backend files touched so openapi.json correctly untouched. The persisted e2e suite (make e2e) passed 16/16 (run separately from, and after, the manual walkthrough to avoid port 8000/5173 contention with Playwright's own webServer). code-review skill (medium effort) found only the one non-blocking magic-number finding above after tracing the actual Lightweight Charts v5.2.1 source for both addSeries append-order and setSeriesOrder's splice/reclamp behavior -- no other correctness bugs found; confirmed the three touched test-mock files (PriceChart.test.tsx, StockCharts.test.tsx, StockDetailPage.test.tsx) all correctly added the new no-op setSeriesOrder mock and OscillatorChart.test.tsx correctly didn't need it (never renders PriceChart). No new component files added in this fix commit, so no common/-vs-feature placement re-check needed. No checklist items phrased as 'decide X' are missing a decisions entry -- the new decisions entry for this fix is a genuine judgment call with rationale and alternatives considered. Prior review's other two non-blocking findings (light-mode mask-color assumption, channelHelp/valueZoneHelp accuracy) were already confirmed correct in the previous pass and unaffected by this fix commit."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T12:26:54Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites myself: backend 639 passed/99.89% coverage (exact match); frontend 382 passed/1 failed (a PortfolioPage.test.tsx timeout under full-suite parallel load, unrelated file not touched by this diff, passes 5/5 in isolation, reproduced twice -- pre-existing infra flakiness, not a regression) with coverage 99.73%/99.49%/100%/99.72% matching pr-reviewer's numbers exactly. Skimmed the full diff (git diff main...task/frontend-channel-overlay, 14 files) including PriceChart.tsx, OscillatorChart.tsx, utils/chart.ts, metricHelpContent.ts, and both doc updates. Confirmed setSeriesOrder/seriesOrder are real ISeriesApi methods in the actually-installed lightweight-charts@5.2.1 (node_modules/lightweight-charts/dist/typings.d.ts:2612-2623, matching package.json's resolved version). Read the overlay effect directly (PriceChart.tsx:332-473): setSeriesOrder(2) is called at line 411 inside the effect keyed on [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme], whose cleanup removes both zone series every run, so it re-adds the zones and re-pins the candlestick order on every range/interval/theme change, not just mount. Did my own browser check (Playwright script against a manually-started fixture-mode backend+frontend, TSLA/1M -- drift_per_day=-0.30, the most price-below-EMA-zone-prone fixture ticker): screenshot shows all candlesticks, including ones trading through/below the value zone, rendering fully un-occluded with zero console errors. All temporary processes/db files cleaned up afterward; working tree left clean."
+  }
+}

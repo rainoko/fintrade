@@ -336,3 +336,57 @@ export const bearPowerHelp = {
     return `Currently ${value.toFixed(2)} -- positive or zero: today’s low stayed at or above EMA(13), i.e. sellers couldn’t push price below the average today -- an unusually strong bullish reading.`
   },
 }
+
+// ---------------------------------------------------------------------------
+// Channel / value-zone overlay (PriceChart.tsx)
+// ---------------------------------------------------------------------------
+
+export const channelHelp = {
+  metricLabel: 'Channel (Autoenvelope)',
+  definition:
+    'A symmetric percentage envelope around EMA(13) -- upper/lower bands sized, from the last ~100 trading days of deviation, to contain roughly 95% of recent daily closes (docs/Analyse.md §4; Elder ch. 41 "Channel Trading Systems").',
+  elderContext:
+    'This is the exact band `evaluate_exit_flags` (backend/app/portfolio/exits.py) already checks internally for an existing position’s "price reaches the upper Autoenvelope band with Impulse turning Red" profit-taking exit rule (docs/Analyse.md §7) -- previously only computed for a held portfolio position, now shown for any ticker. Elder’s own read of the bands is contrarian, not momentum-chasing: buy near the lower band, sell/take profit near the upper one (ch. 41).',
+  interpretValue(
+    channelUpper: number | null | undefined,
+    channelLower: number | null | undefined,
+    latestClose: number | null | undefined,
+  ): string {
+    if (!isKnown(channelUpper) || !isKnown(channelLower)) {
+      return 'Currently unavailable for this ticker -- the Autoenvelope’s ~100-trading-day rolling deviation-average warm-up window hasn’t been reached yet.'
+    }
+    const halfWidthPct =
+      ((channelUpper - channelLower) / (channelUpper + channelLower)) * 100
+    const bounds = `${channelLower.toFixed(2)}-${channelUpper.toFixed(2)} (±${halfWidthPct.toFixed(1)}% around EMA(13))`
+    if (!isKnown(latestClose)) {
+      return `Currently ${bounds}.`
+    }
+    if (latestClose >= channelUpper) {
+      return `Currently ${bounds} -- the latest close (${latestClose.toFixed(2)}) is at or above the upper band, Elder’s profit-taking/overextension zone.`
+    }
+    if (latestClose <= channelLower) {
+      return `Currently ${bounds} -- the latest close (${latestClose.toFixed(2)}) is at or below the lower band, Elder’s contrarian buying zone.`
+    }
+    const positionPct =
+      ((latestClose - channelLower) / (channelUpper - channelLower)) * 100
+    return `Currently ${bounds} -- the latest close (${latestClose.toFixed(2)}) sits ${positionPct.toFixed(0)}% of the way from the lower to the upper band, inside the channel.`
+  },
+}
+
+export const valueZoneHelp = {
+  metricLabel: 'Value Zone (EMA 13-26)',
+  definition:
+    'The shaded zone between the fast (13-period) and slow (26-period) EMA -- Elder names this the "value zone" (ch. 41): the area a price that has pulled away from it is expected to return to.',
+  elderContext:
+    'This exact EMA13/EMA26 pair already drives the Tide (Screen 1), the Impulse System gate, and the Elder-Ray baseline elsewhere on this page (docs/Analyse.md §2-4) -- also plotted as the two solid trend lines on this same chart. Elder calls the zone between them a good swing-trade profit target ("the value zone on a weekly chart presents a good target," ch. 38/53) -- this app doesn’t yet compute an explicit target price from it (a separate, still-open task), so today this shading is informational, not a live target or stop input.',
+  interpretValue(ema13: number | null | undefined, ema26: number | null | undefined): string {
+    if (!isKnown(ema13) || !isKnown(ema26)) {
+      return 'Currently unavailable for this ticker.'
+    }
+    const lower = Math.min(ema13, ema26)
+    const upper = Math.max(ema13, ema26)
+    const reading =
+      ema13 > ema26 ? 'an uptrend reading' : ema13 < ema26 ? 'a downtrend reading' : 'a flat reading'
+    return `Currently ${lower.toFixed(2)}-${upper.toFixed(2)} (EMA13 ${ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'} EMA26 -- ${reading}).`
+  },
+}

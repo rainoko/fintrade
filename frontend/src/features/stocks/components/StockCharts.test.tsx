@@ -11,7 +11,13 @@ import StockCharts from './StockCharts'
 // and OscillatorChart, not chart-library internals.
 vi.mock('lightweight-charts', () => ({
   createChart: () => ({
-    addSeries: () => ({ setData: () => {}, createPriceLine: () => ({}) }),
+    addSeries: () => ({
+      setData: () => {},
+      createPriceLine: () => ({}),
+      // `setSeriesOrder` (frontend-channel-overlay, post-review fix) — see
+      // PriceChart.test.tsx's own mock for the fuller explanation.
+      setSeriesOrder: () => {},
+    }),
     removeSeries: () => {},
     timeScale: () => ({ fitContent: () => {} }),
     remove: () => {},
@@ -20,6 +26,7 @@ vi.mock('lightweight-charts', () => ({
   CandlestickSeries: 'CandlestickSeries-definition',
   LineSeries: 'LineSeries-definition',
   HistogramSeries: 'HistogramSeries-definition',
+  AreaSeries: 'AreaSeries-definition',
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
 }))
 

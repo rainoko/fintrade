@@ -34,7 +34,16 @@ const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const removeSeriesMock = vi.fn()
 const fitContentMock = vi.fn()
-const addSeriesMock = vi.fn(() => ({ setData: setDataMock }))
+// `setSeriesOrder` (frontend-channel-overlay, post-review fix) is called
+// only on the candlestick series, to reorder it above the value-zone
+// fill/mask series it's mixed in with on the same pane — see
+// PriceChart.tsx's own doc comment at the call site for why. Every mock
+// series returned by `addSeriesMock` gets one (matching the real
+// `ISeriesApi`, where every series type has it), tracked through this one
+// shared spy since the component only ever calls it on the single
+// candlestick series it holds a ref to.
+const setSeriesOrderMock = vi.fn()
+const addSeriesMock = vi.fn(() => ({ setData: setDataMock, setSeriesOrder: setSeriesOrderMock }))
 const setMarkersMock = vi.fn()
 const detachMarkersMock = vi.fn()
 const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
@@ -65,6 +74,11 @@ vi.mock('lightweight-charts', () => ({
     createSeriesMarkersMock(series, markers),
   CandlestickSeries: 'CandlestickSeries-definition',
   LineSeries: 'LineSeries-definition',
+  // Value-zone shading (frontend-channel-overlay) uses two `AreaSeries`;
+  // channel bands use `LineStyle.Dashed` on top of the existing
+  // `LineSeries-definition`.
+  AreaSeries: 'AreaSeries-definition',
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
 }))
 
 function mockHistory(response: HistoryResponse) {
@@ -89,6 +103,8 @@ const indicatorPoints: IndicatorHistoryResponse = {
       bear_power: -1.1,
       stochastic_k: 55.0,
       force_index_2ema: 1000.0,
+      channel_upper: 232.0,
+      channel_lower: 218.2,
       signal: 'HOLD',
       confidence: 0,
       confidence_band: 'Low',
@@ -102,6 +118,8 @@ const indicatorPoints: IndicatorHistoryResponse = {
       bear_power: -1.4,
       stochastic_k: 24.3,
       force_index_2ema: -18234.5,
+      channel_upper: 233.3,
+      channel_lower: 219.5,
       signal: 'BUY',
       confidence: 72,
       confidence_band: 'High',
@@ -155,6 +173,7 @@ describe('PriceChart', () => {
     removeSeriesMock.mockClear()
     fitContentMock.mockClear()
     addSeriesMock.mockClear()
+    setSeriesOrderMock.mockClear()
     createChartMock.mockClear()
     setMarkersMock.mockClear()
     detachMarkersMock.mockClear()
@@ -382,10 +401,11 @@ describe('PriceChart', () => {
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
-      // Candlestick + EMA13 + EMA26 = 3 addSeries calls once the overlay
-      // resolves; each fed its own values straight from the backend
-      // response — no client-side indicator math.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(3))
+      // Candlestick + (value-zone top/bottom AreaSeries) + EMA13 + EMA26 +
+      // (channel upper/lower LineSeries) = 7 addSeries calls once the
+      // overlay resolves; each fed its own values straight from the
+      // backend response — no client-side indicator math.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-09-01', value: 225.1 },
         { time: '2026-09-02', value: 226.4 },
@@ -393,6 +413,26 @@ describe('PriceChart', () => {
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-09-01', value: 220.4 },
         { time: '2026-09-02', value: 221.7 },
+      ])
+      // Value-zone top/bottom: the pointwise max/min of EMA13/EMA26 at each
+      // bar (both points here have EMA13 above EMA26, so top === ema13,
+      // bottom === ema26 — see the crossing case tested separately below).
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 225.1 },
+        { time: '2026-09-02', value: 226.4 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 220.4 },
+        { time: '2026-09-02', value: 221.7 },
+      ])
+      // Channel upper/lower bands straight from the backend response.
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 232.0 },
+        { time: '2026-09-02', value: 233.3 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 218.2 },
+        { time: '2026-09-02', value: 219.5 },
       ])
 
       // The first point is HOLD (no marker) and the second transitions into
@@ -601,8 +641,12 @@ describe('PriceChart', () => {
       expect(createChartMock).toHaveBeenCalledTimes(1)
       expect(removeMock).not.toHaveBeenCalled()
       // ...but the stale overlay series/markers were removed/detached for
-      // real before the new ones were added.
-      expect(removeSeriesMock).toHaveBeenCalledTimes(2)
+      // real before the new ones were added: value-zone top/bottom
+      // AreaSeries, EMA13/EMA26, and channel upper/lower LineSeries -- 6
+      // series total, same set `addSeriesMock`'s 7-per-overlay count above
+      // includes (minus the one candlestick series, which isn't touched by
+      // this cleanup at all).
+      expect(removeSeriesMock).toHaveBeenCalledTimes(6)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
     })
 
@@ -619,6 +663,141 @@ describe('PriceChart', () => {
       )
       expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument()
       expect(createSeriesMarkersMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('channel bands + value zone (frontend-channel-overlay)', () => {
+    it('computes the value zone as the pointwise max/min of EMA13/EMA26, not a fixed EMA13-is-always-on-top assumption', async () => {
+      // EMA13 is above EMA26 on 09-01 (uptrend reading) but crosses below it
+      // on 09-02 (downtrend reading) -- the value-zone top/bottom series
+      // must track whichever EMA is actually higher at each bar, not always
+      // report ema13 as the top.
+      mockHistory(twoBars)
+      mockIndicators({
+        ticker: 'AAPL',
+        points: [
+          { ...indicatorPoints.points[0], ema_13: 225.1, ema_26: 220.4 },
+          { ...indicatorPoints.points[1], ema_13: 219.0, ema_26: 221.7 },
+        ],
+      })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 225.1 },
+        { time: '2026-09-02', value: 221.7 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 220.4 },
+        { time: '2026-09-02', value: 219.0 },
+      ])
+    })
+
+    it('omits a bar with a null channel_upper/channel_lower from the channel band series rather than plotting a gap value', async () => {
+      // A ticker still inside the Autoenvelope's ~100-trading-day warm-up
+      // window reports null channel_upper/channel_lower for its earliest
+      // bars (IndicatorHistoryPoint's own doc comment) -- those bars must be
+      // dropped from the channel series data, not passed through as null
+      // (Lightweight Charts throws synchronously on a non-numeric point).
+      mockHistory(twoBars)
+      mockIndicators({
+        ticker: 'AAPL',
+        points: [
+          { ...indicatorPoints.points[0], channel_upper: null, channel_lower: null },
+          indicatorPoints.points[1],
+        ],
+      })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(setDataMock).toHaveBeenCalledWith([{ time: '2026-09-02', value: 233.3 }])
+      expect(setDataMock).toHaveBeenCalledWith([{ time: '2026-09-02', value: 219.5 }])
+    })
+
+    it('shows the Channel and Value Zone legend with MetricHelp affordances once the overlay resolves', async () => {
+      mockHistory(twoBars)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(screen.getByText('Channel (Autoenvelope)')).toBeInTheDocument()
+      expect(screen.getByText('Value Zone (EMA 13-26)')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Channel (Autoenvelope) help' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Value Zone (EMA 13-26) help' }),
+      ).toBeInTheDocument()
+    })
+
+    it("opens the Channel MetricHelp balloon with the current channel bounds and the latest close's position within them", async () => {
+      mockHistory(twoBars)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      await user.click(screen.getByRole('button', { name: 'Channel (Autoenvelope) help' }))
+
+      // Latest indicator point (09-02): channel_upper 233.3, channel_lower
+      // 219.5. Latest close (from twoBars, 09-02): 229.7 -- inside the band.
+      expect(screen.getByText(/219\.50-233\.30/)).toBeInTheDocument()
+      expect(screen.getByText(/229\.70/)).toBeInTheDocument()
+      expect(screen.getByText(/inside the channel/)).toBeInTheDocument()
+    })
+
+    it("opens the Value Zone MetricHelp balloon with the current EMA13-EMA26 bounds", async () => {
+      mockHistory(twoBars)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      await user.click(screen.getByRole('button', { name: 'Value Zone (EMA 13-26) help' }))
+
+      // Latest indicator point (09-02): ema_13 226.4, ema_26 221.7.
+      expect(screen.getByText(/221\.70-226\.40/)).toBeInTheDocument()
+    })
+
+    it('reorders the candlestick series above the value-zone fill/mask series so neither ever occludes a candle (PR #151 regression)', async () => {
+      // Regression test for the blocking pr-reviewer finding on PR #151:
+      // Lightweight Charts draws later-added series above earlier ones on
+      // the same pane, and the two value-zone `AreaSeries` (one an opaque
+      // `theme.palette.background.paper` mask) used to be added *after* the
+      // candlestick series, painting over any candle that dipped below the
+      // zone. The fix calls `series.setSeriesOrder(2)` on the candlestick
+      // series once both zone series exist, so it always renders on top of
+      // them regardless of add order.
+      mockHistory(twoBars)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(setSeriesOrderMock).toHaveBeenCalledTimes(1)
+      expect(setSeriesOrderMock).toHaveBeenCalledWith(2)
+    })
+
+    it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {
+      mockHistory(twoBars)
+      mockIndicators({ ticker: 'AAPL', points: [] })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('No signal history available for AAPL.'),
+        ).toBeInTheDocument(),
+      )
+      expect(screen.queryByText('Channel (Autoenvelope)')).not.toBeInTheDocument()
+      expect(screen.queryByText('Value Zone (EMA 13-26)')).not.toBeInTheDocument()
     })
   })
 })
