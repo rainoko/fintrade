@@ -200,12 +200,64 @@ function buildOverlayData(
 // doc comment in api/types.ts), but even 15 translucent horizontal bands
 // stacked on this chart's 320px-tall pane would be unreadable clutter -- a
 // handful of the very strongest is what a trader would actually look for at
-// a glance. Zones arrive already sorted strongest-first, so capping here is
-// just `.slice(0, MAX_DISPLAYED_ZONES)`. Decision (this task's `decisions`
-// entry): a second, frontend-side cap distinct from the backend's own API-
-// payload cap, since the two caps solve different problems (payload size vs.
-// on-screen legibility).
+// a glance. Zones arrive already sorted strongest-first, so capping (after
+// the relevance filter below) is just `.slice(0, MAX_DISPLAYED_ZONES)`.
+// Decision (this task's `decisions` entry): a second, frontend-side cap
+// distinct from the backend's own API-payload cap, since the two caps solve
+// different problems (payload size vs. on-screen legibility).
 const MAX_DISPLAYED_ZONES = 6
+
+// Post-review fix (PR #152, blocking finding #1): a zone's `upper`/`lower`
+// is whatever raw split-adjusted price level the backend detected, which for
+// a ticker with a multi-decade history can sit an order of magnitude away
+// from where the stock trades today (e.g. a pre-split-era level). Naively
+// drawing the "6 strongest" zones regardless of how far they sit from the
+// current price handed Lightweight Charts' default price-scale autoscale a
+// `BaselineSeries` data point far outside the candlesticks' own range,
+// stretching the y-axis until the actual OHLC/EMA/channel/marker content
+// was squashed into an unreadable sliver -- reproduced across
+// AAPL/NVDA/MSFT/AMD by the PR reviewer. Decision (this task's `decisions`
+// entry): only a zone whose `[lower, upper]` band overlaps a window within
+// `ZONE_RELEVANCE_PRICE_RATIO` (50%) of the most recent visible close is
+// eligible to be drawn at all -- applied *before* the strongest-6 cap above,
+// so a far-away zone can never occupy one of the 6 display slots and can
+// never distort the axis, no matter how high its `strength_score`.
+const ZONE_RELEVANCE_PRICE_RATIO = 0.5
+
+/**
+ * True when `zone`'s `[lower, upper]` band overlaps the window
+ * `referencePrice * (1 - ZONE_RELEVANCE_PRICE_RATIO)` ..
+ * `referencePrice * (1 + ZONE_RELEVANCE_PRICE_RATIO)` -- i.e. within 50%
+ * of the reference price either way. See `ZONE_RELEVANCE_PRICE_RATIO`'s own
+ * comment and this task's `decisions` entry for why a price-ratio window
+ * (rather than e.g. the currently visible bars' own high/low span) was
+ * chosen as the relevance definition.
+ */
+function isZoneRelevant(zone: SupportResistanceZone, referencePrice: number): boolean {
+  const windowMin = referencePrice * (1 - ZONE_RELEVANCE_PRICE_RATIO)
+  const windowMax = referencePrice * (1 + ZONE_RELEVANCE_PRICE_RATIO)
+  return zone.upper >= windowMin && zone.lower <= windowMax
+}
+
+/**
+ * Zones actually eligible to be drawn on the chart: filtered to ones
+ * relevant to `referencePrice` (see `isZoneRelevant`), THEN capped to the
+ * strongest `MAX_DISPLAYED_ZONES` (zones arrive already sorted
+ * strongest-first, so this is a plain `.slice`) -- in that order, so the
+ * relevance filter always runs before the cap and a distant zone can never
+ * consume one of the 6 display slots. Shared by both `buildZoneRenderData`
+ * (the shaded bands) and `buildFalseBreakoutMarkers` (their false-breakout
+ * markers/stop lines) so the two stay in lockstep: a false breakout is only
+ * ever marked for a zone whose band is actually drawn.
+ */
+function selectDisplayedZones(
+  zones: readonly SupportResistanceZone[],
+  referencePrice: number,
+): SupportResistanceZone[] {
+  return zones
+    .filter((zone) => isZoneRelevant(zone, referencePrice))
+    .slice(0, MAX_DISPLAYED_ZONES)
+}
 
 // Fill opacity (alpha, as a hex byte) for a zone's shaded band, scaled by
 // its `strength_score` (0-100) -- this is how "visual weight reflecting
@@ -246,14 +298,14 @@ interface ZoneRenderData {
 }
 
 /**
- * Projects up to `MAX_DISPLAYED_ZONES` support/resistance zones (already
- * sorted strongest-first by the backend) into the `BaselineSeries` render
- * data this component plots. A zone's shading always spans the *whole*
- * currently-visible bar range (`firstTime`..`lastTime`), not just the span
- * between its own `first_touch_date`/`last_touch_date` -- a support/
- * resistance level is still a live reference price today regardless of when
- * it originally formed, the standard technical-analysis convention for
- * drawing a horizontal S/R line across a whole chart.
+ * Projects already-selected (see `selectDisplayedZones` -- relevance-
+ * filtered and strongest-6-capped) support/resistance zones into the
+ * `BaselineSeries` render data this component plots. A zone's shading always
+ * spans the *whole* currently-visible bar range (`firstTime`..`lastTime`),
+ * not just the span between its own `first_touch_date`/`last_touch_date` --
+ * a support/resistance level is still a live reference price today
+ * regardless of when it originally formed, the standard technical-analysis
+ * convention for drawing a horizontal S/R line across a whole chart.
  *
  * Color is support (`colors.support`) vs. resistance (`colors.resistance`)
  * by the zone's *current* `role` -- which already reflects a role flip after
@@ -270,7 +322,7 @@ function buildZoneRenderData(
   lastTime: Time,
   colors: { support: string; resistance: string },
 ): ZoneRenderData[] {
-  return zones.slice(0, MAX_DISPLAYED_ZONES).map((zone) => {
+  return zones.map((zone) => {
     const baseColor = zone.role === 'support' ? colors.support : colors.resistance
     return {
       zone,
@@ -286,14 +338,15 @@ function buildZoneRenderData(
 }
 
 /**
- * One marker per displayed zone's most recent false-breakout episode (Elder
- * ch. 18: "a specific, high-value trade setup", not noise -- see
- * `falseBreakoutHelp` in metricHelpContent.ts) whose `reentry_date` falls
- * within the currently visible bar range (`firstDate`..`lastDate`) --
- * omitted, not erroring, when it falls outside the current range/window
- * selection, since the zone's own shaded band still renders regardless (see
- * `buildZoneRenderData` above); only this specific historical marker is
- * windowed to what Lightweight Charts can actually plot a point at.
+ * One marker per already-selected (see `selectDisplayedZones`) zone's most
+ * recent false-breakout episode (Elder ch. 18: "a specific, high-value trade
+ * setup", not noise -- see `falseBreakoutHelp` in metricHelpContent.ts)
+ * whose `reentry_date` falls within the currently visible bar range
+ * (`firstDate`..`lastDate`) -- omitted, not erroring, when it falls outside
+ * the current range/window selection, since the zone's own shaded band
+ * still renders regardless (see `buildZoneRenderData` above); only this
+ * specific historical marker is windowed to what Lightweight Charts can
+ * actually plot a point at.
  *
  * Positioned/shaped on the side the failed move actually reached: `aboveBar`
  * with a downward arrow for an `'up'` false breakout (price broke above,
@@ -308,7 +361,7 @@ function buildFalseBreakoutMarkers(
   color: string,
 ): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = []
-  for (const zone of zones.slice(0, MAX_DISPLAYED_ZONES)) {
+  for (const zone of zones) {
     const breakout = zone.false_breakout
     if (!breakout) {
       continue
@@ -672,7 +725,17 @@ export default function PriceChart({
       return
     }
     const finiteBars = data.bars.filter(hasFiniteOhlc)
-    if (finiteBars.length === 0) {
+    // Post-review fix (PR #152, blocking finding #2): `buildZoneRenderData`
+    // plots each zone as a 2-point `BaselineSeries` spanning
+    // `firstDate`..`lastDate`. With exactly one visible bar, those two
+    // points collapse to an identical timestamp, and Lightweight Charts'
+    // `setData` asserts strictly-ascending time and throws synchronously on
+    // a duplicate -- an uncaught crash via `AppErrorBoundary`. Skipping the
+    // whole zone overlay (not just the offending band) whenever fewer than
+    // two bars are visible is the simplest safe behavior: a single visible
+    // candle has no meaningful "span" for a horizontal zone band to cover
+    // anyway.
+    if (finiteBars.length < 2) {
       return
     }
     const zones = analysisQuery.data?.support_resistance_zones ?? []
@@ -682,8 +745,17 @@ export default function PriceChart({
 
     const firstDate = finiteBars[0].date
     const lastDate = finiteBars[finiteBars.length - 1].date
+    // Reference price for the relevance filter (see `isZoneRelevant`): the
+    // most recent visible bar's close -- effectively "today's price" for
+    // any range that includes the present (every preset does), so a zone
+    // far from it (e.g. a pre-split-era level) never gets a display slot.
+    const referencePrice = finiteBars[finiteBars.length - 1].close
+    const displayedZones = selectDisplayedZones(zones, referencePrice)
+    if (displayedZones.length === 0) {
+      return
+    }
     const zoneRenderData = buildZoneRenderData(
-      zones,
+      displayedZones,
       firstDate as Time,
       lastDate as Time,
       {
@@ -726,7 +798,7 @@ export default function PriceChart({
     )
 
     const falseBreakoutMarkers = buildFalseBreakoutMarkers(
-      zones,
+      displayedZones,
       firstDate,
       lastDate,
       theme.palette.warning.main,

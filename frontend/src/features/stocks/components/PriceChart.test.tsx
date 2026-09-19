@@ -1255,6 +1255,88 @@ describe('PriceChart', () => {
       expect(screen.queryByText('False Breakout')).not.toBeInTheDocument()
     })
 
+    it('excludes a zone far from the latest close from both the display cap and the axis (PR #152 blocking finding #1: autoscale distortion)', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        // Latest close (twoBars, 09-02) is 229.7. A pre-split-era zone at
+        // ~10x that price (analogous to the real-world NVDA/MSFT/AMD case
+        // the reviewer reproduced) must never reach `setData`/autoscale,
+        // regardless of how high its own strength_score is.
+        buildZone({ upper: 2350.0, lower: 2300.0, strength_score: 100 }),
+        buildZone({ upper: 236.9, lower: 233.4, strength_score: 10 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) + only
+      // the 1 relevant zone band = 8 (not 9 -- the far-away zone is
+      // excluded before the display cap, not just visually deprioritized).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      expect(baselineCalls).toHaveLength(1)
+      expect(setDataMock).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ value: 2350.0 })]),
+      )
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 236.9 },
+        { time: '2026-09-02', value: 236.9 },
+      ])
+    })
+
+    it('renders no zone overlay (and does not crash) when only one bar is visible (PR #152 blocking finding #2: duplicate-timestamp setData crash)', async () => {
+      mockHistory({
+        ...twoBars,
+        bars: [twoBars.bars[1]],
+      })
+      mockAnalysis([buildZone()])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
+      // no BaselineSeries, since a single visible bar can't form the
+      // 2-distinct-timestamp span a zone band needs (setData would
+      // otherwise throw on a duplicate timestamp, per Lightweight Charts'
+      // own strictly-ascending-time assertion).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        ),
+      ).toBe(false)
+    })
+
+    it('renders no zone overlay when every returned zone is filtered out as irrelevant to the latest close', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        // Both far above (and, for the second, far below) the 229.7 latest
+        // close -- unlike the "excludes a zone far from the latest close"
+        // test above, NOTHING survives the relevance filter here.
+        buildZone({ upper: 2350.0, lower: 2300.0 }),
+        buildZone({ upper: 20.0, lower: 15.0 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
+      // same as the "no zones detected" case, since none of the returned
+      // zones are eligible to be drawn.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        ),
+      ).toBe(false)
+    })
+
     it('swaps the zone band/marker/price-line series in place (without recreating the candlestick chart) when only the analysis query refetches', async () => {
       // Same rationale as the signal-overlay describe block's own "swaps...
       // in place" test above: an `/analysis`-only refetch leaves
