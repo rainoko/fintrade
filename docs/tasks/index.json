@@ -943,8 +943,15 @@
       "id": "backend-swing-point-detector",
       "area": "backend/signals",
       "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/backend-swing-point-detector.json"
+    },
+    {
+      "id": "backend-swing-point-detector-followups",
+      "area": "backend/signals",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-swing-point-detector.json"
+      "path": "docs/tasks/backend-swing-point-detector-followups.json"
     },
     {
       "id": "backend-divergence-detection",
