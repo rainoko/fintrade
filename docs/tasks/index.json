@@ -1111,8 +1111,15 @@
       "id": "frontend-divergence-markers",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-divergence-markers.json"
+    },
+    {
+      "id": "frontend-divergence-markers-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-divergence-markers-followups.json"
     },
     {
       "id": "frontend-support-resistance-overlay",

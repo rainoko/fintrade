@@ -3,7 +3,7 @@
   "title": "Mark bullish/bearish divergences on price and oscillator charts",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-divergence-detection"
   ],
@@ -75,5 +75,33 @@
     "pr_number": 158,
     "pr_url": "https://github.com/rainoko/fintrade/pull/158",
     "pushed_at": "2026-09-19T17:16:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T17:29:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/158",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the divergence overlay's connecting line/markers are drawn unconditionally regardless of the chart's currently selected range, with no windowing to the visible bar span, unlike buildFalseBreakoutMarkers/selectDisplayedZones (which explicitly window to firstDate/lastDate of the currently visible bars -- the fix PR #152 already established for this exact failure class). Reproduced live: AAPL's real bearish MACD-Histogram divergence (2025-12-11/2026-01-16) renders correctly at the default 1Y range, but switching to 1M collapses the entire candlestick chart -- and OscillatorChart.tsx's MACD-Histogram pane -- into a barely-visible sliver, while the same page's unaffected Stochastic/RSI pane (no divergence line added for a MACD-based divergence) renders normally in the same screenshot, proving the divergence line's own out-of-range points are the cause. Since this task only ever draws the single latest divergence (which can legitimately be many months old), this reproduces for any of the 1M/3M/6M presets whenever the divergence predates that window -- a routine occurrence, not an edge case. No test in PriceChart.test.tsx/OscillatorChart.test.tsx exercises a range change combined with an existing divergence.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 940
+      },
+      {
+        "summary": "Blocking (same root cause as the PriceChart.tsx finding above): buildDivergenceIndicatorOverlay draws the divergence line on whichever oscillator pane the divergence's own indicator belongs to with no windowing to the currently visible range, reproducing the same axis-distortion/squished-chart bug on the MACD-Histogram pane.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 207
+      },
+      {
+        "summary": "Non-blocking (tracked on frontend-divergence-markers-followups): OscillatorChart.tsx's divergence overlay is built inside the single chart-creation useEffect (now depending on `divergence`), causing a full chart teardown/rebuild (flicker, lost zoom/pan/crosshair state) whenever analysisQuery.data resolves after indicatorsQuery.data, instead of a separate effect that only adds/removes the divergence series onto the existing chart the way PriceChart.tsx does.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 438
+      },
+      {
+        "summary": "Non-blocking (tracked on frontend-divergence-markers-followups): the bullish/bearish label/position derivation is copy-pasted verbatim between buildDivergencePriceOverlay (PriceChart.tsx) and buildDivergenceIndicatorOverlay (OscillatorChart.tsx) rather than factored into the shared divergenceClick.ts helper.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 211
+      }
+    ],
+    "notes": "Full review performed: backend (699 tests, 99.91% cov, ruff/mypy clean -- no backend files touched by this PR) + frontend (462/462 vitest tests, 99.68%/98.85%/99.62%/99.78% stmt/branch/fn/line coverage; one PortfolioPage.test.tsx timeout observed under full-suite load, confirmed flaky/unrelated to this PR -- passes alone and on a clean full rerun) tests/coverage, eslint/tsc clean, yarn build/yarn build-storybook both clean, code-review skill run (surfaced the two non-blocking findings above), make e2e (all 16 persisted specs passed), and a real-browser Playwright walkthrough (no MCP browser tool available in this session, so driven via a throwaway node script against the frontend/node_modules playwright-core install, same approach the task-worker used) against a fixture backend covering AAPL/MSFT/TSLA/GOOGL (every fixture ticker has a divergence). Confirmed working correctly: z-ordering/occlusion (bringSeriesToFront still re-invoked after the divergence line, candlesticks stay on top; markers use the same series-markers plugin as existing BUY/SELL markers), legend/balloon content reads the exact same analysisQuery.data.divergence value the chart-drawing effects use (no PR #152-round-2-style displayed/raw mismatch), both the legend MetricHelp balloon and an actual canvas-marker click (native dispatchEvent at the marker's real pixel position was needed in headless Chromium, confirming the task's own decisions entry) open correct ticker-specific content, AnchoredInfoBalloon is correctly placed in components/common/InfoBalloon/ with its own Storybook story, divergenceHelp content matches docs/Analyse.md row 11's methodology, and no openapi.json regeneration was needed (DivergenceOut is a re-export of an already-generated type from PR #156, no backend schema/route change here). The blocking finding above (axis distortion when the selected range excludes the divergence's own dates) was only found via the real-browser walkthrough -- jsdom's mocked createChart can't exercise real chart-geometry distortion. Posted as a COMMENTED-type PR review (not approve/request-changes); task state moved back to implementing for a fix."
   }
 }
