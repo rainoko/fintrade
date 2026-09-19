@@ -7,7 +7,9 @@ import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import type { ReactNode } from 'react'
 import type { Screens } from '../../../api/stocks'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { formatNullableNumber, humanizeSnakeCase } from '../../../utils/format'
+import { impulseHelp, tideHelp, triggerHelp, waveHelp } from './metricHelpContent'
 
 export interface ScreensPanelProps {
   screens: Screens
@@ -36,16 +38,23 @@ function LabeledValue({ label, children }: LabeledValueProps) {
 
 interface ScreenSectionProps {
   title: string
+  /** A `common/MetricHelp` trigger for this screen, rendered inline in the title row's right edge -- see this component's own doc comment. */
+  help: ReactNode
   children: ReactNode
 }
 
-function ScreenSection({ title, children }: ScreenSectionProps) {
+function ScreenSection({ title, help, children }: ScreenSectionProps) {
   return (
     <Card variant="outlined" sx={{ flex: '1 1 220px' }}>
       <CardContent>
-        <Typography variant="subtitle2" gutterBottom>
-          {title}
-        </Typography>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+        >
+          <Typography variant="subtitle2">{title}</Typography>
+          {help}
+        </Stack>
         <Stack spacing={1.5}>{children}</Stack>
       </CardContent>
     </Card>
@@ -59,6 +68,13 @@ function ScreenSection({ title, children }: ScreenSectionProps) {
  * than a raw JSON dump. Feature component (not `common/`): every field here
  * (tide trend, impulse color, wave state, trigger reference) is an Elder
  * Triple Screen domain concept.
+ *
+ * Each `ScreenSection` gets a `common/MetricHelp` question-mark icon inline
+ * in its title row (not an absolute corner overlay -- see this component's
+ * own `ScreenSection`/`MetricHelp` doc comments) explaining what that
+ * screen is, its Elder methodology basis, and an interpretation of this
+ * ticker's current reading (`metricHelpContent.ts`,
+ * frontend-stock-detail-metric-help).
  */
 export default function ScreensPanel({ screens }: ScreensPanelProps) {
   const theme = useTheme()
@@ -90,14 +106,37 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
 
   return (
     <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
-      <ScreenSection title="Tide (Screen 1)">
+      <ScreenSection
+        title="Tide (Screen 1)"
+        help={
+          <MetricHelp
+            metricLabel={tideHelp.metricLabel}
+            definition={tideHelp.definition}
+            elderContext={tideHelp.elderContext}
+            valueInterpretation={tideHelp.interpretValue(
+              tide.trend,
+              tide.weekly_macd_histogram_slope,
+            )}
+          />
+        }
+      >
         <LabeledValue label="Trend">{humanizeSnakeCase(tide.trend)}</LabeledValue>
         <LabeledValue label="Weekly MACD-H slope">
           {humanizeSnakeCase(tide.weekly_macd_histogram_slope)}
         </LabeledValue>
       </ScreenSection>
 
-      <ScreenSection title="Impulse System">
+      <ScreenSection
+        title="Impulse System"
+        help={
+          <MetricHelp
+            metricLabel={impulseHelp.metricLabel}
+            definition={impulseHelp.definition}
+            elderContext={impulseHelp.elderContext}
+            valueInterpretation={impulseHelp.interpretValue(impulse)}
+          />
+        }
+      >
         <LabeledValue label="Color">
           <Chip
             label={impulse}
@@ -111,7 +150,21 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
         </LabeledValue>
       </ScreenSection>
 
-      <ScreenSection title="Wave (Screen 2)">
+      <ScreenSection
+        title="Wave (Screen 2)"
+        help={
+          <MetricHelp
+            metricLabel={waveHelp.metricLabel}
+            definition={waveHelp.definition}
+            elderContext={waveHelp.elderContext}
+            valueInterpretation={waveHelp.interpretValue(
+              stochasticKValue,
+              wave.force_index_2ema,
+              wave.state,
+            )}
+          />
+        }
+      >
         <LabeledValue label="Stochastic %K">
           {formatNullableNumber(stochasticKValue, {
             minimumFractionDigits: 1,
@@ -125,7 +178,21 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
         <LabeledValue label="State">{humanizeSnakeCase(wave.state)}</LabeledValue>
       </ScreenSection>
 
-      <ScreenSection title="Trigger (Screen 3)">
+      <ScreenSection
+        title="Trigger (Screen 3)"
+        help={
+          <MetricHelp
+            metricLabel={triggerHelp.metricLabel}
+            definition={triggerHelp.definition}
+            elderContext={triggerHelp.elderContext}
+            valueInterpretation={triggerHelp.interpretValue(
+              trigger.fired,
+              trigger.reference,
+              tide.trend,
+            )}
+          />
+        }
+      >
         <LabeledValue label="Fired">{trigger.fired ? 'Yes' : 'No'}</LabeledValue>
         <LabeledValue label="Reference">{humanizeSnakeCase(trigger.reference)}</LabeledValue>
       </ScreenSection>

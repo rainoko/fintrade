@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { Screens } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
@@ -110,5 +111,27 @@ describe('ScreensPanel', () => {
 
     const forceIndexValue = screen.getByText('Force Index (2-EMA)').parentElement
     expect(forceIndexValue).toHaveTextContent('—')
+  })
+
+  it('wires the right MetricHelp content to the right ScreenSection icon, including the Trigger/Tide-Neutral case', async () => {
+    const user = userEvent.setup()
+    const neutralScreens: Screens = {
+      tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+      impulse: 'BLUE',
+      wave: { stochastic_k: 50, force_index_2ema: 0, state: 'RANGING' },
+      trigger: { fired: false, reference: 'not_applicable' },
+    }
+    renderWithTheme(<ScreensPanel screens={neutralScreens} />)
+
+    await user.click(screen.getByRole('button', { name: 'Tide (Screen 1) help' }))
+    expect(screen.getByText(/genuinely flat/)).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    // Regression coverage for PR #127's needs_work finding: a not_applicable Trigger
+    // caused by a Neutral tide (the common case) must say so, not claim insufficient
+    // daily history (the separate, rare edge case in evaluate_trigger).
+    await user.click(screen.getByRole('button', { name: 'Trigger (Screen 3) help' }))
+    expect(screen.getByText(/Tide is Neutral/)).toBeInTheDocument()
+    expect(screen.queryByText(/enough daily price history/)).not.toBeInTheDocument()
   })
 })

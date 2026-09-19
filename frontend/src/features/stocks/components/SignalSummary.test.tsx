@@ -209,4 +209,36 @@ describe('SignalSummary', () => {
     // rather than a templated "conditions not met" message either way.
     expect(screen.queryByText(/Tide is Neutral/)).not.toBeInTheDocument()
   })
+
+  it('wires the right MetricHelp content to the Signal/Confidence icons and each breakdown row, distinct from the badge’s own "why" balloon', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+        screens={buyScreens}
+      />,
+    )
+
+    // Generic Signal help (definitional), distinct from "Why BUY?"'s causal explanation.
+    await user.click(screen.getByRole('button', { name: 'Signal help' }))
+    expect(
+      screen.getByText(/Currently BUY -- every Triple Screen condition lined up/),
+    ).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    // Confidence help.
+    await user.click(screen.getByRole('button', { name: 'Confidence help' }))
+    expect(screen.getByText('Currently 72% -- High confidence.')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    // The tide_alignment breakdown row's own help, not a different component's.
+    await user.click(screen.getByRole('button', { name: 'Tide alignment (Screen 1) help' }))
+    expect(
+      screen.getByText(/scored 100% at a 30% weight -- contributing 30 of the 100 possible/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Currently BUY/)).not.toBeInTheDocument()
+  })
 })
