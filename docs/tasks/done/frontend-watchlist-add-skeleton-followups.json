@@ -1,0 +1,49 @@
+{
+  "id": "frontend-watchlist-add-skeleton-followups",
+  "title": "Watchlist add-skeleton — non-blocking review follow-ups",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-watchlist-add-skeleton"],
+  "references": [
+    "docs/tasks/frontend-watchlist-add-skeleton.json#review",
+    "https://github.com/rainoko/fintrade/pull/132"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #132 (frontend-watchlist-add-skeleton), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "WatchlistTable.tsx's synthetic pending-add row is given `added_at: ''` (an empty string, not null/undefined). DataTable.tsx's sort comparator (`compareForSort`/`isMissing`) only treats null/undefined as 'missing' (always sorted last) -- an empty string is compared normally via localeCompare, and `''` always sorts before any real ISO date string. So while the 'Added' column is actively sorted ascending (the table's own default GET order, oldest-first), the skeleton row renders at the TOP of the table instead of in a stable position, and the instant the refetch completes and the real row (with today's -- the newest -- timestamp) replaces it, ascending sort now puts it LAST: the row visibly jumps from top to bottom the moment its data loads. Sorting descending has the mirror-image issue (skeleton at the bottom, real row jumps to the top on resolve). Fix by giving the synthetic row a sentinel that sorts like the actual newest value (e.g. `new Date().toISOString()`) instead of `''`, so its position stays stable across the pending-to-real transition.",
+      "done": true
+    },
+    {
+      "step": "WatchlistTable.tsx's `WatchlistRow` doc comment (just above the type definition) says 'Every column's `render` below swaps in an animated MUI `Skeleton` for this row', but the action column (keyed `confidence_band`) actually renders `null` for a pending row, not a Skeleton (correctly -- there's no remove action for a not-yet-real row). The comment overstates the actual per-column behavior; worth tightening so a future reader/maintainer doesn't expect a Skeleton in every cell including the action column.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T02:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Give the synthetic pending row's `added_at` the pending mutation's own `submittedAt` timestamp (`mutation.state.submittedAt`, already read via the same `useMutationState` call that supplies `pendingTicker`), converted to ISO via `new Date(submittedAt).toISOString()`, instead of computing `new Date()` inline at render time.",
+      "rationale": "The checklist's own suggested fix (`new Date().toISOString()`) works for the sort-stability goal but, if computed inline in the component body, recomputes to a slightly different value on every re-render while the row is pending -- not wrong (still always sorts as 'newest'), but an unstable value for what should be a fixed synthetic field. `submittedAt` is a stable, TanStack-Query-owned timestamp already scoped to that one mutation call (set once when `mutate()` fires, present on every version of @tanstack/react-query in package.json), so reusing it needs no extra state and stays constant for the row's entire pending lifetime. It's always at or slightly before the server's own `added_at` for that same POST (the server timestamps after the client has already submitted), so the synthetic row keeps sorting as the newest entry in both directions -- last ascending, first descending -- matching exactly where the real row lands once it replaces the skeleton, eliminating the jump. Rejected: leaving `new Date()` computed at render time (works but needlessly non-deterministic across re-renders); deriving a sentinel purely from `items` (e.g. `items` max `added_at` plus 1ms) -- rejected because it couples the pending row's sort key to the *existing* rows' data shape/values instead of the mutation's own lifecycle, and produces a wrong ordering if `items` is empty or none of its dates are recent."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-watchlist-add-skeleton-followups",
+    "pr_number": 133,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/133",
+    "pushed_at": "2026-09-19T02:15:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:06:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/133",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest 573/573 (99.86% coverage), frontend vitest 344/344 (99.69% stmts / 99.44% branches), ruff/mypy/eslint/tsc all clean, code-review skill (medium) found no correctness/reuse/simplification issues, e2e suite (make e2e) 16/16 passing. Browser walkthrough done via a direct Playwright script (Playwright MCP tools weren't available in this session) against a manually-started backend (fixture provider) + Vite dev server, with the add POST artificially delayed: seeded AAPL/MSFT as real rows, added GOOGL as pending, and independently confirmed the skeleton row stays at the 'newest' end of the Added column across ascending/descending toggles while pending (last ascending, first descending, screenshot-verified for descending), then lands exactly where the real GOOGL row appears once the mutation resolves -- no jump in either direction, matching the PR's claim. submittedAt's stability was confirmed both via @tanstack/query-core's type (set once at mutate()-time) and behaviorally (toggling sort twice mid-pending never moved the row, which drift would have revealed). Doc-comment fix (action column renders null, not Skeleton) verified accurate against the code and the walkthrough screenshots. No API/schema change (no openapi.json touch needed), no new components (no placement check needed), area isn't backend/signals or backend/portfolio (verify-elder-signal not applicable), no new module/dependency/layer (architecture-review not applicable). No blocking or non-blocking findings; no follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T02:10:08Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (573/573, 99.86% coverage) and frontend vitest (344/344, 99.69% stmts/99.44% branches) -- matches review.notes exactly. Ran `make e2e` myself: 16/16 passing. Confirmed DataTable.tsx's isMissing() only checks null/undefined (so the original '' sentinel really did sort via localeCompare, validating the bug's premise) and skimmed the full diff: WatchlistTable.tsx now sources added_at from mutation.state.submittedAt via ISO conversion, and the new WatchlistTable.test.tsx test ('keeps the pending skeleton row sorted at the newest end...') reproduces the exact sort-toggle-while-pending scenario end to end (asc: skeleton stays last; desc: skeleton at index 0) and passes on its own. eslint/tsc clean; the 6 pre-existing ruff findings are on unrelated backend test files and reproduce identically on origin/main (this PR touches zero backend files), so not a regression. Accept holds."
+  }
+}
