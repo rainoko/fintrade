@@ -3,7 +3,7 @@
   "title": "Trade journal: closed-trade history with A-trade grades",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-trade-history-table",
     "backend-trade-grading"
@@ -56,5 +56,11 @@
       "decision": "Grade cells color only against the two thresholds docs/Analyse.md §7 actually states (buy/sell grade >50% is 'very good'; trade grade ~30%+ is an 'A' trade) rather than inventing a full A/B/C/D/F letter-grade scale.",
       "rationale": "Analyse.md and the backend's own docstrings give exactly two anchor points for trade grade (>=30% 'A', ~10% 'C') and one for buy/sell grade (>50% 'very good') -- no documented boundary for B/D/F or for buy/sell grade's lower bands. Inventing additional cutoffs not grounded in the book/docs would risk misrepresenting Elder's methodology (exactly what verify-elder-signal-style review would flag). The UI shows the raw percentage plus a single bold/not-bold visual cue at the one documented threshold per grade, with the full plain-language explanation carried by each grade's MetricHelp popover instead of an invented letter grade."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trade-journal",
+    "pr_number": 150,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/150",
+    "pushed_at": "2026-09-19T11:24:59Z"
+  }
 }
