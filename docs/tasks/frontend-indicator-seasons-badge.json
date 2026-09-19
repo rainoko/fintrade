@@ -48,8 +48,8 @@
   ],
   "git": {
     "branch": "task/frontend-indicator-seasons-badge",
-    "pr_number": null,
-    "pr_url": null,
-    "pushed_at": null
+    "pr_number": 161,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/161",
+    "pushed_at": "2026-09-19T18:49:00Z"
   }
 }

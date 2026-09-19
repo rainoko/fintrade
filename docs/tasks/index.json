@@ -1146,7 +1146,7 @@
       "id": "frontend-indicator-seasons-badge",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-indicator-seasons-badge.json"
     },
     {
