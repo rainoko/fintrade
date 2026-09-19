@@ -3,7 +3,7 @@
   "title": "Display the \"market season\" (Spring/Summer/Autumn/Winter) label",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-indicator-seasons"
   ],
@@ -51,5 +51,18 @@
     "pr_number": 161,
     "pr_url": "https://github.com/rainoko/fintrade/pull/161",
     "pushed_at": "2026-09-19T18:49:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T18:58:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/161",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "theme.palette.season.summer (#f9a825) fails WCAG contrast against the white card background common/SeasonBadge renders its label/icon color on directly (no getContrastText adjustment, unlike SignalBadge's filled variant): computed contrast ratio ~1.97:1, below the 3:1 minimum for UI components/graphical objects. spring (3.3:1) and winter (3.28:1) are also below the 4.5:1 text threshold though closer to 3:1; autumn (4.35:1) passes. Non-blocking (the badge is still legible via bold weight + icon + label in practice, and no project doc sets a hard contrast gate), tracked as a follow-up on frontend-indicator-seasons-badge-followups.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 103
+      }
+    ],
+    "notes": "Full review: backend suite 713 passed, 99.91% coverage (unchanged by this frontend-only PR). Frontend suite 492 passed at 100% (a 1-test PortfolioPage.test.tsx timeout flake reproduces identically under full-suite parallel load on main too -- confirmed pre-existing/environment, not a regression); coverage 99.68% stmts / 98.92% branches overall, 100% on every new/changed file (SeasonBadge.tsx, ScreensPanel.tsx, theme.ts), matching the PR's claim. ruff/mypy/eslint/tsc all clean. code-review (medium) skill run against the diff surfaced one finding (the WCAG contrast issue above), no correctness bugs. e2e-test skill: all 16 Playwright specs passed. Browser walkthrough (chromium via frontend's own Playwright dep, no MCP browser tool available in this session) against the fixture data provider's 4 tickers found 3 distinct season values (AAPL=Autumn, GOOGL=Spring, MSFT=Summer; the 4th fixture ticker TSLA also read Summer, so Winter wasn't reachable via the fixture set) -- confirmed: (1) SeasonBadge is genuinely visually distinct from SignalBadge/the Impulse chip, not just a recolor -- outlined vs filled, a season icon, and a dashed-border card with an explicit 'Informational -- not a signal' caption, multiple redundant signals rather than color alone; (2) theme.test.ts's guard test asserts all four season colors are pairwise-distinct AND none equals signal.buy/sell/hold by exact string comparison, matching the PR's claim; (3) seasonHelp.interpretValue genuinely branches on the actual season value passed in (verified live via the MetricHelp popover on AAPL showing the Autumn-specific text, not generic copy); (4) common/ placement for SeasonBadge (domain-agnostic prop, same test SignalBadge already passes) vs feature-specific placement for seasonHelp/wiring in metricHelpContent.ts/ScreensPanel.tsx is consistent with established precedent and well-reasoned in the task's decisions. docs/Analyse.md row 12's Spring/Summer/Autumn/Winter -> slope/centerline mapping and Elder's best-entry framing are both accurately reflected in seasonHelp's definition/elderContext/interpretValue text. No backend/API changes in this PR, so no openapi.json regen was needed. No checklist item phrased as 'decide X' was left undecided -- all three recorded decisions (SeasonBadge placement, ScreensPanel wiring vs IndicatorsPanel, new season palette group) have decision+rationale."
   }
 }

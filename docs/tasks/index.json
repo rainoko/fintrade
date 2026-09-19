@@ -1146,8 +1146,15 @@
       "id": "frontend-indicator-seasons-badge",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-indicator-seasons-badge.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-indicator-seasons-badge.json"
+    },
+    {
+      "id": "frontend-indicator-seasons-badge-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-indicator-seasons-badge-followups.json"
     },
     {
       "id": "frontend-channel-overlay",
