@@ -943,7 +943,7 @@
       "id": "backend-swing-point-detector",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-swing-point-detector.json"
     },
     {

@@ -3,7 +3,7 @@
   "title": "Swing-high / swing-low detector (shared prerequisite for divergence detection)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -13,19 +13,27 @@
   "checklist": [
     {
       "step": "Decide and record the swing-point definition (e.g. a bar whose value is the max/min within a +/-N-bar window) and the window size, with rationale.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement as a small, reusable function (e.g. backend/app/signals/swing_points.py) operating on any pd.Series (price or an indicator series), not price-specific.",
-      "done": false
+      "done": true
     },
     {
       "step": "Unit tests covering: a clean uptrend/downtrend with no swings, a single well-defined swing, and a noisy series with multiple candidate swings close together.",
-      "done": false
+      "done": true
     },
     {
       "step": "Document the function's contract clearly (what counts as a swing, how ties/plateaus are handled) since every later divergence-detection task depends on this behavior being predictable.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checked app.signals.support_resistance's internal _find_swing_points (PR #147, backend-support-resistance) first, as this task's own description asked, and decided NOT to reuse or extract it as a shared utility -- app.signals.swing_points is a new, independent module operating on a single pd.Series (any series: price close, or an indicator series like MACD-Histogram/Stochastic %K/RSI), rather than an OHLCV DataFrame. Swing-point definition: bar i is a swing high if its own value equals the max of the (2*window+1)-bar window centered on it (mirrored via min for a swing low), default window=3 (a 7-bar window). Ties/plateaus: a run of index-consecutive, equal-value candidates of the same kind is merged into one SwingPoint at the run's middle bar (floor-rounded toward the later bar for an even-length run), so a flat top/bottom never produces one swing point per bar. A candidate bar is skipped entirely (not just its own NaN, any NaN anywhere in its comparison window) rather than computing a partial max/min over the remaining real values, since a partial comparison could make a bar look like a local extreme purely because it lost fewer real neighbors to compare against, not because it genuinely is one.",
+      "rationale": "support_resistance's _find_swing_points is purpose-built for its own zone-clustering use case: it tests a bar's raw `high`/`low` OHLCV columns against a window of *other bars'* highs/lows, then reports a DIFFERENT column (`close`) as the 'touch' value fed into 1-D price clustering -- a deliberate high/low-vs-close split that only makes sense because an OHLCV bar has three distinct price concepts (high, low, close) to choose from. This task's use case has no such split available: an indicator series like MACD-Histogram has only one value per bar, no separate 'wick' to test against a different 'touch' value, so the same high/low-vs-close design doesn't transfer -- extracting a shared implementation would have meant forcing a DataFrame-shaped, OHLCV-specific interface onto callers (like the future backend-divergence-detection task) that only ever have a single Series to hand it. A fresh, Series-in/Series-out module is simpler for that caller and doesn't smuggle price-specific assumptions into what's meant to be a generic utility. Window default (3, vs. support_resistance's 2): this module is routinely expected to run over oscillator series (Stochastic %K in particular) that whipsaw more readily bar-to-bar than raw price highs/lows, so a slightly wider default window reduces flagging short-lived noise as a 'swing' out of the box -- it's overridable per call site regardless, so the exact default matters less than documenting it clearly. The strict all-window-non-NaN rule (rather than pandas' default NaN-skipping max/min) was chosen after finding, while writing the reference tests, that skipna-based comparison lets the very first real bar after a NaN warm-up prefix register as a spurious local extreme (it only has to beat a handful of real neighbors instead of the full window) -- rejected as violating this module's own 'a swing needs bars on both sides' contract; the stricter rule instead defers the first possible swing point until a bar's entire window falls after the warm-up period, which is simpler to reason about and test. Rejected alternatives: (a) generalizing support_resistance's function to accept either an OHLCV DataFrame or a bare Series -- rejected as adding branching/complexity to an already-shipped, tested module for a caller shape (bare indicator Series) it was never designed for; (b) a scipy.signal.argrelextrema-based implementation -- rejected per this task's own description ('keep the algorithm simple and explainable... rather than importing a heavyweight peak-finding library'), and because a hand-rolled fractal-window comparison is trivially hand-verifiable in unit tests, matching this app's existing indicator-testing bar."
     }
   ]
 }
