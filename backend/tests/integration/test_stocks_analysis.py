@@ -194,12 +194,17 @@ class TestGetAnalysis:
             "bear_power",
             "channel_upper",
             "channel_lower",
+            "rsi",
         }
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's ~100-bar
         # deviation-average warm-up window, so both bands are still null here -- see
         # test_channel_bands_populated_with_sufficient_history for the populated case.
         assert body["indicators"]["channel_upper"] is None
         assert body["indicators"]["channel_lower"] is None
+        # rsi's warm-up (9 daily closing changes) is far shorter than the channel's, so it's
+        # already populated on this same 26-bar fixture.
+        assert body["indicators"]["rsi"] is not None
+        assert 0 <= body["indicators"]["rsi"] <= 100
         # This fixture (26 bars) is also far too short to produce any support/resistance
         # zone (min_zone_length_days=14 plus the fractal/clustering machinery needs real
         # repeated touches) -- see TestSupportResistanceZones below for the populated case.

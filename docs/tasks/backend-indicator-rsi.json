@@ -3,7 +3,7 @@
   "title": "Add Relative Strength Index (RSI)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/stochastic.py",
@@ -14,23 +14,49 @@
   "checklist": [
     {
       "step": "Implement rsi() in backend/app/indicators/rsi.py following the existing indicator module conventions (see stochastic.py for the pattern).",
-      "done": false
+      "done": true
     },
     {
       "step": "Hand-computed reference-value test (a small OHLC series with RSI worked out by hand, not just golden-output regression).",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide the default window (7, 9, or 14 days -- the book leans toward 7-9 for sharper signals but doesn't mandate one) and record as a decisions entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose alongside Stochastic in the analysis/indicator-history responses.",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts; document in docs/Analyse.md's indicator table.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T18:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Default RSI window is 9 days.",
+      "rationale": "docs/Analyse.md/docs/ideas.md quote the book as saying 7-9 days 'sharpens signals' without mandating one exact value, and this app's other short-cadence oscillators already skew short (Stochastic %K 5, Force Index entry-timing EMA 2) -- 9 sits at the upper (smoother, less whipsaw-prone) end of the book's own recommended range while staying consistent with that existing short-window bias, and avoids the much slower, more mainstream-but-unspecified 14-day RSI convention the book doesn't actually call for here. Rejected 7 (noisier, no stronger textual support than 9) and 14 (the common default in most RSI implementations, but not what Elder's own 'sharpens signals' framing argues for)."
+    },
+    {
+      "timestamp": "2026-09-19T18:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RS uses a plain/arithmetic rolling average (pandas .rolling(window=period).mean()) for both the up-close and down-close series, not Wilder's smoothed moving average (an EMA-like running average with smoothing constant 1/period) that the original 1978 Wilder formula and most mainstream RSI implementations actually use.",
+      "rationale": "docs/Analyse.md's own formula, transcribed from the book via docs/ideas.md, reads as a plain average ('average of net up-closes over N days / average of net down-closes over the same N days') with no mention of exponential smoothing -- unlike this app's EMA/MACD/Force Index, which are explicitly, intentionally exponentially smoothed per their own Analyse.md descriptions. A simple rolling mean also matches how this app's own Stochastic Oscillator is built (SMA-based throughout, no .ewm(...)) and is what makes a hand-computed reference-value test tractable without an EMA seed-value convention to also hand-verify. Rejected Wilder's smoothing as the more 'textbook-standard' choice, but not what this app's own source-of-truth doc actually specifies, and it would make the reference-value test meaningfully harder to hand-verify for no documented behavioral requirement."
+    },
+    {
+      "timestamp": "2026-09-19T18:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Edge-case RSI values: RS undefined via zero down-closes (avg_loss == 0, avg_gain > 0) -> RSI = 100 (falls out of the formula automatically via float division, no explicit branch needed). A completely flat trailing window (avg_gain == avg_loss == 0, RS = 0/0) -> RSI = 50 (neutral), not 0 or 100, via an explicit override.",
+      "rationale": "RSI=100 on zero down-closes is the conventional, universally-used convention for that case (maximal relative strength) and needs no special-casing since inf-division already produces exactly 100.0. The doubly-degenerate flat case (no gains AND no losses) is different: RS itself is undefined (0/0, not inf), and reading it as either extreme (0 or 100) would misrepresent a market that moved neither up nor down as maximally weak or maximally strong. 50 (dead center of the 0-100 scale) is the standard convention for this specific edge case across mainstream RSI implementations and is the only value consistent with RSI's own definition of 50 as the 'no edge either way' midpoint."
+    },
+    {
+      "timestamp": "2026-09-19T18:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RSI is exposed as a new top-level indicators.rsi field on both GET /api/stocks/{ticker}/analysis and GET /api/stocks/{ticker}/indicators (mirroring channel_upper/channel_lower's shape and passthrough-parameter pattern in app.signals.engine.analyse/analyse_history), not nested under screens.wave the way stochastic_k is.",
+      "rationale": "screens.wave is tightly coupled to Screen 2's own oversold/overbought state machine (evaluate_wave, STOCHASTIC_OVERSOLD/OVERBOUGHT thresholds) -- folding RSI in there would misleadingly suggest it participates in that state determination, which this task's own description explicitly scopes out ('wiring RSI into _determine_signal is out of scope'). channel_upper/channel_lower already established the precedent for a computed-but-not-wired-in oscillator/band living directly under indicators instead, with the exact same precomputed-series passthrough contract analyse_history() needs to share one rsi() pass across every bar rather than recomputing per bar -- reusing that established pattern keeps the shape predictable for both this task's own indicator-history endpoint and the future backend-divergence-detection task (depends_on this task), which just needs a plain pd.Series of RSI values aligned with daily_ohlcv to run swing-point-based divergence detection against -- exactly what rsi() returns and what analyse_history's rsi_full precomputed series already is internally."
     }
   ]
 }

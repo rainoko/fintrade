@@ -96,6 +96,18 @@ class Indicators(BaseModel):
         description="Lower Autoenvelope/channel band, same definition/source/warm-up as "
         "`channel_upper` mirrored to `mid * (1 - avg_pct)`.",
     )
+    rsi: float | None = Field(
+        default=None,
+        description="Relative Strength Index (docs/Analyse.md §4, Elder ch. 27) -- "
+        "`100 - 100 / (1 + RS)`, RS = average net up-close / average net down-close over a "
+        "9-day window (simple/arithmetic rolling average, not Wilder's smoothed variant -- "
+        "see `app.indicators.rsi.rsi`). Closing-price-only, unlike `stochastic_k` (which also "
+        "reads high/low) -- Elder's own selling point for it: less noisy, signals tend to "
+        "emerge earlier. Computation + exposure only; not currently wired into "
+        "`screens`/`confidence_breakdown` (see the backend-indicator-rsi task). Null for the "
+        "first 9 trading days of a ticker's history (needs 9 daily closing changes) -- a much "
+        "shorter warm-up than `channel_upper`/`channel_lower`.",
+    )
 
 
 class FalseBreakoutOut(BaseModel):
@@ -131,7 +143,7 @@ class AnalysisResponse(BaseModel):
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70.")
     screens: Screens
     confidence_breakdown: list[ConfidenceBreakdownItem] = Field(description="Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.")
-    indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 7 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
+    indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
     support_resistance_zones: list[SupportResistanceZone] = Field(description="Horizontal support/resistance zones detected from swing-point clustering over the ticker's full available daily history (docs/ideas.md, Elder ch. 18) -- up to the 15 strongest by strength_score, descending. Not currently wired into signal/confidence computation or protective_stop -- informational context only (see the backend-support-resistance task's decisions for why tightening protective_stop near a zone is an explicit, separate follow-up).")
 
 
@@ -149,6 +161,7 @@ class IndicatorHistoryPoint(BaseModel):
     force_index_2ema: float | None = Field(default=None, description="Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~2 prior bars) -- same warm-up-only caveat as stochastic_k above.")
     channel_upper: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_upper, for this bar. Null for a bar still inside the Autoenvelope deviation-average's ~100-bar warm-up window -- a far longer warm-up than stochastic_k/force_index_2ema above, so this is null across a much larger leading span of a long `range` (e.g. `range=max`) than either of those.")
     channel_lower: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_lower, for this bar. Null under the same condition as channel_upper.")
+    rsi: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.rsi, for this bar. Null for a bar still inside the indicator's 9-day warm-up window -- same warm-up-only caveat as stochastic_k/force_index_2ema above, though with a shorter (9-bar) window than either.")
     signal: Signal = Field(description="BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.")
     confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")

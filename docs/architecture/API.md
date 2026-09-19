@@ -58,7 +58,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
     "bull_power": 3.1,
     "bear_power": -1.4,
     "channel_upper": 236.9,
-    "channel_lower": 215.9
+    "channel_lower": 215.9,
+    "rsi": 61.4
   },
   "support_resistance_zones": [
     {
@@ -88,6 +89,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 
 `indicators.channel_upper`/`channel_lower` are the Autoenvelope/Channel band (Analyse.md §4: "EMA 13 ± avg % deviation") — `app.indicators.autoenvelope.autoenvelope`'s `mid * (1 ± avg_pct)`, where `mid` equals this same response's `ema_13`. This is the exact band `app.portfolio.exits.evaluate_exit_flags` already tests internally for the "price reaches the upper Autoenvelope band with Impulse turning Red" existing-position exit rule (Analyse.md §7), now exposed for any ticker rather than only a held portfolio position — see the `backend-channel-envelope-exposure` task's `decisions` for why this reuses the app's existing EMA(13)-backed channel rather than adding a second, slower-EMA variant. Both are `null` for the first ~100 trading days of a ticker's history, since the rolling deviation-average window (100 bars by default) isn't yet full — a much longer warm-up than any other `indicators` field, which only need up to 26 bars.
 
+`indicators.rsi` is the Relative Strength Index (Analyse.md §4 row 10, Elder ch. 27) — `app.indicators.rsi.rsi(close)`, a 9-day, simple/arithmetic-average (not Wilder-smoothed) closing-price-only oscillator, exposed alongside `screens.wave.stochastic_k` as a second, less-noisy overbought/oversold timing tool per Elder's own comparison. Computation + exposure only — not read by `signal`/`confidence_breakdown`/`screens` above (see the `backend-indicator-rsi` task's `decisions`). `null` for the first 9 trading days of a ticker's history (needs 9 daily closing changes) — a much shorter warm-up than `channel_upper`/`channel_lower`.
+
 `support_resistance_zones` is a list of horizontal support/resistance zones (Analyse.md §4 row 9, Elder ch. 18) detected from swing-point clustering over the ticker's full available daily history — `app.signals.support_resistance.detect_support_resistance_zones`, computed directly in `get_analysis` (not inside `app.signals.engine.analyse()`, since it's not needed by `GET /api/stocks/{ticker}/indicators`'s per-bar `analyse_history()` loop — see the `backend-support-resistance` task's `decisions`). Up to the 15 strongest zones, ordered by `strength_score` descending. Each zone's `role` (`support`/`resistance`) is its *current* role — a broken zone keeps existing with an inverted role (old resistance becomes new support) rather than being discarded, per Elder's own rule; `broken`/`break_date` record a confirmed break, and `false_breakout` (nullable) records the most recent false-breakout episode — price closing beyond the zone, then closing back inside it within a 10-trading-day window — with `extreme_price` giving the failed move's own extreme, Elder's explicit stop-placement reference. `dollar_volume` is Elder's own `days-in-zone × average volume × average price` formula, exposed raw (not folded into `strength_score`, which is a length/height-only composite — see Analyse.md §4). This is detection + scoring + false-breakout flagging only: zones are not wired into `signal`/`confidence`/`screens` above, nor into `GET /api/portfolio/risk`'s `protective_stop` — see Analyse.md §4 and the task's `decisions` for why that's an explicit, separate follow-up.
 
 ### `GET /api/stocks/{ticker}/indicators`
@@ -111,6 +114,7 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
       "force_index_2ema": -18234.5,
       "channel_upper": 236.9,
       "channel_lower": 215.9,
+      "rsi": 61.4,
       "signal": "BUY",
       "confidence": 72,
       "confidence_band": "High"
@@ -124,6 +128,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 `stochastic_k` and `force_index_2ema` are nullable: a bar still inside that indicator's own warm-up window (Stochastic %K(5,3,3) needs `(k_period - 1) + (smooth - 1)` prior bars — 6 with the current defaults; Force Index's raw `volume * close.diff()` input is undefined for the range's very first bar, which has no prior close) reports `null` for that field only, while every other field on the same point (including `ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which are EMA-seeded and never produce `NaN`) stays populated. This only affects early bars of a long-enough range (e.g. `range=max`); unlike `/analysis`, which always reports the latest bar and is therefore never still warming up.
 
 `channel_upper`/`channel_lower` are likewise nullable, same definition/source as `/analysis`'s `indicators.channel_upper`/`channel_lower` above (per-bar, not held fixed) — but null for a much longer leading span than `stochastic_k`/`force_index_2ema`: the Autoenvelope deviation-average needs a full ~100-bar trailing window, so both bands stay null for roughly the first 100 bars of any long-enough `range` (e.g. `range=max`) before becoming real numbers for every bar after that.
+
+`rsi` is likewise nullable, same definition/source as `/analysis`'s `indicators.rsi` above — null for the first 9 bars of any long-enough `range` (needs 9 daily closing changes), a much shorter warm-up than `stochastic_k`/`force_index_2ema`/`channel_upper`/`channel_lower`.
 
 Latency scales linearly with the number of daily bars in the ticker's *full* available history (not just the requested `range`), since `app.signals.engine.analyse_history` always needs the complete series for correct indicator warm-up even when `range` trims the response — see its own docstring for the precompute-and-slice design that makes this O(history_length) rather than the O(range_size × history_length) an earlier implementation had. Measured at roughly 1ms/bar (a `range=max` request against a synthetic ~11,500-bar series — about as long as AAPL's real daily history back to 1980 — completes in ~10s end to end), so a request against a ticker with decades of daily history is a multi-second, not sub-second, response; a ticker with a few years of history responds in well under a second.
 

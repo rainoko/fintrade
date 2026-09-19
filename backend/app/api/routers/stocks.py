@@ -395,6 +395,7 @@ def get_indicator_history(
             force_index_2ema=result.screens["wave"]["force_index_2ema"],
             channel_upper=result.indicators["channel_upper"],
             channel_lower=result.indicators["channel_lower"],
+            rsi=result.indicators["rsi"],
             signal=result.signal,
             confidence=result.confidence,
             confidence_band=result.confidence_band,

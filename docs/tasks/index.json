@@ -929,7 +929,7 @@
       "id": "backend-indicator-rsi",
       "area": "backend/indicators",
       "skill": "add-indicator",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-indicator-rsi.json"
     },
     {
