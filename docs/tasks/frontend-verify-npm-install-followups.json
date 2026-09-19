@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #115 review (frontend-verify-npm-install)",
   "area": "frontend/tooling",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-verify-npm-install"],
   "references": [
     "docs/tasks/done/frontend-verify-npm-install.json",
@@ -13,13 +13,26 @@
   "checklist": [
     {
       "step": "Add a short note near frontend/package.json's `overrides` entry (or in docs/architecture/Frontend.md's dependency table, next to the existing openapi-typescript row) explaining why the `openapi-typescript.typescript -> $typescript` override exists -- JSON has no comments, and the full rationale currently lives only in docs/tasks/done/frontend-verify-npm-install.json's decisions array, which a future contributor bumping openapi-typescript or typescript has no discoverable pointer to from the code itself.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tighten the frontend-verify-npm-install task's decision-entry wording (or add a superseding decisions entry) that claims openapi-typescript 'genuinely works correctly against typescript@6.0.3 at runtime' -- that conclusion was verified via byte-identical regenerated output for the current backend/openapi.json schema only, which has no oneOf/allOf/readOnly/webhooks. pr-reviewer additionally traced openapi-typescript's compiled runtime dist and confirmed it genuinely require('typescript')s and calls real TS compiler-API surface (ts.createSourceFile, ts.factory.createNodeArray, ts.createPrinter().printFile) -- not a type-only, build-time-only relationship as the source's `import type ts from \"typescript\"` might suggest. Consider a one-time smoke test against a synthetic schema exercising oneOf/allOf/readOnly to fully close the verification gap, or at minimum rephrase the decision to scope the claim to what was actually exercised.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the `resolutions` entry's rationale in docs/architecture/Frontend.md's Key Dependencies section (§6), directly below the dependency table, rather than as a JSON comment-workaround inside frontend/package.json itself (e.g. a `//` or `_comment` pseudo-key). The new paragraph explains: the underlying npm ERESOLVE conflict and upstream tracking issue, the `$typescript` back-reference mechanism, that it was translated from npm's `overrides` to Yarn's `resolutions` syntax during migrate-yarn2, a pointer to migrate-yarn2-followups' open question about whether this specific entry still does anything under Yarn's peer-only resolution semantics, and a pointer to this task's own decisions for the fuller verification record.",
+      "rationale": "package.json is strict JSON with no comment syntax, and a `_comment`-style pseudo-key inside `resolutions` risks npm/Yarn misinterpreting it as a real resolution target (or a linter/schema flagging it) for no real discoverability gain over documenting it in the architecture doc most contributors already read when touching dependencies (§6 is literally titled Key Dependencies and already has the openapi-typescript row right above). Frontend.md is also the natural place to note the migrate-yarn2-era translation and the still-open no-op question, which a package.json comment couldn't cross-reference as naturally."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed the verification gap with an actual one-time smoke test rather than only rephrasing the original claim: built a synthetic OpenAPI 3.1 schema exercising `oneOf` (a discriminated-union-shaped schema, `WidgetKind`), `allOf` (`Widget` composing a base + extension schema), `readOnly` properties (`BaseEntity.id`/`createdAt`), and a top-level `webhooks` object (`widgetUpdated`) -- none of which appear in backend/openapi.json. Ran the repo's installed `openapi-typescript@7.13.0` binary (frontend/node_modules/.bin/openapi-typescript) against it: generation succeeded with no errors, `oneOf` produced a TS union (`|`), `allOf` produced a TS intersection (`&`) of the composed schemas, `readOnly` produced `readonly` modifiers, and `webhooks` produced a separate `webhooks` interface alongside `paths` -- all semantically correct, not silently dropped or garbled. Then ran `tsc --strict --noEmit` (the project's own `typescript@6.0.3` binary) against the generated output: zero errors. This genuinely broadens the verified claim to cover the constructs the original PR #115 verification didn't exercise, so scoped the original decision-entry's wording down via this superseding entry rather than deleting/editing docs/tasks/done/frontend-verify-npm-install.json's text -- editing a done, merged task's decisions array after the fact would erase the accurate record of what was actually verified at that time (byte-identical regen against the real schema only). The corrected, now fully-scoped claim: openapi-typescript 7.13.0 generates semantically correct, `tsc --strict`-clean TypeScript under typescript@6.0.3 for both backend/openapi.json's actual feature footprint (verified via byte-identical regen, frontend-verify-npm-install) and the oneOf/allOf/readOnly/webhooks constructs it doesn't currently exercise (verified via this synthetic-schema smoke test) -- not just \"genuinely works correctly at runtime\" as an unscoped, exhaustive-sounding claim.",
+      "rationale": "Rejected doing nothing but rephrasing: a scoped-down claim alone leaves the actual behavior under those constructs unknown, and the synthetic schema was cheap to write and run (one ad hoc JSON fixture, two CLI invocations, no new permanent dependency or CI step) for real evidence instead of just weaker wording. Rejected committing the synthetic schema/generated output as a permanent fixture or vitest test: openapi-typescript is a dev-time codegen tool invoked manually against the committed backend/openapi.json snapshot, not exercised by the app's own runtime code path or the 90% coverage gate (CLAUDE.md's Testing standard governs app code, not tooling scripts), and backend/openapi.json is already regenerated-and-diffed on every real schema change per the API documentation standard -- a standing synthetic-schema test would be permanent maintenance burden for a construct-coverage question this one-time check (recorded here, reproducible from this decision's description) already answers. Rejected editing frontend-verify-npm-install's existing decision text directly: it accurately describes what was verified at the time it was written (byte-identical regen against the real schema, nothing more) and rewriting it after the fact would make a done, merged task's record read as if broader verification had already happened then, which it hadn't."
+    }
+  ],
   "questions": []
 }

@@ -649,7 +649,7 @@
       "id": "frontend-verify-npm-install-followups",
       "area": "frontend/tooling",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-verify-npm-install-followups.json"
     },
     {
