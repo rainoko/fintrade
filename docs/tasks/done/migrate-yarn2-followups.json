@@ -3,7 +3,7 @@
   "title": "Yarn Berry migration — non-blocking review follow-ups",
   "area": "infra",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["migrate-yarn2"],
   "references": [
     "docs/tasks/migrate-yarn2.json#review",
@@ -44,5 +44,12 @@
     "pr_number": 141,
     "pr_url": "https://github.com/rainoko/fintrade/pull/141",
     "pushed_at": "2026-09-19T03:31:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T03:36:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/141",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review with independent re-verification, not just a trust of the PR's own claims. (1) Spot-checked all 35 Prettier-reformatted files (not a sample) via `git diff main...HEAD` file-by-file: every change is mechanical whitespace/line-wrap or quote-style-for-escape-avoidance (e.g. AppErrorBoundary.test.tsx's `'...page\\'s...'` -> `\"...page's...\"`), no string literal content, test selector text, or object-key order changed anywhere; confirmed `frontend/src/api/types.ts` is untouched and still listed in `.prettierignore`; `npx prettier --check .` passes clean repo-wide post-change. (2) Independently re-verified the `resolutions` removal from a clean state: `rm -rf frontend/node_modules && yarn install --immutable` succeeded (proving no lockfile drift), `yarn.lock` md5 byte-identical before/after, `yarn why typescript` shows a single top-level `typescript@6.0.3` resolution with no nested copy under `openapi-typescript`, and `yarn generate:api-types` regenerated `src/api/types.ts` byte-identical to the committed file. (3) `docs/architecture/Frontend.md` §6's rewritten `resolutions` paragraph accurately reflects the investigation history and the verified-safe outcome, closing the open question the prior paragraph had flagged. Backend: 578 passed, 99.87% coverage (`pytest --cov`). Frontend: 344 passed, 99.69% statements/99.44% branches (`vitest run --coverage`). Static analysis: ruff, mypy, eslint, `tsc -b --noEmit` all clean. `code-review` skill (medium effort) independently reproduced the same conclusions and returned zero findings. No UI-facing behavior changed (pure formatting + dependency-config chore, no logic/copy/selector changes) so the manual Playwright walkthrough doesn't apply -- noted explicitly rather than silently skipped. Still ran the persisted e2e suite (`make e2e`) since three e2e spec files were among the reformatted files: 16/16 passed, matching the task's own claim. No API route/schema touched, so no openapi.json snapshot check needed. No new frontend component added, so no common/-vs-feature placement question arises. No checklist item phrased as \"decide X\" without a corresponding `decisions` entry -- both judgment calls (scope of the reformat pass; remove vs. document-as-inert for `resolutions`) are recorded with rationale. No existing `migrate-yarn2-followups-followups` task in `index.json`, and no non-blocking findings from this review to track."
   }
 }

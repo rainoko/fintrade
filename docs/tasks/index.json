@@ -817,8 +817,8 @@
       "id": "migrate-yarn2-followups",
       "area": "infra",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/migrate-yarn2-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/migrate-yarn2-followups.json"
     },
     {
       "id": "api-portfolio-position-signal",
