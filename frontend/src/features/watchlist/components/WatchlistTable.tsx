@@ -27,12 +27,14 @@ export interface WatchlistTableProps {
  * (POST itself, then the invalidated GET refetch that actually recomputes
  * its signal — see useAddWatchlistItem's own doc comment). Every column's
  * `render` below swaps in an animated MUI `Skeleton` for this row instead of
- * its (nonexistent) real data. Used directly inline here rather than
- * promoted to its own `components/common/` component — there's exactly one
- * usage site and no shared behavior to abstract beyond "render MUI's own
- * `Skeleton`, sized per column" (unlike SignalBadge/ConfidenceGauge, which
- * encapsulate real domain-specific coloring/formatting rules); see this
- * task's `decisions` entry.
+ * its (nonexistent) real data, except the action column (keyed
+ * `confidence_band`), which renders `null` — there is no remove action for a
+ * row that isn't a real entry yet, so no Skeleton is shown there either. Used
+ * directly inline here rather than promoted to its own `components/common/`
+ * component — there's exactly one usage site and no shared behavior to
+ * abstract beyond "render MUI's own `Skeleton`, sized per column" (unlike
+ * SignalBadge/ConfidenceGauge, which encapsulate real domain-specific
+ * coloring/formatting rules); see this task's `decisions` entry.
  */
 type WatchlistRow = WatchlistItemOut & { isPendingSkeleton?: boolean }
 
@@ -80,24 +82,51 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
   const [pendingRemove, setPendingRemove] = useState<WatchlistItemOut | null>(null)
   const removeWatchlistItem = useRemoveWatchlistItem()
 
-  const pendingAddTickers = useMutationState({
+  const pendingAdds = useMutationState({
     filters: { mutationKey: watchlistKeys.add, status: 'pending' },
-    select: (mutation) => (mutation.state.variables as WatchlistItemIn | undefined)?.ticker,
+    select: (mutation) => ({
+      ticker: (mutation.state.variables as WatchlistItemIn | undefined)?.ticker,
+      // Stable for the lifetime of this mutation call (set once when
+      // `mutate()` fires, unlike `new Date()` computed at render time, which
+      // would drift by a few ms on every re-render) — see the sort-stability
+      // note on the synthetic row below.
+      submittedAt: mutation.state.submittedAt,
+    }),
   })
   // Only one add mutation is ever in flight at a time in practice (its own
   // submit button is disabled/loading for the full duration, see
   // useAddWatchlistItem), but `.at(-1)` (most recently dispatched) is the
   // correct choice regardless, matching the "latest" convention
   // useMutationState's own docs use for reading a keyed mutation's state.
-  const pendingTicker = pendingAddTickers.at(-1)
+  const pendingAdd = pendingAdds.at(-1)
+  const pendingTicker = pendingAdd?.ticker
 
   let rows: WatchlistRow[] = items
-  if (pendingTicker !== undefined && !items.some((item) => item.ticker === pendingTicker)) {
+  if (
+    pendingAdd !== undefined &&
+    pendingTicker !== undefined &&
+    !items.some((item) => item.ticker === pendingTicker)
+  ) {
     rows = [
       ...items,
       {
         ticker: pendingTicker,
-        added_at: '',
+        // A real `WatchlistItemOut.added_at` sorts as an ISO timestamp;
+        // `''` isn't one, and DataTable's sort comparator only treats
+        // null/undefined as "missing" (always sorted last), so an empty
+        // string was compared as an ordinary string and sorted before every
+        // real date. That made the skeleton jump position the instant the
+        // real row (with its now-newest `added_at`) replaced it under an
+        // active sort. Using `submittedAt` (the mutation's own submit time,
+        // always at or just before the server sets the real row's
+        // `added_at` on that same POST) instead keeps the skeleton row
+        // sorted where the real "just added" row is about to land — first
+        // under a descending "Added" sort, last under ascending — so it
+        // stays in place across the pending-to-real swap instead of jumping.
+        // This column is never actually displayed for a pending row (its
+        // `render` below always swaps in a Skeleton), so only its *sort*
+        // value matters; see this task's `decisions` entry.
+        added_at: new Date(pendingAdd.submittedAt).toISOString(),
         signal: null,
         confidence: null,
         confidence_band: null,

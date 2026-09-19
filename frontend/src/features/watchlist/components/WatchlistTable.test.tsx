@@ -288,4 +288,44 @@ describe('WatchlistTable', () => {
     })
     await waitFor(() => expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument())
   })
+
+  it('keeps the pending skeleton row sorted at the "newest" end of the Added column instead of jumping', async () => {
+    // Every existing row's `added_at` is a fixed date well in the past, so
+    // the skeleton row (sorted by its mutation's own `submittedAt`, which is
+    // effectively "now") always sorts as the newest entry -- last ascending,
+    // first descending -- exactly where the real row will land once it
+    // replaces the skeleton, so its position never jumps across that swap.
+    server.use(
+      http.post('/api/watchlist', () => new Promise(() => {})), // never resolves; only the pending state matters here
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<TriggerAddHarness items={items} ticker="TSLA" />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-add' }))
+    await waitFor(() =>
+      expect(screen.getAllByTestId('watchlist-skeleton').length).toBeGreaterThan(0),
+    )
+
+    const table = screen.getByRole('table', { name: 'Watchlist' })
+    const getDataRows = () => within(table).getAllByRole('row').slice(1)
+    const skeletonRowIndex = () =>
+      getDataRows().findIndex(
+        (row) => within(row).queryAllByTestId('watchlist-skeleton').length > 0,
+      )
+
+    // Default sort is unsorted (GET's own oldest-first order); the pending
+    // row is appended last regardless.
+    expect(skeletonRowIndex()).toBe(getDataRows().length - 1)
+
+    // Ascending "Added" sort (the table's default direction on first click):
+    // the skeleton, sorting as "now", is still the newest -> still last.
+    await user.click(screen.getByRole('button', { name: 'Added' }))
+    expect(skeletonRowIndex()).toBe(getDataRows().length - 1)
+
+    // Descending: the newest sorts first, so the skeleton moves to the top
+    // -- not to some arbitrary middle position, and it stays there (rather
+    // than reordering again) once the real row eventually replaces it.
+    await user.click(screen.getByRole('button', { name: 'Added' }))
+    expect(skeletonRowIndex()).toBe(0)
+  })
 })

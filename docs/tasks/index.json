@@ -880,7 +880,7 @@
       "id": "frontend-watchlist-add-skeleton-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-watchlist-add-skeleton-followups.json"
     }
   ]
