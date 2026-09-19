@@ -98,5 +98,10 @@
       }
     ],
     "notes": "Accepted. All blocking checks pass: tests/coverage, lint/type-check, openapi.json + frontend types genuinely regenerated and in sync, no look-ahead bias (verified with a dedicated test), methodology thresholds are reasonable and well-justified interpretations of the book, confirming-bar hard gate and suggested_stop formula both verified correct, BIIB/FDO substitution claim verified accurate via grep, tail_date Pydantic-collision fix verified reproducible. Two non-blocking findings from code-review filed as docs/tasks/backend-kangaroo-tail-pattern-followups.json. No frontend UI surface in this PR -- browser walkthrough/e2e skipped explicitly per steps 9/9a."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T19:39:15Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites myself (backend: 740 passed, 99.92% coverage, kangaroo_tail.py 100%; frontend: 492 passed) and regenerated openapi.json/frontend/src/api/types.ts from scratch -- byte-identical to committed. Confirmed ruff/mypy/eslint/tsc: mypy/eslint/tsc clean, the 7 ruff findings are pre-existing on main (diffed main's own checkout) and untouched by this PR. Traced kangaroo_tail_confirmed_as_of's confirmed_position<=position filter myself and confirmed test_kangaroo_tail_appears_only_from_its_confirming_bar_onward_no_look_ahead genuinely proves a D-position tail stays invisible through bar D+0 and only appears from bar D+1 (its confirming bar) onward. Hand-checked TestUpwardTailDetection's suggested_stop: tail high=110/low=99 -> (110+99)/2=104.5, matching Elder's 'halfway through the tail' rule as the midpoint between the tip (110) and base (99). Skimmed the full diff; the two non-blocking findings are accurately characterized and correctly filed on backend-kangaroo-tail-pattern-followups.json."
   }
 }
