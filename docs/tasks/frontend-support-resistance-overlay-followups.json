@@ -36,5 +36,11 @@
       "rationale": "An intersection can only ever shrink the eligible window relative to the ratio-only baseline, never widen it, so the worst-case distortion bound already reasoned through in PR #152's own decisions entry can only improve, not regress -- this made the fix low-risk to adopt outright rather than deferring it as 'documented limitation'. The floor (10% of reference price) was chosen, rather than an unfloored raw span multiple, because an unfloored version would have required rewriting most of this file's own zone-relevance test fixtures (which use a synthetic, near-flat 2-bar dataset unrelated to what they're actually testing -- band rendering, the display cap, false-breakout windowing) to give them a more realistic multi-week price span, a much larger and riskier diff for a follow-up task than the concrete distortion bug being fixed warranted. The floor does mean a genuinely flat/quiet real trading window won't get the full tightening benefit this fix otherwise provides, but that's the strictly safer failure mode (falls back toward the pre-existing, already-accepted ratio-only bound) rather than the alternative of an over-tight window hiding zones that are genuinely still relevant. The multiplier (2x the effective span either side) and floor (10%) were picked to keep every pre-existing test passing while still excluding a zone ~40% away from a realistically narrow (non-floor-dominated) visible range, per this task's own throwaway Playwright verification -- not derived from a rigorous distortion-optimality analysis, since no such derivation was available without extensive real-market-data experimentation out of scope for a follow-up task of this size."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-support-resistance-overlay-followups",
+    "pr_number": 167,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/167",
+    "pushed_at": "2026-09-19T21:16:05Z"
+  }
 }
