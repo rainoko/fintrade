@@ -1097,7 +1097,7 @@
       "id": "frontend-tide-region-chart-shading",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-tide-region-chart-shading.json"
     },
     {
@@ -1260,6 +1260,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-safezone-stop-coefficient-fix-followups.json"
+    },
+    {
+      "id": "frontend-tide-region-chart-shading-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-tide-region-chart-shading-followups.json"
     }
   ]
 }

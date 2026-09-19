@@ -3,7 +3,7 @@
   "title": "Price chart: shade background regions by historical Screen 1 (Tide) trend",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-indicator-history-tide-exposure"
   ],
@@ -79,5 +79,23 @@
     "pr_number": 169,
     "pr_url": "https://github.com/rainoko/fintrade/pull/169",
     "pushed_at": "2026-09-19T22:43:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T23:22:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/169",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: buildTideRegionSegments (PriceChart.tsx) extends the trailing boundary of every segment except the LAST one (`for (let i = 0; i < segments.length - 1; i++)`), so a solo single-bar FINAL segment never gets the trailing point that turns a 1-point series into a real 2-point renderable span. When the most recent visible bar's tide.trend differs from the bar before it (the code's own doc comment calls this 'a real, common case'), that final segment has exactly one data point, which AreaSeries renders as nothing -- confirmed by the PR's own new test asserting `setDataMock` is called with a 1-point array for exactly this scenario (mixedTideIndicators' solo trailing Bearish bar). Today's (rightmost) background shading silently vanishes while tideRegionHelp.interpretValue's legend text keeps asserting a color for it -- a chart/legend mismatch on the single most decision-relevant day. Not observed live against ORCL/V's current cached data only because both tickers' own current Tide stretches happen to be multi-week, not solo-bar, at present.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 331
+      },
+      {
+        "summary": "Non-blocking (tracked on frontend-tide-region-chart-shading-followups): tideRegionHelp.interpretValue rounds the Bullish/Bearish/Neutral percentages of the visible bars independently, so the three displayed numbers don't always sum to 100% (e.g. a 1/1/1 3-bar split reads '33%/33%/33%', 99% total).",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 768
+      }
+    ],
+    "notes": "Backend (743 tests, 99.92% coverage) and frontend (521 tests, 99.63%/98.83%/99.65%/99.72% stmt/branch/func/line coverage) both pass the 90% gate; one frontend test flaked once under full-suite parallel load (PortfolioPage add-position timeout) but passed cleanly on re-run and in isolation -- unrelated to this PR's files. Backend ruff/mypy clean, frontend eslint/tsc clean. code-review skill run against the diff (found the blocking finding above plus the rounding nit). verify-elder-signal: the per-bar `tide` field is pure plumbing from the already-merged/reviewed evaluate_tide/analyse_history (#168, backend-indicator-history-tide-exposure) -- no new signal computation invented on the frontend; color-coding (green=Bullish/BUY-only, red=Bearish/SELL-only, amber=Neutral) matches docs/Analyse.md's Tide definition. Live browser walkthrough (make backend + make frontend, real cached ORCL/V data from backend/fintrade.db) across 1M/3M/6M/1Y/Weekly for both tickers: z-order correct (candlesticks/EMA/channel bands stay visible above the shading throughout), range-windowing correct (legend/MetricHelp balloon text reads from the exact same selectVisibleIndicatorPoints-windowed dataset the chart draws from -- verified live, e.g. V's balloon read 'Across the 251 bars currently shown: 9% Bullish, 16% Bearish, 75% Neutral' matching the visible shading), Weekly-interval gating correct (shading absent), the priceScale(id)-after-addSeries fix and the lineColor/no-title label-badge fix both verified correct, no console errors/network failures across the whole walkthrough. make e2e: all 16 specs pass, including stock-analysis.spec.ts's range/interval-toggle and Max-range coverage of PriceChart. No new common/ component introduced -- correctly reuses the existing MetricHelp/metricHelpContent.ts pattern per Frontend.md §3, so no placement finding. No API/schema touched by this PR, so no openapi.json staleness concern. Posted findings as a COMMENTED PR review (not approve/request-changes). Task moved back to implementing; git.pr_number/pr_url unchanged since the same PR should be updated with a fix rather than a new one opened."
   }
 }
