@@ -1,0 +1,91 @@
+{
+  "id": "frontend-verify-npm-install-followups-followups",
+  "title": "Non-blocking follow-ups from PR #137 review (frontend-verify-npm-install-followups)",
+  "area": "frontend/tooling",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-verify-npm-install-followups"],
+  "references": [
+    "docs/tasks/done/frontend-verify-npm-install-followups.json",
+    "https://github.com/rainoko/fintrade/pull/137",
+    "docs/tasks/migrate-yarn2-followups.json"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #137 (frontend-verify-npm-install-followups), which added a paragraph to docs/architecture/Frontend.md §6 documenting the openapi-typescript/typescript -> $typescript resolutions entry and ran a synthetic-schema smoke test broadening the runtime-verification claim. Neither finding blocks the accept (both are wording/cross-reference precision issues in documentation, not correctness bugs); both are tracked here so they aren't lost once PR #137's comments disappear on merge.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Frontend.md §6's new resolutions paragraph states as unconditional fact that the `$typescript` back-reference \"forces\" openapi-typescript to resolve typescript against the root version, then in the same sentence-group hedges that whether the entry \"still does anything under Yarn's resolution semantics\" is an open question -- the two claims sit in tension. docs/tasks/migrate-yarn2-followups.json's own still-open checklist item records that under Yarn, typescript is only a peerDependency of openapi-typescript (not a real dependency edge), so `resolutions` -- which only rewrites real edges -- is 'likely a no-op', and that peer resolution 'already converges on a single top-level typescript@6.0.3 without it' per migrate-yarn2's own verification. Independently reproduced during this review: `yarn install` still emits `YN0060: typescript ... doesn't satisfy what openapi-typescript ... requests (^5.0.0)` even with the resolutions entry in place, consistent with the entry not actually suppressing/redirecting anything under Yarn's peer-only semantics. Tighten the paragraph's wording so it doesn't assert 'forces' as settled fact when the entry's actual effect under Yarn is an open, tracked question -- e.g. scope the 'forces' language to the original npm `overrides` mechanism (PR #115) and describe the current Yarn `resolutions` translation more conditionally.",
+      "done": true
+    },
+    {
+      "step": "The same paragraph's closing sentence bundles three verification claims (fresh install is clean; generate:api-types regenerates byte-for-byte identical output; the synthetic oneOf/allOf/readOnly/webhooks smoke test is clean) and then points only to `frontend-verify-npm-install-followups`'s decisions for 'the full verification record'. The fresh-install-clean and byte-for-byte-identical evidence actually lives in the original (done) `frontend-verify-npm-install` task's decisions (PR #115), not the followups task's -- a reader following the given pointer for that part of the claim won't find it there. Either point to both tasks' decisions, or split the sentence so each claim's evidence is attributed to the task that actually recorded it.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-verify-npm-install-followups-followups",
+    "pr_number": 138,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/138",
+    "pushed_at": "2026-09-19T02:57:50Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded docs/architecture/Frontend.md §6's resolutions paragraph to scope the 'forces' claim to the original npm `overrides` mechanism (PR #115, where it's accurate -- npm's resolver genuinely rewrites the dependency edge) and describe the Yarn `resolutions` translation conditionally: under Yarn, `typescript` is only a `peerDependency` of `openapi-typescript` (not a real dependency edge), `resolutions` only rewrites the latter, so the entry 'likely no longer forces anything there' -- backed by the reproduced `YN0060` peer warning and the fact peer resolution already converges on `typescript@6.0.3` without it. Kept the pointer to `migrate-yarn2-followups` for whether it's safe to remove, rather than resolving that question here (out of this task's scope -- it's tracked and owned there). Separately, split the closing verification sentence's attribution: fresh-install-clean and byte-for-byte-identical regen now cite `frontend-verify-npm-install`'s decisions (PR #115, where that evidence actually lives), and the oneOf/allOf/readOnly/webhooks synthetic-schema smoke test cites `frontend-verify-npm-install-followups`'s decisions (PR #137, where that evidence lives) -- rather than one blanket pointer to only the followups task.",
+      "rationale": "Rejected removing the 'forces' language entirely (even for the npm/PR #115 context) -- it's factually accurate there and losing it would understate why the entry was added in the first place; the actual tension was only its unqualified extension to the current Yarn mechanism. Rejected resolving migrate-yarn2-followups' open question (e.g. by removing the resolutions entry outright) as part of this task -- that's explicitly out of scope per this task's own checklist wording ('tighten wording', not 'fix the underlying no-op'), and migrate-yarn2-followups already owns that decision with its own tracked checklist item; conflating the two would duplicate ownership of one question across two task files. Rejected merging the two verification-evidence citations back into one pointer for brevity -- the whole point of the finding was that a single pointer sends a reader to the wrong task for two of the three claims, so per-claim attribution is the actual fix, not a shorter but still-inaccurate blanket citation."
+    }
+  ],
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-19T03:00:19Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/138",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Read the reworded docs/architecture/Frontend.md §6 paragraph in full and confirmed it's internally consistent now: the 'forces' claim is scoped to the original npm overrides mechanism (PR #115), the Yarn resolutions translation is described conditionally ('likely no longer forces anything there'), and the open question of whether it's safe to remove is left, correctly, to migrate-yarn2-followups rather than resolved here.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      },
+      {
+        "summary": "Independently reproduced the YN0060 claim: ran `yarn install` in frontend/ with the resolutions entry present and got `YN0060: typescript is listed by your project with version 6.0.3 ..., which doesn't satisfy what openapi-typescript and other dependencies request (^5.0.0)` -- confirms the peer warning is real and the entry isn't suppressing it under Yarn.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      },
+      {
+        "summary": "Verified both cross-reference splits against the actual source tasks: docs/tasks/done/frontend-verify-npm-install.json's decisions genuinely contain the fresh-install-clean and byte-for-byte-identical generate:api-types claims (PR #115), and docs/tasks/done/frontend-verify-npm-install-followups.json's decisions genuinely contain the oneOf/allOf/readOnly/webhooks synthetic-schema smoke test (PR #137). The paragraph's per-claim citations now point to the correct task in each case.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      },
+      {
+        "summary": "Tests/coverage: backend pytest --cov=app --cov-fail-under=90 -- 578 passed, 99.87% coverage. Frontend vitest run --coverage -- 49 files/344 tests passed, 99.69%/99.44%/100%/99.69% (statements/branches/functions/lines). Both comfortably above the 90% gate, no regression vs. main -- expected, since this PR touches only docs + task-board JSON.",
+        "file": null
+      },
+      {
+        "summary": "Static analysis: backend ruff check app/ clean, mypy clean (39 files). Frontend yarn lint clean, yarn tsc -b --noEmit clean.",
+        "file": null
+      },
+      {
+        "summary": "code-review skill (medium effort, run independently against main...HEAD): no findings. Confirmed both edited JSON files are valid, decisions entries have both decision and rationale, and the state/index.json mirror was updated together.",
+        "file": null
+      },
+      {
+        "summary": "python3 scripts/validate_tasks.py -- no violations across 126 task files. index.json's state mirror (planned -> testing, now moved to done at accept) consistent with the task file's actual state and path.",
+        "file": null
+      },
+      {
+        "summary": "Not applicable to this PR, stated explicitly: no API route/schema touched (openapi.json untouched, correctly); no frontend component added/changed (step 7a placement check N/A); no new module/dependency/layer added (architecture-review not loaded); area is frontend/tooling, not backend/signals or backend/portfolio, and skill is null not verify-elder-signal, so verify-elder-signal doesn't apply; PR has no UI surface (docs + task-board JSON only), so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are both explicitly skipped, not silently omitted.",
+        "file": null
+      },
+      {
+        "summary": "Checklist cross-check: neither checklist item is phrased as 'decide X'; both are marked done and both have a corresponding decisions entry (decision + rationale) recording what was reworded and why, satisfying CLAUDE.md's decision-memory rule.",
+        "file": null
+      }
+    ],
+    "notes": "Trivial-scope docs-only PR as described: one paragraph reworded in docs/architecture/Frontend.md §6, resolving both non-blocking findings PR #137's review filed. Verified independently rather than trusting the description: re-read the paragraph and confirmed it's genuinely internally consistent (not just superficially reworded) and reproduced the underlying YN0060 peer warning myself via yarn install; cross-checked both citation targets (frontend-verify-npm-install and frontend-verify-npm-install-followups) against their actual decisions arrays and confirmed each claim now points to the task that actually recorded that evidence. Full test/coverage suites, static analysis, and an independent code-review pass all clean, matching PR #137's own numbers exactly (no regression, as expected for a docs-only change). No blocking findings; no new non-blocking findings either -- this PR fully closed out both items it set out to close. Accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T03:02:54Z",
+    "verdict": "merge",
+    "notes": "Independently re-read the reworded Frontend.md §6 paragraph and confirmed it's internally consistent (forces language scoped to npm overrides/PR #115; Yarn resolutions described conditionally with the open question left to migrate-yarn2-followups). Spot-checked both citation targets in their decisions arrays: frontend-verify-npm-install.json genuinely contains the fresh-install-clean and byte-for-byte generate:api-types claims (PR #115), and frontend-verify-npm-install-followups.json genuinely contains the oneOf/allOf/readOnly/webhooks synthetic-schema smoke test (PR #137). Re-ran backend pytest --cov=app --cov-report=term-missing (578 passed, 99.87% coverage) and frontend yarn vitest run --coverage (49 files, 344 tests passed, 99.69%/99.44%/100%/99.69%), and python3 scripts/validate_tasks.py (126 files, no violations) -- all match pr-reviewer's reported numbers exactly. Diff is docs + task-board JSON only, matching the described scope. Accept holds."
+  }
+}
