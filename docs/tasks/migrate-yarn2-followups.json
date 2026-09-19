@@ -38,5 +38,11 @@
       "rationale": "The prior investigation chain (this task's own checklist entry; migrate-yarn2's decisions and review from PR #116; frontend-verify-npm-install-followups-followups's decisions and review from PR #138, which independently reproduced the YN0060 peer warning with the entry present) had already conclusively established the entry does nothing under Yarn: `typescript` is only a peerDependency of `openapi-typescript`, not a real dependency edge, and Yarn's `resolutions` only rewrites real edges. Re-derived the evidence one more time here rather than just trusting the prior chain, since removal (unlike documenting) is a real code change: ran a fresh `yarn install` after deleting the field and diffed `frontend/yarn.lock` before/after (byte-identical, zero changes) and confirmed `node_modules/typescript` still resolves to a single top-level `typescript@6.0.3` with no nested copy under `node_modules/openapi-typescript` -- exactly the same outcome as with the entry present. Also reran `yarn generate:api-types` and diffed the regenerated `src/api/types.ts` against the committed file (byte-identical). JSON5/package.json comments aren't valid syntax in npm/Yarn's package.json (no comment support), so 'document as inert in package.json itself' wasn't actually available as an option -- the real choice was between removing it and leaving unexplained dead config with only external doc pointers (as it already had via migrate-yarn2-followups' own checklist and frontend-verify-npm-install-followups-followups' Frontend.md paragraph). Since the lockfile-diff evidence is now conclusive and reproduced independently three times across three separate PRs, removing the truly-inert entry is cleaner than perpetuating dead config a future reader has to keep re-verifying is safe to ignore; updated docs/architecture/Frontend.md's §6 `resolutions` paragraph (previously describing the entry as present-but-likely-inert with an open question) to instead describe its history and why it was removed, closing the open question the paragraph itself had flagged as `migrate-yarn2-followups`'s to resolve."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/migrate-yarn2-followups",
+    "pr_number": 141,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/141",
+    "pushed_at": "2026-09-19T03:31:53Z"
+  }
 }
