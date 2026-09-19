@@ -3,7 +3,7 @@
   "title": "Trade journal: closed-trade history with A-trade grades",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-trade-history-table",
     "backend-trade-grading"
@@ -16,19 +16,45 @@
   "checklist": [
     {
       "step": "Design the trade-journal list/detail view: entry/exit price+date, realized P&L, the three grades, exit-reason tag.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement as a new page or a section of the existing portfolio area -- decide placement and record.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp/inline content explaining each grade formula in plain terms next to the grade itself (e.g. 'you sold at 35% up the day's range -- Elder considers >50% very good'), not just the bare percentage.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook stories for any new common/ pieces; confirm 90% coverage gate holds; run make e2e if this introduces new navigable routes.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented the trade journal as a new `TradeJournalPanel` section on the existing `/portfolio` page (below `RiskPanel`), not a standalone route/nav entry.",
+      "rationale": "RiskPanel/PositionsTable already establish the precedent of stacking self-fetching, section-level components on PortfolioPage rather than spinning up a new route per data slice; the trade journal is a natural extension of the same page (a portfolio's closed-trade history) rather than a distinct navigation destination, and adding a nav item for a single table would clutter NavDrawer's currently-small item list. Rejected alternative: a new `/portfolio/trade-journal` route + NavDrawer entry -- would work but adds routing/nav surface for no functional benefit today; revisit if the journal grows filters/detail views substantial enough to want its own URL. Since no route was added, the e2e checklist item's 'if this introduces new navigable routes' condition doesn't apply -- existing portfolio.spec.ts coverage (positions table render/add/delete) is unaffected since TradeJournalPanel self-fetches independently and doesn't block the rest of the page on error/loading, mirroring RiskPanel/SellFlaggedPositionsCard's own isolation."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Created a new `features/portfolio/components/metricHelpContent.ts` registry (buyGradeHelp/sellGradeHelp/tradeGradeHelp) rather than adding trade-grade entries into `features/stocks/components/metricHelpContent.ts`.",
+      "rationale": "The stocks-feature file's own doc comment explicitly scopes it to 'every metric shown on StockDetailPage', and Frontend.md §3's placement test (a component/module belongs under the feature whose domain concepts it references) applies to this registry the same way it applies to components/hooks -- a closed trade's buy/sell/channel grade is a portfolio-feature concept, not a Triple Screen/confidence-scoring one. The task's instruction to 'add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism' is satisfied by reusing the exact same registry *pattern* (one entry per metric, `definition`/`elderContext`/`interpretValue` fed to the shared `common/MetricHelp`) in a feature-scoped file with the same name, not by literally appending portfolio content into a file documented as stock-detail-only. Rejected alternative: adding the three grade entries directly to the stocks file -- would leave that file's own scoping doc comment false and mix two features' domain vocabulary in one registry."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `components/common/SignedCurrency` component (colored +/-/zero dollar amount) for `realized_pnl`, mirroring `common/PercentChange`'s sign-based coloring but for currency, and a per-row `EXIT_REASON_LABELS` map (`features/portfolio/exitReasonLabels.ts`) mirroring `EXIT_FLAG_LABELS`'s existing convention.",
+      "rationale": "No existing component colors a signed dollar amount (PercentChange is percentage-only, RiskPercent is magnitude-only and never green); `realized_pnl` needs the same 'is this a gain or a loss' visual cue as `unrealized_pnl_pct` gets via PercentChange, so a small domain-agnostic common/ component (plain number in, no P&L domain knowledge) was the correct placement per Frontend.md §3's test, with the required story+test. The exit-reason label map follows the exact precedent EXIT_FLAG_LABELS/humanizeSnakeCase already set for a closed, app-defined enum rendered as a Chip, including the same 'unmapped value falls back to humanizeSnakeCase's generic capitalize-and-space fallback' forward-compat behavior."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Grade cells color only against the two thresholds docs/Analyse.md §7 actually states (buy/sell grade >50% is 'very good'; trade grade ~30%+ is an 'A' trade) rather than inventing a full A/B/C/D/F letter-grade scale.",
+      "rationale": "Analyse.md and the backend's own docstrings give exactly two anchor points for trade grade (>=30% 'A', ~10% 'C') and one for buy/sell grade (>50% 'very good') -- no documented boundary for B/D/F or for buy/sell grade's lower bands. Inventing additional cutoffs not grounded in the book/docs would risk misrepresenting Elder's methodology (exactly what verify-elder-signal-style review would flag). The UI shows the raw percentage plus a single bold/not-bold visual cue at the one documented threshold per grade, with the full plain-language explanation carried by each grade's MetricHelp popover instead of an invented letter grade."
     }
   ]
 }
