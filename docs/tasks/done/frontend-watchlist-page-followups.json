@@ -39,5 +39,13 @@
     "pr_number": 131,
     "pr_url": "https://github.com/rainoko/fintrade/pull/131",
     "pushed_at": "2026-09-19T01:18:00Z"
+  },
+  "state": "done",
+  "review": {
+    "reviewed_at": "2026-09-19T01:23:01Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/131",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest --cov (99.86%, 573 passed), frontend vitest --coverage (99.68% lines, 338 passed), backend ruff+mypy clean, frontend eslint+tsc clean, code-review skill (medium effort) found zero correctness/reuse issues. Verified the per-row disable guard (`mutation.isPending && mutation.variables === row.key`) is correctly scoped -- new unit tests in both WatchlistTable.test.tsx and PositionsTable.test.tsx explicitly assert an unrelated row's button stays enabled while another row's deletion is pending, ruling out the blanket-disable-in-reverse failure mode. Ran `make e2e`: 16/16 passing, including the new watchlist.spec.ts (navigate/add/signal-badge/remove using GOOGL, distinct from AAPL/MSFT already used elsewhere) -- spec assertions genuinely exercise the flow (signal badge text shape, confirm-dialog interaction, row disappearance), not a bare smoke test. Did a live browser walkthrough (Playwright driven directly against `yarn dev` + fixture-mode uvicorn, no MCP browser tool available in this session) on both /watchlist and /portfolio: clicked Remove/Delete, confirmed, then immediately re-clicked the same row's action button before refetch -- the second click was blocked by the disabled attribute in both cases, exactly one DELETE fired per page (204), no false 'Not found' ErrorState/alert appeared, and no console errors. This matches and confirms the fix described in the PR. No backend changes in this PR, so no OpenAPI snapshot check applies. No new components added (existing WatchlistTable/PositionsTable modified in place), so no common/-vs-feature-specific placement question arises. Both checklist items' 'worth addressing' framing is backed by decisions entries recording the fix scope and e2e ticker choice. No findings, blocking or non-blocking."
   }
 }

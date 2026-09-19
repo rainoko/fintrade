@@ -733,8 +733,8 @@
       "id": "frontend-watchlist-page-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-watchlist-page-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-watchlist-page-followups.json"
     },
     {
       "id": "frontend-dashboard-sell-flags",
