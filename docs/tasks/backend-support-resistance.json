@@ -3,7 +3,7 @@
   "title": "Horizontal support/resistance zone detection + false-breakout signal",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -74,5 +74,11 @@
       "decision": "Zones are exposed as pure informational context on AnalysisResponse.support_resistance_zones only -- NOT wired into Screen 1/2/3, the Impulse gate, confidence scoring, or app.portfolio.risk.protective_stop's stop-loss formula. No separate follow-up task filed for the protective_stop tightening idea (docs/ideas.md's own 'ties directly into existing app logic... tighten docs/Analyse.md §7's stop-loss calculation when price nears a known S/R zone' note).",
       "rationale": "This task's own description is explicit that using zones to tighten protective_stop is a separate, later task, out of scope here ('This task covers detection + strength scoring + false-breakout flagging + API exposure... Using this to tighten the existing stop-loss formula near a known zone... is a separate, later task -- note it as a natural follow-up but don't implement it here'), and offers a choice between filing a tracked follow-up task or simply noting it in a decisions entry -- this entry is that note. A dedicated follow-up task wasn't filed because the idea is already durably tracked on the board twice over: docs/ideas.md's own 'Missing entirely: horizontal support/resistance' entry already describes the protective_stop tie-in explicitly, and this task's own `references`/description will remain visible to next-task/a future session even once this task moves to docs/tasks/done/. Filing a redundant `<id>-followups` task (the pattern this repo otherwise uses for PR-review findings) was judged unnecessary scope-tracking overhead for an idea that's already this well-documented in two other durable places, unlike a PR-review finding which would otherwise vanish once the PR merges."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-support-resistance",
+    "pr_number": 147,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/147",
+    "pushed_at": "2026-09-19T10:08:31Z"
+  }
 }
