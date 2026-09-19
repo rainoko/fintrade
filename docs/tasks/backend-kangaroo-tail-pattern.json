@@ -3,7 +3,7 @@
   "title": "Kangaroo Tail candlestick pattern detector",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -64,5 +64,11 @@
       "decision": "AnalysisResponse.kangaroo_tail / each IndicatorHistoryPoint.kangaroo_tail expose the single MOST RECENTLY CONFIRMED tail as a persisting 'current state' (matching AnalysisResponse.divergence's own convention) rather than a sparse one-shot marker that only appears non-null on the exact bar it was confirmed. The nested KangarooTailOut schema names the tail bar's own date field `tail_date`, not `date` (unlike GET /api/stocks/{ticker}/indicators' own top-level per-point `date` field), because Pydantic v2 raises a real `PydanticUserError` ('field name clashing with a type annotation') when a model has a field literally named `date` typed `date` followed by ANOTHER field also typed `date` -- the second field's own `date` annotation resolves against the class body's own (by-then-already-bound) `date` field name instead of the module-level `datetime.date` import, since this file has no `from __future__ import annotations`. Kangaroo Tail detection + exposure is NOT wired into `_determine_signal`, the Impulse gate, or confidence scoring.",
       "rationale": "Persisting 'current state' semantics were chosen over a sparse per-bar marker because that's the established, already-reviewed precedent this codebase uses for every other 'detect an event, then report its ongoing relevance' signal on these same two endpoints (Divergence, and Indicator Seasons' own timeline in spirit) -- introducing a second, different exposure convention just for this one pattern would be a real, unjustified inconsistency for a consuming client (and the not-yet-implemented frontend-kangaroo-tail-markers task, already on the board, can derive 'this is a NEW tail' itself by diffing consecutive points' `tail_date`, the same way frontend-divergence-markers already had to for Divergence). Confirmed empirically (a real `PydanticUserError` reproduced and fixed during implementation, not a hypothetical) that a field literally named `date` cannot safely coexist with a second `date`-typed field in the same Pydantic model in this codebase's style (no `from __future__ import annotations`) -- `tail_date` avoids the collision entirely and matches this app's own existing sibling-schema convention of never using a bare `date` field name inside a nested object (FalseBreakoutOut uses `breakout_date`/`reentry_date`, DivergenceOut uses `first_extreme_date`/`second_extreme_date` -- neither uses a bare `date` field, which in hindsight is presumably why neither ever hit this same Pydantic error). Not wiring into `_determine_signal`/the Impulse gate/confidence scoring matches this task's own description (an explicit standalone pattern) and the identical scope precedent every sibling detection task (support_resistance, divergence, seasons) already established -- detection + exposure only, with methodology-level integration left as a deliberate, separate follow-up decision for a later task if ever wanted. Rejected alternatives: (a) a sparse per-bar marker (non-null only on the bar where a tail's own `confirmed_date` falls) -- rejected for the consistency reason above, and because it would make `AnalysisResponse.kangaroo_tail` (the latest-bar-only snapshot) usually null even when a still-recent, still-relevant tail exists just a few bars back, an inconsistent asymmetry with how `divergence` behaves on that same response; (b) naming the field `date` and instead reordering the schema's fields to dodge the Pydantic collision (e.g. put the `date`-named field last) -- rejected as a fragile ordering-dependent workaround that would silently break again the moment any field were reordered or a new one added before it, versus `tail_date`'s permanent, self-documenting fix that also matches this app's own established sibling-schema naming convention."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-kangaroo-tail-pattern",
+    "pr_number": 162,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/162",
+    "pushed_at": "2026-09-19T19:27:55Z"
+  }
 }
