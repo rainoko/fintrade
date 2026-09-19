@@ -1,5 +1,6 @@
 import type { Screens } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
+import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
 export type SignalConditionKey = 'tide' | 'impulse' | 'wave' | 'trigger'
 
@@ -99,8 +100,11 @@ export function explainSignal(
     // `TideScreen` doesn't expose a weekly bar count, so naming both
     // possibilities (rather than asserting "genuinely flat") is the most
     // this frontend can honestly say -- same reasoning as
-    // metricHelpContent.ts's tideHelp.interpretValue, mirrored here (see
-    // this task's `decisions` entry).
+    // metricHelpContent.ts's tideHelp.interpretValue, mirrored here via the
+    // shared TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE constant so the
+    // wording only needs fixing in one place going forward (see this task's
+    // and frontend-stock-detail-metric-help-followups-followups's own
+    // `decisions` entries).
     const weeklySlope = screens.tide.weekly_macd_histogram_slope
     const conditions: SignalConditionExplanation[] = [
       {
@@ -109,7 +113,7 @@ export function explainSignal(
         met: false,
         detail:
           weeklySlope === 'flat'
-            ? 'Tide is Neutral -- there isn’t enough weekly price history yet to compute a MACD-Histogram slope, or the weekly slope is genuinely flat -- either way, Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).'
+            ? `Tide is Neutral -- ${TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE} -- either way, Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).`
             : 'Tide is Neutral -- the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree, so Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).',
       },
       {

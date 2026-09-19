@@ -845,7 +845,7 @@
       "id": "frontend-stock-detail-metric-help-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-stock-detail-metric-help-followups-followups.json"
     },
     {

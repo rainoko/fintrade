@@ -84,6 +84,12 @@ describe('metricHelpContent', () => {
       expect(message).toMatch(/genuinely flat/)
     })
 
+    it('omits the raw "slope Flat" parenthetical in the flat-slope Neutral case, since asserting it unqualified would contradict the hedge in the same sentence', () => {
+      const message = tideHelp.interpretValue('NEUTRAL', 'flat')
+      expect(message).not.toMatch(/weekly MACD-H slope Flat/)
+      expect(message.startsWith('Currently Neutral --')).toBe(true)
+    })
+
     it('explains a Neutral tide with a rising/falling slope as a slope-vs-EMA disagreement', () => {
       const message = tideHelp.interpretValue('NEUTRAL', 'rising')
       expect(message).toMatch(/no directional Triple Screen setup/)

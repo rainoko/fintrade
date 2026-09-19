@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #128 review (frontend-stock-detail-metric-help-followups)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-stock-detail-metric-help-followups"],
   "references": [
     "docs/tasks/frontend-stock-detail-metric-help-followups.json",
@@ -15,11 +15,25 @@
   "checklist": [
     {
       "step": "metricHelpContent.ts's tideHelp.interpretValue Neutral/flat message still opens with an unqualified 'Currently Neutral (weekly MACD-H slope Flat)' clause before the hedged 'there isn't enough weekly price history yet ... or the weekly MACD-H slope is genuinely flat' clause in the very same sentence -- the raw slope label itself asserts 'Flat' with full confidence even in the <2-weekly-bar case where no slope was ever computed. This mirrors the same 'Flat' label shown unconditionally on the Tide (Screen 1) summary card next to the balloon. Inherent to evaluate_tide's current data model (TideResult/TideScreen expose only the string 'flat' for both causes, per this task's own parent's decisions entry) rather than a frontend bug, so genuinely low-impact and not worth a dedicated backend field on its own -- but worth revisiting together if/when a bar-count (or similar discriminating) field is ever added to TideScreen for the already-tracked <2-weekly-bar case.",
-      "done": false
+      "done": true
     },
     {
       "step": "metricHelpContent.ts's tideHelp.interpretValue and signalExplanation.ts's explainSignal now each independently hardcode their own near-identical 'there isn't enough weekly price history yet to compute a slope, or the weekly slope is genuinely flat' wording for the same underlying evaluate_tide ambiguity -- exactly the kind of duplicated copy that let this same inaccuracy drift out of sync once already (PR #127 fixed metricHelpContent.ts's copy; signalExplanation.ts's independent copy of the same bug went unnoticed until PR #128). Consider extracting a small shared helper/constant (e.g. a `tideNeutralFlatCause(slope)` string builder in a shared module, or at least a shared substring constant both call sites interpolate) so a future wording fix only has one place to touch instead of relying on a reviewer to notice a second copy again.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T01:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared hedge text as a single exported string constant (`TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE`) in a new colocated module `frontend/src/features/stocks/components/tideNeutralCause.ts`, rather than a `tideNeutralFlatCause(slope)` function as the checklist's example suggested. Both call sites already branch on `slope === 'flat'`/`weeklySlope === 'flat'` themselves for other reasons (metricHelpContent.ts also needs the branch to decide whether to show the slope-label parenthetical at all, per the other checklist item; signalExplanation.ts needs it to pick between two structurally different sentences, not just interpolate one hedge fragment) -- a function that took `slope` and returned the whole sentence would either have to also take a per-call-site continuation string/callback (more indirection than the actual duplication warranted) or bake in one of the two calling conventions, which doesn't fit signalExplanation.ts's differently-shaped surrounding sentence. A single shared constant for the exact overlapping substring, interpolated into each call site's own sentence, is the 'at least a shared substring constant' alternative the checklist item itself named, and is simpler for this actual case. Placed in `frontend/src/features/stocks/components/` (not `components/common/`) since the wording is Elder Triple Screen/evaluate_tide domain-specific (references weekly MACD-Histogram slope semantics directly), not a generic reusable UI primitive -- same placement test `signalExplanation.ts`/`metricHelpContent.ts` themselves already apply, and colocated with its only two consumers rather than a level up, matching how those two files are already split out of (but colocated with) the components that render them.",
+      "rationale": "Rejected a `tideNeutralFlatCause(slope)`-returns-full-sentence function because the two call sites' sentences differ in more than just the hedge fragment (different opening clause, different trailing clause, and metricHelpContent.ts additionally needs the `slope === 'flat'` boolean itself to decide on the parenthetical, addressed by the sibling checklist item) -- forcing a single function signature to cover both would either under-fit one call site or grow parameters/options that don't earn their complexity for a 2-consumer, ~120-character shared fragment. Rejected common/ because nothing about this wording is meaningful outside the Elder Tide/evaluate_tide context; a generic components/common/ helper would be a placement lie about its actual reusability, and no other feature area references evaluate_tide's NEUTRAL/flat semantics (verified via repository-wide grep before deciding)."
+    },
+    {
+      "timestamp": "2026-09-19T01:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the first checklist item (unqualified 'Flat' assertion before the hedge) by omitting the '(weekly MACD-H slope Flat)' parenthetical entirely from metricHelpContent.ts's Neutral-tide message when `slope === 'flat'`, rather than rewording it to hedge the label itself in place. The parenthetical is kept, unchanged, for the disagree branch (`slope !== 'flat'`, i.e. 'rising'/'falling'), where the raw slope value is never ambiguous.",
+      "rationale": "The finding is specifically that the sentence asserts 'Flat' with full confidence in the same breath it then hedges on whether a slope was ever computed at all -- self-contradictory regardless of how the hedge itself is phrased. Rewording the parenthetical in place (e.g. 'slope reads as Flat') would still assert a specific value for a reading that, in the <2-weekly-bar case, was never taken; only *not stating* the value in that branch actually removes the contradiction while still being accurate. This doesn't require any new backend field (the checklist item itself notes a bar-count field isn't worth adding for this alone) -- it only changes what the already-available `slope === 'flat'` boolean is used to decide."
     }
   ],
   "questions": []
