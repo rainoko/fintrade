@@ -98,6 +98,31 @@ class Indicators(BaseModel):
     )
 
 
+class FalseBreakoutOut(BaseModel):
+    direction: Literal["up", "down"] = Field(description="Which way price broke before failing back inside the zone -- 'up' through the upper edge, 'down' through the lower edge.")
+    breakout_date: date = Field(description="First date price closed beyond the zone.")
+    reentry_date: date = Field(description="First subsequent date price closed back inside [lower, upper] -- what confirms the breakout was false, per docs/ideas.md's Elder ch. 18 note.")
+    extreme_price: float = Field(description="The failed move's own extreme reached between breakout_date and reentry_date (the highest high for an 'up' false breakout, the lowest low for 'down') -- the book's explicit stop-placement reference: place a stop near this extreme, not further out.")
+
+
+class SupportResistanceZone(BaseModel):
+    role: Literal["support", "resistance"] = Field(description="Current role. A zone keeps existing with an inverted role after a confirmed (non-false) breakout rather than being discarded -- resistance price has since broken above and held becomes support, and vice versa.")
+    upper: float = Field(description="Upper edge of the horizontal congestion zone -- built from the clustered swing points' own closing prices, not the single most extreme high/low wick.")
+    lower: float = Field(description="Lower edge, mirrored.")
+    first_touch_date: date = Field(description="Date of the earliest swing point clustered into this zone.")
+    last_touch_date: date = Field(description="Date of the most recent swing point clustered into this zone.")
+    touch_count: int = Field(description="Number of swing points clustered into this zone (always >= 2).")
+    length_days: int = Field(description="Calendar days between first_touch_date and last_touch_date.")
+    length_category: Literal["minor", "intermediate", "major"] = Field(description="Elder ch. 18's length-based strength factor: minor ~2 weeks, intermediate ~2 months, major ~2 years.")
+    height_pct: float = Field(description="Zone height (upper - lower) as a percentage of the ticker's current (latest) close.")
+    height_category: Literal["minor", "intermediate", "major"] = Field(description="Elder ch. 18's height-based strength factor: minor ~1%, intermediate ~3%, major >=7% of current price.")
+    dollar_volume: float = Field(description="Elder's own dollar-strength formula: days-in-zone x average daily volume x average price, over the zone's own touch span. Informational only -- not folded into strength_score, since the book gives no absolute dollar-value thresholds to classify it against.")
+    strength_score: float = Field(description="0-100 composite of length_category and height_category only (see dollar_volume's own description for why). A rule-based composite, like `confidence` (docs/Analyse.md §6) -- not a statistical probability.")
+    broken: bool = Field(description="Whether a daily close has confirmed a permanent break beyond this zone (a true breakout, distinct from false_breakout below) since its last touch -- role has already flipped to the opposite of its original side in that case.")
+    break_date: date | None = Field(default=None, description="Date of the confirmed break. Null if never broken.")
+    false_breakout: FalseBreakoutOut | None = Field(default=None, description="The most recent false-breakout episode detected for this zone (docs/ideas.md, Elder ch. 18: price closes beyond the zone, then closes back inside it -- a specific, high-value reversal signal). Null if none detected. Can be non-null even when broken is also true, if an earlier false breakout was followed by a later, separate breakout that did hold.")
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     as_of: date
@@ -107,6 +132,7 @@ class AnalysisResponse(BaseModel):
     screens: Screens
     confidence_breakdown: list[ConfidenceBreakdownItem] = Field(description="Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.")
     indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 7 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
+    support_resistance_zones: list[SupportResistanceZone] = Field(description="Horizontal support/resistance zones detected from swing-point clustering over the ticker's full available daily history (docs/ideas.md, Elder ch. 18) -- up to the 15 strongest by strength_score, descending. Not currently wired into signal/confidence computation or protective_stop -- informational context only (see the backend-support-resistance task's decisions for why tightening protective_stop near a zone is an explicit, separate follow-up).")
 
 
 # --- /api/stocks/{ticker}/indicators ------------------------------------

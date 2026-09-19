@@ -8,12 +8,14 @@ from app.api.schemas import (
     AnalysisResponse,
     ConfidenceBreakdownItem,
     ErrorDetail,
+    FalseBreakoutOut,
     HistoryResponse,
     IndicatorHistoryPoint,
     IndicatorHistoryResponse,
     Indicators,
     OHLCVBar,
     Screens,
+    SupportResistanceZone,
 )
 from app.data.base import DataProvider
 from app.data.exceptions import (
@@ -22,6 +24,7 @@ from app.data.exceptions import (
     TickerNotFoundError,
 )
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
+from app.signals.support_resistance import Zone, detect_support_resistance_zones
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
 # or the literal 'max' for full available history. Matches the one example API.md gives
@@ -181,6 +184,41 @@ def _trim_to_range(ohlcv: pd.DataFrame, range_param: str) -> pd.DataFrame:
     return ohlcv[ohlcv.index > cutoff]
 
 
+def _zone_to_schema(zone: Zone) -> SupportResistanceZone:
+    """Maps `app.signals.support_resistance.Zone` (the domain type, keeping `pd.Timestamp`
+    fields per that module's own contract) onto `SupportResistanceZone` (the API schema,
+    plain `datetime.date` fields) -- mirrors the `cast(Screens, ...)`/`cast(Indicators, ...)`
+    boundary `get_analysis` already draws between `app.signals.engine`'s dicts and their
+    schema counterparts, just via an explicit field-by-field mapping instead of a cast, since
+    `Zone` is a dataclass (not already dict-shaped like `SignalResult.screens`/`.indicators`)."""
+    return SupportResistanceZone(
+        role=zone.role,
+        upper=zone.upper,
+        lower=zone.lower,
+        first_touch_date=zone.first_touch_date.date(),
+        last_touch_date=zone.last_touch_date.date(),
+        touch_count=zone.touch_count,
+        length_days=zone.length_days,
+        length_category=zone.length_category,
+        height_pct=zone.height_pct,
+        height_category=zone.height_category,
+        dollar_volume=zone.dollar_volume,
+        strength_score=zone.strength_score,
+        broken=zone.broken,
+        break_date=zone.break_date.date() if zone.break_date is not None else None,
+        false_breakout=(
+            FalseBreakoutOut(
+                direction=zone.false_breakout.direction,
+                breakout_date=zone.false_breakout.breakout_date.date(),
+                reentry_date=zone.false_breakout.reentry_date.date(),
+                extreme_price=zone.false_breakout.extreme_price,
+            )
+            if zone.false_breakout is not None
+            else None
+        ),
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -228,6 +266,15 @@ def get_analysis(
 
     daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
     result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
+    # Computed directly here rather than inside `app.signals.engine.analyse()`/
+    # `analyse_history()`: unlike every other `indicators`/`screens` field, zone detection
+    # isn't a per-bar scalar `analyse_history()`'s precompute-and-slice pattern would benefit
+    # from sharing -- it's a whole-history swing/cluster/breakout pass consumed only here (this
+    # task's checklist scopes exposure to GET /api/stocks/{ticker}/analysis only, not
+    # GET /api/stocks/{ticker}/indicators), so folding it into `analyse()` would pay its cost
+    # on every one of `analyse_history()`'s up-to-thousands of per-bar calls for no consumer --
+    # see this task's `decisions` entry.
+    zones = detect_support_resistance_zones(daily_ohlcv)
 
     latest_bar = daily_ohlcv.index[-1] if len(daily_ohlcv) > 0 else weekly_ohlcv.index[-1]
     as_of = latest_bar.date() if hasattr(latest_bar, "date") else latest_bar
@@ -251,6 +298,7 @@ def get_analysis(
             for c in result.breakdown
         ],
         indicators=cast(Indicators, result.indicators),
+        support_resistance_zones=[_zone_to_schema(zone) for zone in zones],
     )
 
 

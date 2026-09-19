@@ -59,7 +59,26 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
     "bear_power": -1.4,
     "channel_upper": 236.9,
     "channel_lower": 215.9
-  }
+  },
+  "support_resistance_zones": [
+    {
+      "role": "resistance",
+      "upper": 236.9,
+      "lower": 233.4,
+      "first_touch_date": "2026-06-02",
+      "last_touch_date": "2026-08-14",
+      "touch_count": 3,
+      "length_days": 73,
+      "length_category": "intermediate",
+      "height_pct": 1.5,
+      "height_category": "minor",
+      "dollar_volume": 12400000000,
+      "strength_score": 50,
+      "broken": false,
+      "break_date": null,
+      "false_breakout": null
+    }
+  ]
 }
 ```
 
@@ -68,6 +87,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 `screens.wave.state` reflects only *today's* bar. `_determine_signal` (Analyse.md §5) actually gates a fresh BUY/SELL on whether the qualifying state appeared on *any* of the last 5 trading days ("Wave shows/showed..."), not just today — `showed_pullback_in_lookback`/`showed_rally_in_lookback` expose that lookback result directly, so a client can tell "the condition was met on an earlier day within the window" apart from "it was never met at all", which `state` alone can't distinguish. Both are `null` when `screens.tide.trend` is `NEUTRAL` (Wave is never evaluated against a direction in that case); otherwise both are real booleans, including the direction that's structurally always `false` for the current tide.
 
 `indicators.channel_upper`/`channel_lower` are the Autoenvelope/Channel band (Analyse.md §4: "EMA 13 ± avg % deviation") — `app.indicators.autoenvelope.autoenvelope`'s `mid * (1 ± avg_pct)`, where `mid` equals this same response's `ema_13`. This is the exact band `app.portfolio.exits.evaluate_exit_flags` already tests internally for the "price reaches the upper Autoenvelope band with Impulse turning Red" existing-position exit rule (Analyse.md §7), now exposed for any ticker rather than only a held portfolio position — see the `backend-channel-envelope-exposure` task's `decisions` for why this reuses the app's existing EMA(13)-backed channel rather than adding a second, slower-EMA variant. Both are `null` for the first ~100 trading days of a ticker's history, since the rolling deviation-average window (100 bars by default) isn't yet full — a much longer warm-up than any other `indicators` field, which only need up to 26 bars.
+
+`support_resistance_zones` is a list of horizontal support/resistance zones (Analyse.md §4 row 9, Elder ch. 18) detected from swing-point clustering over the ticker's full available daily history — `app.signals.support_resistance.detect_support_resistance_zones`, computed directly in `get_analysis` (not inside `app.signals.engine.analyse()`, since it's not needed by `GET /api/stocks/{ticker}/indicators`'s per-bar `analyse_history()` loop — see the `backend-support-resistance` task's `decisions`). Up to the 15 strongest zones, ordered by `strength_score` descending. Each zone's `role` (`support`/`resistance`) is its *current* role — a broken zone keeps existing with an inverted role (old resistance becomes new support) rather than being discarded, per Elder's own rule; `broken`/`break_date` record a confirmed break, and `false_breakout` (nullable) records the most recent false-breakout episode — price closing beyond the zone, then closing back inside it within a 10-trading-day window — with `extreme_price` giving the failed move's own extreme, Elder's explicit stop-placement reference. `dollar_volume` is Elder's own `days-in-zone × average volume × average price` formula, exposed raw (not folded into `strength_score`, which is a length/height-only composite — see Analyse.md §4). This is detection + scoring + false-breakout flagging only: zones are not wired into `signal`/`confidence`/`screens` above, nor into `GET /api/portfolio/risk`'s `protective_stop` — see Analyse.md §4 and the task's `decisions` for why that's an explicit, separate follow-up.
 
 ### `GET /api/stocks/{ticker}/indicators`
 

@@ -12,6 +12,7 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 """
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_data_provider
@@ -199,6 +200,10 @@ class TestGetAnalysis:
         # test_channel_bands_populated_with_sufficient_history for the populated case.
         assert body["indicators"]["channel_upper"] is None
         assert body["indicators"]["channel_lower"] is None
+        # This fixture (26 bars) is also far too short to produce any support/resistance
+        # zone (min_zone_length_days=14 plus the fractal/clustering machinery needs real
+        # repeated touches) -- see TestSupportResistanceZones below for the populated case.
+        assert body["support_resistance_zones"] == []
 
     def test_malformed_latest_daily_bar_is_excluded_not_nulled(self) -> None:
         """Regression test for the real, observed yfinance condition this task fixes: the
@@ -361,3 +366,87 @@ class TestGetAnalysis:
         response = _get_analysis(provider)
 
         assert response.status_code == 503
+
+
+def _bar(high: float, low: float, close: float, volume: float = 1_000_000.0) -> dict:
+    return {"open": close, "high": high, "low": low, "close": close, "volume": volume}
+
+
+def _filler_bar(i: int) -> dict:
+    # Strictly monotonic -- never ties a neighbor, so it never registers as a swing point
+    # itself. Same technique as tests/unit/signals/test_support_resistance.py's fixtures.
+    close = 90.0 + 0.001 * i
+    return {"open": close, "high": close + 1.0, "low": close - 1.0, "close": close, "volume": 500_000.0}
+
+
+def _zones_daily_ohlcv(overrides: dict[int, dict], n: int = 60) -> pd.DataFrame:
+    rows = [_filler_bar(i) for i in range(n)]
+    for i, bar in overrides.items():
+        rows[i] = bar
+    return pd.DataFrame(rows, index=pd.bdate_range(start="2024-01-02", periods=n, name="date"))
+
+
+class TestSupportResistanceZones:
+    """Integration coverage for support_resistance_zones' end-to-end wiring (detection ->
+    schema -> JSON) -- the detection algorithm itself is exhaustively unit-tested against
+    hand-derived values in tests/unit/signals/test_support_resistance.py; these tests only
+    need to prove GET /api/stocks/{ticker}/analysis actually calls it and serializes the
+    result correctly."""
+
+    def test_clean_zone_is_detected_and_serialized(self) -> None:
+        daily = _zones_daily_ohlcv(
+            {
+                4: _bar(110.0, 107.0, 109.0),
+                24: _bar(110.0, 107.0, 109.3),
+                44: _bar(110.0, 107.0, 108.8),
+            }
+        )
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _hold_weekly_ohlcv()})
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        zones = response.json()["support_resistance_zones"]
+        matches = [z for z in zones if z["role"] == "resistance" and z["lower"] == pytest.approx(108.8)]
+        assert len(matches) == 1
+        zone = matches[0]
+        assert zone["upper"] == pytest.approx(109.3)
+        assert zone["touch_count"] == 3
+        assert zone["first_touch_date"] == daily.index[4].date().isoformat()
+        assert zone["last_touch_date"] == daily.index[44].date().isoformat()
+        assert zone["length_category"] == "minor"
+        assert zone["height_category"] == "minor"
+        assert zone["broken"] is False
+        assert zone["break_date"] is None
+        assert zone["false_breakout"] is None
+
+    def test_role_flip_and_false_breakout_serialize_correctly(self) -> None:
+        overrides = {
+            4: _bar(110.0, 107.0, 109.0),
+            24: _bar(110.0, 107.0, 109.3),
+            44: _bar(110.0, 107.0, 108.8),
+            # False breakout: closes above, then back inside, within the window.
+            48: _bar(120.0, 112.0, 115.0),
+            49: _bar(110.0, 108.9, 109.0),
+        }
+        # True breakout later on, never reentering.
+        for i in range(53, 60):
+            overrides[i] = _bar(130.0, 125.0, 128.0)
+        daily = _zones_daily_ohlcv(overrides)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _hold_weekly_ohlcv()})
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        zones = response.json()["support_resistance_zones"]
+        matches = [z for z in zones if z["lower"] == pytest.approx(108.8) and z["upper"] == pytest.approx(109.3)]
+        assert len(matches) == 1
+        zone = matches[0]
+        assert zone["broken"] is True
+        assert zone["role"] == "support"
+        assert zone["break_date"] == daily.index[53].date().isoformat()
+        false_breakout = zone["false_breakout"]
+        assert false_breakout["direction"] == "up"
+        assert false_breakout["breakout_date"] == daily.index[48].date().isoformat()
+        assert false_breakout["reentry_date"] == daily.index[49].date().isoformat()
+        assert false_breakout["extreme_price"] == pytest.approx(120.0)

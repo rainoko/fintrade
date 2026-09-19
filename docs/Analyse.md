@@ -78,10 +78,25 @@ Use this as a hard **gate**: if Impulse is Red, do not emit a fresh Buy signal e
 | 6 | Autoenvelope (Channel) | Daily | EMA 13 ± avg % deviation | Profit-target / take-profit zone, overextension |
 | 7 | Volume | Daily | raw + relative to 20-day avg | Confirms Force Index spikes, confirms breakouts |
 | 8 | Prior day High/Low | Daily | — | Screen 3 entry trigger |
+| 9 | Support/Resistance Zones | Daily | fractal swing clustering (see below) | Horizontal congestion-zone detection, strength scoring, false-breakout signal |
 
 Optional/secondary (not required for MVP, note for future): Williams %R, SafeZone stops (volatility-based trailing stop using average of downside/upside penetrations), Directional System / ADX for trend strength.
 
 Row 6 (Autoenvelope/Channel) already fed the §7 existing-position exit rule internally, but was otherwise invisible outside a held portfolio position until it was also exposed as `channel_upper`/`channel_lower` on `GET /api/stocks/{ticker}/analysis` and `GET /api/stocks/{ticker}/indicators` for *any* ticker — see `docs/architecture/API.md` for the response shape. No new math: both endpoints reuse this same EMA(13)-backed formula (see the `backend-channel-envelope-exposure` task's `decisions` for why EMA(13), not the book's own slower-EMA channel variant, was kept).
+
+Row 9 (Support/Resistance Zones), Elder ch. 18: a horizontal congestion zone is the price band where price repeatedly stalled — built from the *closing* prices of clustered swing highs/lows, not the single most extreme wick that happened to touch it once. Detection algorithm (`app.signals.support_resistance.detect_support_resistance_zones`, see the `backend-support-resistance` task's `decisions` for the full rationale — the book states the concept precisely but not a mechanical algorithm, so every parameter below is this app's own judgment call):
+
+1. **Swing points**: a 5-bar fractal (today plus 2 bars each side) — a bar is a swing high if its `high` is the max of that window, a swing low if its `low` is the min.
+2. **Clustering**: each swing point's own *close* price (sequential 1-D clustering, merging a point into the running cluster if within 1% of the cluster's mean) forms a candidate zone once it has ≥2 touches spanning ≥2 weeks (below that floor, not reported as a zone at all).
+3. **Strength scoring**, per the book's three factors:
+   - **Length**: minor ~2 weeks, intermediate ~2 months (60 days), major ~2 years (730 days) — the book's own thresholds, used as category boundaries directly.
+   - **Height** (as % of the ticker's *current* price, not the zone's own touch-era price): minor ~1%, intermediate ~3%, major ≥7% — category boundaries set at the midpoints between the book's three anchor values (2%, 5%) so each anchor itself classifies as the book intends.
+   - **Volume**: Elder's own explicit dollar-strength formula, `days-in-zone × average daily volume × average price` over the zone's touch span — exposed raw as `dollar_volume` (no absolute-value thresholds exist to classify it into minor/intermediate/major, unlike length/height).
+   - `strength_score` (0–100) is a composite of the length and height categories only (not `dollar_volume`, for the reason above).
+4. **Role-flipping**: once formed, a zone is scanned forward for a daily close beyond it. If price never closes back inside the zone within a 10-trading-day confirmation window, the break is confirmed: the zone's role flips (old resistance becomes new support, and vice versa) rather than the zone being discarded. At most one flip per zone is tracked by the current implementation (see `decisions`).
+5. **False breakout**: if price *does* close back inside the zone within that same window, it's flagged as a false breakout instead of a confirmed break — role does not flip. `extreme_price` records the failed move's own extreme (its highest high, or lowest low) — Elder's explicit stop-placement reference: a stop belongs near that extreme, not further out.
+
+Exposed on `GET /api/stocks/{ticker}/analysis` as `support_resistance_zones` (up to the 15 strongest zones by `strength_score`) — see `docs/architecture/API.md`. **Detection + scoring + false-breakout flagging + API exposure only**: zones are not (yet) wired into Screen 1/2/3, the Impulse gate, confidence scoring, or §7's `protective_stop()` formula — using a known zone to tighten that stop near support/resistance is an explicit, natural follow-up this task intentionally left unimplemented (see `decisions`).
 
 ---
 
