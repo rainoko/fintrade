@@ -3,7 +3,7 @@
   "title": "Frontend e2e fixture provider — non-blocking review follow-up",
   "area": "frontend/testing",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-e2e-tests-followups"],
   "references": [
     "docs/tasks/frontend-e2e-tests-followups.json#review",
@@ -18,11 +18,17 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-19T00:00:00Z",
+      "timestamp": "2026-09-19T02:32:46Z",
       "recorded_by": "task-worker",
       "decision": "Added memoization to FixtureDataProvider.get_daily_ohlcv as a per-instance dict cache (self._daily_cache, keyed by upper-cased ticker) rather than functools.lru_cache on the method, and left get_weekly_ohlcv unchanged (it already calls self.get_daily_ohlcv per PR #104, so it now benefits from the cache for free).",
       "rationale": "app.api.dependencies.get_data_provider constructs a fresh FixtureDataProvider() per request, so a plain instance attribute already scopes the cache exactly right: shared across get_daily_ohlcv/get_weekly_ohlcv calls within one request, and discarded with the instance at the end of it. functools.lru_cache decorating an instance method keys each cache entry on (self, ticker) but the cache dict itself lives on the *function* (i.e. the class), not the instance -- it would keep a strong reference to every FixtureDataProvider instance ever constructed for as long as the process runs (only ever an issue for a long-lived process serving many e2e requests, but a real one), and would need an explicit maxsize/eviction policy to bound that. No cache-invalidation/TTL logic is needed either way: get_daily_ohlcv's output is a pure, deterministic function of ticker alone (seeded RNG keyed off the ticker name, per the class docstring), so a cached value never goes stale -- verified safe against aliasing too, since no caller in app/api/routers/{stocks,watchlist,portfolio}.py or app/signals/*.py mutates a provider-returned OHLCV frame in place (grepped for inplace=True / column-assignment on a provider frame; found none), and _trim_to_range's 'max' branch already returns the exact same object reference as the live providers do today, so sharing one cached object across both calls doesn't introduce a new aliasing risk beyond what already existed."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-e2e-tests-followups-followups",
+    "pr_number": 136,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/136",
+    "pushed_at": "2026-09-19T02:32:46Z"
+  }
 }
