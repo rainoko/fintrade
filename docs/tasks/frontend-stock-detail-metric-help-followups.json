@@ -49,7 +49,10 @@
     }
   ],
   "git": {
-    "branch": "task/frontend-stock-detail-metric-help-followups"
+    "branch": "task/frontend-stock-detail-metric-help-followups",
+    "pr_number": 128,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/128",
+    "pushed_at": "2026-09-19T00:55:00Z"
   },
   "questions": []
 }
