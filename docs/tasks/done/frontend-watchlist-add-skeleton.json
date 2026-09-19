@@ -3,7 +3,7 @@
   "title": "Watchlist: animated skeleton row while a newly-added ticker's data is still loading",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/features/watchlist/components/AddTickerForm.tsx",
@@ -46,5 +46,23 @@
     "pr_number": 132,
     "pr_url": "https://github.com/rainoko/fintrade/pull/132",
     "pushed_at": "2026-09-19T01:41:47Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T01:48:45Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/132",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: the synthetic pending-add row's `added_at: ''` isn't treated as 'missing' by DataTable's sort comparator (which only special-cases null/undefined), so sorting the 'Added' column ascending puts the skeleton row at the top instead of a stable position, and it visibly jumps to the bottom the instant the real (newest-timestamped) row replaces it -- mirror-image issue when sorted descending. Tracked as frontend-watchlist-add-skeleton-followups.",
+        "file": "frontend/src/features/watchlist/components/WatchlistTable.tsx",
+        "line": 96
+      },
+      {
+        "summary": "Non-blocking: the WatchlistRow doc comment claims 'every column's render below swaps in an animated MUI Skeleton for this row', but the action column (confidence_band key) correctly renders null instead for a pending row (no remove action makes sense for a not-yet-real row) -- the comment overstates actual behavior. Tracked as frontend-watchlist-add-skeleton-followups.",
+        "file": "frontend/src/features/watchlist/components/WatchlistTable.tsx",
+        "line": 29
+      }
+    ],
+    "notes": "Full review of PR #132. Backend unchanged (no diff under backend/, no OpenAPI check applicable). Coverage: backend pytest --cov 99.86% (573 passed, gate untouched since no backend changes), frontend vitest --coverage 99.69% statements / 99.44% branches (343 passed) -- both well above the 90% gate. Static analysis clean on both sides: backend ruff + mypy (no issues), frontend eslint + tsc -b --noEmit (no issues). code-review skill (medium effort) ran and returned exactly the two non-blocking findings recorded above (sort-order sentinel, doc-comment overstatement) -- no correctness bugs, no reuse/efficiency issues. No new module/dependency/layer introduced (useMutationState is an existing export of the already-installed @tanstack/react-query, confirmed against node_modules), so architecture-review wasn't separately invoked. No new component file added under components/common/ or a features/ folder -- the Skeleton usage is inline in the existing WatchlistTable.tsx per this task's own recorded (and reasonable) decision not to promote it, so the 7a placement question doesn't newly arise here. area is frontend/pages/watchlist, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply. Ran make e2e: 16/16 specs passed, including the pre-existing watchlist.spec.ts golden path (add/remove with a real fixture-backed signal) -- no regression. Did a live browser walkthrough (yarn dev + fixture-mode uvicorn manually started; no Playwright MCP tool registered in this session, so drove real Chromium directly via playwright-core from a scratch script instead, screenshots taken) covering all three scenarios the task calls for: (1) added a brand-new ticker (MSFT) with the GET refetch triggered by invalidateQueries deliberately delayed via page.route -- the animated skeleton row appeared immediately on submit across all 4 data columns, the Add button stayed disabled/loading for the whole window, no real MSFT row was visible while the skeleton showed, and the skeleton cleanly resolved into the real row (HOLD/confidence gauge) the instant the delayed GET resolved, not after any fixed timer; (2) re-added an already-watched ticker (AAPL) -- confirmed zero skeleton cells ever rendered and no duplicate row appeared; (3) forced the POST to fail (mocked 500) for a not-yet-watched ticker (GOOGL) -- confirmed the skeleton never persisted/orphaned, the ErrorState alert appeared with the failure detail, and no stray GOOGL row was added. No console errors or failed-request entries beyond the deliberately-triggered 500 itself. Verified via node_modules/@tanstack/query-core source that useMutationState's mutationKey filter does a partial (prefix) match by default, so `watchlistKeys.add` correctly scopes to exactly this mutation and no other; verified AddTickerForm's MUI Button `loading` prop disables the button, so only one add can be in flight at a time in the real UI, matching this task's own documented rationale for using `.at(-1)` on the pending-mutations array. Unit and integration tests (WatchlistTable.test.tsx, WatchlistPage.test.tsx) genuinely exercise the delayed-response skeleton-then-real-row, error-clears-skeleton, and duplicate-add-no-stray-skeleton cases (not just asserted without a real async gap), matching what the browser walkthrough independently confirmed. All checklist items phrased as 'decide X' have corresponding decisions entries with real rationale (pending-state location via useMutationState, one-off vs common/ Skeleton, idempotent-duplicate no-skeleton handling); no undocumented judgment calls found. Two non-blocking findings recorded above and filed as frontend-watchlist-add-skeleton-followups."
   }
 }

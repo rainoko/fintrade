@@ -873,8 +873,15 @@
       "id": "frontend-watchlist-add-skeleton",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-watchlist-add-skeleton.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-watchlist-add-skeleton.json"
+    },
+    {
+      "id": "frontend-watchlist-add-skeleton-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-watchlist-add-skeleton-followups.json"
     }
   ]
 }
