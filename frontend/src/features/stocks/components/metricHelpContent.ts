@@ -124,7 +124,11 @@ export const tideHelp = {
     const trendLabel = humanizeSnakeCase(trend)
     const slopeLabel = humanizeSnakeCase(slope).toLowerCase()
     if (trend === 'NEUTRAL') {
-      return `Currently Neutral (weekly MACD-H slope ${slopeLabel}) -- the weekly slope and EMA13/26 relationship disagree, so no directional Triple Screen setup is being evaluated for this ticker right now.`
+      const cause =
+        slope === 'flat'
+          ? 'the weekly MACD-H slope is genuinely flat, so there’s no clear direction to read'
+          : 'the weekly slope and EMA13/26 relationship disagree'
+      return `Currently Neutral (weekly MACD-H slope ${slopeLabel}) -- ${cause}, so no directional Triple Screen setup is being evaluated for this ticker right now.`
     }
     const action = trend === 'BULLISH' ? 'buy' : 'sell'
     return `Currently ${trendLabel} (weekly MACD-H slope ${slopeLabel}) -- only fresh ${action} signals are considered while the tide holds this direction.`
@@ -183,11 +187,14 @@ export const triggerHelp = {
     'Screen 3 of the Triple Screen system: precise entry timing once the Tide and Wave align -- confirms price has actually resumed the tide’s direction.',
   elderContext:
     'Elder’s classic trigger is a stop placed just above the prior day’s high (uptrend) or below the prior day’s low (downtrend); this daily-bar app approximates it as today’s close crossing back above the prior day’s high (bullish) or below the prior day’s low (bearish) (docs/Analyse.md §2 Screen 3).',
-  interpretValue(fired: boolean, reference: string): string {
+  interpretValue(fired: boolean, reference: string, tideTrend: string): string {
     if (fired) {
       return `Fired -- ${humanizeSnakeCase(reference)}, confirming the tide’s direction has resumed.`
     }
     if (reference === 'not_applicable') {
+      if (tideTrend === 'NEUTRAL') {
+        return 'Not applicable -- the Tide is Neutral, so there is no directional high/low to trigger against right now (a Trigger only evaluates once Screen 1 has a Bullish or Bearish tide).'
+      }
       return 'Not fired -- there isn’t enough daily price history yet to compare today’s close against a prior high/low.'
     }
     return `Not fired yet -- reference: ${humanizeSnakeCase(reference)}.`

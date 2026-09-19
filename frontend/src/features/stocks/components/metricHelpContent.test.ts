@@ -74,8 +74,16 @@ describe('metricHelpContent', () => {
       )
     })
 
-    it('explains a Neutral tide as no directional setup', () => {
-      expect(tideHelp.interpretValue('NEUTRAL', 'flat')).toMatch(/no directional Triple Screen setup/)
+    it('explains a Neutral tide with a flat slope as genuinely ambiguous (no directional setup)', () => {
+      const message = tideHelp.interpretValue('NEUTRAL', 'flat')
+      expect(message).toMatch(/no directional Triple Screen setup/)
+      expect(message).toMatch(/genuinely flat/)
+    })
+
+    it('explains a Neutral tide with a rising/falling slope as a slope-vs-EMA disagreement', () => {
+      const message = tideHelp.interpretValue('NEUTRAL', 'rising')
+      expect(message).toMatch(/no directional Triple Screen setup/)
+      expect(message).toMatch(/slope and EMA13\/26 relationship disagree/)
     })
   })
 
@@ -129,17 +137,25 @@ describe('metricHelpContent', () => {
 
   describe('triggerHelp.interpretValue', () => {
     it('describes a fired trigger with its reference', () => {
-      expect(triggerHelp.interpretValue(true, 'close_above_prior_high')).toContain(
+      expect(triggerHelp.interpretValue(true, 'close_above_prior_high', 'BULLISH')).toContain(
         'Fired -- Close above prior high',
       )
     })
 
-    it('describes an unfired trigger with no applicable reference', () => {
-      expect(triggerHelp.interpretValue(false, 'not_applicable')).toMatch(/enough daily price history/)
+    it('describes a not_applicable trigger caused by a Neutral tide (the common case)', () => {
+      expect(triggerHelp.interpretValue(false, 'not_applicable', 'NEUTRAL')).toMatch(
+        /Tide is Neutral/,
+      )
+    })
+
+    it('describes a not_applicable trigger caused by genuinely insufficient daily history (the rare edge case, tide not Neutral)', () => {
+      expect(triggerHelp.interpretValue(false, 'not_applicable', 'BULLISH')).toMatch(
+        /enough daily price history/,
+      )
     })
 
     it('describes an unfired trigger with a reference', () => {
-      expect(triggerHelp.interpretValue(false, 'no_trigger')).toBe(
+      expect(triggerHelp.interpretValue(false, 'no_trigger', 'BULLISH')).toBe(
         'Not fired yet -- reference: No trigger.',
       )
     })

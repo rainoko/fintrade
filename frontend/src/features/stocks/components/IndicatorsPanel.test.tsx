@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { Indicators } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
@@ -49,5 +50,24 @@ describe('IndicatorsPanel', () => {
     expect(screen.getByText('226.40')).toBeInTheDocument()
     const dashes = screen.getAllByText('—')
     expect(dashes).toHaveLength(2)
+  })
+
+  it('wires the right MetricHelp content to the right StatCard corner icon', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(<IndicatorsPanel indicators={indicators} />)
+
+    // EMA (13)'s help icon should open EMA13-specific current-value text,
+    // not e.g. Bull Power's or MACD Histogram's.
+    await user.click(screen.getByRole('button', { name: 'EMA (13) help' }))
+    expect(screen.getByText(/Currently 226\.40, above EMA\(26\)/)).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByText(/above EMA\(26\)/)).not.toBeInTheDocument()
+
+    // Bull Power's icon should open Bull-Power-specific content instead.
+    await user.click(screen.getByRole('button', { name: 'Bull Power help' }))
+    expect(
+      screen.getByText(/Currently 3\.10 -- positive: today’s high traded above EMA\(13\)/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/above EMA\(26\)/)).not.toBeInTheDocument()
   })
 })

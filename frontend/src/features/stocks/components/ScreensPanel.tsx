@@ -185,7 +185,11 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
             metricLabel={triggerHelp.metricLabel}
             definition={triggerHelp.definition}
             elderContext={triggerHelp.elderContext}
-            valueInterpretation={triggerHelp.interpretValue(trigger.fired, trigger.reference)}
+            valueInterpretation={triggerHelp.interpretValue(
+              trigger.fired,
+              trigger.reference,
+              tide.trend,
+            )}
           />
         }
       >

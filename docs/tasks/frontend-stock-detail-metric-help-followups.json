@@ -15,17 +15,24 @@
   "checklist": [
     {
       "step": "common/MetricHelp's trigger uses a hardcoded static `data-testid=\"metric-help-icon\"`, but MetricHelp is instantiated ~16 times on a single StockDetailPage render (5 in IndicatorsPanel, 4 in ScreensPanel, up to 7 in SignalSummary including per-breakdown-row). A future test querying `getByTestId('metric-help-icon')` to target one specific metric's icon will hit a 'multiple elements found' (vitest/Testing Library) or Playwright strict-mode violation, or silently grab the wrong instance. Drop the testid (the unique `triggerAriaLabel`-derived aria-label already supports querying by accessible name/role) or derive it per-instance (e.g. via `useId()`, the same pattern InfoBalloon already uses for its own `popoverId`).",
-      "done": false
+      "done": true
     },
     {
       "step": "No call-site-level tests were added for SignalSummary.tsx/ScreensPanel.tsx/IndicatorsPanel.tsx confirming the right MetricHelp opens with the right content when wired with real component props (checklist item 6 on the parent task claims this done). Only common/MetricHelp itself (MetricHelp.test.tsx) and the content registry's interpretValue functions (metricHelpContent.test.ts) are directly unit-tested; the three panel components reach 100% coverage only via pre-existing renders that happen to mount the new MetricHelp instances, not via a new test that clicks a wired icon and asserts the right metric's content appears. Add at least one such test per panel (e.g. click the EMA13 corner icon in IndicatorsPanel and assert the EMA13-specific text renders, not a different metric's).",
-      "done": false
+      "done": true
     },
     {
       "step": "tideHelp.interpretValue's Neutral-case message (metricHelpContent.ts) unconditionally states 'the weekly slope and EMA13/26 relationship disagree', but per backend/app/signals/triple_screen.py's evaluate_tide, NEUTRAL can also arise from a genuinely flat/ambiguous slope alone (not necessarily the slope actively disagreeing with the EMA relationship) -- the same family of inaccuracy as the blocking Trigger finding on the parent task, but much lower-impact since the dynamic slope label ('flat') is still shown alongside it. Tighten the wording to cover the flat-slope case accurately (e.g. branch on `weekly_macd_histogram_slope === 'flat'` the same way triggerHelp will need to branch on tide after its fix).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "All three checklist items here were addressed directly on the parent task's needs_work fix-up pass (PR #127), rather than as a separate follow-up PR, since they landed in the same files already being touched for the blocking Trigger fix. See frontend-stock-detail-metric-help.json's own `decisions` array for the specifics of each fix.",
+      "rationale": "Deferring these to a later, separate PR would have meant a second review pass over the same three files (MetricHelp.tsx, metricHelpContent.ts, and the three panel test files) for changes that were already low-risk and in scope while PR #127 was open for the blocking fix; bundling them avoided that duplicate review cost. Left this task's own state as `planned` (not moved to `done`) since a follow-up task's `done` state should be set by whoever re-reviews/QAs the resolution, consistent with how `review`/`test` fields elsewhere on the board are written by the reviewing agent rather than the implementing one."
+    }
+  ],
   "questions": []
 }

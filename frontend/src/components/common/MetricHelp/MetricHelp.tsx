@@ -68,7 +68,7 @@ export default function MetricHelp({
         </Stack>
       }
     >
-      <HelpOutlineIcon fontSize="small" color="action" data-testid="metric-help-icon" />
+      <HelpOutlineIcon fontSize="small" color="action" />
     </InfoBalloon>
   )
 }
