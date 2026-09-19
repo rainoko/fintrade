@@ -30,6 +30,12 @@ vi.mock('lightweight-charts', () => ({
       // value-zone fill/mask and support/resistance zone band series — see
       // PriceChart.test.tsx's own mock for the fuller explanation.
       setSeriesOrder: () => {},
+      // `series.priceScale()` (frontend-tide-region-chart-shading) — an
+      // empty stub is enough here too, same "this file doesn't assert on
+      // it" rationale as `panes` below. Must be a per-series method (not
+      // `chart.priceScale(id)`) — see PriceChart.test.tsx's own mock for
+      // why the real library requires that.
+      priceScale: () => ({ applyOptions: () => {} }),
     }),
     removeSeries: () => {},
     // `bringSeriesToFront` (utils/chart.ts, frontend-support-resistance-

@@ -44,6 +44,7 @@ import {
   kangarooTailHelp,
   mostRecentFalseBreakoutZone,
   supportResistanceZoneHelp,
+  tideRegionHelp,
   valueZoneHelp,
 } from './metricHelpContent'
 
@@ -200,6 +201,138 @@ function buildOverlayData(
     valueZoneBottom,
     markers,
   }
+}
+
+// Tide (Screen 1) background shading (frontend-tide-region-chart-shading):
+// a private, invisible price scale dedicated to the per-segment
+// region-shading `AreaSeries` below (`buildTideRegionSegments`) -- see this
+// task's `decisions` entry for why this was chosen over the alternative of
+// an unbounded/huge data value on the chart's own real price scale plus
+// `autoscaleInfoProvider` returning null. Giving the shading its own
+// `priceScaleId` (configured `visible: false` with zero scale margins, so
+// its [0, 1] range maps exactly onto the pane's own pixel top/bottom) means
+// each segment's `AreaSeries` can plot a single constant value (1) and
+// always fill the FULL vertical height of the pane -- entirely decoupled
+// from wherever the candlesticks/EMA/channel/zone content currently sits on
+// the real price scale, with zero risk of ever influencing (or being
+// distorted by) that scale's own autoscale range, and no
+// astronomically-large data value whose pixel mapping would depend on the
+// real scale's current bounds.
+const TIDE_REGION_PRICE_SCALE_ID = 'tide-region-shading'
+
+// Fill opacity (alpha, as a hex byte): deliberately much fainter than the
+// value-zone (`33`, ~20%) or support/resistance zone (7%-29%, scaled by
+// strength) shadings -- both of those cover only a slice of the visible
+// price range, but this shading covers the ENTIRE pane behind every candle,
+// EMA line, and other overlay on the chart, so it has to stay unobtrusive
+// enough not to wash out everything drawn on top of it. Reused identically
+// for the on-chart fill and the legend swatches below (same convention the
+// value-zone/support-resistance legends already follow -- the swatch color
+// should look like what's actually on the chart, not just a stand-in).
+const TIDE_REGION_FILL_ALPHA = '14' // ~8%
+
+/**
+ * `points` filtered to only those whose `date` falls within
+ * `[firstDate, lastDate]` inclusive -- the currently visible bar range, same
+ * `firstDate`/`lastDate` windowing convention `buildFalseBreakoutMarkers`/
+ * `isDivergenceInRange`/`isKangarooTailInRange` already use for their own
+ * overlays (see those functions' own doc comments for the axis-distortion
+ * class of bug this pattern exists to avoid, PR #152/#158). Unlike those
+ * overlays (sourced from `/analysis`, a different query than the
+ * candlesticks), `/indicators` is already fetched with the exact same
+ * `range` param as `/history` (see `indicatorsQuery` in this component), so
+ * this filter is a defensive belt-and-suspenders guard against the two
+ * queries' bar sets not lining up exactly (e.g. a holiday/weekend
+ * discrepancy, or one query's response landing mid-refetch) rather than a
+ * correction for a structural mismatch the way the `/analysis`-sourced
+ * overlays' windowing is.
+ *
+ * Exported so the chart-drawing effect (`buildTideRegionSegments`'s caller)
+ * and the legend's `tideRegionHelp.interpretValue` call both read from the exact
+ * same windowed dataset -- the same "one shared selection so two
+ * computations can't drift" pattern `selectDisplayedZones`/
+ * `mostRecentFalseBreakoutZone` already establish, per this task's own
+ * context note on the PR #152 round-2 data-source-mismatch bug.
+ */
+function selectVisibleIndicatorPoints(
+  points: readonly IndicatorHistoryPoint[],
+  firstDate: string,
+  lastDate: string,
+): IndicatorHistoryPoint[] {
+  return points.filter((point) => point.date >= firstDate && point.date <= lastDate)
+}
+
+interface TideRegionSegment {
+  trend: IndicatorHistoryPoint['tide']['trend']
+  /** Every bar in this contiguous stretch at a constant `value: 1` (see
+   * `TIDE_REGION_PRICE_SCALE_ID`'s own comment for why the value itself is
+   * an arbitrary constant on a dedicated [0, 1] scale), PLUS one trailing
+   * point at the NEXT segment's own first date (still `value: 1`) when a
+   * next segment exists -- see `buildTideRegionSegments`'s own doc comment
+   * for why. */
+  data: { time: Time; value: number }[]
+}
+
+/**
+ * Projects already-windowed (`selectVisibleIndicatorPoints`) `/indicators`
+ * points into one segment per contiguous run of bars sharing the same
+ * `tide.trend` -- e.g. 20 Bullish bars, then 5 Bearish, then 40 Neutral
+ * becomes 3 segments, not one array per trend. Each segment becomes its
+ * OWN `AreaSeries` (see the caller in the chart-drawing effect below), the
+ * same "one series per bounded, self-contained span" technique
+ * `buildZoneRenderData` already established for support/resistance zone
+ * bands, rather than three long-lived series (one per trend) spanning the
+ * whole visible range.
+ *
+ * Decision (this task's `decisions` entry, superseding an earlier, WRONG
+ * attempt at the "one series per trend" shape): `AreaSeries` does NOT
+ * respect an omitted or even an explicit `WhitespaceData` point as a gap
+ * for its FILL (only, per a live Lightweight Charts test page built to
+ * confirm this precisely, for its line STROKE) -- it draws one continuous
+ * fill bridging straight across from a series' own first real point to its
+ * own last one, ignoring any gap in between. A "one array per trend" shape
+ * therefore doesn't render three disjoint sets of rectangles at all; it
+ * renders three giant overlapping blobs, each spanning from that trend's
+ * FIRST occurrence in the visible range to its LAST, with whichever
+ * trend's series happened to be added most recently painting over the
+ * other two wherever they overlap -- exactly the bug a live browser
+ * walkthrough against real ORCL/V Tide history caught (mocked unit tests
+ * never exercised more than one gap, so never caught it). One series per
+ * CONTIGUOUS segment sidesteps the question entirely: a segment's own data
+ * never has a gap in it by construction, so there's nothing for the fill
+ * to bridge across incorrectly.
+ *
+ * Each segment's data is extended with one extra point at the START of the
+ * NEXT segment (same `value: 1`) -- without this, a single-bar segment
+ * (a real, common case: Elder's Tide can flip for just a day or two) would
+ * be a 1-point series, which `AreaSeries` renders as nothing at all (no
+ * line/fill without a second point to draw between). Extending each
+ * segment right up to the next one's own start makes even a 1-bar segment
+ * a real 2-point span with actual width, and means every segment's shaded
+ * region butts up exactly against the next one's, with no visible seam or
+ * gap between them. The very last segment (nothing after it to extend
+ * toward) is left as-is -- its own last real bar is also the last visible
+ * bar, so there is no "next" boundary to fill up to.
+ */
+function buildTideRegionSegments(
+  points: readonly IndicatorHistoryPoint[],
+): TideRegionSegment[] {
+  const segments: TideRegionSegment[] = []
+  for (const point of points) {
+    const time = point.date as Time
+    const trend = point.tide.trend
+    const current = segments.at(-1)
+    if (current && current.trend === trend) {
+      current.data.push({ time, value: 1 })
+    } else {
+      segments.push({ trend, data: [{ time, value: 1 }] })
+    }
+  }
+  for (let i = 0; i < segments.length - 1; i++) {
+    const nextSegmentStart = segments[i + 1].data[0]
+    segments[i].data.push({ time: nextSegmentStart.time, value: 1 })
+  }
+  return segments
 }
 
 // Support/resistance zone display (frontend-support-resistance-overlay):
@@ -659,6 +792,25 @@ function buildKangarooTailMarker(tail: KangarooTailOut, color: string): SeriesMa
  * recent average, its open/close relative to the extreme it spiked to,
  * the suggested stop) rather than a generic definition — see
  * `metricHelpContent.ts`'s own doc comment on `kangarooTailHelp`.
+ *
+ * Also shades the whole pane's background per historical Tide (Screen 1)
+ * state (frontend-tide-region-chart-shading) — green/red/amber behind the
+ * candlesticks for every bar `/indicators`' now-per-bar `tide.trend` field
+ * (backend-indicator-history-tide-exposure) reports Bullish/Bearish/Neutral,
+ * so it's visually obvious when BUY/SELL were even structurally possible
+ * (Screen 1 gates both before Screen 2/3 ever run) vs. gated off entirely by
+ * a Neutral or opposite-direction Tide — the very first idea logged in
+ * docs/ideas.md. One `AreaSeries` per CONTIGUOUS same-trend segment (see
+ * `buildTideRegionSegments` — not one long-lived series per trend, which
+ * would render three overlapping blobs instead of the actual disjoint
+ * history; see that function's own doc comment and this task's `decisions`
+ * entry) on their own dedicated, invisible `[0, 1]` price scale — see
+ * `TIDE_REGION_PRICE_SCALE_ID`'s own comment for why that technique was
+ * chosen over an `autoscaleInfoProvider`-excluded huge-value `AreaSeries` on
+ * the chart's real price scale. `tideRegionHelp`'s `MetricHelp` legend affordance
+ * explains the shading and reports what fraction of the currently visible
+ * bars were each trend, computed from the exact same windowed points the
+ * shading itself draws from (`selectVisibleIndicatorPoints`).
  */
 export default function PriceChart({
   ticker,
@@ -927,6 +1079,131 @@ export default function PriceChart({
       chart.removeSeries(channelUpperSeries)
       chart.removeSeries(channelLowerSeries)
       markersPlugin.detach()
+    }
+  }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
+
+  // Tide (Screen 1) background shading (frontend-tide-region-chart-shading):
+  // adds one `AreaSeries` per contiguous same-trend segment (see
+  // `buildTideRegionSegments`) onto the *existing* chart/candlestick series,
+  // on their own dedicated invisible price scale (`TIDE_REGION_PRICE_SCALE_ID`)
+  // so they always fill the pane's full vertical height regardless of where
+  // price/EMA/channel content sits on the real scale. A SEPARATE effect from
+  // the signal-overlay one above (same "deliberately separate, differently-
+  // gated effects on the same chart" convention this component already
+  // uses) even though the gating conditions are identical
+  // (`overlayEnabled`, `indicatorsQuery.data`) -- isolating this from the
+  // signal-overlay effect's own large, carefully-ordered cleanup keeps
+  // neither effect's correctness dependent on the other's internals (see
+  // this task's `decisions` entry).
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !overlayEnabled || !data) {
+      return
+    }
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    if (finiteBars.length === 0) {
+      return
+    }
+    const points = indicatorsQuery.data?.points ?? []
+    if (points.length === 0) {
+      return
+    }
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    const visiblePoints = selectVisibleIndicatorPoints(points, firstDate, lastDate)
+    if (visiblePoints.length === 0) {
+      return
+    }
+
+    const segments = buildTideRegionSegments(visiblePoints)
+    const colorByTrend: Record<IndicatorHistoryPoint['tide']['trend'], string> = {
+      BULLISH: theme.palette.signal.buy,
+      BEARISH: theme.palette.signal.sell,
+      NEUTRAL: theme.palette.signal.hold,
+    }
+
+    const regionSeriesList = segments.map((segment) => {
+      const color = colorByTrend[segment.trend]
+      const regionSeries = chart.addSeries(AreaSeries, {
+        priceScaleId: TIDE_REGION_PRICE_SCALE_ID,
+        topColor: `${color}${TIDE_REGION_FILL_ALPHA}`,
+        bottomColor: `${color}${TIDE_REGION_FILL_ALPHA}`,
+        // Also fixes the "last value" label's own badge color (which
+        // defaults to Lightweight Charts' own green `lineColor` default,
+        // '#33D778', regardless of `topColor`/`bottomColor` -- a real bug
+        // a live browser walkthrough caught: every region series' label
+        // badge rendered identically green, not its own trend color, since
+        // `lineColor` had never been set explicitly). Deliberately still
+        // set even though `lineVisible: false` hides the stroke itself,
+        // purely for this fallback.
+        lineColor: color,
+        lineVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        // No `title`: naming these series would put a "Tide: Bullish"-
+        // style label badge in the chart's top-right corner even with
+        // `lastValueVisible: false` (Lightweight Charts renders a title
+        // label "next to" the last-value label independently of whether
+        // that label itself is shown -- another live-walkthrough finding,
+        // see this task's `decisions` entry) -- pure clutter for a
+        // decorative background band with no real numeric "last value" to
+        // label. The legend row + MetricHelp below the chart is this
+        // overlay's sole explanation surface, not an inline axis label.
+        //
+        // Fixes this series' own price range to exactly [0, 1] regardless
+        // of its (arbitrary, constant) data values -- redundant with the
+        // price scale's own zero margins set below, but a second, explicit
+        // guard against this series ever contributing to (or being
+        // affected by) autoscale, matching the belt-and-suspenders posture
+        // every other overlay on this chart already takes against
+        // autoscale distortion (see this task's `decisions` entry).
+        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }),
+      })
+      regionSeries.setData(segment.data)
+      return regionSeries
+    })
+
+    // Configure the dedicated price scale once per effect run (on whichever
+    // segment series happens to be first -- every segment shares the same
+    // `priceScaleId`, so any one of them can configure it): invisible (no
+    // axis labels/lines of its own -- this is purely an internal coordinate
+    // system, never a real price the user should read off an axis) and
+    // zero scale margins, so its [0, 1] range maps exactly onto the pane's
+    // own pixel top/bottom with no padding gap left unshaded. Deliberately
+    // called AFTER the `addSeries` calls above, not before: Lightweight
+    // Charts only registers a custom `priceScaleId` once a series actually
+    // references it -- calling `chart.priceScale(id)` for an ID nothing has
+    // used yet throws synchronously ("Trying to apply price scale options
+    // with incorrect ID"), a real integration bug this task's own mocked
+    // unit tests couldn't catch (the mock has no such validation) but a
+    // live browser walkthrough against real cached ORCL/V data did -- see
+    // this task's `decisions` entry. Guarded on `regionSeriesList.length`
+    // (rather than assuming at least one segment always exists) since
+    // `visiblePoints.length > 0` is already checked above, so this is only
+    // ever empty in a state this effect can't otherwise reach -- but an
+    // empty `visiblePoints.length === 0` check earlier doesn't, by itself,
+    // logically guarantee `segments` is non-empty to a type checker.
+    regionSeriesList[0]?.priceScale().applyOptions({
+      visible: false,
+      scaleMargins: { top: 0, bottom: 0 },
+    })
+
+    // Keep the candlestick series painting on top of this new background
+    // shading too (see `bringSeriesToFront`'s own doc comment) -- these
+    // series sit on their own price scale, but z-order within a pane is
+    // independent of price scale, so this still applies unchanged.
+    bringSeriesToFront(chart, series)
+
+    return () => {
+      // See the signal-overlay effect's own cleanup guard above: skip if
+      // the candlestick effect already disposed this chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      regionSeriesList.forEach((regionSeries) => chart.removeSeries(regionSeries))
     }
   }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
 
@@ -1297,6 +1574,24 @@ export default function PriceChart({
   const latestClose = bars.at(-1)?.close
   const latestIndicatorPoint = indicatorsQuery.data?.points.at(-1)
 
+  // Tide (Screen 1) background-shading legend data (frontend-tide-region-
+  // chart-shading): runs the exact same `selectVisibleIndicatorPoints`
+  // window the tide-shading effect above uses (`bars` here is already
+  // `historyQuery.data.bars` filtered by `hasFiniteOhlc`, the same
+  // source/filter the effect's own `finiteBars` uses), so
+  // `tideRegionHelp.interpretValue`'s Bullish/Bearish/Neutral percentages
+  // can never describe a different set of bars than what's actually shaded
+  // on the chart -- the same data-source-consistency requirement this task
+  // note flags (PR #152 round 2 legend/chart mismatch).
+  const tideRegionPoints =
+    bars.length > 0 && indicatorsQuery.data
+      ? selectVisibleIndicatorPoints(
+          indicatorsQuery.data.points,
+          bars[0].date,
+          bars[bars.length - 1].date,
+        )
+      : []
+
   // Support/resistance zones for the legend below. Post-review fix (PR
   // #152 retry round 2): this used to read the raw, unfiltered `zones`
   // array (and a stale `Math.min(zones.length, MAX_DISPLAYED_ZONES)`
@@ -1477,6 +1772,46 @@ export default function PriceChart({
                 latestIndicatorPoint.ema_13,
                 latestIndicatorPoint.ema_26,
               )}
+            />
+          </Stack>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Stack direction="row" spacing={0.25}>
+              <Box
+                sx={{
+                  width: 10,
+                  height: 14,
+                  bgcolor: `${theme.palette.signal.buy}${TIDE_REGION_FILL_ALPHA}`,
+                  border: '1px solid',
+                  borderColor: 'signal.buy',
+                }}
+              />
+              <Box
+                sx={{
+                  width: 10,
+                  height: 14,
+                  bgcolor: `${theme.palette.signal.hold}${TIDE_REGION_FILL_ALPHA}`,
+                  border: '1px solid',
+                  borderColor: 'signal.hold',
+                }}
+              />
+              <Box
+                sx={{
+                  width: 10,
+                  height: 14,
+                  bgcolor: `${theme.palette.signal.sell}${TIDE_REGION_FILL_ALPHA}`,
+                  border: '1px solid',
+                  borderColor: 'signal.sell',
+                }}
+              />
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Tide Background (Bullish / Neutral / Bearish)
+            </Typography>
+            <MetricHelp
+              metricLabel={tideRegionHelp.metricLabel}
+              definition={tideRegionHelp.definition}
+              elderContext={tideRegionHelp.elderContext}
+              valueInterpretation={tideRegionHelp.interpretValue(tideRegionPoints)}
             />
           </Stack>
         </Stack>

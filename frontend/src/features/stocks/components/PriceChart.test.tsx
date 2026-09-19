@@ -73,6 +73,12 @@ const addSeriesMock = vi.fn((..._args: unknown[]) => ({
   setSeriesOrder: setSeriesOrderMock,
   createPriceLine: createPriceLineMock,
   removePriceLine: removePriceLineMock,
+  // `series.priceScale()` (frontend-tide-region-chart-shading) -- see
+  // `priceScaleApplyOptionsMock`'s own comment above for why this is a
+  // per-series method here, not `chart.priceScale(id)`.
+  priceScale: () => ({
+    applyOptions: (options: unknown) => priceScaleApplyOptionsMock(options),
+  }),
 }))
 const setMarkersMock = vi.fn()
 const detachMarkersMock = vi.fn()
@@ -89,6 +95,18 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
 // own top comment already gives for mocking the whole module).
 const subscribeClickMock = vi.fn()
 const unsubscribeClickMock = vi.fn()
+// Tide background shading (frontend-tide-region-chart-shading) configures
+// its own dedicated, invisible price scale via
+// `series.priceScale().applyOptions(...)` (called on one of the three
+// region series themselves, NOT `chart.priceScale(id)` -- the real
+// Lightweight Charts library throws synchronously on that for an ID no
+// series has referenced yet, a real bug a live browser walkthrough caught
+// that this mock's own earlier, more permissive shape did not; see
+// PriceChart.tsx's own comment at the call site). `priceScaleApplyOptionsMock`
+// tracks that configuration call so tests can assert it (invisible, zero
+// margins) the same way `setSeriesOrderMock` tracks `bringSeriesToFront`'s
+// calls.
+const priceScaleApplyOptionsMock = vi.fn()
 const createChartMock = vi.fn(() => {
   let disposed = false
   const paneSeries: unknown[] = []
@@ -374,6 +392,7 @@ describe('PriceChart', () => {
     addSeriesMock.mockClear()
     setSeriesOrderMock.mockClear()
     createChartMock.mockClear()
+    priceScaleApplyOptionsMock.mockClear()
     setMarkersMock.mockClear()
     detachMarkersMock.mockClear()
     createSeriesMarkersMock.mockClear()
@@ -605,12 +624,15 @@ describe('PriceChart', () => {
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
       // Candlestick + (value-zone top/bottom AreaSeries) + EMA13 + EMA26 +
-      // (channel upper/lower LineSeries) + (1 support/resistance zone
+      // (channel upper/lower LineSeries) + (1 tide-region AreaSeries,
+      // frontend-tide-region-chart-shading -- both of `indicatorPoints`'
+      // fixture points share the same Neutral trend, so this is a single
+      // contiguous segment, not 3) + (1 support/resistance zone
       // BaselineSeries, from the default MSW /analysis fixture's single
-      // zone) = 8 addSeries calls once both overlays resolve; each fed its
+      // zone) = 9 addSeries calls once every overlay resolves; each fed its
       // own values straight from the backend response — no client-side
       // indicator math.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-09-01', value: 225.1 },
         { time: '2026-09-02', value: 226.4 },
@@ -847,14 +869,17 @@ describe('PriceChart', () => {
       expect(removeMock).not.toHaveBeenCalled()
       // ...but the stale overlay series/markers were removed/detached for
       // real before the new ones were added: value-zone top/bottom
-      // AreaSeries, EMA13/EMA26, and channel upper/lower LineSeries -- 6
-      // series total, same set `addSeriesMock`'s 7-per-overlay count above
-      // includes (minus the one candlestick series, which isn't touched by
-      // this cleanup at all). The support/resistance zone BaselineSeries
-      // from the default /analysis fixture is untouched by this refetch
-      // too -- its own effect depends on `analysisQuery.data`, not
-      // `indicatorsQuery.data`, so it never re-runs/cleans up here.
-      expect(removeSeriesMock).toHaveBeenCalledTimes(6)
+      // AreaSeries, EMA13/EMA26, and channel upper/lower LineSeries (6),
+      // plus the 1 tide-region AreaSeries (frontend-tide-region-chart-
+      // shading, which shares this exact same `indicatorsQuery.data`
+      // dependency -- `indicatorPoints`' fixture is a single Neutral
+      // segment, so just 1 series) -- 7 series total (minus the one
+      // candlestick series, which isn't touched by this cleanup at all).
+      // The support/resistance zone BaselineSeries from the default
+      // /analysis fixture is untouched by this refetch too -- its own
+      // effect depends on `analysisQuery.data`, not `indicatorsQuery.data`,
+      // so it never re-runs/cleans up here.
+      expect(removeSeriesMock).toHaveBeenCalledTimes(7)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
     })
 
@@ -978,7 +1003,7 @@ describe('PriceChart', () => {
       expect(screen.getByText(/221\.70-226\.40/)).toBeInTheDocument()
     })
 
-    it('reorders the candlestick series above every fill series (value-zone mask + support/resistance zone bands) so neither ever occludes a candle (PR #151 regression, extended by frontend-support-resistance-overlay)', async () => {
+    it('reorders the candlestick series above every fill series (value-zone mask + tide-region shading + support/resistance zone bands) so neither ever occludes a candle (PR #151 regression, extended by frontend-support-resistance-overlay and frontend-tide-region-chart-shading)', async () => {
       // Regression test for the blocking pr-reviewer finding on PR #151:
       // Lightweight Charts draws later-added series above earlier ones on
       // the same pane, and the two value-zone `AreaSeries` (one an opaque
@@ -992,29 +1017,41 @@ describe('PriceChart', () => {
       // fill series to the same pane: a hardcoded index from one effect
       // would go stale the moment the *other* effect's own fill-adding
       // logic changes how many series exist in the pane by the time it
-      // runs. Both effects end by calling `bringSeriesToFront`, so whichever
-      // runs last always leaves the candlestick series painting on top of
-      // everything -- this asserts against the dynamically-computed final
-      // series count (not a hardcoded literal), which is what actually
-      // exercises that self-healing behavior rather than just re-asserting
-      // the original fix's own specific number.
+      // runs. A THIRD effect now also adds fill series to this same pane
+      // (one tide-region `AreaSeries` per contiguous segment,
+      // frontend-tide-region-chart-shading -- `indicatorPoints`' fixture is
+      // a single Neutral segment, so just 1 series here) -- all three
+      // effects end by calling `bringSeriesToFront`, so whichever runs last
+      // always leaves the candlestick series painting on top of everything
+      // -- this asserts against the dynamically-computed final series count
+      // (not a hardcoded literal), which is what actually exercises that
+      // self-healing behavior rather than just re-asserting the original
+      // fix's own specific number.
       mockHistory(twoBars)
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
       // The default /analysis MSW fixture's one support/resistance zone
-      // adds an 8th series (see the "overlays EMA13/EMA26..." test above);
-      // wait for it so both fill-adding effects have finished reordering.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      // adds the 9th series (see the "overlays EMA13/EMA26..." test above);
+      // wait for it so all three fill-adding effects have finished
+      // reordering.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
 
-      expect(setSeriesOrderMock).toHaveBeenCalledTimes(2)
-      // Value-zone effect's own reorder call: candlestick(1) + the two
-      // value-zone AreaSeries(2) = 3 series in the pane at that point, so
-      // index 2 (0-based, last).
+      expect(setSeriesOrderMock).toHaveBeenCalledTimes(3)
+      // Value-zone effect's own reorder call (called mid-effect, right
+      // after just its own two AreaSeries, before the EMA/channel
+      // LineSeries are added -- see the effect's own doc comment):
+      // candlestick(1) + the two value-zone AreaSeries(2) = 3 series in the
+      // pane at that point, so index 2 (0-based, last).
       expect(setSeriesOrderMock).toHaveBeenNthCalledWith(1, 2)
-      // Zones effect's own reorder call, run after all 8 series exist.
+      // Tide-region effect's own reorder call, run after the value-zone
+      // effect has finished adding all 6 of its own series (2 AreaSeries +
+      // EMA13/EMA26 + channel upper/lower) plus this effect's own 1
+      // AreaSeries: candlestick(1) + 6 + 1 = 8 series, so index 7.
       expect(setSeriesOrderMock).toHaveBeenNthCalledWith(2, 7)
+      // Zones effect's own reorder call, run after all 9 series exist.
+      expect(setSeriesOrderMock).toHaveBeenNthCalledWith(3, 8)
     })
 
     it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {
@@ -1033,6 +1070,219 @@ describe('PriceChart', () => {
     })
   })
 
+  describe('tide background shading (frontend-tide-region-chart-shading)', () => {
+    // Four bars spanning a Bullish stretch (08-28/08-31), one Neutral bar
+    // (09-01), then a Bearish bar (09-02) -- enough to exercise every
+    // trend's own region array and a transition between all three, unlike
+    // `indicatorPoints` (both points Neutral) used by every other test in
+    // this file.
+    const mixedTideBars: HistoryResponse = {
+      ticker: 'AAPL',
+      interval: 'daily',
+      bars: [
+        { date: '2026-08-28', open: 220.0, high: 222.0, low: 219.0, close: 221.0, volume: 40000000 },
+        { date: '2026-08-31', open: 221.0, high: 223.0, low: 220.0, close: 222.5, volume: 41000000 },
+        ...twoBars.bars,
+      ],
+    }
+    const mixedTideIndicators: IndicatorHistoryResponse = {
+      ticker: 'AAPL',
+      points: [
+        {
+          ...indicatorPoints.points[0],
+          date: '2026-08-28',
+          tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+        },
+        {
+          ...indicatorPoints.points[0],
+          date: '2026-08-31',
+          tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+        },
+        {
+          ...indicatorPoints.points[0],
+          date: '2026-09-01',
+          tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+        },
+        {
+          ...indicatorPoints.points[1],
+          date: '2026-09-02',
+          tide: { trend: 'BEARISH', weekly_macd_histogram_slope: 'falling' },
+        },
+      ],
+    }
+
+    it('draws one AreaSeries per contiguous same-trend segment on a dedicated invisible price scale, each series holding only its own segment\'s bars', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      const tideRegionCalls = addSeriesMock.mock.calls.filter(
+        ([, options]) =>
+          (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+          'tide-region-shading',
+      )
+      // 3 contiguous segments: Bullish (08-28, 08-31), Neutral (09-01),
+      // Bearish (09-02) -- one AreaSeries per segment, not one per trend
+      // (see `buildTideRegionSegments`'s own doc comment for why "one per
+      // trend" renders wrong: `AreaSeries` bridges its fill straight across
+      // any gap, real or explicit whitespace, between two of that series'
+      // own real points).
+      expect(tideRegionCalls).toHaveLength(3)
+
+      // Each segment's own series holds only its own bars, PLUS one
+      // trailing point at the next segment's own start date (still
+      // `value: 1`) so even the 1-bar Neutral/Bearish segments render as a
+      // real filled span up to the next segment's boundary -- the very
+      // last segment (Bearish, nothing after it) has no such trailing
+      // point.
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-08-28', value: 1 },
+        { time: '2026-08-31', value: 1 },
+        { time: '2026-09-01', value: 1 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 1 },
+        { time: '2026-09-02', value: 1 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([{ time: '2026-09-02', value: 1 }])
+
+      // The dedicated price scale is configured invisible with zero
+      // margins, so its [0, 1] range maps exactly onto the pane's own
+      // pixel top/bottom -- see `TIDE_REGION_PRICE_SCALE_ID`'s own comment
+      // in PriceChart.tsx for why. Configured via one of the region
+      // series' own `.priceScale()`, not `chart.priceScale(id)` -- see
+      // this task's `decisions` entry for why.
+      expect(priceScaleApplyOptionsMock).toHaveBeenCalledWith({
+        visible: false,
+        scaleMargins: { top: 0, bottom: 0 },
+      })
+    })
+
+    it('excludes every trend region series from autoscale via a fixed [0, 1] autoscaleInfoProvider', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      const tideRegionCalls = addSeriesMock.mock.calls.filter(
+        ([, options]) =>
+          (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+          'tide-region-shading',
+      ) as [unknown, { autoscaleInfoProvider: () => { priceRange: unknown } }][]
+      expect(tideRegionCalls).toHaveLength(3)
+      for (const [, options] of tideRegionCalls) {
+        expect(options.autoscaleInfoProvider()).toEqual({
+          priceRange: { minValue: 0, maxValue: 1 },
+        })
+      }
+    })
+
+    it('does not draw the tide-region shading while the Weekly interval is selected', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+      addSeriesMock.mockClear()
+
+      const user = userEvent.setup()
+      const intervalGroup = screen.getByRole('group', { name: 'Price history interval' })
+      await user.click(within(intervalGroup).getByRole('button', { name: 'Weekly' }))
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([, options]) =>
+            (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+            'tide-region-shading',
+        ),
+      ).toBe(false)
+    })
+
+    it('shows the Tide Background legend with a MetricHelp affordance reporting the Bullish/Bearish/Neutral split of the currently visible bars', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(
+        screen.getByText('Tide Background (Bullish / Neutral / Bearish)'),
+      ).toBeInTheDocument()
+
+      await user.click(
+        screen.getByRole('button', { name: 'Tide Background (Screen 1 history) help' }),
+      )
+
+      // 2 of 4 bars Bullish (50%), 1 Neutral (25%), 1 Bearish (25%); the
+      // most recent (rightmost) bar, 09-02, is Bearish.
+      expect(screen.getByText(/50% Bullish/)).toBeInTheDocument()
+      expect(screen.getByText(/25% Bearish/)).toBeInTheDocument()
+      expect(screen.getByText(/25% Neutral/)).toBeInTheDocument()
+      expect(screen.getByText(/Bearish \(red\)/)).toBeInTheDocument()
+    })
+
+    it('removes the previous tide-region series and adds new ones when only the indicators query refetches', async () => {
+      mockHistory(mixedTideBars)
+      mockIndicators(mixedTideIndicators)
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+      removeSeriesMock.mockClear()
+      addSeriesMock.mockClear()
+
+      mockIndicators({
+        ticker: 'AAPL',
+        points: mixedTideIndicators.points.map((point) => ({
+          ...point,
+          tide: { trend: 'BULLISH' as const, weekly_macd_histogram_slope: 'rising' as const },
+        })),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: stocksKeys.indicators('AAPL', '1y'),
+      })
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(2))
+
+      // 6 signal-overlay series removed and re-added, plus the 3
+      // tide-region series from the initial (3-segment) render -- the
+      // refetched data collapses to a single Bullish segment, so only 1
+      // new tide-region series gets added back (see below), but all 3 of
+      // the ORIGINAL ones are still removed (all sharing
+      // `indicatorsQuery.data` as a dependency) -- same count
+      // `removeSeriesMock`'s assertion in the signal-overlay describe block
+      // above already establishes for this exact refetch path.
+      expect(removeSeriesMock).toHaveBeenCalledTimes(9)
+
+      const tideRegionCalls = addSeriesMock.mock.calls.filter(
+        ([, options]) =>
+          (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+          'tide-region-shading',
+      )
+      // Every bar is now Bullish -- one single contiguous segment spanning
+      // all four bars, so exactly 1 series (not 3).
+      expect(tideRegionCalls).toHaveLength(1)
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-08-28', value: 1 },
+        { time: '2026-08-31', value: 1 },
+        { time: '2026-09-01', value: 1 },
+        { time: '2026-09-02', value: 1 },
+      ])
+    })
+  })
+
   describe('support/resistance zones (frontend-support-resistance-overlay)', () => {
     it('draws a BaselineSeries band per zone spanning the full visible bar range, colored by role and bounded by [lower, upper]', async () => {
       mockHistory(twoBars)
@@ -1043,7 +1293,7 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(10))
 
       // Each zone's BaselineSeries plots a flat line at `upper`, spanning
       // the first and last visible bar (not the zone's own
@@ -1083,7 +1333,7 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(10))
 
       const baselineCalls = addSeriesMock.mock.calls.filter(
         ([definition]) => definition === 'BaselineSeries-definition',
@@ -1109,7 +1359,7 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(10))
 
       const baselineCalls = addSeriesMock.mock.calls.filter(
         ([definition]) => definition === 'BaselineSeries-definition',
@@ -1135,9 +1385,9 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) + 6
-      // (capped) zone bands = 13.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(13))
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) +
+      // tide-region shading (1) + 6 (capped) zone bands = 14.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(14))
       const baselineCalls = addSeriesMock.mock.calls.filter(
         ([definition]) => definition === 'BaselineSeries-definition',
       )
@@ -1199,9 +1449,10 @@ describe('PriceChart', () => {
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
       // One zone still renders its band regardless (candlestick + value-zone
-      // (2) + EMA13/EMA26 (2) + channel (2) + 1 zone band = 8) -- only the
-      // false-breakout marker/price line are windowed out.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      // (2) + EMA13/EMA26 (2) + channel (2) + tide-region shading (1) + 1
+      // zone band = 9) -- only the false-breakout marker/price line are
+      // windowed out.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
 
       // Only the signal-overlay's own BUY/SELL markers plugin runs -- no
       // second createSeriesMarkers call for a false breakout whose
@@ -1305,8 +1556,10 @@ describe('PriceChart', () => {
       // disabled by `mockIndicators` never resolving for a weekly-only
       // test double -- irrelevant here since `indicators` still resolves
       // via the default `mockIndicators(indicatorPoints)` from
-      // `beforeEach`, so the full 8-series daily set renders first).
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      // `beforeEach`, so the full 9-series daily set (including the 1
+      // tide-region shading series -- `indicatorPoints` is a single
+      // Neutral segment) renders first).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
 
       addSeriesMock.mockClear()
       const intervalGroup = screen.getByRole('group', { name: 'Price history interval' })
@@ -1434,10 +1687,11 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) + only
-      // the 1 relevant zone band = 8 (not 9 -- the far-away zone is
-      // excluded before the display cap, not just visually deprioritized).
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) +
+      // tide-region shading (1) + only the 1 relevant zone band = 9 (not
+      // 10 -- the far-away zone is excluded before the display cap, not
+      // just visually deprioritized).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
 
       const baselineCalls = addSeriesMock.mock.calls.filter(
         ([definition]) => definition === 'BaselineSeries-definition',
@@ -1473,8 +1727,8 @@ describe('PriceChart', () => {
 
       // Only the 1 zone actually near the visible bars' own price span
       // reaches setData -- candlestick + value-zone (2) + EMA13/EMA26 (2) +
-      // channel (2) + 1 zone band = 8 (not 9).
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+      // channel (2) + tide-region shading (1) + 1 zone band = 9 (not 10).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
 
       const baselineCalls = addSeriesMock.mock.calls.filter(
         ([definition]) => definition === 'BaselineSeries-definition',
@@ -1501,12 +1755,16 @@ describe('PriceChart', () => {
       await waitFor(() =>
         expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
       )
-      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
-      // no BaselineSeries, since a single visible bar can't form the
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) +
+      // tide-region shading (1 -- only 1 bar/point survives the
+      // `selectVisibleIndicatorPoints` window, forming a single segment) =
+      // 8 -- no BaselineSeries, since a single visible bar can't form the
       // 2-distinct-timestamp span a zone band needs (setData would
       // otherwise throw on a duplicate timestamp, per Lightweight Charts'
-      // own strictly-ascending-time assertion).
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      // own strictly-ascending-time assertion). The tide-region shading has
+      // no such minimum -- a single-bar segment still renders as one valid
+      // (if boundary-less) data point.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
       expect(
         addSeriesMock.mock.calls.some(
           ([definition]) => definition === 'BaselineSeries-definition',
@@ -1529,10 +1787,10 @@ describe('PriceChart', () => {
       await waitFor(() =>
         expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
       )
-      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
-      // same as the "no zones detected" case, since none of the returned
-      // zones are eligible to be drawn.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) +
+      // tide-region shading (1) = 8 -- same as the "no zones detected"
+      // case, since none of the returned zones are eligible to be drawn.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
       expect(
         addSeriesMock.mock.calls.some(
           ([definition]) => definition === 'BaselineSeries-definition',

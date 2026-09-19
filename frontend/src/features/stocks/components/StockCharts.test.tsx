@@ -18,6 +18,12 @@ vi.mock('lightweight-charts', () => ({
       // `setSeriesOrder` (frontend-channel-overlay, post-review fix) — see
       // PriceChart.test.tsx's own mock for the fuller explanation.
       setSeriesOrder: () => {},
+      // `series.priceScale()` (frontend-tide-region-chart-shading) — an
+      // empty stub is enough here too, same "this file doesn't assert on
+      // it" rationale as `panes` below. Must be a per-series method (not
+      // `chart.priceScale(id)`) — see PriceChart.test.tsx's own mock for
+      // why the real library requires that.
+      priceScale: () => ({ applyOptions: () => {} }),
     }),
     removeSeries: () => {},
     // `bringSeriesToFront` (utils/chart.ts, frontend-support-resistance-
@@ -50,6 +56,7 @@ describe('StockCharts', () => {
           points: [
             {
               date: '2026-09-01',
+              tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
               ema_13: 225.1,
               ema_26: 220.4,
               macd_histogram: 1.2,
