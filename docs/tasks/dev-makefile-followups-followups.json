@@ -46,5 +46,11 @@
       "rationale": "This is exactly what the checklist item asked for and matches the style already used for the `SHELL := bash` rationale a few lines above in the same file -- zero runtime cost (no per-line shell fork) versus the previous ~11 extra no-op `sh -c '#...'` forks per `make dev` invocation. Verified `make -n dev` and `make help` produce identical output before and after the move, and re-ran the fail-fast (backend/.venv moved aside: exits ~instantly, non-zero status, no leftover processes, ports free) and clean-shutdown (SIGTERM to a healthy `make dev`: exit 143, no orphans, ports free) scenarios from `dev-makefile-followups`'s own decisions against the moved comment to confirm the recipe's actual behavior is unchanged."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/dev-makefile-followups-followups",
+    "pr_number": 139,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/139",
+    "pushed_at": "2026-09-19T03:08:06Z"
+  }
 }
