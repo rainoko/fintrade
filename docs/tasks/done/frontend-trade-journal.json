@@ -3,7 +3,7 @@
   "title": "Trade journal: closed-trade history with A-trade grades",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-trade-history-table",
     "backend-trade-grading"
@@ -62,5 +62,48 @@
     "pr_number": 150,
     "pr_url": "https://github.com/rainoko/fintrade/pull/150",
     "pushed_at": "2026-09-19T11:24:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T11:32:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/150",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Grade formulas (buy/sell/trade grade) match docs/Analyse.md §7 exactly, including the subtlety that sell grade is already '% up from the low' while buy grade needs a (100 - grade) complement to express the same framing -- verified both against the book's ADSK worked example (buy 97.3%/sell 35.5%/trade 32.1%) in the diff's own tests and against openapi.json's ClosedTradeOut docstrings.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 0
+      },
+      {
+        "summary": "MetricHelp popovers genuinely interpret the current value (not a static definition alone) for all three grades, including a specific, non-generic explanation for the null case (distinguishing 'entry day OHLC unavailable' from trade grade's 'Autoenvelope warm-up window') -- confirmed live via a browser walkthrough against real backend responses, both for a populated-grade row and a null-grade row.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Null-grade degradation renders as an em dash plus a working MetricHelp explaining why, not a blank cell or crash; confirmed in the browser walkthrough (TSLA row with all three grades null) and in TradeJournalPanel.test.tsx.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 350
+      },
+      {
+        "summary": "common/-vs-feature placement is sound: SignedCurrency is domain-agnostic (plain number in/out, no P&L knowledge) and correctly placed under components/common/ with a Storybook story and test; exitReasonLabels.ts and metricHelpContent.ts are portfolio-domain-specific and correctly placed under features/portfolio/. No near-duplicate of an existing common/ component, and no feature-specific logic misplaced in common/.",
+        "file": "frontend/src/components/common/SignedCurrency/SignedCurrency.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: GradeCell bolds a grade at exactly the threshold (gradePct >= goodThresholdPct), but both the MetricHelp copy and backend/app/api/schemas.py's docstring describe the buy/sell-grade cutoff as strictly 'over 50%'/'>50%'. At exactly 50.0% the visual emphasis and the stated rule disagree. Narrow edge case, tracked as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 494
+      },
+      {
+        "summary": "Non-blocking: SignedCurrency duplicates the sign-to-color ternary and leading-'+' construction already implemented in common/PercentChange instead of extracting a shared helper. Tracked as a follow-up.",
+        "file": "frontend/src/components/common/SignedCurrency/SignedCurrency.tsx",
+        "line": 211
+      },
+      {
+        "summary": "Non-blocking: buy/sell/trade grade columns are marked non-sortable with a rationale ('DataTable's generic comparator has no defined ordering for null vs numeric values') that doesn't match DataTable.tsx's actual compareForSort, which already defines null-sorts-last behavior -- these nullable-numeric columns could be sortable like the table's other numeric columns. Mirrors a pre-existing, likewise-inaccurate comment on PositionsTable's current_price column. Tracked as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 553
+      }
+    ],
+    "notes": "Full review: backend (639 tests, 99.89% coverage, ruff+mypy clean) and frontend (365 tests, 99.71%/99.47% coverage, eslint+tsc clean) both pass; no changes to backend/openapi.json needed since this PR is frontend-only (ClosedTradeOut/ClosedTradesResponse schema already landed in PR #149 and frontend/src/api/types.ts already reflects it). code-review skill (medium effort) found the same two non-blocking findings independently (threshold boundary, SignedCurrency/PercentChange duplication). Browser walkthrough against a live backend (fixture-seeded closed trades, one with real grades hand-set to match the book's ADSK values, one with null grades from a Saturday auto-exit date with no trading bar) confirmed the panel renders correctly on /portfolio below RiskPanel, all three MetricHelp popovers open with correct formula+interpretation text, the null-grade row shows an em dash plus a working explanatory popover, and no console/network errors occurred. make e2e (16/16 specs) passes, including portfolio.spec.ts's add/delete flow which now also exercises GET /api/portfolio/closed-trades end to end. All 4 decisions entries are well-reasoned and cover every 'decide X' checklist item. Three non-blocking findings filed to docs/tasks/frontend-trade-journal-followups.json."
   }
 }
