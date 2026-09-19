@@ -16,7 +16,7 @@ import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
-import { createBaseChart } from '../../../utils/chart'
+import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
 
 export interface OscillatorChartProps {
   ticker: string
@@ -67,14 +67,12 @@ interface OscillatorSeriesData {
  * `AppErrorBoundary`, not just this pane, and an honestly-`null`-typed
  * value is exactly as unplottable as a dishonestly-`number`-typed one that
  * happens to be `null` at runtime — a type only prevents a *type* error, not
- * a value TradingView's chart library can't render. `unknown` (rather than
- * the field's own `number | null | undefined` type) is still used for the
- * parameter here so this guard keeps working unconditionally regardless of
- * a caller's declared type.
+ * a value TradingView's chart library can't render. The shared
+ * `utils/chart.ts#isFiniteNumber` guard (promoted there by
+ * frontend-channel-overlay, which needed the exact same check for its
+ * channel-band overlay) is used here rather than a locally-duplicated copy.
  */
-function isFiniteValue(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
+const isFiniteValue = isFiniteNumber
 
 /**
  * Projects `/indicators` points into the three oscillator series this pane

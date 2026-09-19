@@ -3,7 +3,7 @@
   "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-channel-envelope-exposure"
   ],
@@ -15,15 +15,53 @@
   "checklist": [
     {
       "step": "Implement the channel band rendering (upper/lower lines or a shaded region) and the separate value-zone shading between the fast/slow EMA.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp content explaining the channel (what ~95% of recent price action means, why buying/selling near the bands is the intended read) and the value zone concept, referencing where this is already used internally today (the portfolio exit-flag rule) so the connection is explicit.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Draw the channel (channel_upper/channel_lower) as two plain dashed LineSeries, not a second shaded region, and draw the value zone (between EMA13/EMA26) as a genuinely-shaded region built from two AreaSeries -- a 'fill' AreaSeries at the pointwise-higher of EMA13/EMA26 (a translucent theme.palette.info.main tint down to the bottom of the pane), then a 'mask' AreaSeries at the pointwise-lower EMA (opaque theme.palette.background.paper, added after so it's on top and repaints everything below the lower EMA back to the plain chart background), leaving only the true region between the two EMAs visibly tinted.",
+      "rationale": "Lightweight Charts v5 has no native 'fill the region between two arbitrary line series' primitive (AreaSeries only fills from one line down to the bottom of the visible price range; a true two-line band needs either this fill+mask two-series trick or a bespoke ICustomSeriesPaneView custom series plugin). Implementing a full custom series plugin for this one overlay was judged disproportionate scope for this task versus the well-known, much cheaper two-AreaSeries technique. Using the shaded-region approach for *both* the channel and the value zone was rejected: two overlapping translucent shaded regions on the same candlestick chart (the value zone typically sits inside/near the channel) would be visually muddy and hard to read at a glance, whereas the task's own description already treats the value zone as the one that needs to read as clearly zone-like ('a visually distinct shaded value zone') and is comfortable with the channel being 'upper/lower lines or a shaded region' (its own checklist wording) -- dashed lines (matching OscillatorChart.tsx's existing dashed-reference-line convention for Stochastic 30/70) keep the channel legible as two precise boundary levels without adding a second overlapping fill."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The value-zone AreaSeries mask color is theme.palette.background.paper (an opaque, hardcoded-light-mode white), relying on this app having no dark-mode/alternate-theme support today (confirmed: frontend/src/theme/theme.ts hardcodes mode: 'light' with no toggle anywhere in the codebase) so that color always matches what's actually rendered behind PriceChart's transparent-background chart (createBaseChart's layout.background.color: 'transparent', which lets this page's own plain white background show through).",
+      "rationale": "This is the standard community technique for faking a two-line band fill in Lightweight Charts (an opaque 'eraser' AreaSeries painted on top in the exact background color), and it's exact -- not an approximation -- as long as the mask color truly matches what's underneath. Verified via a throwaway MUI createTheme({palette:{mode:'light'}}) that both background.paper and background.default default to '#fff', and confirmed no Card/Paper/other-background wrapper sits between PriceChart's container and the page body (StockDetailPage.tsx renders StockCharts directly, no wrapping surface). Documented as a code comment on the zoneBottomMaskSeries call site (not silently assumed) so a future dark-mode task will know to revisit this specific line rather than discovering a rendering bug. Rejected alternative: implement a real custom-series band plugin now to avoid this light-mode dependency entirely -- rejected as disproportionate scope for a task whose backend dependency (backend-channel-envelope-exposure) is itself scoped as 'pure exposure', and because this app has zero dark-mode infrastructure to actually exercise the failure case today."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Compute the value zone's top/bottom as the pointwise max()/min() of EMA13/EMA26 at each bar, not a fixed 'top = EMA13, bottom = EMA26' pairing.",
+      "rationale": "EMA13 and EMA26 cross whenever the trend flips (that's the whole basis of the Tide/Impulse readings elsewhere in this app) -- a fixed pairing would silently invert the shaded fill (drawing garbage between a 'top' that's actually below the 'bottom') during any downtrend. The pointwise max/min approach is correct in both directions and needs no per-bar branching logic beyond Math.max/Math.min, so there was no real alternative worth considering other than the (incorrect) fixed pairing."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the Channel/Value Zone MetricHelp affordances inline in PriceChart.tsx's own JSX (a small legend row with a color swatch + label + MetricHelp icon per element, next to the range/interval controls), rather than adding channel_upper/channel_lower as new StatCards on IndicatorsPanel.tsx (which already shows EMA13/EMA26/MACD-Histogram/Bull/Bear Power as latest-value cards from the same /analysis response) or inventing a new common/ legend component.",
+      "rationale": "channel_upper/channel_lower and the value zone are chart-overlay concepts introduced by and legible only in the context of this specific chart (a band/zone drawn over time, not a single latest value) -- IndicatorsPanel.tsx's own doc comment is explicit that it exists precisely because /analysis only returns a single latest-bar value with nothing to plot over time, which is no longer true for channel_upper/channel_lower now that /indicators exposes a full history of them; duplicating them there as single-value StatCards would read as a second, redundant, less-informative view of the same chart-based concept. A new common/ 'legend row' component was considered and rejected as unnecessary abstraction for a two-item, feature-specific (chart/domain-aware) piece of markup with no other current call site -- inlining it in PriceChart.tsx (matching IndicatorsPanel.tsx's own inline-per-StatCard MetricHelp usage pattern) avoids introducing a component that would also need its own Storybook story for a single consumer."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Promoted the finite-numeric-value guard (typeof value === 'number' && Number.isFinite(value)) from OscillatorChart.tsx's private isFiniteValue helper into a shared utils/chart.ts#isFiniteNumber export, and used it for PriceChart.tsx's new channel_upper/channel_lower null-filtering (the exact same warm-up-window-null shape stochastic_k/force_index_2ema already have).",
+      "rationale": "PriceChart.tsx needed the identical guard OscillatorChart.tsx already had as a private per-file helper; duplicating it a second time would be exactly the kind of near-identical-logic-in-two-feature-files duplication the add-frontend-feature skill's own 'Common Mistakes to Avoid' flags. utils/chart.ts already hosts createBaseChart on the same domain-agnostic-utility rationale (documented in its own doc comment), so this is a natural, low-risk promotion rather than a new module."
+    },
+    {
+      "timestamp": "2026-09-19T12:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "channelHelp/valueZoneHelp's elderContext text is precise about what's actually wired into the backend today versus what's still a documented-but-unimplemented Elder concept: channelHelp cites app.portfolio.exits.evaluate_exit_flags's real, existing profit-taking exit-flag rule (confirmed by reading backend/app/portfolio/exits.py directly); valueZoneHelp explicitly states this app doesn't yet compute an explicit target/stop from the value zone (backend-profit-target is still state: planned per docs/tasks/index.json), rather than reusing the task description's own looser phrasing ('a concept this app's own confidence scoring and stop logic already reference internally') verbatim.",
+      "rationale": "Grepped backend/app and docs/ for 'value zone'/'value_zone' and found zero backend implementation referencing the EMA13/EMA26 value zone specifically -- only the channel/Autoenvelope (a related but distinct Elder ch. 41 concept) is actually used by evaluate_exit_flags. Overclaiming an existing backend usage that doesn't exist would violate this app's own explanatory-pattern standard of grounding help text in verifiable specifics, not just plausible-sounding claims -- the task description's own parenthetical clarification ('evaluate_exit_flags uses this exact autoenvelope() computation') already narrows the concrete claim to the channel, not the value zone, so this reading is consistent with, not a deviation from, the task's own intent."
     }
   ]
 }

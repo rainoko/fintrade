@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bearPowerHelp,
   bullPowerHelp,
+  channelHelp,
   confidenceHelp,
   ema13Help,
   ema26Help,
@@ -11,6 +12,7 @@ import {
   signalHelp,
   tideHelp,
   triggerHelp,
+  valueZoneHelp,
   waveHelp,
 } from './metricHelpContent'
 
@@ -237,6 +239,74 @@ describe('metricHelpContent', () => {
     it('handles a missing value without throwing', () => {
       expect(bullPowerHelp.interpretValue(undefined)).toMatch(/unavailable/)
       expect(bearPowerHelp.interpretValue(Number.NaN)).toMatch(/unavailable/)
+    })
+  })
+
+  describe('channelHelp.interpretValue', () => {
+    it('reports the warm-up window when the channel bounds are unavailable', () => {
+      expect(channelHelp.interpretValue(null, null, 229.7)).toMatch(/warm-up window/)
+      expect(channelHelp.interpretValue(233.3, undefined, 229.7)).toMatch(/warm-up window/)
+    })
+
+    it('reports just the bounds when the latest close is unavailable', () => {
+      expect(channelHelp.interpretValue(233.3, 219.5, null)).toBe(
+        'Currently 219.50-233.30 (±3.0% around EMA(13)).',
+      )
+    })
+
+    it('reads the latest close at/above the upper band as the profit-taking zone', () => {
+      expect(channelHelp.interpretValue(233.3, 219.5, 235.0)).toMatch(
+        /profit-taking\/overextension zone/,
+      )
+    })
+
+    it('reads the latest close at/above the upper band at the exact boundary too', () => {
+      expect(channelHelp.interpretValue(233.3, 219.5, 233.3)).toMatch(
+        /profit-taking\/overextension zone/,
+      )
+    })
+
+    it('reads the latest close at/below the lower band as the contrarian buying zone', () => {
+      expect(channelHelp.interpretValue(233.3, 219.5, 215.0)).toMatch(
+        /contrarian buying zone/,
+      )
+    })
+
+    it('reads the latest close at/below the lower band at the exact boundary too', () => {
+      expect(channelHelp.interpretValue(233.3, 219.5, 219.5)).toMatch(
+        /contrarian buying zone/,
+      )
+    })
+
+    it('reads a latest close inside the channel as a percentage position between the bands', () => {
+      const message = channelHelp.interpretValue(233.3, 219.5, 229.7)
+      expect(message).toMatch(/229\.70/)
+      expect(message).toMatch(/inside the channel/)
+    })
+  })
+
+  describe('valueZoneHelp.interpretValue', () => {
+    it('handles a missing EMA value without throwing', () => {
+      expect(valueZoneHelp.interpretValue(null, 221.7)).toMatch(/unavailable/)
+      expect(valueZoneHelp.interpretValue(226.4, undefined)).toMatch(/unavailable/)
+    })
+
+    it('reads EMA13 above EMA26 as an uptrend, with the bounds in ascending order', () => {
+      expect(valueZoneHelp.interpretValue(226.4, 221.7)).toBe(
+        'Currently 221.70-226.40 (EMA13 above EMA26 -- an uptrend reading).',
+      )
+    })
+
+    it('reads EMA13 below EMA26 as a downtrend, with the bounds still in ascending order', () => {
+      expect(valueZoneHelp.interpretValue(219.0, 221.7)).toBe(
+        'Currently 219.00-221.70 (EMA13 below EMA26 -- a downtrend reading).',
+      )
+    })
+
+    it('reads EMA13 exactly equal to EMA26 as a flat reading', () => {
+      expect(valueZoneHelp.interpretValue(220.0, 220.0)).toBe(
+        'Currently 220.00-220.00 (EMA13 equal to EMA26 -- a flat reading).',
+      )
     })
   })
 })

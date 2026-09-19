@@ -2,11 +2,14 @@ import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import {
+  AreaSeries,
   CandlestickSeries,
   createSeriesMarkers,
   LineSeries,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type SeriesMarker,
@@ -21,9 +24,11 @@ import type {
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockHistory } from '../hooks/useStockHistory'
-import { createBaseChart } from '../../../utils/chart'
+import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import { channelHelp, valueZoneHelp } from './metricHelpContent'
 
 export interface PriceChartProps {
   ticker: string
@@ -89,28 +94,50 @@ function hasFiniteOhlc(bar: HistoryResponse['bars'][number]): boolean {
   )
 }
 
-/** A single point from `/indicators`, projected into the three series this
+/** A single point from `/indicators`, projected into the series this
  * overlay plots — computed in one pass over `points` (see `buildOverlayData`
- * below) rather than three separate `.map()`/loop passes over the same
- * array, per this task's followups review comment. */
+ * below) rather than a separate `.map()`/loop pass per series, per this
+ * task's followups review comment.
+ *
+ * `channelUpper`/`channelLower` (frontend-channel-overlay) are shorter than
+ * `ema13`/`ema26`/`markers` whenever any leading bar's `channel_upper`/
+ * `channel_lower` is still `null` (the Autoenvelope's ~100-bar warm-up
+ * window not yet full, see `IndicatorHistoryPoint`'s own doc comment) — that
+ * bar is simply omitted from these two arrays (Lightweight Charts renders a
+ * gap across a missing time point, same convention `OscillatorChart.tsx`
+ * already uses for `stochastic_k`/`force_index_2ema`), not padded with a
+ * placeholder value.
+ *
+ * `valueZoneTop`/`valueZoneBottom` are the *pointwise* max/min of
+ * `ema13`/`ema26` at each bar (never a fixed "ema13 is always on top"
+ * assumption) — see this task's `decisions` entry for why: EMA13 and EMA26
+ * cross whenever the trend flips, so a naive "top = ema13, bottom = ema26"
+ * pairing would invert during a downtrend. Always computed (both EMAs are
+ * non-nullable), unlike the channel bounds above.
+ */
 interface OverlayData {
   ema13: { time: Time; value: number }[]
   ema26: { time: Time; value: number }[]
+  channelUpper: { time: Time; value: number }[]
+  channelLower: { time: Time; value: number }[]
+  valueZoneTop: { time: Time; value: number }[]
+  valueZoneBottom: { time: Time; value: number }[]
   markers: SeriesMarker<Time>[]
 }
 
 /**
- * Projects `/indicators` points into the EMA13/EMA26 line data plus BUY/SELL
- * transition markers, in a single pass. The marker logic builds one marker
- * per *transition* into a BUY or SELL signal (i.e. the bar differs from the
- * previous point, and the previous point isn't undefined — so the very
- * first point is treated as a transition from "no signal" too), not one
- * marker per bar carrying that signal — Decision (see this component's own
- * doc comment and this task's `decisions` entry): marking every BUY/SELL bar
- * in e.g. a multi-week BUY run would bury the actually meaningful "Trigger
- * fired" moments (docs/Analyse.md §5) under a wall of identical arrows. HOLD
- * never gets a marker — there's no Elder-Ray/Trigger event to mark for it,
- * only the absence of one.
+ * Projects `/indicators` points into the EMA13/EMA26 + channel-band +
+ * value-zone line/area data plus BUY/SELL transition markers, in a single
+ * pass. The marker logic builds one marker per *transition* into a BUY or
+ * SELL signal (i.e. the bar differs from the previous point, and the
+ * previous point isn't undefined — so the very first point is treated as a
+ * transition from "no signal" too), not one marker per bar carrying that
+ * signal — Decision (see this component's own doc comment and this task's
+ * `decisions` entry): marking every BUY/SELL bar in e.g. a multi-week BUY
+ * run would bury the actually meaningful "Trigger fired" moments
+ * (docs/Analyse.md §5) under a wall of identical arrows. HOLD never gets a
+ * marker — there's no Elder-Ray/Trigger event to mark for it, only the
+ * absence of one.
  */
 function buildOverlayData(
   points: readonly IndicatorHistoryPoint[],
@@ -118,12 +145,24 @@ function buildOverlayData(
 ): OverlayData {
   const ema13: OverlayData['ema13'] = []
   const ema26: OverlayData['ema26'] = []
+  const channelUpper: OverlayData['channelUpper'] = []
+  const channelLower: OverlayData['channelLower'] = []
+  const valueZoneTop: OverlayData['valueZoneTop'] = []
+  const valueZoneBottom: OverlayData['valueZoneBottom'] = []
   const markers: SeriesMarker<Time>[] = []
   let previousSignal: IndicatorHistoryPoint['signal'] | undefined
   for (const point of points) {
     const time = point.date as Time
     ema13.push({ time, value: point.ema_13 })
     ema26.push({ time, value: point.ema_26 })
+    valueZoneTop.push({ time, value: Math.max(point.ema_13, point.ema_26) })
+    valueZoneBottom.push({ time, value: Math.min(point.ema_13, point.ema_26) })
+    if (isFiniteNumber(point.channel_upper)) {
+      channelUpper.push({ time, value: point.channel_upper })
+    }
+    if (isFiniteNumber(point.channel_lower)) {
+      channelLower.push({ time, value: point.channel_lower })
+    }
     if (point.signal !== 'HOLD' && point.signal !== previousSignal) {
       markers.push({
         time,
@@ -135,7 +174,7 @@ function buildOverlayData(
     }
     previousSignal = point.signal
   }
-  return { ema13, ema26, markers }
+  return { ema13, ema26, channelUpper, channelLower, valueZoneTop, valueZoneBottom, markers }
 }
 
 /**
@@ -158,6 +197,18 @@ function buildOverlayData(
  * from the backend response, per Frontend.md §5's "backend computes,
  * frontend displays" rule. `IndicatorsPanel` (fed by `/analysis`) remains
  * the latest-value-only counterpart shown alongside this chart.
+ *
+ * Also draws the Autoenvelope/channel bands (`channel_upper`/`channel_lower`
+ * — backend-channel-envelope-exposure) as two dashed line series, plus a
+ * shaded "value zone" between EMA13/EMA26 (frontend-channel-overlay) — see
+ * this task's `decisions` entry for the two-`AreaSeries`-mask technique used
+ * to fill only the zone *between* the two EMAs (not down to the bottom of
+ * the pane, which is all a single `AreaSeries` can do natively), and for why
+ * the channel bands are two plain dashed lines rather than a second shaded
+ * region (avoiding two overlapping shaded zones cluttering the same chart).
+ * A `common/MetricHelp` affordance next to the range/interval controls
+ * explains both (`channelHelp`/`valueZoneHelp`, `metricHelpContent.ts`),
+ * following this app's established explanatory pattern.
  *
  * Still owns its own range/interval `ToggleButtonGroup` controls and local
  * `useState` for them (unchanged from before), but now also reports every
@@ -289,10 +340,58 @@ export default function PriceChart({
       return
     }
 
-    const { ema13, ema26, markers } = buildOverlayData(points, {
+    const {
+      ema13,
+      ema26,
+      channelUpper,
+      channelLower,
+      valueZoneTop,
+      valueZoneBottom,
+      markers,
+    } = buildOverlayData(points, {
       buy: theme.palette.signal.buy,
       sell: theme.palette.signal.sell,
     })
+
+    // Value-zone shading, added *before* the EMA/channel line series below
+    // so those lines render crisply on top of it (Lightweight Charts draws
+    // later-added series above earlier ones, on the same pane). Two
+    // `AreaSeries` in a "fill, then mask" pair, since Lightweight Charts has
+    // no native "fill the region between two arbitrary line series"
+    // primitive (only fill-from-a-line-to-the-bottom-of-the-pane, or a
+    // custom series plugin -- overkill for this): `zoneTopSeries` paints a
+    // translucent fill from `valueZoneTop` (the pointwise-higher of
+    // EMA13/EMA26 at each bar) down to the bottom of the visible range,
+    // then `zoneBottomSeries` -- added after, so on top -- repaints
+    // everything from `valueZoneBottom` down in the *chart's own opaque
+    // background color*, erasing the portion below the lower EMA and
+    // leaving only the true "value zone" between the two visibly shaded.
+    // This depends on the chart's `layout.background` actually being opaque
+    // white (`theme.palette.background.paper`, matching `createBaseChart`'s
+    // transparent layer showing this page's plain white background through
+    // it) -- see this task's `decisions` entry for why that assumption is
+    // safe today (this app has no dark-mode/alternate-theme support at all)
+    // but would need revisiting if one were ever added.
+    const zoneTopSeries = chart.addSeries(AreaSeries, {
+      topColor: `${theme.palette.info.main}33`,
+      bottomColor: `${theme.palette.info.main}33`,
+      lineVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      title: 'Value Zone',
+    })
+    zoneTopSeries.setData(valueZoneTop)
+
+    const zoneBottomMaskSeries = chart.addSeries(AreaSeries, {
+      topColor: theme.palette.background.paper,
+      bottomColor: theme.palette.background.paper,
+      lineVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    })
+    zoneBottomMaskSeries.setData(valueZoneBottom)
 
     const ema13Series = chart.addSeries(LineSeries, {
       color: theme.palette.primary.main,
@@ -312,6 +411,32 @@ export default function PriceChart({
     })
     ema26Series.setData(ema26)
 
+    // Channel/Autoenvelope bands: two dashed lines (not a second shaded
+    // region -- see this component's own doc comment) in a color distinct
+    // from both EMAs and the value-zone fill. Data may be shorter than
+    // `ema13`/`ema26` (the ~100-bar warm-up window, see `buildOverlayData`);
+    // Lightweight Charts renders a gap across the missing leading span
+    // rather than erroring.
+    const channelUpperSeries = chart.addSeries(LineSeries, {
+      color: theme.palette.info.main,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      title: 'Channel Upper',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    channelUpperSeries.setData(channelUpper)
+
+    const channelLowerSeries = chart.addSeries(LineSeries, {
+      color: theme.palette.info.main,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      title: 'Channel Lower',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    channelLowerSeries.setData(channelLower)
+
     const markersPlugin = createSeriesMarkers(series, markers)
 
     return () => {
@@ -320,8 +445,12 @@ export default function PriceChart({
       if (chartRef.current !== chart || seriesRef.current !== series) {
         return
       }
+      chart.removeSeries(zoneTopSeries)
+      chart.removeSeries(zoneBottomMaskSeries)
       chart.removeSeries(ema13Series)
       chart.removeSeries(ema26Series)
+      chart.removeSeries(channelUpperSeries)
+      chart.removeSeries(channelLowerSeries)
       markersPlugin.detach()
     }
   }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
@@ -351,6 +480,17 @@ export default function PriceChart({
   // guard.
   const showOverlaySection = historyQuery.isSuccess && hasBars && overlayEnabled
 
+  // Latest daily close (from `/history`, not `/indicators` — `channelHelp`'s
+  // interpretation reads where *price* currently sits relative to the
+  // channel bounds) and the latest `/indicators` point (channel bounds +
+  // EMA13/EMA26 themselves), used by the legend's `MetricHelp` affordances
+  // below. Both are `undefined` until their own query resolves — `MetricHelp`
+  // /`channelHelp`/`valueZoneHelp` all already treat a missing value as "not
+  // yet available" rather than throwing (same nullable-value convention as
+  // every other `metricHelpContent.ts` entry).
+  const latestClose = bars.at(-1)?.close
+  const latestIndicatorPoint = indicatorsQuery.data?.points.at(-1)
+
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
@@ -379,6 +519,64 @@ export default function PriceChart({
           <ToggleButton value="weekly">Weekly</ToggleButton>
         </ToggleButtonGroup>
       </Stack>
+
+      {/*
+        Channel/value-zone legend + MetricHelp affordances (frontend-
+        channel-overlay). Gated the same as the rest of the overlay (daily
+        interval, indicators loaded, at least one point) since both plotted
+        elements come from `/indicators`, same as the EMA13/EMA26 overlay
+        above them on this same chart.
+      */}
+      {showOverlaySection && indicatorsQuery.isSuccess && latestIndicatorPoint && (
+        <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Box
+              sx={{
+                width: 14,
+                height: 0,
+                borderTop: '2px dashed',
+                borderColor: 'info.main',
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Channel (Autoenvelope)
+            </Typography>
+            <MetricHelp
+              metricLabel={channelHelp.metricLabel}
+              definition={channelHelp.definition}
+              elderContext={channelHelp.elderContext}
+              valueInterpretation={channelHelp.interpretValue(
+                latestIndicatorPoint.channel_upper,
+                latestIndicatorPoint.channel_lower,
+                latestClose,
+              )}
+            />
+          </Stack>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <Box
+              sx={{
+                width: 14,
+                height: 14,
+                bgcolor: `${theme.palette.info.main}33`,
+                border: '1px solid',
+                borderColor: 'info.main',
+              }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Value Zone (EMA 13-26)
+            </Typography>
+            <MetricHelp
+              metricLabel={valueZoneHelp.metricLabel}
+              definition={valueZoneHelp.definition}
+              elderContext={valueZoneHelp.elderContext}
+              valueInterpretation={valueZoneHelp.interpretValue(
+                latestIndicatorPoint.ema_13,
+                latestIndicatorPoint.ema_26,
+              )}
+            />
+          </Stack>
+        </Stack>
+      )}
 
       {historyQuery.isLoading && (
         <LoadingState message={`Loading price history for ${ticker}...`} />

@@ -20,6 +20,7 @@ vi.mock('lightweight-charts', () => ({
   CandlestickSeries: 'CandlestickSeries-definition',
   LineSeries: 'LineSeries-definition',
   HistogramSeries: 'HistogramSeries-definition',
+  AreaSeries: 'AreaSeries-definition',
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
 }))
 
