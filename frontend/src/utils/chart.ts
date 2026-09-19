@@ -3,6 +3,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type SeriesType,
+  type Time,
 } from 'lightweight-charts'
 
 /**
@@ -91,4 +92,37 @@ export function bringSeriesToFront(
 ): void {
   const paneSeriesCount = chart.panes()[paneIndex].getSeries().length
   series.setSeriesOrder(paneSeriesCount - 1)
+}
+
+/**
+ * Converts a Lightweight Charts `Time` value back into the plain
+ * `'YYYY-MM-DD'` string this app always feeds *in* (every series-building
+ * helper under `features/stocks/components/` casts a backend `date` field
+ * straight to `Time` via `as Time`, e.g. `PriceChart.tsx`'s
+ * `buildOverlayData`). Needed because the library doesn't hand that string
+ * back out unchanged: any event that reports a `Time` (e.g.
+ * `chart.subscribeClick`'s `MouseEventParams.time`, used by the divergence-
+ * marker click handling in `PriceChart.tsx`/`OscillatorChart.tsx`,
+ * frontend-divergence-markers) normalizes a plain date string into a
+ * `BusinessDay` object (`{ year, month, day }`) internally, so comparing a
+ * clicked `Time` against an original date string requires converting one
+ * side or the other first -- this is that conversion, in the
+ * `BusinessDay`-\>string direction, so callers can compare against the
+ * original API date strings directly.
+ *
+ * Domain-agnostic (Frontend.md §3's utils/-vs-features placement test, same
+ * rationale `isFiniteNumber`/`createBaseChart` above already document) --
+ * handles all three shapes `Time` can take, even though this app has never
+ * fed the library a raw `UTCTimestamp` number itself, for completeness
+ * against whatever shape a given event actually reports back.
+ */
+export function timeToDateString(time: Time): string {
+  if (typeof time === 'string') {
+    return time
+  }
+  if (typeof time === 'number') {
+    return new Date(time * 1000).toISOString().slice(0, 10)
+  }
+  const { year, month, day } = time
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }

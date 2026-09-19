@@ -3,22 +3,32 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme, type Theme } from '@mui/material/styles'
 import {
+  createSeriesMarkers,
   HistogramSeries,
   LineSeries,
   LineStyle,
   type IChartApi,
   type ISeriesApi,
+  type MouseEventParams,
+  type SeriesMarker,
   type Time,
 } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
-import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
+import { useEffect, useRef, useState } from 'react'
+import type {
+  DivergenceOut,
+  IndicatorHistoryPoint,
+  IndicatorHistoryResponse,
+} from '../../../api/stocks'
+import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/InfoBalloon'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { rsiHelp } from './metricHelpContent'
+import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
+import { divergenceHelp, rsiHelp } from './metricHelpContent'
 
 export interface OscillatorChartProps {
   ticker: string
@@ -164,6 +174,61 @@ function addZeroBaselineHistogramPane(
   return series
 }
 
+/** Which pane (see this component's own doc comment for the pane layout)
+ * a given divergence's own `indicator` belongs on -- Stochastic/RSI share
+ * pane 0, MACD-Histogram is pane 2. */
+function divergencePaneIndex(indicator: DivergenceOut['indicator']): 0 | 2 {
+  return indicator === 'macd_histogram' ? 2 : 0
+}
+
+interface DivergenceIndicatorOverlay {
+  paneIndex: 0 | 2
+  /** Two points spanning `first_extreme_date`..`second_extreme_date` at
+   * `first_extreme_indicator_value`/`second_extreme_indicator_value` -- the
+   * connecting line a `LineSeries` plots between the two compared
+   * indicator readings, on whichever pane that indicator lives on. */
+  line: { time: Time; value: number }[]
+  markers: SeriesMarker<Time>[]
+}
+
+/**
+ * Projects the single currently-qualifying divergence
+ * (`AnalysisResponse.divergence`) into a 2-point connecting line plus a
+ * marker at each of its two compared *indicator* readings --
+ * `first_extreme_indicator_value`/`second_extreme_indicator_value`, at
+ * `first_extreme_date`/`second_extreme_date` -- on whichever pane
+ * `divergence.indicator` belongs to (`divergencePaneIndex` above). The
+ * indicator-value counterpart to `PriceChart.tsx`'s own
+ * `buildDivergencePriceOverlay`, which plots the same divergence's *price*
+ * swing points instead -- see that function's own doc comment for the
+ * shared "why only the single latest divergence" / "why a distinct shape/
+ * color from BUY/SELL" reasoning, which applies identically here.
+ */
+function buildDivergenceIndicatorOverlay(
+  divergence: DivergenceOut,
+  color: string,
+): DivergenceIndicatorOverlay {
+  const label = divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'
+  const position = divergence.kind === 'bullish' ? 'belowBar' : 'aboveBar'
+  return {
+    paneIndex: divergencePaneIndex(divergence.indicator),
+    line: [
+      {
+        time: divergence.first_extreme_date as Time,
+        value: divergence.first_extreme_indicator_value,
+      },
+      {
+        time: divergence.second_extreme_date as Time,
+        value: divergence.second_extreme_indicator_value,
+      },
+    ],
+    markers: [
+      { time: divergence.first_extreme_date as Time, position, shape: 'circle', color, text: label },
+      { time: divergence.second_extreme_date as Time, position, shape: 'circle', color, text: label },
+    ],
+  }
+}
+
 /**
  * Historical oscillator pane for Screen 2 ("the Wave", docs/Analyse.md §2):
  * Stochastic %K(5,3,3), RSI(9), Force Index (2-period EMA), and MACD
@@ -229,10 +294,43 @@ export default function OscillatorChart({
   const hasPoints = points.length > 0
   const latestPoint = hasPoints ? points[points.length - 1] : undefined
 
+  // Divergence overlay (frontend-divergence-markers): a separate query from
+  // `/analysis`, same dedup-by-TanStack-Query pattern `PriceChart.tsx`'s own
+  // `useStockAnalysis(ticker)` call already documents -- `StockCharts.tsx`
+  // mounts this component and `PriceChart` as siblings at the same time, so
+  // this third call for the same ticker/query key coalesces with (rather
+  // than duplicating) whichever of the other two fires first.
+  const analysisQuery = useStockAnalysis(ticker)
+  const divergence = analysisQuery.data?.divergence ?? null
+  // Page coordinates of the last divergence-marker click, or `null` before
+  // any click / once the balloon is closed -- same "coordinate-anchored
+  // balloon" pattern as `PriceChart.tsx`'s own divergence-overlay effect.
+  const [divergenceBalloonAnchor, setDivergenceBalloonAnchor] = useState<{
+    top: number
+    left: number
+  } | null>(null)
+
+  // Post-review fix (PR #158): whether `divergence` (if any) is actually
+  // drawn on this pane this render -- the same `isDivergenceInRange` check
+  // the chart-creation effect below runs against `data.points`, computed
+  // here from the render-scope `points` array (same source) so the legend
+  // can describe whether the divergence is currently plotted without
+  // duplicating the effect's own windowing logic differently. See
+  // `PriceChart.tsx`'s own identical `divergenceInVisibleRange` for the
+  // shared rationale.
+  const divergenceInVisibleRange =
+    divergence != null && hasPoints
+      ? isDivergenceInRange(divergence, points[0].date, points[points.length - 1].date)
+      : false
+
   // Depends on `indicatorsQuery.data` itself (a new object per response)
   // rather than the `points`/`hasPoints` derived above, since those are
   // fresh references on every render regardless of whether the data
   // changed — same rationale as `PriceChart.tsx`'s own candlestick effect.
+  // Also depends on `analysisQuery.data` (the divergence overlay's own
+  // source) and `divergence` closes over whatever value was current the
+  // last time this effect ran, same as every other value this effect reads
+  // from render scope.
   useEffect(() => {
     const container = containerRef.current
     const data: IndicatorHistoryResponse | undefined = indicatorsQuery.data
@@ -300,6 +398,67 @@ export default function OscillatorChart({
     addZeroBaselineHistogramPane(chart, 1, 'Force Index (2-EMA)', forceIndex, theme)
     addZeroBaselineHistogramPane(chart, 2, 'MACD Histogram (Daily)', macdHistogram, theme)
 
+    // Divergence overlay (frontend-divergence-markers): the single
+    // currently-qualifying divergence, drawn as a connecting `LineSeries`
+    // plus a `circle` marker at each of its two compared *indicator*
+    // readings, on whichever pane its own `indicator` belongs to -- see
+    // `buildDivergenceIndicatorOverlay`'s own doc comment. Click-to-explain
+    // wired the same way as `PriceChart.tsx`'s own divergence overlay: this
+    // pane's series markers have no DOM trigger of their own, so
+    // `chart.subscribeClick` opens `AnchoredInfoBalloon` at the click's own
+    // page coordinates instead.
+    //
+    // Post-review fix (PR #158, blocking finding): windowed to the
+    // currently visible point range (`data.points[0].date`..
+    // `data.points.at(-1).date`) via `isDivergenceInRange` -- same fix,
+    // same rationale as `PriceChart.tsx`'s own divergence-overlay effect
+    // (see that effect's comment and `isDivergenceInRange`'s own doc
+    // comment in divergenceClick.ts): an unwindowed divergence line whose
+    // own dates fall outside the visible range stretched this pane's (and
+    // whichever pane the divergence's indicator belongs to's) time scale to
+    // cover the gap, squashing the actual oscillator content into an
+    // unreadable sliver.
+    const divergenceInRange =
+      divergence != null &&
+      isDivergenceInRange(
+        divergence,
+        data.points[0].date,
+        data.points[data.points.length - 1].date,
+      )
+    if (divergence && divergenceInRange) {
+      const color = theme.palette.divergence.main
+      const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(
+        divergence,
+        color,
+      )
+      const divergenceSeries = chart.addSeries(
+        LineSeries,
+        {
+          color,
+          lineWidth: 2,
+          lineStyle: LineStyle.LargeDashed,
+          title: 'Divergence',
+          priceLineVisible: false,
+          lastValueVisible: false,
+        },
+        paneIndex,
+      )
+      divergenceSeries.setData(line)
+      createSeriesMarkers(divergenceSeries, markers)
+
+      chart.subscribeClick((param: MouseEventParams<Time>) => {
+        if (param.paneIndex !== paneIndex || !clickedDivergenceExtreme(divergence, param)) {
+          return
+        }
+        const pageX = param.sourceEvent?.pageX
+        const pageY = param.sourceEvent?.pageY
+        if (pageX == null || pageY == null) {
+          return
+        }
+        setDivergenceBalloonAnchor({ top: pageY, left: pageX })
+      })
+    }
+
     chart.timeScale().fitContent()
     chartRef.current = chart
 
@@ -307,7 +466,7 @@ export default function OscillatorChart({
       chart.remove()
       chartRef.current = null
     }
-  }, [indicatorsQuery.data, enabled, theme])
+  }, [indicatorsQuery.data, enabled, theme, divergence])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has
@@ -362,6 +521,45 @@ export default function OscillatorChart({
         </Stack>
       )}
 
+      {/*
+        Divergence legend + MetricHelp affordance (frontend-divergence-
+        markers) -- same `divergenceHelp.interpretValue` content
+        `PriceChart.tsx`'s own legend row shows, reading the exact same
+        `analysisQuery.data.divergence` value the divergence overlay effect
+        above draws from. Still gated on `divergence` alone, not also
+        `divergenceInVisibleRange` -- same Decision (post-review fix, PR
+        #158, this task's `decisions` entry) as `PriceChart.tsx`'s own
+        identical legend row: stays visible and names the real divergence
+        even when the current range excludes it from the chart, with
+        `divergenceHelp.interpretValue`'s own `inVisibleRange` clause
+        explaining why nothing is drawn right now.
+      */}
+      {indicatorsQuery.isSuccess && hasPoints && analysisQuery.isSuccess && divergence && (
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              bgcolor: 'divergence.main',
+              opacity: divergenceInVisibleRange ? 1 : 0.4,
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+          </Typography>
+          <MetricHelp
+            metricLabel={divergenceHelp.metricLabel}
+            definition={divergenceHelp.definition}
+            elderContext={divergenceHelp.elderContext}
+            valueInterpretation={divergenceHelp.interpretValue(
+              divergence,
+              divergenceInVisibleRange,
+            )}
+          />
+        </Stack>
+      )}
+
       {indicatorsQuery.isLoading && (
         <LoadingState message={`Loading oscillator history for ${ticker}...`} />
       )}
@@ -379,6 +577,25 @@ export default function OscillatorChart({
           sx={{ width: '100%', height: CHART_HEIGHT }}
         />
       )}
+
+      {/*
+        Divergence-marker click-to-explain balloon (frontend-divergence-
+        markers) -- same pattern/content source as `PriceChart.tsx`'s own.
+      */}
+      <AnchoredInfoBalloon
+        open={divergenceBalloonAnchor !== null && divergence !== null}
+        anchorPosition={divergenceBalloonAnchor}
+        onClose={() => setDivergenceBalloonAnchor(null)}
+        title={divergenceHelp.metricLabel}
+        ariaLabel="Divergence details"
+        content={
+          <Typography variant="body2">
+            {divergence
+              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+              : null}
+          </Typography>
+        }
+      />
     </Stack>
   )
 }

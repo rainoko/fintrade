@@ -14,16 +14,19 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type MouseEventParams,
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type {
+  DivergenceOut,
   HistoryInterval,
   HistoryResponse,
   IndicatorHistoryPoint,
   SupportResistanceZone,
 } from '../../../api/stocks'
+import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/InfoBalloon'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -32,8 +35,10 @@ import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
 import { bringSeriesToFront, createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
 import {
   channelHelp,
+  divergenceHelp,
   falseBreakoutHelp,
   supportResistanceZoneHelp,
   valueZoneHelp,
@@ -380,6 +385,60 @@ function buildFalseBreakoutMarkers(
   return markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
 }
 
+interface DivergencePriceOverlay {
+  /** Two points spanning `first_extreme_date`..`second_extreme_date` at
+   * `first_extreme_price`/`second_extreme_price` -- the connecting line a
+   * `LineSeries` plots between the two compared price swing points. */
+  line: { time: Time; value: number }[]
+  markers: SeriesMarker<Time>[]
+}
+
+/**
+ * Projects the single currently-qualifying divergence
+ * (`AnalysisResponse.divergence`) into a 2-point connecting line plus a
+ * marker at each of its two compared price swing points --
+ * `first_extreme_price`/`second_extreme_price`, at
+ * `first_extreme_date`/`second_extreme_date`. Decision (this task's
+ * `decisions` entry): only the single latest divergence is drawn, not a
+ * reconstructed history of every past divergence from `/indicators`'
+ * per-bar `divergence` field -- that field repeats the same divergence
+ * across every bar it's still the most-recently-confirmed one for, so
+ * turning it into distinct historical events would need its own
+ * de-duplication pass with no clear textual basis for how, and the
+ * checklist's own "which two extremes are being compared... for THIS
+ * ticker" phrasing already reads as "the current one", singular, matching
+ * `AnalysisResponse.divergence`'s own singular shape.
+ *
+ * Distinct from the BUY/SELL transition markers (`buildOverlayData` above)
+ * on both axes the task calls for: `circle` shape (not `arrowUp`/
+ * `arrowDown`) and `theme.palette.divergence.main` (not `signal.buy`/
+ * `signal.sell`) -- see `theme.ts`'s own comment for why that color was
+ * added rather than reusing an existing one.
+ */
+function buildDivergencePriceOverlay(
+  divergence: DivergenceOut,
+  color: string,
+): DivergencePriceOverlay {
+  const label = divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'
+  const position = divergence.kind === 'bullish' ? 'belowBar' : 'aboveBar'
+  return {
+    line: [
+      {
+        time: divergence.first_extreme_date as Time,
+        value: divergence.first_extreme_price,
+      },
+      {
+        time: divergence.second_extreme_date as Time,
+        value: divergence.second_extreme_price,
+      },
+    ],
+    markers: [
+      { time: divergence.first_extreme_date as Time, position, shape: 'circle', color, text: label },
+      { time: divergence.second_extreme_date as Time, position, shape: 'circle', color, text: label },
+    ],
+  }
+}
+
 /**
  * Candlestick price chart for `GET /api/stocks/{ticker}/history`, built on
  * TradingView Lightweight Charts. Owns its own range/interval selection as
@@ -456,6 +515,15 @@ export default function PriceChart({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  // Divergence-marker click-to-explain (frontend-divergence-markers): page
+  // coordinates of the last divergence-marker click, or `null` before any
+  // click / once the balloon is closed -- fed into `AnchoredInfoBalloon`
+  // below, since a canvas-drawn marker has no DOM trigger element of its
+  // own for `InfoBalloon`'s usual internal anchorEl state.
+  const [divergenceBalloonAnchor, setDivergenceBalloonAnchor] = useState<{
+    top: number
+    left: number
+  } | null>(null)
 
   const historyQuery = useStockHistory(ticker, { range, interval })
   // Exclude any bar with a null/non-finite OHLC value (a still-forming
@@ -855,6 +923,121 @@ export default function PriceChart({
     }
   }, [historyQuery.data, analysisQuery.data, theme])
 
+  // Divergence overlay (frontend-divergence-markers): the single currently-
+  // qualifying divergence (`AnalysisResponse.divergence`, or nothing when
+  // `null`) drawn as a connecting `LineSeries` plus a `circle` marker at
+  // each of its two compared price swing points -- see
+  // `buildDivergencePriceOverlay`'s own doc comment for why only the
+  // latest one, not a reconstructed history, is drawn, and for why its
+  // shape/color are deliberately distinct from the BUY/SELL transition
+  // markers above. A SEPARATE effect from the support/resistance one above
+  // (same "deliberately separate, differently-gated effects on the same
+  // chart" convention this component already uses) even though both read
+  // `analysisQuery.data`, since this one additionally wires
+  // `chart.subscribeClick` to open the click-to-explain balloon --
+  // isolating that subscription's own lifecycle from the zone-band effect's
+  // keeps each effect's cleanup simple and independently reasoned-about.
+  //
+  // Post-review fix (PR #158, blocking finding): windowed to the currently
+  // visible bar range (`finiteBars[0].date`..`finiteBars.at(-1).date`),
+  // same pattern `selectDisplayedZones`/`buildFalseBreakoutMarkers` already
+  // established (PR #152) for the exact same failure class -- see
+  // `isDivergenceInRange`'s own doc comment (divergenceClick.ts) for why an
+  // unwindowed divergence line distorted the whole chart's time scale
+  // whenever its own (often much older) dates fell outside the selected
+  // range. Unlike the zone bands, there's no "still draw it, just capped"
+  // fallback here: a 2-point line with even one point outside the visible
+  // range has nothing sensible to render, so the whole overlay (line,
+  // markers, click subscription) is simply skipped for this render -- the
+  // legend below still surfaces the divergence via `divergenceHelp`'s own
+  // `inVisibleRange` clause (see this task's `decisions` entry for why the
+  // legend stays visible rather than also hiding).
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !data) {
+      return
+    }
+    const divergence = analysisQuery.data?.divergence
+    if (!divergence) {
+      return
+    }
+    // No separate "finiteBars.length === 0" guard needed here (unlike the
+    // candlestick/zone effects above, which both check it): `chart`/`series`
+    // (checked above) are only ever non-null when the candlestick effect's
+    // OWN `finiteBars.length === 0` guard passed for this exact
+    // `historyQuery.data` -- and per this component's own documented
+    // effect-cleanup-ordering invariant (see the signal-overlay effect's
+    // comment above), every sibling effect's cleanup for a data change runs
+    // to completion (nulling these refs) before any effect's new body runs,
+    // so `finiteBars` is guaranteed non-empty whenever this line is reached.
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    if (!isDivergenceInRange(divergence, firstDate, lastDate)) {
+      return
+    }
+
+    const color = theme.palette.divergence.main
+    const { line, markers } = buildDivergencePriceOverlay(divergence, color)
+
+    const divergenceLineSeries = chart.addSeries(LineSeries, {
+      color,
+      lineWidth: 2,
+      lineStyle: LineStyle.LargeDashed,
+      title: 'Divergence',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    divergenceLineSeries.setData(line)
+    const divergenceMarkersPlugin = createSeriesMarkers(series, markers)
+
+    // Keep the candlestick series painting on top of this new line series
+    // too, same defensive call every other series-adding effect on this
+    // pane ends with (see `bringSeriesToFront`'s own doc comment).
+    bringSeriesToFront(chart, series)
+
+    // Click-to-explain: Lightweight Charts' series-marker plugin has no DOM
+    // element of its own for `InfoBalloon`'s usual `ButtonBase`/`onClick`
+    // trigger pattern to attach to, so this opens `AnchoredInfoBalloon`
+    // (common/InfoBalloon.tsx) at the click's own page coordinates instead
+    // -- see that component's own doc comment for why a coordinate-anchored
+    // variant exists at all. `param.sourceEvent?.pageX/pageY` (not
+    // `param.point`, which is pane-relative canvas pixels, not page
+    // coordinates a `Popover`'s `anchorPosition` needs) -- see
+    // `clickedDivergenceExtreme`'s own doc comment for the date-matching
+    // logic.
+    // An arrow function assigned to a `const`, not a `function` declaration
+    // -- TypeScript doesn't carry the `if (!divergence) return` narrowing
+    // above into a hoisted function declaration (it conservatively assumes
+    // one could theoretically run before the narrowing check), but does for
+    // a `const`-bound closure defined after it.
+    const handleClick = (param: MouseEventParams<Time>) => {
+      if (!clickedDivergenceExtreme(divergence, param)) {
+        return
+      }
+      const pageX = param.sourceEvent?.pageX
+      const pageY = param.sourceEvent?.pageY
+      if (pageX == null || pageY == null) {
+        return
+      }
+      setDivergenceBalloonAnchor({ top: pageY, left: pageX })
+    }
+    chart.subscribeClick(handleClick)
+
+    return () => {
+      // See the signal-overlay effect's own cleanup guard above: skip if
+      // the candlestick effect already disposed this chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      chart.unsubscribeClick(handleClick)
+      chart.removeSeries(divergenceLineSeries)
+      divergenceMarkersPlugin.detach()
+    }
+  }, [historyQuery.data, analysisQuery.data, theme])
+
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
       setRange(value)
@@ -909,6 +1092,26 @@ export default function PriceChart({
   const zoneReferencePrice = bars.length >= 2 ? bars.at(-1)?.close : undefined
   const displayedZones =
     zoneReferencePrice != null ? selectDisplayedZones(zones, zoneReferencePrice) : []
+
+  // The single currently-qualifying divergence, read directly from
+  // `/analysis` -- the same value both the divergence-overlay effect above
+  // and the legend/balloon below draw from, so they can never disagree
+  // about which divergence (if any) is being shown (see the legend's own
+  // comment for why there's no separate filtered/"displayed" variant to
+  // keep in sync here, unlike `displayedZones` above).
+  const divergence = analysisQuery.data?.divergence ?? null
+
+  // Post-review fix (PR #158): whether `divergence` (if any) is actually
+  // drawn on the chart this render -- the same `isDivergenceInRange` check
+  // the divergence-overlay effect above runs against `finiteBars`, computed
+  // here from `bars` (already `historyQuery.data.bars` filtered by
+  // `hasFiniteOhlc`, same source) so the legend can describe whether the
+  // divergence is currently plotted without duplicating the effect's own
+  // windowing logic differently.
+  const divergenceInVisibleRange =
+    divergence != null && bars.length > 0
+      ? isDivergenceInRange(divergence, bars[0].date, bars[bars.length - 1].date)
+      : false
 
   return (
     <Stack spacing={2}>
@@ -1059,6 +1262,54 @@ export default function PriceChart({
           </Stack>
         )}
 
+      {/*
+        Divergence legend + MetricHelp affordance (frontend-divergence-
+        markers). Reads `analysisQuery.data.divergence` directly -- the
+        exact same value the divergence-overlay effect above draws from,
+        with no separate "displayed" filtering/capping step to drift out of
+        sync with (unlike the zone legend above, which needs its own
+        `displayedZones` precisely because there IS a relevance-filter/cap
+        step between the raw `zones` array and what's actually drawn -- see
+        that legend's own comment for the bug this pattern exists to avoid).
+        Still gated on `divergence` alone (not `divergenceInVisibleRange`
+        too) -- Decision (post-review fix, PR #158, this task's `decisions`
+        entry): the legend stays visible and keeps naming the real
+        divergence even when the current range selection excludes it from
+        the chart itself, with `divergenceHelp.interpretValue`'s own
+        `inVisibleRange` clause explaining why nothing is drawn right now --
+        chosen over hiding the row entirely (as the zone legend does once
+        `displayedZones` empties) because a divergence's out-of-range-ness is
+        a temporary, range-selection-dependent state for a single real
+        signal, not a permanent exclusion the way a zone failing the
+        relevance filter is; hiding it here would read as "no divergence
+        exists" rather than "not shown at this range".
+      */}
+      {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              bgcolor: 'divergence.main',
+              opacity: divergenceInVisibleRange ? 1 : 0.4,
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
+          </Typography>
+          <MetricHelp
+            metricLabel={divergenceHelp.metricLabel}
+            definition={divergenceHelp.definition}
+            elderContext={divergenceHelp.elderContext}
+            valueInterpretation={divergenceHelp.interpretValue(
+              divergence,
+              divergenceInVisibleRange,
+            )}
+          />
+        </Stack>
+      )}
+
       {historyQuery.isLoading && (
         <LoadingState message={`Loading price history for ${ticker}...`} />
       )}
@@ -1096,6 +1347,30 @@ export default function PriceChart({
         indicatorsQuery.data.points.length === 0 && (
           <EmptyState message={`No signal history available for ${ticker}.`} />
         )}
+
+      {/*
+        Divergence-marker click-to-explain balloon (frontend-divergence-
+        markers). Same `divergenceHelp.interpretValue` content as the legend
+        row above -- one explanation source, two ways to reach it (the
+        legend's own MetricHelp icon, or clicking either marker directly on
+        the chart). `divergence` gates `open` too, not just `content`: if
+        the ticker/data changed since the balloon was opened and no longer
+        has a divergence, there's nothing left to explain.
+      */}
+      <AnchoredInfoBalloon
+        open={divergenceBalloonAnchor !== null && divergence !== null}
+        anchorPosition={divergenceBalloonAnchor}
+        onClose={() => setDivergenceBalloonAnchor(null)}
+        title={divergenceHelp.metricLabel}
+        ariaLabel="Divergence details"
+        content={
+          <Typography variant="body2">
+            {divergence
+              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+              : null}
+          </Typography>
+        }
+      />
     </Stack>
   )
 }

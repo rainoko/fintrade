@@ -1,0 +1,25 @@
+{
+  "id": "frontend-divergence-markers-followups",
+  "title": "Non-blocking follow-ups from PR #158 review (frontend-divergence-markers)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-divergence-markers"],
+  "references": [
+    "docs/tasks/frontend-divergence-markers.json",
+    "https://github.com/rainoko/fintrade/pull/158"
+  ],
+  "description": "Tracked non-blocking findings from pr-reviewer's review of PR #158 (frontend-divergence-markers), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. Distinct from the PR's own blocking finding (the divergence overlay distorting the chart's time axis when the currently selected range doesn't include the divergence's own dates), which stays on frontend-divergence-markers itself and must be fixed before that PR can be accepted.",
+  "checklist": [
+    {
+      "step": "OscillatorChart.tsx's divergence overlay is built inside the single chart-creation `useEffect` (which now also depends on `divergence`), so the whole multi-pane oscillator chart is torn down and rebuilt from scratch (visible flicker, lost zoom/pan/crosshair state) whenever `analysisQuery.data` resolves after `indicatorsQuery.data` -- purely to add two marker points. PriceChart.tsx avoids this by keeping its own divergence overlay in a separate effect that only adds/removes series on the existing chart/series refs (gated on `chartRef.current`/`seriesRef.current` already being set). Consider the same separate-effect treatment for OscillatorChart.tsx, consistent with how PriceChart.tsx already splits its own signal-overlay/zone-overlay/divergence-overlay effects.",
+      "done": false
+    },
+    {
+      "step": "The bullish/bearish `label`/`position` derivation (`divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'` / `belowBar`/`aboveBar`) is copy-pasted verbatim between `buildDivergencePriceOverlay` (PriceChart.tsx) and `buildDivergenceIndicatorOverlay` (OscillatorChart.tsx), even though the PR already factored out the one other genuinely shared piece of divergence logic (`clickedDivergenceExtreme` in divergenceClick.ts). Consider factoring this into a shared helper (e.g. alongside `clickedDivergenceExtreme` in divergenceClick.ts) so a future change to the label wording or up/down convention can't leave the two charts silently out of sync.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

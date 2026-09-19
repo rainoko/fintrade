@@ -20,4 +20,10 @@ describe('theme', () => {
     expect(theme.palette.riskBreach.background).toMatch(/^#/)
     expect(theme.palette.riskBreach.main).not.toBe(theme.palette.signal.sell)
   })
+
+  it('defines a divergence-marker color distinct from the BUY/SELL signal colors (frontend-divergence-markers)', () => {
+    expect(theme.palette.divergence.main).toMatch(/^#/)
+    expect(theme.palette.divergence.main).not.toBe(theme.palette.signal.buy)
+    expect(theme.palette.divergence.main).not.toBe(theme.palette.signal.sell)
+  })
 })

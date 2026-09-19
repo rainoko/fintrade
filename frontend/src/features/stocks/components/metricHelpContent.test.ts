@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { SupportResistanceZone } from '../../../api/stocks'
+import type { DivergenceOut, SupportResistanceZone } from '../../../api/stocks'
 import {
   bearPowerHelp,
   bullPowerHelp,
   channelHelp,
   confidenceHelp,
+  divergenceHelp,
   ema13Help,
   ema26Help,
   falseBreakoutHelp,
@@ -622,6 +623,99 @@ describe('metricHelpContent', () => {
       expect(message).not.toMatch(
         excludedWithBreakout.false_breakout!.extreme_price.toFixed(2),
       )
+    })
+  })
+
+  describe('divergenceHelp.interpretValue', () => {
+    function buildDivergence(overrides: Partial<DivergenceOut> = {}): DivergenceOut {
+      return {
+        indicator: 'macd_histogram',
+        kind: 'bullish',
+        first_extreme_date: '2026-08-03',
+        first_extreme_price: 210.5,
+        first_extreme_indicator_value: -6.0,
+        second_extreme_date: '2026-08-31',
+        second_extreme_price: 205.2,
+        second_extreme_indicator_value: -1.5,
+        bars_apart: 20,
+        centerline_crossed: true,
+        beyond_reference_line: null,
+        aborted: false,
+        ...overrides,
+      }
+    }
+
+    it('reports no divergence when null', () => {
+      expect(divergenceHelp.interpretValue(null)).toBe(
+        'No currently qualifying divergence detected for this ticker.',
+      )
+    })
+
+    it('names the actual two dates/values compared for a bullish MACD-Histogram divergence, citing the centerline-crossing requirement', () => {
+      const message = divergenceHelp.interpretValue(buildDivergence())
+      expect(message).toContain('Bullish MACD-Histogram divergence')
+      expect(message).toContain('2026-08-03 (price 210.50, MACD-Histogram -6.00)')
+      expect(message).toContain('2026-08-31 (price 205.20, MACD-Histogram -1.50)')
+      expect(message).toContain('crossed back through its own zero centerline')
+      expect(message).toContain('20 trading days apart')
+      expect(message).toContain('a potential buy setup')
+    })
+
+    it('names a bearish Stochastic divergence beyond the reference line as its textbook-strongest form', () => {
+      const message = divergenceHelp.interpretValue(
+        buildDivergence({
+          indicator: 'stochastic',
+          kind: 'bearish',
+          centerline_crossed: null,
+          beyond_reference_line: true,
+        }),
+      )
+      expect(message).toContain('Bearish Stochastic %K divergence')
+      expect(message).toContain('swing highs')
+      expect(message).toContain('textbook-strongest form')
+      expect(message).toContain('a potential sell setup')
+    })
+
+    it('names an RSI divergence NOT beyond the reference line as still qualifying but not its strongest form', () => {
+      const message = divergenceHelp.interpretValue(
+        buildDivergence({
+          indicator: 'rsi',
+          centerline_crossed: null,
+          beyond_reference_line: false,
+        }),
+      )
+      expect(message).toContain('RSI divergence')
+      expect(message).toContain('no centerline requirement')
+      expect(message).toContain("didn’t reach beyond the 30/70 reference line")
+    })
+
+    it('appends the Hound of the Baskervilles callout when aborted', () => {
+      const message = divergenceHelp.interpretValue(buildDivergence({ aborted: true }))
+      expect(message).toContain('Hound of the Baskervilles')
+      expect(message).toContain('strong continuation signal the other way')
+    })
+
+    it('omits the Hound of the Baskervilles callout when not aborted', () => {
+      const message = divergenceHelp.interpretValue(buildDivergence({ aborted: false }))
+      expect(message).not.toContain('Hound of the Baskervilles')
+    })
+
+    it('omits the out-of-range clause when inVisibleRange is true (or omitted, the default)', () => {
+      expect(divergenceHelp.interpretValue(buildDivergence())).not.toContain(
+        'isn’t drawn on the chart right now',
+      )
+      expect(divergenceHelp.interpretValue(buildDivergence(), true)).not.toContain(
+        'isn’t drawn on the chart right now',
+      )
+    })
+
+    it('appends an out-of-range clause naming the divergence’s own dates when inVisibleRange is false', () => {
+      const message = divergenceHelp.interpretValue(buildDivergence(), false)
+      // Still names the real divergence...
+      expect(message).toContain('Bullish MACD-Histogram divergence')
+      // ...plus the out-of-range explanation.
+      expect(message).toContain('isn’t drawn on the chart right now')
+      expect(message).toContain('2026-08-03 to 2026-08-31')
     })
   })
 })

@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AnalysisResponse,
+  DivergenceOut,
   HistoryResponse,
   IndicatorHistoryResponse,
   SupportResistanceZone,
@@ -78,6 +79,15 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
   setMarkersMock(markers)
   return { setMarkers: setMarkersMock, markers: () => markers, detach: detachMarkersMock }
 })
+// Divergence-marker click-to-explain (frontend-divergence-markers):
+// `subscribeClick`/`unsubscribeClick` mocks so tests can capture the
+// handler `PriceChart.tsx`'s divergence-overlay effect registers and
+// invoke it directly with a synthetic `MouseEventParams`-shaped object,
+// simulating a click on a divergence marker (jsdom has no real canvas for
+// an actual pointer event to hit-test against — same reasoning this file's
+// own top comment already gives for mocking the whole module).
+const subscribeClickMock = vi.fn()
+const unsubscribeClickMock = vi.fn()
 const createChartMock = vi.fn(() => {
   let disposed = false
   const paneSeries: unknown[] = []
@@ -99,6 +109,8 @@ const createChartMock = vi.fn(() => {
     },
     panes: () => [{ getSeries: () => [...paneSeries] }],
     timeScale: () => ({ fitContent: fitContentMock }),
+    subscribeClick: (handler: unknown) => subscribeClickMock(handler),
+    unsubscribeClick: (handler: unknown) => unsubscribeClickMock(handler),
     remove: () => {
       removeMock()
       disposed = true
@@ -118,7 +130,7 @@ vi.mock('lightweight-charts', () => ({
   // (frontend-support-resistance-overlay) use `BaselineSeries`.
   AreaSeries: 'AreaSeries-definition',
   BaselineSeries: 'BaselineSeries-definition',
-  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
+  LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3 },
 }))
 
 function mockHistory(response: HistoryResponse) {
@@ -169,12 +181,38 @@ const baseAnalysis: AnalysisResponse = {
   support_resistance_zones: [],
 }
 
-function mockAnalysis(zones: SupportResistanceZone[]) {
+function mockAnalysis(
+  zones: SupportResistanceZone[],
+  overrides: Partial<AnalysisResponse> = {},
+) {
   server.use(
     http.get('/api/stocks/:ticker/analysis', () =>
-      HttpResponse.json({ ...baseAnalysis, support_resistance_zones: zones }),
+      HttpResponse.json({ ...baseAnalysis, support_resistance_zones: zones, ...overrides }),
     ),
   )
+}
+
+// A hand-computed bullish MACD-Histogram divergence fixture (frontend-
+// divergence-markers): two price swing lows 20 trading days apart (Kerry
+// Lovvorn's own spacing minimum), the second shallower on MACD-Histogram
+// than the first (-1.5 vs -6.0, well under half-depth), with the
+// centerline crossed between them and not yet aborted -- a plausible,
+// fully-schema-valid `DivergenceOut` value, not asserting anything about
+// how the backend itself would have computed it (that's
+// backend-divergence-detection's own hand-verified reference tests).
+const bullishDivergence: DivergenceOut = {
+  indicator: 'macd_histogram',
+  kind: 'bullish',
+  first_extreme_date: '2026-08-03',
+  first_extreme_price: 210.5,
+  first_extreme_indicator_value: -6.0,
+  second_extreme_date: '2026-08-31',
+  second_extreme_price: 205.2,
+  second_extreme_indicator_value: -1.5,
+  bars_apart: 20,
+  centerline_crossed: true,
+  beyond_reference_line: null,
+  aborted: false,
 }
 
 function buildZone(
@@ -275,6 +313,23 @@ const twoBars: HistoryResponse = {
   ],
 }
 
+// Post-review fix (PR #158, blocking finding): the divergence overlay is
+// now windowed to the currently visible bar range (see
+// `divergenceClick.ts#isDivergenceInRange`), so a test exercising the
+// overlay actually being drawn needs bars spanning `bullishDivergence`'s own
+// two extreme dates (2026-08-03 / 2026-08-31), unlike `twoBars` above (which
+// only covers 2026-09-01/02 and is now deliberately reused by the new
+// "out of range" tests below to exercise the windowing itself).
+const barsSpanningDivergence: HistoryResponse = {
+  ticker: 'AAPL',
+  interval: 'daily',
+  bars: [
+    { date: '2026-08-03', open: 212.0, high: 213.0, low: 209.8, close: 210.5, volume: 40123000 },
+    { date: '2026-08-31', open: 207.0, high: 208.0, low: 204.6, close: 205.2, volume: 42456000 },
+    ...twoBars.bars,
+  ],
+}
+
 describe('PriceChart', () => {
   beforeEach(() => {
     setDataMock.mockClear()
@@ -289,6 +344,8 @@ describe('PriceChart', () => {
     createSeriesMarkersMock.mockClear()
     createPriceLineMock.mockClear()
     removePriceLineMock.mockClear()
+    subscribeClickMock.mockClear()
+    unsubscribeClickMock.mockClear()
     mockIndicators(indicatorPoints)
   })
 
@@ -1441,6 +1498,266 @@ describe('PriceChart', () => {
       expect(removePriceLineMock).toHaveBeenCalledTimes(1)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
       expect(createPriceLineMock).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('divergence overlay (frontend-divergence-markers)', () => {
+    it('draws a connecting line + circle markers between the two compared price swing points, distinct from BUY/SELL markers', async () => {
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+
+      // The connecting line spans the two extreme dates at their own PRICE
+      // (not indicator value) -- first_extreme_price/second_extreme_price.
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith([
+          { time: '2026-08-03', value: 210.5 },
+          { time: '2026-08-31', value: 205.2 },
+        ]),
+      )
+
+      // Two `createSeriesMarkers` calls total: the BUY/SELL transition
+      // markers (signal overlay) and this divergence pair -- find the one
+      // with 'circle' shapes (BUY/SELL uses 'arrowUp'/'arrowDown', see
+      // `buildOverlayData`).
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeDefined()
+      const markers = divergenceMarkersCall?.[1] as {
+        time: string
+        shape: string
+        text: string
+      }[]
+      expect(markers).toHaveLength(2)
+      expect(markers.map((marker) => marker.time)).toEqual(['2026-08-03', '2026-08-31'])
+      expect(markers.every((marker) => marker.text === 'Bullish divergence')).toBe(true)
+    })
+
+    it('draws nothing when there is no currently-qualifying divergence', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([], { divergence: null })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalled())
+
+      expect(screen.queryByRole('button', { name: 'Divergence help' })).not.toBeInTheDocument()
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).some((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeUndefined()
+    })
+
+    it('shows the Divergence legend naming the actual two dates/values compared for this ticker', async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(screen.getByText('Divergence')).toBeInTheDocument())
+
+      await user.click(screen.getByRole('button', { name: 'Divergence help' }))
+
+      expect(
+        screen.getByText(/Bullish MACD-Histogram divergence/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/2026-08-03/)).toBeInTheDocument()
+      expect(screen.getByText(/2026-08-31/)).toBeInTheDocument()
+      expect(screen.getByText(/210.50/)).toBeInTheDocument()
+      expect(screen.getByText(/205.20/)).toBeInTheDocument()
+    })
+
+    it('opens a balloon explaining the divergence when a divergence marker (either extreme date) is clicked', async () => {
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+
+      handleClick({
+        time: '2026-08-31',
+        point: { x: 10, y: 10 },
+        sourceEvent: { pageX: 123, pageY: 45 },
+        seriesData: new Map(),
+      })
+
+      expect(await screen.findByLabelText('Divergence details')).toBeInTheDocument()
+      expect(
+        within(screen.getByLabelText('Divergence details')).getByText(
+          /Bullish MACD-Histogram divergence/,
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('does not open the balloon for a click on an unrelated date', async () => {
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+
+      handleClick({
+        time: '2026-09-01',
+        point: { x: 10, y: 10 },
+        sourceEvent: { pageX: 123, pageY: 45 },
+        seriesData: new Map(),
+      })
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
+    it('does not open the balloon when the click event carries no page coordinates', async () => {
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+
+      handleClick({
+        time: '2026-08-31',
+        point: { x: 10, y: 10 },
+        sourceEvent: {},
+        seriesData: new Map(),
+      })
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
+    it('closes the divergence balloon on Escape', async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+      handleClick({
+        time: '2026-08-31',
+        point: { x: 10, y: 10 },
+        sourceEvent: { pageX: 123, pageY: 45 },
+        seriesData: new Map(),
+      })
+      expect(await screen.findByLabelText('Divergence details')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
+    it('removes the previous divergence line/markers/click subscription and adds new ones when the divergence changes', async () => {
+      mockHistory(barsSpanningDivergence)
+      mockAnalysis([], { divergence: bullishDivergence })
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalledTimes(1))
+
+      const otherDivergence: DivergenceOut = {
+        ...bullishDivergence,
+        second_extreme_date: '2026-09-01',
+        second_extreme_price: 208.0,
+      }
+      mockAnalysis([], { divergence: otherDivergence })
+      await queryClient.invalidateQueries({ queryKey: stocksKeys.analysis('AAPL') })
+
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith([
+          { time: '2026-08-03', value: 210.5 },
+          { time: '2026-09-01', value: 208.0 },
+        ]),
+      )
+      // The candlestick chart itself was never recreated for an
+      // analysis-only refetch...
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+      // ...but the stale divergence overlay's own line series, markers
+      // plugin, and click subscription were torn down before the new ones
+      // were added.
+      expect(unsubscribeClickMock).toHaveBeenCalledTimes(1)
+      expect(detachMarkersMock).toHaveBeenCalled()
+      expect(subscribeClickMock).toHaveBeenCalledTimes(2)
+    })
+
+    // Post-review fix (PR #158, blocking finding): the divergence overlay
+    // must be windowed to the currently visible bar range, the same
+    // pattern PR #152 already established for
+    // selectDisplayedZones/buildFalseBreakoutMarkers -- an unwindowed
+    // connecting line whose own points sit outside the visible range
+    // stretched Lightweight Charts' time scale to cover the gap, squashing
+    // the candlestick chart into an unreadable sliver (reproduced live on
+    // AAPL switching from 1Y to 1M). `twoBars` (2026-09-01/02) deliberately
+    // excludes `bullishDivergence`'s own dates (2026-08-03/08-31).
+    it('does not draw the connecting line/markers/click subscription when the divergence dates fall outside the currently visible bar range', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Give the BUY/SELL signal-overlay markers a chance to be added first
+      // so this assertion isn't just "nothing has rendered yet".
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalled())
+
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).some((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeUndefined()
+      const divergenceLineData = setDataMock.mock.calls.find(
+        ([data]) =>
+          Array.isArray(data) && (data as { time: string }[])[0]?.time === '2026-08-03',
+      )
+      expect(divergenceLineData).toBeUndefined()
+      expect(subscribeClickMock).not.toHaveBeenCalled()
+    })
+
+    it('still shows the Divergence legend (noting it is not in the current range) when the divergence dates fall outside the currently visible bar range', async () => {
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([], { divergence: bullishDivergence })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(screen.getByText(/Divergence/)).toBeInTheDocument())
+      expect(screen.getByText('Divergence (not in current range)')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Divergence help' }))
+
+      // Still names the actual ticker-specific divergence...
+      expect(
+        screen.getByText(/Bullish MACD-Histogram divergence/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/2026-08-03/)).toBeInTheDocument()
+      // ...plus the out-of-range explanation.
+      expect(
+        screen.getByText(/isn’t drawn on the chart right now/),
+      ).toBeInTheDocument()
     })
   })
 })
