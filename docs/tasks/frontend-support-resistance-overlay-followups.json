@@ -1,0 +1,21 @@
+{
+  "id": "frontend-support-resistance-overlay-followups",
+  "title": "Non-blocking follow-up from PR #152 review (frontend-support-resistance-overlay)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-support-resistance-overlay"],
+  "references": [
+    "docs/tasks/frontend-support-resistance-overlay.json",
+    "https://github.com/rainoko/fintrade/pull/152"
+  ],
+  "description": "Tracked non-blocking finding from pr-reviewer's review of PR #152 (frontend-support-resistance-overlay), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. Distinct from the PR's own blocking findings (the zone-band price-scale autoscale distortion, and the single-visible-bar setData crash risk), which stay on frontend-support-resistance-overlay itself and must be fixed before that PR can be accepted.",
+  "checklist": [
+    {
+      "step": "supportResistanceZoneHelp/falseBreakoutHelp's interpretValue functions (metricHelpContent.ts) read from the full (up to 15) zones array passed in from PriceChart.tsx, not the MAX_DISPLAYED_ZONES=6-capped, currently-visible-date-range-windowed subset the chart actually draws (buildZoneRenderData/buildFalseBreakoutMarkers apply that capping/windowing, but the two MetricHelp call sites pass the unfiltered `zones` array straight through). The legend balloon can therefore describe a 'nearest zone' or 'most recent false breakout' that has no corresponding shaded band/marker/price-line anywhere on the visible chart, which is confusing on its own. Fix direction: pass the same capped/windowed subset (or at least filter by the same MAX_DISPLAYED_ZONES slice, and for falseBreakoutHelp also the current visible date range) into interpretValue that the chart-drawing effects use.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

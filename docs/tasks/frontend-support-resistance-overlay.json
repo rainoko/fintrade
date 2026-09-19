@@ -3,7 +3,7 @@
   "title": "Draw support/resistance zones and false-breakout markers on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-support-resistance"
   ],
@@ -85,5 +85,28 @@
     "pr_number": 152,
     "pr_url": "https://github.com/rainoko/fintrade/pull/152",
     "pushed_at": "2026-09-19T12:59:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T13:09:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/152",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Zone bands are plotted as a BaselineSeries at each zone's raw price level with no check for how far that level sits from the currently visible price range. Lightweight Charts' default price-scale autoscale includes every visible series, so for any ticker with a multi-decade split-adjusted history (the top-6-by-strength_score zones tie heavily and skew toward the oldest, pre-split-era zones), the y-axis gets stretched to span from near-zero to the current price, squashing the actual candlestick/EMA/channel/marker content into an unreadable sliver. Reproduced via real-browser screenshots on AAPL (1Y/1M/Weekly, all squashed) and confirmed systemic by checking NVDA/MSFT/AMD's zone data (same pattern; only non-split-heavy V is unaffected). Confirmed as a genuine regression via an A/B screenshot comparison against parent commit 08ddd55 (pre-PR): the identical AAPL/1M view renders cleanly there (axis 300-345) vs. squashed here (axis 0-400).",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 267
+      },
+      {
+        "summary": "buildZoneRenderData's 2-point BaselineSeries data uses [{time: firstTime,...},{time: lastTime,...}]; when exactly one finite bar is visible, firstTime === lastTime, giving two points with an identical timestamp. Lightweight Charts' setData asserts strictly-ascending time (checkItemsAreOrdered with allowDuplicates defaulting to false, confirmed by reading node_modules/lightweight-charts's source) and throws synchronously on the second point -- uncaught, this crashes the whole page via AppErrorBoundary rather than degrading gracefully. The effect's existing guard only checks finiteBars.length === 0, not === 1.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 277
+      },
+      {
+        "summary": "Non-blocking: supportResistanceZoneHelp/falseBreakoutHelp's interpretValue functions read from the full (up to 15) zones array, not the MAX_DISPLAYED_ZONES=6-capped/date-windowed subset actually drawn -- the legend balloon can describe a zone or false breakout with no corresponding element on the chart. Tracked as frontend-support-resistance-overlay-followups.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 424
+      }
+    ],
+    "notes": "Backend (639 tests, 99.89% cov), frontend (406/407 tests -- 1 pre-existing flaky PortfolioPage timeout independently reproduced on main via git worktree, 99.51%/98.8%/99.59%/99.63% stmts/branches/funcs/lines), ruff/mypy/eslint/tsc all clean. bringSeriesToFront verified genuinely order-independent and correctly fixes PR #151's occlusion bug (no occlusion found in any tested view). code-review skill run at medium effort surfaced the two blocking findings above plus the non-blocking one. Real Playwright browser walkthrough performed independently (backend+frontend started via make dev, chromium driven directly since no MCP browser tool was available in this session) -- this is what surfaced the blocking price-scale-distortion regression, which the task's own decisions-recorded visual check did not catch (that check verified occlusion only). No backend/schema changes in this PR, so no openapi.json regen was needed."
   }
 }
