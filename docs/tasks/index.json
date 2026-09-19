@@ -1,5 +1,5 @@
 {
-  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file: docs/tasks/<id>.json while active (planned/implementing/testing/waiting_input), moved to docs/tasks/done/<id>.json once state becomes done (and moved back if a later override reverts state away from done). This index is the summary AND the authoritative map from task id to its current file path via the per-task \"path\" field — always resolve a task's location through this file rather than assuming docs/tasks/<id>.json; that assumption breaks for any done task. skill (nullable) names the .claude/skills/ workflow that governs the task, if any. See CLAUDE.md's \"Autonomous pipeline\" section for how orchestrate-tasks drives this board via the task-worker and pr-reviewer agents.",
+  "description": "Feature task board derived from docs/Analyse.md and docs/architecture/. Each task is one JSON file: docs/tasks/<id>.json while active (planned/implementing/testing/waiting_input), moved to docs/tasks/done/<id>.json once state becomes done (and moved back if a later override reverts state away from done). This index is the summary AND the authoritative map from task id to its current file path via the per-task \"path\" field \u2014 always resolve a task's location through this file rather than assuming docs/tasks/<id>.json; that assumption breaks for any done task. skill (nullable) names the .claude/skills/ workflow that governs the task, if any. See CLAUDE.md's \"Autonomous pipeline\" section for how orchestrate-tasks drives this board via the task-worker and pr-reviewer agents.",
   "states": [
     "planned",
     "implementing",
@@ -1146,7 +1146,7 @@
       "id": "frontend-support-resistance-overlay-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-support-resistance-overlay-followups.json"
     },
     {

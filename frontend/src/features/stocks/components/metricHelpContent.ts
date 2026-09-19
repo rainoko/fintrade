@@ -523,31 +523,74 @@ function hasFalseBreakout(zone: SupportResistanceZone): zone is ZoneWithFalseBre
   return zone.false_breakout != null
 }
 
+/**
+ * The most recent (by `reentry_date`) false-breakout episode among
+ * `displayedZones` -- the same relevance-filtered + capped list the
+ * chart-drawing effect actually renders (`PriceChart.tsx`'s
+ * `selectDisplayedZones`), not the raw API response, so this can never pick
+ * a zone that isn't actually on the chart (post-review fix, PR #152 retry
+ * round 2). `undefined` when none of `displayedZones` has a false breakout
+ * at all.
+ *
+ * Exported (not inlined into `falseBreakoutHelp.interpretValue` below) so
+ * `PriceChart.tsx` can run this exact same selection to decide whether the
+ * episode `interpretValue` is about to describe is also the one
+ * `buildFalseBreakoutMarkers` actually windows onto the chart -- the same
+ * "one shared function so two computations can't drift" pattern
+ * `selectDisplayedZones` itself already established for the zone list, per
+ * this task's `decisions` entry.
+ */
+export function mostRecentFalseBreakoutZone(
+  displayedZones: readonly SupportResistanceZone[],
+): ZoneWithFalseBreakout | undefined {
+  const withBreakout = displayedZones.filter(hasFalseBreakout)
+  if (withBreakout.length === 0) {
+    return undefined
+  }
+  return withBreakout.reduce((latest, zone) =>
+    zone.false_breakout.reentry_date > latest.false_breakout.reentry_date ? zone : latest,
+  )
+}
+
 export const falseBreakoutHelp = {
   metricLabel: 'False Breakout',
   definition:
     'A specific reversal setup, not just noise: price closes beyond a support/resistance zone, then closes back inside it within about two trading weeks.',
   elderContext:
     'Elder ch. 18 calls a false breakout "a specific, high-value trade setup" -- the market tested a level, failed to hold beyond it, and is now more likely to reverse. The book\'s explicit stop-placement rule is to place a stop near the failed move\'s own extreme (the highest high reached for a failed break up, the lowest low for a failed break down) -- not further out, since that extreme is exactly how far the market proved it could reach before reversing. Marked on the chart with a distinct marker at the close that confirmed the reversal, plus a dashed price line at that extreme.',
-  interpretValue(displayedZones: readonly SupportResistanceZone[]): string {
-    // `displayedZones` -- the same relevance-filtered + capped list the
-    // chart-drawing effect actually renders (`PriceChart.tsx`'s
-    // `selectDisplayedZones`), not the raw API response -- so this can
-    // never describe a false breakout for a zone that isn't actually on
-    // the chart (post-review fix, PR #152 retry round 2).
-    const withBreakout = displayedZones.filter(hasFalseBreakout)
-    if (withBreakout.length === 0) {
+  /**
+   * `inVisibleRange` (this task's follow-up fix, mirroring
+   * `divergenceHelp.interpretValue`/`kangarooTailHelp.interpretValue`'s own
+   * parameter): whether the most-recent breakout's own `reentry_date` falls
+   * within the chart's currently selected/visible bar range -- the same
+   * `firstDate`/`lastDate` window `buildFalseBreakoutMarkers` and the dashed
+   * "False-breakout stop" price line are both already windowed to
+   * (`PriceChart.tsx`). Defaults to `true` so every existing caller
+   * (including this file's own tests, which don't care about range-
+   * windowing) doesn't need to think about a range at all.
+   *
+   * Decision (this task's `decisions` entry): follows the divergence/
+   * Kangaroo Tail precedent -- still names the real episode in full and
+   * appends a caveat clause when it isn't currently drawn, rather than
+   * filtering the search itself to only in-range breakouts (which would
+   * make the legend claim "no false breakouts" for a zone that genuinely
+   * has one, just outside the current range/window selection).
+   */
+  interpretValue(
+    displayedZones: readonly SupportResistanceZone[],
+    inVisibleRange = true,
+  ): string {
+    const mostRecent = mostRecentFalseBreakoutZone(displayedZones)
+    if (!mostRecent) {
       return 'No false breakouts detected among these zones right now.'
     }
-    const mostRecent = withBreakout.reduce((latest, zone) =>
-      zone.false_breakout.reentry_date > latest.false_breakout.reentry_date
-        ? zone
-        : latest,
-    )
     const { false_breakout: breakout } = mostRecent
     const roleLabel = mostRecent.role === 'support' ? 'support' : 'resistance'
     const directionLabel = breakout.direction === 'up' ? 'broke above' : 'broke below'
-    return `Most recent: the ${roleLabel} zone ${mostRecent.lower.toFixed(2)}-${mostRecent.upper.toFixed(2)} ${directionLabel} it on ${breakout.breakout_date}, then closed back inside by ${breakout.reentry_date} -- suggested stop near ${breakout.extreme_price.toFixed(2)}, the failed move's own extreme.`
+    const rangeClause = inVisibleRange
+      ? ''
+      : ` This false breakout isn't marked on the chart right now -- its reentry date (${breakout.reentry_date}) falls outside the currently selected range. Switch to a wider range (e.g. 1Y or Max) to see it plotted.`
+    return `Most recent: the ${roleLabel} zone ${mostRecent.lower.toFixed(2)}-${mostRecent.upper.toFixed(2)} ${directionLabel} it on ${breakout.breakout_date}, then closed back inside by ${breakout.reentry_date} -- suggested stop near ${breakout.extreme_price.toFixed(2)}, the failed move's own extreme.${rangeClause}`
   },
 }
 

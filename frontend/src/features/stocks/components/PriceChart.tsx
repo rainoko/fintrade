@@ -42,6 +42,7 @@ import {
   divergenceHelp,
   falseBreakoutHelp,
   kangarooTailHelp,
+  mostRecentFalseBreakoutZone,
   supportResistanceZoneHelp,
   valueZoneHelp,
 } from './metricHelpContent'
@@ -231,38 +232,110 @@ const MAX_DISPLAYED_ZONES = 6
 // never distort the axis, no matter how high its `strength_score`.
 const ZONE_RELEVANCE_PRICE_RATIO = 0.5
 
+// Follow-up fix (frontend-support-resistance-overlay-followups, checklist
+// item 2): the fixed 50% price-ratio window above is anchored only to the
+// latest visible close, not to the currently-visible bars' own price span --
+// pr-reviewer's retry-round-1 stress test found this still let a zone ~40%
+// above the latest close (inside the 50% window) distort a 1-month preset
+// view's y-axis, squashing the actual candlestick/EMA/channel content into
+// roughly 11% of the pane, even though the same zone against a 1-year view
+// (naturally more price spread to absorb it) was fine. `isZoneRelevant`
+// below now ALSO intersects the ratio window with a second window built
+// from the actually-visible bars' own high/low span (`visibleBarPriceSpan`)
+// -- `ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE` times that span either side of
+// the visible high/low. Intersecting (not replacing) the ratio window means
+// this can only ever SHRINK the eligible window versus before, never widen
+// it -- so the worst case is no worse than the ratio-only bound already
+// reasoned through in PR #152's own `decisions` entry, while a narrow
+// visible range (small own price span) now gets a correspondingly tighter
+// window instead of always defaulting to the full 50%.
+//
+// `ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO` floors the span used in that
+// multiple at 10% of `referencePrice` -- without it, a visible range that
+// happens to be nearly flat (a quiet trading window, or this file's own
+// 2-bar test fixtures) would collapse the span window to almost nothing,
+// excluding zones that are still clearly relevant to where price actually
+// sits. Decision (this task's `decisions` entry): chose intersecting with a
+// floored multiple of the visible span (rather than e.g. replacing the
+// ratio window outright, or a fixed absolute-dollar margin) since it only
+// ever tightens the existing, already-reasoned-through ratio bound, and the
+// floor keeps behavior for a normal-volatility view close to before while
+// still bounding the narrow-range distortion case the review reproduced --
+// `ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE=2`/`ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO=0.1`
+// were picked so every zone fixture already exercised by this file's own
+// tests (all within the existing 2-bar fixtures' ~1.4%-of-price span) still
+// passes unchanged, while a zone ~40% away against a realistically narrow
+// (non-floor-dominated) visible span is excluded -- verified with a
+// throwaway Playwright screenshot against the running app (not committed),
+// not just unit tests.
+const ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE = 2
+const ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO = 0.1
+
+/** The actually-visible bars' own price span -- the min `low` and max `high`
+ * across every currently visible bar (not just the first/last, since a
+ * mid-range spike/dip is still part of what's actually on screen), used by
+ * `isZoneRelevant`'s span-based window above. */
+function visibleBarPriceSpan(
+  bars: readonly { high: number; low: number }[],
+): { low: number; high: number } {
+  let low = Infinity
+  let high = -Infinity
+  for (const bar of bars) {
+    if (bar.low < low) {
+      low = bar.low
+    }
+    if (bar.high > high) {
+      high = bar.high
+    }
+  }
+  return { low, high }
+}
+
 /**
- * True when `zone`'s `[lower, upper]` band overlaps the window
- * `referencePrice * (1 - ZONE_RELEVANCE_PRICE_RATIO)` ..
- * `referencePrice * (1 + ZONE_RELEVANCE_PRICE_RATIO)` -- i.e. within 50%
- * of the reference price either way. See `ZONE_RELEVANCE_PRICE_RATIO`'s own
- * comment and this task's `decisions` entry for why a price-ratio window
- * (rather than e.g. the currently visible bars' own high/low span) was
- * chosen as the relevance definition.
+ * True when `zone`'s `[lower, upper]` band overlaps the window formed by
+ * intersecting two windows: `referencePrice * (1 -/+ ZONE_RELEVANCE_PRICE_RATIO)`
+ * (the original 50%-either-way price-ratio window), and `visibleSpan`'s own
+ * `[low, high]` expanded by `ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE` times its
+ * own (floored) height either way -- see the constants' own comments above
+ * for why both windows exist and are intersected rather than either alone.
  */
-function isZoneRelevant(zone: SupportResistanceZone, referencePrice: number): boolean {
-  const windowMin = referencePrice * (1 - ZONE_RELEVANCE_PRICE_RATIO)
-  const windowMax = referencePrice * (1 + ZONE_RELEVANCE_PRICE_RATIO)
+function isZoneRelevant(
+  zone: SupportResistanceZone,
+  referencePrice: number,
+  visibleSpan: { low: number; high: number },
+): boolean {
+  const ratioWindowMin = referencePrice * (1 - ZONE_RELEVANCE_PRICE_RATIO)
+  const ratioWindowMax = referencePrice * (1 + ZONE_RELEVANCE_PRICE_RATIO)
+  const effectiveSpan = Math.max(
+    visibleSpan.high - visibleSpan.low,
+    referencePrice * ZONE_RELEVANCE_MIN_VISIBLE_SPAN_RATIO,
+  )
+  const spanWindowMin = visibleSpan.low - ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
+  const spanWindowMax = visibleSpan.high + ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE * effectiveSpan
+  const windowMin = Math.max(ratioWindowMin, spanWindowMin)
+  const windowMax = Math.min(ratioWindowMax, spanWindowMax)
   return zone.upper >= windowMin && zone.lower <= windowMax
 }
 
 /**
  * Zones actually eligible to be drawn on the chart: filtered to ones
- * relevant to `referencePrice` (see `isZoneRelevant`), THEN capped to the
- * strongest `MAX_DISPLAYED_ZONES` (zones arrive already sorted
- * strongest-first, so this is a plain `.slice`) -- in that order, so the
- * relevance filter always runs before the cap and a distant zone can never
- * consume one of the 6 display slots. Shared by both `buildZoneRenderData`
- * (the shaded bands) and `buildFalseBreakoutMarkers` (their false-breakout
- * markers/stop lines) so the two stay in lockstep: a false breakout is only
- * ever marked for a zone whose band is actually drawn.
+ * relevant to `referencePrice`/`visibleSpan` (see `isZoneRelevant`), THEN
+ * capped to the strongest `MAX_DISPLAYED_ZONES` (zones arrive already
+ * sorted strongest-first, so this is a plain `.slice`) -- in that order, so
+ * the relevance filter always runs before the cap and a distant zone can
+ * never consume one of the 6 display slots. Shared by both
+ * `buildZoneRenderData` (the shaded bands) and `buildFalseBreakoutMarkers`
+ * (their false-breakout markers/stop lines) so the two stay in lockstep: a
+ * false breakout is only ever marked for a zone whose band is actually
+ * drawn.
  */
 function selectDisplayedZones(
   zones: readonly SupportResistanceZone[],
   referencePrice: number,
+  visibleSpan: { low: number; high: number },
 ): SupportResistanceZone[] {
   return zones
-    .filter((zone) => isZoneRelevant(zone, referencePrice))
+    .filter((zone) => isZoneRelevant(zone, referencePrice, visibleSpan))
     .slice(0, MAX_DISPLAYED_ZONES)
 }
 
@@ -345,6 +418,24 @@ function buildZoneRenderData(
 }
 
 /**
+ * `true` when `breakout.reentry_date` falls within `[firstDate, lastDate]`
+ * -- the currently visible bar range (inclusive) -- the same windowing test
+ * `isDivergenceInRange`/`isKangarooTailInRange` already apply to their own
+ * overlays, for the exact same reason (see `isKangarooTailInRange`'s own
+ * doc comment). Shared by `buildFalseBreakoutMarkers` below (which windows
+ * every zone's marker/price-line) and the legend's own `falseBreakoutHelp`
+ * `inVisibleRange` computation (this task's follow-up fix) so the two can
+ * never disagree about whether a given episode is actually on screen.
+ */
+function isFalseBreakoutInRange(
+  breakout: SupportResistanceZone['false_breakout'],
+  firstDate: string,
+  lastDate: string,
+): breakout is NonNullable<SupportResistanceZone['false_breakout']> {
+  return breakout != null && breakout.reentry_date >= firstDate && breakout.reentry_date <= lastDate
+}
+
+/**
  * One marker per already-selected (see `selectDisplayedZones`) zone's most
  * recent false-breakout episode (Elder ch. 18: "a specific, high-value trade
  * setup", not noise -- see `falseBreakoutHelp` in metricHelpContent.ts)
@@ -370,10 +461,7 @@ function buildFalseBreakoutMarkers(
   const markers: SeriesMarker<Time>[] = []
   for (const zone of zones) {
     const breakout = zone.false_breakout
-    if (!breakout) {
-      continue
-    }
-    if (breakout.reentry_date < firstDate || breakout.reentry_date > lastDate) {
+    if (!isFalseBreakoutInRange(breakout, firstDate, lastDate)) {
       continue
     }
     markers.push({
@@ -886,7 +974,11 @@ export default function PriceChart({
     // any range that includes the present (every preset does), so a zone
     // far from it (e.g. a pre-split-era level) never gets a display slot.
     const referencePrice = finiteBars[finiteBars.length - 1].close
-    const displayedZones = selectDisplayedZones(zones, referencePrice)
+    const displayedZones = selectDisplayedZones(
+      zones,
+      referencePrice,
+      visibleBarPriceSpan(finiteBars),
+    )
     if (displayedZones.length === 0) {
       return
     }
@@ -953,11 +1045,7 @@ export default function PriceChart({
     const falseBreakoutPriceLines: IPriceLine[] = []
     for (const { zone } of zoneRenderData) {
       const breakout = zone.false_breakout
-      if (
-        breakout == null ||
-        breakout.reentry_date < firstDate ||
-        breakout.reentry_date > lastDate
-      ) {
+      if (!isFalseBreakoutInRange(breakout, firstDate, lastDate)) {
         continue
       }
       falseBreakoutPriceLines.push(
@@ -1226,7 +1314,36 @@ export default function PriceChart({
   const zones = analysisQuery.data?.support_resistance_zones ?? []
   const zoneReferencePrice = bars.length >= 2 ? bars.at(-1)?.close : undefined
   const displayedZones =
-    zoneReferencePrice != null ? selectDisplayedZones(zones, zoneReferencePrice) : []
+    zoneReferencePrice != null
+      ? selectDisplayedZones(zones, zoneReferencePrice, visibleBarPriceSpan(bars))
+      : []
+
+  // Follow-up fix (frontend-support-resistance-overlay-followups, checklist
+  // item 1): `falseBreakoutHelp.interpretValue`'s "Most recent" reading used
+  // to be filtered by `displayedZones` only, NOT further windowed by the
+  // currently visible date range the way `buildFalseBreakoutMarkers`'
+  // marker and the dashed "False-breakout stop" price line both already
+  // are -- so it could describe a specific breakout (exact dates + stop
+  // price) whose marker/price-line wasn't actually rendered in the current
+  // range view. `mostRecentBreakoutZone` runs the exact same selection
+  // (`mostRecentFalseBreakoutZone`, exported from metricHelpContent.ts) the
+  // legend text itself uses, and `falseBreakoutInVisibleRange` checks its
+  // `reentry_date` against the same `isFalseBreakoutInRange` window the
+  // chart-drawing effect's marker/price-line use -- so the legend can never
+  // silently disagree with what's actually plotted. Decision (this task's
+  // `decisions` entry): follows the divergence/Kangaroo Tail precedent
+  // (keep describing the real episode, append a caveat + dim the legend
+  // swatch when it's out of range) rather than filtering the search to
+  // only in-range breakouts.
+  const mostRecentBreakoutZone = mostRecentFalseBreakoutZone(displayedZones)
+  const falseBreakoutInVisibleRange =
+    mostRecentBreakoutZone == null || bars.length === 0
+      ? true
+      : isFalseBreakoutInRange(
+          mostRecentBreakoutZone.false_breakout,
+          bars[0].date,
+          bars[bars.length - 1].date,
+        )
 
   // The single currently-qualifying divergence, read directly from
   // `/analysis` -- the same value both the divergence-overlay effect above
@@ -1412,16 +1529,23 @@ export default function PriceChart({
                   height: 0,
                   borderTop: '2px dashed',
                   borderColor: 'warning.main',
+                  opacity: falseBreakoutInVisibleRange ? 1 : 0.4,
                 }}
               />
               <Typography variant="caption" color="text.secondary">
                 False Breakout
+                {mostRecentBreakoutZone != null &&
+                  !falseBreakoutInVisibleRange &&
+                  ' (not in current range)'}
               </Typography>
               <MetricHelp
                 metricLabel={falseBreakoutHelp.metricLabel}
                 definition={falseBreakoutHelp.definition}
                 elderContext={falseBreakoutHelp.elderContext}
-                valueInterpretation={falseBreakoutHelp.interpretValue(displayedZones)}
+                valueInterpretation={falseBreakoutHelp.interpretValue(
+                  displayedZones,
+                  falseBreakoutInVisibleRange,
+                )}
               />
             </Stack>
           </Stack>
