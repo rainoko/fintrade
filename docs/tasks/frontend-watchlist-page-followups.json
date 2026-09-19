@@ -3,7 +3,7 @@
   "title": "Watchlist page — non-blocking review follow-ups",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-watchlist-page"],
   "references": [
     "docs/tasks/done/frontend-watchlist-page.json#review",
@@ -33,5 +33,11 @@
       "decision": "Used the GOOGL fixture ticker for the new watchlist.spec.ts e2e flow.",
       "rationale": "backend/app/data/fixture_provider.py only defines four fixture tickers (AAPL, MSFT, TSLA, GOOGL). AAPL is already used by navigation.spec.ts/stock-analysis.spec.ts and MSFT by portfolio.spec.ts; picking an unused one (GOOGL over TSLA, arbitrarily) avoids any risk of this new spec's add/remove cycle being confused with state those other specs leave behind in the shared e2e database, consistent with portfolio.spec.ts's own documented reasoning for choosing MSFT over AAPL."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-watchlist-page-followups",
+    "pr_number": 131,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/131",
+    "pushed_at": "2026-09-19T01:18:00Z"
+  }
 }
