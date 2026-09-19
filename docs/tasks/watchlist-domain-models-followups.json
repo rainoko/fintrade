@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #101 review (watchlist-domain-models)",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["watchlist-domain-models"],
   "references": [
     "docs/tasks/watchlist-domain-models.json",
@@ -13,11 +13,11 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md's DB section (around 'SQLite via SQLAlchemy for MVP: positions, account equity, and a cache table for fetched OHLCV...') doesn't mention the new watchlist_items table added in PR #101. Update that sentence to list watchlist_items alongside the existing tables so the architecture doc stays an accurate enumeration of the schema.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/tests/unit/test_db_models.py's module docstring ('Exercises PositionORM, AccountORM, and OHLCVCacheORM independently...') wasn't updated when TestWatchlistItemORM was added in PR #101 -- it should list WatchlistItemORM too.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],

@@ -712,7 +712,7 @@
       "id": "watchlist-domain-models-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/watchlist-domain-models-followups.json"
     },
     {

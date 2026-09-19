@@ -1,6 +1,6 @@
 """CRUD tests for the SQLAlchemy ORM models (app/db/models.py) against an in-memory SQLite session.
 
-Exercises PositionORM, AccountORM, and OHLCVCacheORM independently of any API/router layer.
+Exercises PositionORM, AccountORM, OHLCVCacheORM, and WatchlistItemORM independently of any API/router layer.
 """
 
 from datetime import date, datetime
