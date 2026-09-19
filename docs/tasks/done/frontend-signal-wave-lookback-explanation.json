@@ -3,7 +3,7 @@
   "title": "signalExplanation.ts: consume WaveScreen.showed_pullback_in_lookback/showed_rally_in_lookback to remove the ambiguous-Wave caveat",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["api-stocks-analysis-wave-lookback"],
   "references": [
     "frontend/src/features/stocks/components/signalExplanation.ts",
@@ -47,5 +47,18 @@
     "pr_number": 143,
     "pr_url": "https://github.com/rainoko/fintrade/pull/143",
     "pushed_at": "2026-09-19T04:12:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T04:18:26Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/143",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "signalExplanation.test.ts's new 'previously-ambiguous HOLD, now definitive' cases (explicit showedPullbackInLookback overrides + wave.met/wave.detail assertions) only cover the BULLISH/showed_pullback_in_lookback side of the isBuySide ternary. No test explicitly asserts wave.met/wave.detail for the BEARISH/showed_rally_in_lookback side with that boolean set true and false (numeric branch coverage is 100% only incidentally, via the fixture builder's own BEARISH-tide defaults, not via an assertion that would catch a field-swap regression). Verified correct in the real app via a live browser walkthrough of ADBE (BEARISH tide, showed_rally_in_lookback: false) which rendered the correct definitive not-met text -- filed as a non-blocking follow-up, not a correctness bug.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.test.ts",
+        "line": 168
+      }
+    ],
+    "notes": "Full review of PR #143. Backend: pytest 578 passed, 99.87% cov (unaffected, backend untouched). Frontend: vitest 346/346 passed, 99.68% overall cov (signalExplanation.ts itself 100% lines/branches). ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) found zero issues, independently confirming the branch-collapse logic against backend/app/signals/engine.py's _determine_signal/_wave_lookback contract.\n\nManually verified the core claim: _determine_signal only returns BUY/SELL when the matching wave_showed_pullback/wave_showed_rally boolean is true, and screens.wave.showed_pullback_in_lookback/showed_rally_in_lookback (engine.py lines 393-394) are exactly those booleans, null only when tide == NEUTRAL -- exactly the case explainSignal's earlier Tide-Neutral early return already handles before this code runs, so met is never a hedge/undeterminable value anymore, only a genuine not-evaluated null (Tide Neutral) or a definite true/false. The `?? false` fallback is confirmed defensive-only per this reasoning, matching the recorded decision. The unreachable-for-BUY/SELL else branch is genuinely unreachable given the same backend contract. No other consumer of the old three-way branch structure exists (grepped explainSignal usage -- only SignalExplanationContent.tsx, already updated).\n\nBrowser walkthrough (no Playwright MCP tool available in this session; drove the real running app -- make dev -- with the playwright package already vendored in frontend/node_modules): AAPL (BULLISH tide, showed_pullback_in_lookback: false -- the definitive by-elimination case), ADBE (BEARISH tide, showed_rally_in_lookback: false -- the SELL-side equivalent), and NVDA (Tide NEUTRAL, both lookback fields null -- the not-evaluated case) all rendered the InfoBalloon correctly with the new wording and correct met/not-met icons; no console errors, no failed network requests. make e2e: 16/16 passed across all 5 spec files (dashboard, navigation, portfolio, stock-analysis, watchlist) -- no UI flow of its own, run as the unrelated-regression check.\n\nNo backend/API/schema change in this PR (openapi.json N/A -- the field was already added and documented in PR #142). No new/changed frontend component (only a pure function and its test fixtures changed) -- component-placement check (step 7a) N/A. decisions entries present and sound for all three judgment calls (the ?? false fallback, the neutral not-met wording, and the no-Storybook-story call). One non-blocking test-completeness finding recorded above and filed as frontend-signal-wave-lookback-explanation-followups."
   }
 }

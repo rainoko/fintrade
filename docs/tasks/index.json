@@ -887,8 +887,15 @@
       "id": "frontend-signal-wave-lookback-explanation",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-signal-wave-lookback-explanation.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-signal-wave-lookback-explanation.json"
+    },
+    {
+      "id": "frontend-signal-wave-lookback-explanation-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-signal-wave-lookback-explanation-followups.json"
     },
     {
       "id": "frontend-watchlist-add-skeleton",
