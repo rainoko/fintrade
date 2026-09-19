@@ -1097,8 +1097,8 @@
       "id": "frontend-rsi-oscillator-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-rsi-oscillator-chart.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-rsi-oscillator-chart.json"
     },
     {
       "id": "frontend-volume-indicators-chart",
