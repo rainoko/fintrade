@@ -1230,8 +1230,15 @@
       "id": "backend-trade-history-table-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-history-table-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-history-table-followups.json"
+    },
+    {
+      "id": "backend-trade-history-table-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-history-table-followups-followups.json"
     },
     {
       "id": "frontend-trade-journal-followups",

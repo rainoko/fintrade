@@ -3,7 +3,7 @@
   "title": "Trade-history/ledger table + realized-loss-aware 6% Rule -- non-blocking review follow-ups",
   "area": "backend/db",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-history-table"],
   "references": [
     "docs/tasks/backend-trade-history-table.json#review",
@@ -52,5 +52,33 @@
     "pr_number": 166,
     "pr_url": "https://github.com/rainoko/fintrade/pull/166",
     "pushed_at": "2026-09-19T20:51:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T20:58:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/166",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified: the new local `_today()` helper in both backend/tests/integration/test_portfolio_delete_position.py and test_portfolio_risk.py returns `datetime.now(UTC).date()`, matching `app.api.routers.portfolio._today()` exactly (read both implementations side by side). No leftover local `date.today()` calls remain in either file.",
+        "file": "backend/tests/integration/test_portfolio_risk.py",
+        "line": null
+      },
+      {
+        "summary": "Verified: `total_open_risk_pct` in the risk response is `open_risk + realized_losses_this_month` (app/api/routers/portfolio.py get_risk), so totalRiskHelp.ts's `openPositionRiskPct = totalOpenRiskPct - realizedLossesThisMonthPct` recovers the true open-risk component exactly. Confirmed the breakdown sums correctly against a live rendered instance via a real-browser walkthrough (Dashboard + Portfolio pages, 6%-breach scenario): '1.93% from open positions + 691.79% from this month's realized losses = 693.72% total', matching the live GET /api/portfolio/risk response and the banner text. Label and banner copy are accurate, not misleading in a new way.",
+        "file": "frontend/src/features/portfolio/components/totalRiskHelp.ts",
+        "line": null
+      },
+      {
+        "summary": "Verified the 'empirically confirmed harmless, not a live type gap' claim: neither DashboardPage.test.tsx nor PortfolioPage.test.tsx imports or type-annotates its `HttpResponse.json(...)` payload against `RiskResponse` (msw's `HttpResponse.json` isn't generic there), so tsc genuinely wouldn't have caught the missing field -- unlike the api-portfolio-add-position-adjacent cases PR #149/#150 flagged, which involved a typed call site. The reasoning holds. Also note: after this PR's own label/tooltip fix, RiskSummaryCard.tsx and RiskPanel.tsx now actually *read* `realized_losses_this_month_pct` to compute the breakdown, so this fixture field is no longer merely 'future-safety' -- it's load-bearing for the components under test, and all affected fixtures were correctly updated to include it.",
+        "file": "frontend/src/pages/DashboardPage.test.tsx",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: the new open/realized risk breakdown math (totalRiskHelp.ts) and its MetricHelp wiring in RiskPanel.tsx/RiskSummaryCard.tsx have no direct test coverage -- neither RiskPanel.test.tsx nor RiskSummaryCard.test.tsx clicks the new 'Total Risk (Open + Realized) help' icon or asserts on the breakdown text, unlike the established MetricHelp-testing precedent (IndicatorsPanel.test.tsx, which does click its help icons and assert exact popover text). totalRiskHelp.ts shows 100% coverage only because it's called unconditionally during render, not because its output is ever asserted. Confirmed via manual browser walkthrough that the current arithmetic/copy is correct, but a future regression (e.g. swapped subtraction operands) would pass CI silently. Filed as backend-trade-history-table-followups-followups.",
+        "file": "frontend/src/features/portfolio/components/totalRiskHelp.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full review: backend 741 passed, 99.92% coverage (ruff + mypy clean); frontend 506 passed, 99.7%/98.88%/99.63%/99.8% stmt/branch/fn/line coverage (eslint + tsc clean); both well above the 90% gate, no regression. backend/openapi.json regenerated and diffed clean (no route/schema touched by this PR). `make e2e` 16/16 specs passed, including the updated dashboard.spec.ts/portfolio.spec.ts assertions on the new label text. Browser walkthrough (Dashboard + Portfolio pages, real backend with a genuine 6%-breach fixture position) confirmed the label, banner copy, and MetricHelp breakdown tooltip all render correctly with no console errors or failed network requests; screenshots taken. code-review skill (medium effort) independently converged on the same single non-blocking finding as my own manual check (no direct test coverage for the totalRiskHelp breakdown/tooltip). All three checklist items' decisions entries are well-reasoned and each is independently verified true, not just asserted. No human PR comments/reviews existed prior to this review. Task board validates cleanly after edits (`scripts/validate_tasks.py`, 179 files, no violations)."
   }
 }
