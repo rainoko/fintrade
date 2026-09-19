@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #137 review (frontend-verify-npm-install-followups)",
   "area": "frontend/tooling",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-verify-npm-install-followups"],
   "references": [
     "docs/tasks/done/frontend-verify-npm-install-followups.json",
@@ -14,13 +14,20 @@
   "checklist": [
     {
       "step": "docs/architecture/Frontend.md §6's new resolutions paragraph states as unconditional fact that the `$typescript` back-reference \"forces\" openapi-typescript to resolve typescript against the root version, then in the same sentence-group hedges that whether the entry \"still does anything under Yarn's resolution semantics\" is an open question -- the two claims sit in tension. docs/tasks/migrate-yarn2-followups.json's own still-open checklist item records that under Yarn, typescript is only a peerDependency of openapi-typescript (not a real dependency edge), so `resolutions` -- which only rewrites real edges -- is 'likely a no-op', and that peer resolution 'already converges on a single top-level typescript@6.0.3 without it' per migrate-yarn2's own verification. Independently reproduced during this review: `yarn install` still emits `YN0060: typescript ... doesn't satisfy what openapi-typescript ... requests (^5.0.0)` even with the resolutions entry in place, consistent with the entry not actually suppressing/redirecting anything under Yarn's peer-only semantics. Tighten the paragraph's wording so it doesn't assert 'forces' as settled fact when the entry's actual effect under Yarn is an open, tracked question -- e.g. scope the 'forces' language to the original npm `overrides` mechanism (PR #115) and describe the current Yarn `resolutions` translation more conditionally.",
-      "done": false
+      "done": true
     },
     {
       "step": "The same paragraph's closing sentence bundles three verification claims (fresh install is clean; generate:api-types regenerates byte-for-byte identical output; the synthetic oneOf/allOf/readOnly/webhooks smoke test is clean) and then points only to `frontend-verify-npm-install-followups`'s decisions for 'the full verification record'. The fresh-install-clean and byte-for-byte-identical evidence actually lives in the original (done) `frontend-verify-npm-install` task's decisions (PR #115), not the followups task's -- a reader following the given pointer for that part of the claim won't find it there. Either point to both tasks' decisions, or split the sentence so each claim's evidence is attributed to the task that actually recorded it.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded docs/architecture/Frontend.md §6's resolutions paragraph to scope the 'forces' claim to the original npm `overrides` mechanism (PR #115, where it's accurate -- npm's resolver genuinely rewrites the dependency edge) and describe the Yarn `resolutions` translation conditionally: under Yarn, `typescript` is only a `peerDependency` of `openapi-typescript` (not a real dependency edge), `resolutions` only rewrites the latter, so the entry 'likely no longer forces anything there' -- backed by the reproduced `YN0060` peer warning and the fact peer resolution already converges on `typescript@6.0.3` without it. Kept the pointer to `migrate-yarn2-followups` for whether it's safe to remove, rather than resolving that question here (out of this task's scope -- it's tracked and owned there). Separately, split the closing verification sentence's attribution: fresh-install-clean and byte-for-byte-identical regen now cite `frontend-verify-npm-install`'s decisions (PR #115, where that evidence actually lives), and the oneOf/allOf/readOnly/webhooks synthetic-schema smoke test cites `frontend-verify-npm-install-followups`'s decisions (PR #137, where that evidence lives) -- rather than one blanket pointer to only the followups task.",
+      "rationale": "Rejected removing the 'forces' language entirely (even for the npm/PR #115 context) -- it's factually accurate there and losing it would understate why the entry was added in the first place; the actual tension was only its unqualified extension to the current Yarn mechanism. Rejected resolving migrate-yarn2-followups' open question (e.g. by removing the resolutions entry outright) as part of this task -- that's explicitly out of scope per this task's own checklist wording ('tighten wording', not 'fix the underlying no-op'), and migrate-yarn2-followups already owns that decision with its own tracked checklist item; conflating the two would duplicate ownership of one question across two task files. Rejected merging the two verification-evidence citations back into one pointer for brevity -- the whole point of the finding was that a single pointer sends a reader to the wrong task for two of the three claims, so per-claim attribution is the actual fix, not a shorter but still-inaccurate blanket citation."
+    }
+  ],
   "questions": []
 }
