@@ -3,7 +3,7 @@
   "title": "Draw support/resistance zones and false-breakout markers on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-support-resistance"
   ],
@@ -93,26 +93,21 @@
     "pushed_at": "2026-09-19T12:59:11Z"
   },
   "review": {
-    "reviewed_at": "2026-09-19T13:09:32Z",
+    "reviewed_at": "2026-09-19T13:38:36Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/152",
     "verdict": "needs_work",
     "comments": [
       {
-        "summary": "Zone bands are plotted as a BaselineSeries at each zone's raw price level with no check for how far that level sits from the currently visible price range. Lightweight Charts' default price-scale autoscale includes every visible series, so for any ticker with a multi-decade split-adjusted history (the top-6-by-strength_score zones tie heavily and skew toward the oldest, pre-split-era zones), the y-axis gets stretched to span from near-zero to the current price, squashing the actual candlestick/EMA/channel/marker content into an unreadable sliver. Reproduced via real-browser screenshots on AAPL (1Y/1M/Weekly, all squashed) and confirmed systemic by checking NVDA/MSFT/AMD's zone data (same pattern; only non-split-heavy V is unaffected). Confirmed as a genuine regression via an A/B screenshot comparison against parent commit 08ddd55 (pre-PR): the identical AAPL/1M view renders cleanly there (axis 300-345) vs. squashed here (axis 0-400).",
+        "summary": "Re-review (retry round 1, commit 4f1a1f4): round-1 blocking findings #1 (autoscale distortion) and #2 (single-bar crash) are genuinely fixed -- independently reproduced via real browser against AAPL/NVDA/MSFT/AMD (1Y/1M/Max, Daily/Weekly, all sane axis, no console/page errors), and independently reproduced the single-bar crash scenario against the REAL (unmocked) lightweight-charts library via a /history route interception returning exactly one bar -- no crash. New blocking finding introduced by this exact fix: supportResistanceZoneHelp.interpretValue/falseBreakoutHelp.interpretValue (metricHelpContent.ts) and the legend's displayedZoneCount/visibility gate (PriceChart.tsx ~lines 898-899, 998, 1017-1019, 1040) still read the raw, unfiltered `zones` array and the stale Math.min(zones.length, MAX_DISPLAYED_ZONES) formula -- not the new selectDisplayedZones (relevance-filtered + capped) result the chart-drawing effect now uses. Verified live on AAPL (close 336.13): legend reads 'Showing 6 of 15 detected zones... Nearest to the latest close (336.13): Support 0.34-0.35' while 0 zones are actually drawn; same pattern independently reproduced on MSFT (nearest reported: 21.44-21.89 vs close 493.78) and AMD (nearest reported: 15.68-15.95 vs close 550.09). Before this fix, chart and legend used the same raw-zones-plus-cap logic and stayed in sync (a since-removed code comment said as much); now they've diverged, and the legend actively misdescribes 'the CURRENT value shown', contradicting this task's own explicit requirement. Not caught by the new unit tests, which only assert on addSeriesMock calls, never the legend's rendered text. Fix direction: compute the filtered/capped zone list once and use it for both the chart effect and the legend/interpretValue calls; gate legend visibility on that filtered list's length, not the raw zones.length. This overlaps with and should resolve the already-tracked non-blocking follow-up on frontend-support-resistance-overlay-followups once fixed.",
         "file": "frontend/src/features/stocks/components/PriceChart.tsx",
-        "line": 267
+        "line": 1017
       },
       {
-        "summary": "buildZoneRenderData's 2-point BaselineSeries data uses [{time: firstTime,...},{time: lastTime,...}]; when exactly one finite bar is visible, firstTime === lastTime, giving two points with an identical timestamp. Lightweight Charts' setData asserts strictly-ascending time (checkItemsAreOrdered with allowDuplicates defaulting to false, confirmed by reading node_modules/lightweight-charts's source) and throws synchronously on the second point -- uncaught, this crashes the whole page via AppErrorBoundary rather than degrading gracefully. The effect's existing guard only checks finiteBars.length === 0, not === 1.",
+        "summary": "Non-blocking (tracked on frontend-support-resistance-overlay-followups): the 50%-price-ratio relevance window is anchored only to the latest visible close, not to the currently-visible bars' own price span. Stress-tested with a synthetic zone ~40% above the latest close (inside the 50% window, so isZoneRelevant treats it as relevant) against a 1-month view: y-axis stretched to ~300-475 while actual candlestick/EMA/channel content occupied only ~320-340 -- squashed to roughly the same fraction of the pane (~11%) as the original reported bug. The same zone against a 1-year view was fine (~60% of axis is real content), since a year of movement has more spread to absorb a 40%-distant level. Real zones are strength-scored independent of price distance, so a strong zone 30-45% from today's price is plausible for a different ticker/time even though none of AAPL/NVDA/MSFT/AMD's currently-cached data lands in that band today. Treated as non-blocking/arguable (bounded ~2.25x worst case, not the original unbounded case; the decision's own rationale already reasoned through and rejected anchoring to the visible high/low span for a defensible reason) rather than blocking this round -- but worth reconsidering an approach that also accounts for the actually-visible price span, not just a ratio off the latest close alone.",
         "file": "frontend/src/features/stocks/components/PriceChart.tsx",
-        "line": 277
-      },
-      {
-        "summary": "Non-blocking: supportResistanceZoneHelp/falseBreakoutHelp's interpretValue functions read from the full (up to 15) zones array, not the MAX_DISPLAYED_ZONES=6-capped/date-windowed subset actually drawn -- the legend balloon can describe a zone or false breakout with no corresponding element on the chart. Tracked as frontend-support-resistance-overlay-followups.",
-        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
-        "line": 424
+        "line": 217
       }
     ],
-    "notes": "Backend (639 tests, 99.89% cov), frontend (406/407 tests -- 1 pre-existing flaky PortfolioPage timeout independently reproduced on main via git worktree, 99.51%/98.8%/99.59%/99.63% stmts/branches/funcs/lines), ruff/mypy/eslint/tsc all clean. bringSeriesToFront verified genuinely order-independent and correctly fixes PR #151's occlusion bug (no occlusion found in any tested view). code-review skill run at medium effort surfaced the two blocking findings above plus the non-blocking one. Real Playwright browser walkthrough performed independently (backend+frontend started via make dev, chromium driven directly since no MCP browser tool was available in this session) -- this is what surfaced the blocking price-scale-distortion regression, which the task's own decisions-recorded visual check did not catch (that check verified occlusion only). No backend/schema changes in this PR, so no openapi.json regen was needed."
+    "notes": "Re-review (retry round 1) of PR #152 at commit 4f1a1f4. Backend: 639 passed, 99.89% cov. Frontend: 409/410 passed (1 pre-existing flaky PortfolioPage timeout, reproduced failing in the full run and passing in isolation, consistent with the PR's own claim), coverage 99.64%/98.96%/99.6%/99.75% stmts/branches/funcs/lines -- both well above the 90% gate. ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) surfaced the blocking legend-mismatch finding above; I independently verified it live on 3 tickers and traced it to source. make e2e: 16/16 specs passed (dashboard/navigation/portfolio/stock-analysis/watchlist). No backend/schema changes in this PR, so no openapi.json regen needed. No new components added in this fix, so no placement re-check needed. Posted as a COMMENTED-type gh pr review (not approve/request-changes) per process; findings also mirrored into review.comments and the two tracked-task mechanisms above."
   }
 }
