@@ -339,6 +339,41 @@ export const bearPowerHelp = {
 }
 
 // ---------------------------------------------------------------------------
+// OscillatorChart.tsx (frontend-rsi-oscillator-chart)
+// ---------------------------------------------------------------------------
+
+export const rsiHelp = {
+  metricLabel: 'RSI (9)',
+  definition:
+    'Relative Strength Index over a 9-day window: RSI = 100 - 100 / (1 + RS), where RS is the average of net up-closes divided by the average of net down-closes over that window -- a closing-price-only momentum oscillator, 0-100 bounded like Stochastic (docs/Analyse.md §4, Elder ch. 27).',
+  elderContext:
+    'Unlike Stochastic %K (which also reads each bar’s high/low), RSI looks only at closing prices -- Elder’s own side-by-side comparison (ch. 27) calls RSI "less noisy" than Stochastic, with signals that tend to emerge earlier on the same data. Both are plotted here on the same pane/0-100 scale, with the same 30/70 oversold/overbought reference lines, specifically so the two can be read against each other directly -- Elder treats them as worth watching together, not RSI as a redundant second copy of Stochastic. Computation + exposure only: RSI isn’t currently wired into Screen 2’s Wave state machine or confidence scoring (docs/Analyse.md row 10; see the backend-indicator-rsi task).',
+  interpretValue(
+    rsi: number | null | undefined,
+    stochasticK: number | null | undefined,
+  ): string {
+    if (!isKnown(rsi)) {
+      return 'Currently unavailable for this ticker -- the 9-day warm-up window hasn’t been reached yet.'
+    }
+    const zone =
+      rsi < 30
+        ? 'oversold (below 30)'
+        : rsi > 70
+          ? 'overbought (above 70)'
+          : 'in the neutral zone (30-70): neither overbought nor oversold'
+    if (!isKnown(stochasticK)) {
+      return `Currently ${rsi.toFixed(1)}, ${zone}.`
+    }
+    const gap = Math.abs(rsi - stochasticK)
+    const comparison =
+      gap < 10
+        ? `broadly agreeing with Stochastic %K (${stochasticK.toFixed(1)}) right now`
+        : `reading ${rsi > stochasticK ? 'stronger' : 'weaker'} than Stochastic %K (${stochasticK.toFixed(1)}) right now, since RSI reacts only to closing prices while Stochastic also reads the high/low range -- exactly the divergence between them Elder's own comparison describes`
+    return `Currently ${rsi.toFixed(1)}, ${zone} -- ${comparison}.`
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Channel / value-zone overlay (PriceChart.tsx)
 // ---------------------------------------------------------------------------
 

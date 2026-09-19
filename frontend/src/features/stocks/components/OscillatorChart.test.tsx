@@ -1,4 +1,5 @@
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IndicatorHistoryResponse } from '../../../api/stocks'
@@ -53,6 +54,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
       bull_power: 2.5,
       bear_power: -1.1,
       stochastic_k: 55.0,
+      rsi: 48.2,
       force_index_2ema: 1000.0,
       signal: 'HOLD',
       confidence: 0,
@@ -66,6 +68,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
       bull_power: 3.1,
       bear_power: -1.4,
       stochastic_k: 24.3,
+      rsi: 29.5,
       force_index_2ema: -18234.5,
       signal: 'BUY',
       confidence: 72,
@@ -91,6 +94,7 @@ const warmingUpPoint = {
   bull_power: 2.0,
   bear_power: -0.9,
   stochastic_k: null,
+  rsi: null,
   force_index_2ema: null,
   signal: 'HOLD',
   confidence: 0,
@@ -99,7 +103,7 @@ const warmingUpPoint = {
 
 // The very first bar of a ticker's history has no prior data at all --
 // every one of these fields can legitimately be null there, not just
-// stochastic_k/force_index_2ema.
+// stochastic_k/rsi/force_index_2ema.
 const firstEverBarPoint = {
   date: '2026-08-30',
   ema_13: 223.0,
@@ -108,6 +112,7 @@ const firstEverBarPoint = {
   bull_power: 1.5,
   bear_power: -1.2,
   stochastic_k: null,
+  rsi: null,
   force_index_2ema: null,
   signal: 'HOLD',
   confidence: 0,
@@ -124,7 +129,7 @@ describe('OscillatorChart', () => {
     createPriceLineMock.mockClear()
   })
 
-  it('shows a loading state, then renders Stochastic/Force Index/MACD Histogram in three separate panes', async () => {
+  it('shows a loading state, then renders Stochastic/RSI/Force Index/MACD Histogram, Stochastic+RSI sharing one pane', async () => {
     mockIndicators(indicatorPoints)
 
     renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -135,14 +140,25 @@ describe('OscillatorChart', () => {
       expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
     )
 
-    // Stochastic %K (pane 0), Force Index (pane 1), MACD Histogram (pane 2)
-    // — three addSeries calls, each fed straight from the backend response.
-    expect(addSeriesMock).toHaveBeenCalledTimes(3)
-    expect(addSeriesMock.mock.calls.map((call) => call[2])).toEqual([0, 1, 2])
+    // Stochastic %K (pane 0), RSI (also pane 0), Force Index (pane 1), MACD
+    // Histogram (pane 2) — four addSeries calls, each fed straight from the
+    // backend response.
+    expect(addSeriesMock).toHaveBeenCalledTimes(4)
+    expect(addSeriesMock.mock.calls.map((call) => call[2])).toEqual([0, 0, 1, 2])
 
-    expect(setDataMock).toHaveBeenCalledWith(0, [
+    // First pane-0 addSeries call is Stochastic (its own setData call comes
+    // first), second is RSI.
+    const paneZeroSetDataCalls = setDataMock.mock.calls.filter(
+      ([paneIndex]) => paneIndex === 0,
+    )
+    expect(paneZeroSetDataCalls).toHaveLength(2)
+    expect(paneZeroSetDataCalls[0][1]).toEqual([
       { time: '2026-09-01', value: 55.0 },
       { time: '2026-09-02', value: 24.3 },
+    ])
+    expect(paneZeroSetDataCalls[1][1]).toEqual([
+      { time: '2026-09-01', value: 48.2 },
+      { time: '2026-09-02', value: 29.5 },
     ])
     expect(fitContentMock).toHaveBeenCalledTimes(1)
   })
@@ -208,7 +224,7 @@ describe('OscillatorChart', () => {
     expect(macdLines.map((line) => line.price)).toEqual([0])
   })
 
-  it('filters out non-finite stochastic_k/force_index_2ema values per-series instead of crashing (PR #108 review regression)', async () => {
+  it('filters out non-finite stochastic_k/rsi/force_index_2ema values per-series instead of crashing (PR #108 review regression)', async () => {
     // Reproduces the reported crash: selecting a range that includes bars
     // still inside the indicator warm-up window (e.g. "Max") used to pass a
     // literal `null` straight into Lightweight Charts' `setData`, which
@@ -226,12 +242,21 @@ describe('OscillatorChart', () => {
       expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
     )
 
-    // Stochastic %K (pane 0): the warm-up point's null stochastic_k is
-    // omitted entirely -- a gap in the line, not a crash and not the whole
-    // series being suppressed (the two well-formed points still plot).
-    expect(setDataMock).toHaveBeenCalledWith(0, [
+    // Stochastic %K and RSI (both pane 0): the warm-up point's null
+    // stochastic_k/rsi is omitted entirely from each -- a gap in the line,
+    // not a crash and not the whole series being suppressed (the two
+    // well-formed points still plot in both series).
+    const paneZeroSetDataCalls = setDataMock.mock.calls.filter(
+      ([paneIndex]) => paneIndex === 0,
+    )
+    expect(paneZeroSetDataCalls).toHaveLength(2)
+    expect(paneZeroSetDataCalls[0][1]).toEqual([
       { time: '2026-09-01', value: 55.0 },
       { time: '2026-09-02', value: 24.3 },
+    ])
+    expect(paneZeroSetDataCalls[1][1]).toEqual([
+      { time: '2026-09-01', value: 48.2 },
+      { time: '2026-09-02', value: 29.5 },
     ])
 
     // Force Index (pane 1): same gap treatment for its own null value.
@@ -312,7 +337,7 @@ describe('OscillatorChart', () => {
 
     expect(
       screen.getByText(
-        'Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.',
+        'Oscillators (Stochastic %K, RSI, Force Index, MACD Histogram) are only available for the Daily interval.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
@@ -342,5 +367,59 @@ describe('OscillatorChart', () => {
     await waitFor(() => expect(lastRequestedRange).toBe('3m'))
     await waitFor(() => expect(createChartMock).toHaveBeenCalledTimes(2))
     expect(removeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an RSI legend row with a MetricHelp affordance once the chart resolves', async () => {
+    mockIndicators(indicatorPoints)
+
+    renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+
+    expect(screen.getByText('RSI (9)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'RSI (9) help' })).toBeInTheDocument()
+  })
+
+  it('opens the RSI MetricHelp balloon explaining the RSI-vs-Stochastic comparison and the current value', async () => {
+    mockIndicators(indicatorPoints)
+    const user = userEvent.setup()
+
+    renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'RSI (9) help' }))
+
+    // Elder's own RSI-vs-Stochastic comparison (closing-price-only, less
+    // noisy, earlier signals) from this task's description must actually
+    // appear in the help content, not just a bare definition.
+    expect(screen.getByText(/less noisy/)).toBeInTheDocument()
+    expect(screen.getByText(/closing prices/)).toBeInTheDocument()
+
+    // Latest point (09-02): rsi 29.5, stochastic_k 24.3 -- current-value
+    // interpretation, not just a static definition.
+    expect(screen.getByText(/Currently 29\.5, oversold/)).toBeInTheDocument()
+  })
+
+  it('reports the RSI value as unavailable when the latest bar is still inside the warm-up window', async () => {
+    mockIndicators({
+      ticker: 'AAPL',
+      points: [{ ...indicatorPoints.points[0] }, { ...warmingUpPoint }],
+    })
+    const user = userEvent.setup()
+
+    renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'RSI (9) help' }))
+
+    expect(screen.getByText(/unavailable for this ticker/)).toBeInTheDocument()
   })
 })
