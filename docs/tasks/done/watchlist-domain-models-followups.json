@@ -34,5 +34,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Trivial doc-only PR. Verified docs/architecture/Backend.md's new watchlist entry ('a watchlist (ticker + added_at, keyed by ticker itself)') against WatchlistItemORM in backend/app/db/models.py:30-41 (ticker primary key, added_at column) -- accurate and matches the style of the adjacent OHLCVCacheORM parenthetical description. Verified test_db_models.py's docstring update lists all four exercised ORM classes (TestPositionORM, TestAccountORM, TestOHLCVCacheORM, TestWatchlistItemORM all present in the file). Backend pytest+coverage: 573 passed, 99.86% (gate 90%). ruff check app/ and mypy: clean. No frontend files touched by this PR, so frontend coverage/lint/tsc reused as last-known-clean rather than re-run, and no browser walkthrough/e2e-test run -- no UI surface. code-review skill (medium effort) found zero issues. area is backend/db (not backend/signals or backend/portfolio) so verify-elder-signal not applicable; no new module/dependency/layer so architecture-review not applicable; no API route/schema touched so no openapi.json check needed. No checklist items phrased as 'decide X'. No non-blocking findings -- nothing new to track in a follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T02:17:29Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read WatchlistItemORM in backend/app/db/models.py:30-41 directly (ticker primary key, added_at DateTime column) and confirmed it matches Backend.md's new wording exactly. Re-ran backend pytest+coverage myself: 573 passed, 99.86% coverage, matching pr-reviewer's reported numbers. Ran scripts/validate_tasks.py: OK, 125 task files, no violations. Skimmed the full gh pr diff (Backend.md sentence, test_db_models.py docstring, task-file move to done/ + index.json mirror) -- nothing missed or underweighted."
   }
 }
