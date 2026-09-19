@@ -14,6 +14,7 @@ import pytest
 from app.signals.support_resistance import (
     FalseBreakout,
     Zone,
+    _cluster_touches,
     _dollar_volume,
     _height_category,
     _length_category,
@@ -176,6 +177,39 @@ class TestValidationAndDegenerateInputs:
 
         with pytest.raises(ValueError, match="volume"):
             detect_support_resistance_zones(daily_ohlcv)
+
+
+class TestClusterTouchesChainDrift:
+    def test_running_mean_merge_can_drift_a_clusters_span_beyond_tolerance_pct(self) -> None:
+        """Regression test for the "chain drift" limitation documented on
+        _cluster_touches: each point is merged if it's within ``tolerance_pct`` of the
+        cluster's CURRENT running mean, not its original anchor point, so a sequence of
+        individually-in-tolerance merges can walk the cluster's own end-to-end span past
+        ``tolerance_pct`` -- not a bug (upper/lower are still the cluster's real price
+        extremes), but worth pinning down so it can't silently change without a test noticing.
+        """
+        touches = [
+            (pd.Timestamp("2024-01-01"), 100.0),
+            # +0.90% vs the running mean so far (100.0) -- merges.
+            (pd.Timestamp("2024-01-02"), 100.9),
+            # +1.00% vs the running mean so far ((100.0 + 100.9) / 2 == 100.45) -- still
+            # merges, even though this point is +1.45% away from the cluster's FIRST point.
+            (pd.Timestamp("2024-01-03"), 101.45),
+        ]
+
+        clusters = _cluster_touches(touches, tolerance_pct=0.01, min_touches=2, min_length_days=0)
+
+        assert len(clusters) == 1
+        cluster = clusters[0]
+        assert cluster["touch_count"] == 3
+        assert cluster["upper"] == pytest.approx(101.45)
+        assert cluster["lower"] == pytest.approx(100.0)
+        span_pct = (cluster["upper"] - cluster["lower"]) / cluster["lower"] * 100
+        # The cluster's total end-to-end span (1.45%) exceeds the nominal 1% per-step
+        # tolerance -- every individual merge decision was in-tolerance, but the chain as a
+        # whole drifted past it.
+        assert span_pct == pytest.approx(1.45)
+        assert span_pct > 1.0
 
 
 class TestStrengthScoringHelpers:

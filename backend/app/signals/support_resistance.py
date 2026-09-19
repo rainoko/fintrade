@@ -175,6 +175,17 @@ def _cluster_touches(
     cluster's own price extremes -- since touches are already close prices, not wicks, this
     naturally satisfies "the edges of where price stalled, not the extreme wick"),
     ``first_touch_date``/``last_touch_date``, and ``touch_count``.
+
+    **Known limitation ("chain drift"), documented rather than fixed -- see
+    backend-support-resistance-followups' `decisions` entry**: each point is compared against
+    the cluster's *current running mean*, not a fixed anchor (e.g. its first point), so a
+    sequence of touches that each individually merge within ``tolerance_pct`` of the mean can
+    still walk the mean itself outward step by step -- the cluster's own end-to-end span
+    (``upper - lower``, as a % of ``lower``) can therefore exceed ``tolerance_pct`` even though
+    no single merge decision did. ``upper``/``lower`` are still always the cluster's genuine
+    price extremes (never fabricated), so this doesn't corrupt the zone's boundaries -- it just
+    means "1% tolerance" describes each individual merge step, not a hard cap on the resulting
+    zone's total width.
     """
     if not touches:
         return []
@@ -236,6 +247,29 @@ def _strength_score(length_category: StrengthCategory, height_category: Strength
     against, so it's exposed raw on `Zone.dollar_volume` instead of folded in here numerically
     -- see this task's `decisions` entry)."""
     return (_CATEGORY_SCORE[length_category] + _CATEGORY_SCORE[height_category]) / 2
+
+
+def _score_candidate(candidate: dict, reference_price: float) -> dict:
+    """Cheap, ranking-only scoring for a candidate cluster: height_pct/length_days and their
+    categories, and the resulting strength_score -- everything ``detect_support_resistance_
+    zones``'s final sort key depends on. Deliberately excludes the expensive per-candidate
+    work (``_scan_breaks_and_false_breakouts``, ``_dollar_volume``), neither of which feeds
+    strength_score/touch_count/last_touch_date (the sort key) at all -- see
+    backend-support-resistance-followups' `decisions` entry for why deferring that work until
+    after ranking/truncation is safe (it doesn't change which zones survive the cap or their
+    order)."""
+    upper, lower = candidate["upper"], candidate["lower"]
+    height_pct = 0.0 if reference_price == 0 else abs(upper - lower) / reference_price * 100
+    length_days = (candidate["last_touch_date"] - candidate["first_touch_date"]).days
+    length_category = _length_category(length_days)
+    height_category = _height_category(height_pct)
+    return {
+        "height_pct": height_pct,
+        "length_days": length_days,
+        "length_category": length_category,
+        "height_category": height_category,
+        "strength_score": _strength_score(length_category, height_category),
+    }
 
 
 def _dollar_volume(daily_ohlcv: pd.DataFrame, first_touch_date: pd.Timestamp, last_touch_date: pd.Timestamp) -> float:
@@ -333,30 +367,27 @@ def _scan_breaks_and_false_breakouts(
     return result
 
 
-def _build_zone(
-    candidate: dict, role: Role, daily_ohlcv: pd.DataFrame, reference_price: float, window_days: int
-) -> Zone:
-    upper, lower = candidate["upper"], candidate["lower"]
-    height_pct = 0.0 if reference_price == 0 else abs(upper - lower) / reference_price * 100
-    length_days = (candidate["last_touch_date"] - candidate["first_touch_date"]).days
-    length_category = _length_category(length_days)
-    height_category = _height_category(height_pct)
-
+def _build_zone(candidate: dict, role: Role, daily_ohlcv: pd.DataFrame, score: dict, window_days: int) -> Zone:
+    """Builds the final ``Zone`` for a candidate that already survived ranking/truncation
+    (see ``detect_support_resistance_zones``) -- this is where the expensive, per-candidate
+    work (``_scan_breaks_and_false_breakouts``'s O(n) forward scan, ``_dollar_volume``'s
+    window aggregation) actually runs, deferred here specifically so it's only paid for the
+    zones that make the final cut."""
     break_info = _scan_breaks_and_false_breakouts(candidate, role, daily_ohlcv, window_days)
 
     return Zone(
         role=break_info["role"],
-        upper=upper,
-        lower=lower,
+        upper=candidate["upper"],
+        lower=candidate["lower"],
         first_touch_date=candidate["first_touch_date"],
         last_touch_date=candidate["last_touch_date"],
         touch_count=candidate["touch_count"],
-        length_days=length_days,
-        length_category=length_category,
-        height_pct=height_pct,
-        height_category=height_category,
+        length_days=score["length_days"],
+        length_category=score["length_category"],
+        height_pct=score["height_pct"],
+        height_category=score["height_category"],
         dollar_volume=_dollar_volume(daily_ohlcv, candidate["first_touch_date"], candidate["last_touch_date"]),
-        strength_score=_strength_score(length_category, height_category),
+        strength_score=score["strength_score"],
         broken=break_info["broken"],
         break_date=break_info["break_date"],
         false_breakout=break_info["false_breakout"],
@@ -379,12 +410,23 @@ def detect_support_resistance_zones(
     algorithm/scope notes.
 
     Pipeline: find fractal swing highs/lows -> cluster each side's swing-point closes into
-    candidate zones (>= ``min_touches`` touches spanning >= ``min_zone_length_days``) ->
-    score each candidate's length/height/dollar-volume -> scan forward from each zone's last
-    touch for a confirmed break (flips role) or false breakout (does not). ``height_pct`` is
-    computed against ``daily_ohlcv``'s own latest close (today's price), per this task's own
-    description ("height as % of current price") -- the same reference for every zone on this
-    call, not each zone's own (potentially long-past) touch-era price.
+    candidate zones (>= ``min_touches`` touches spanning >= ``min_zone_length_days``) -> score
+    each candidate's cheap length/height categories and rank/truncate to ``max_zones`` on that
+    alone -> only for the survivors, run the expensive per-zone work (the break/false-breakout
+    forward scan, the dollar-volume window aggregation). ``height_pct`` is computed against
+    ``daily_ohlcv``'s own latest close (today's price), per this task's own description
+    ("height as % of current price") -- the same reference for every zone on this call, not
+    each zone's own (potentially long-past) touch-era price.
+
+    Deferring the break-scan/dollar-volume work until after ranking/truncation (rather than
+    computing it for every candidate up front, then sorting/truncating) is safe because neither
+    of them feeds the sort key at all -- ``strength_score`` depends only on the cheap
+    length/height categories, and ``touch_count``/``last_touch_date`` come straight off the
+    candidate dict from clustering, before any per-zone scan ever runs. So which candidates
+    survive the ``max_zones`` cap, and their final order, is identical either way; a long
+    history that produces far more raw candidate clusters than ``max_zones`` just no longer
+    pays the O(n) scan/dollar-volume cost for the candidates that get truncated away -- see
+    backend-support-resistance-followups' `decisions` entry.
 
     Expects ``daily_ohlcv`` already cleaned of malformed bars (matching every other function
     in ``app.signals`` -- see ``app.signals.engine.drop_malformed_daily_bars``); this function
@@ -420,13 +462,15 @@ def detect_support_resistance_zones(
         min_length_days=min_zone_length_days,
     )
 
-    zones = [
-        _build_zone(candidate, "resistance", daily_ohlcv, reference_price, false_breakout_window_days)
+    ranked: list[tuple[Role, dict, dict]] = [
+        ("resistance", candidate, _score_candidate(candidate, reference_price))
         for candidate in resistance_candidates
-    ] + [
-        _build_zone(candidate, "support", daily_ohlcv, reference_price, false_breakout_window_days)
-        for candidate in support_candidates
-    ]
+    ] + [("support", candidate, _score_candidate(candidate, reference_price)) for candidate in support_candidates]
 
-    zones.sort(key=lambda z: (z.strength_score, z.touch_count, z.last_touch_date), reverse=True)
-    return zones[:max_zones]
+    # Cheap-only sort/truncate first -- see the docstring above for why this is safe. `ranked`
+    # (and therefore the final `zones` list built from it) ends up in the same order the old
+    # "score everything, then sort" pipeline produced.
+    ranked.sort(key=lambda item: (item[2]["strength_score"], item[1]["touch_count"], item[1]["last_touch_date"]), reverse=True)
+    top = ranked[:max_zones]
+
+    return [_build_zone(candidate, role, daily_ohlcv, score, false_breakout_window_days) for role, candidate, score in top]
