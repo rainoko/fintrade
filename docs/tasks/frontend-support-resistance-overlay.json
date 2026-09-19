@@ -79,5 +79,11 @@
       "decision": "Two separate `common/MetricHelp` legend entries -- `supportResistanceZoneHelp` ('Support/Resistance Zones': what a zone is, how strength is scored, the nearest zone to the latest close) and `falseBreakoutHelp` ('False Breakout': what a false breakout means, why the stop sits at the failed move's own extreme, the most recent episode found) -- rather than one combined entry.",
       "rationale": "Mirrors the exact precedent frontend-channel-overlay already established for this same legend row (`channelHelp` + `valueZoneHelp` as two separate entries rather than one combined 'channel and value zone' explanation), for the same reason: a zone's strength scoring and a false breakout's stop-placement rule are two genuinely distinct concepts a user might want explained independently, each grounded in its own specific part of Elder ch. 18, and cramming both into one balloon's `definition`/`elderContext`/`valueInterpretation` would make the single most-relevant current-value reading (nearest zone vs. most recent false breakout) ambiguous about which concept it's interpreting."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-support-resistance-overlay",
+    "pr_number": 152,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/152",
+    "pushed_at": "2026-09-19T12:59:11Z"
+  }
 }
