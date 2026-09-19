@@ -113,7 +113,11 @@ describe('DataTable', () => {
       { id: 4, ticker: 'D', quantity: undefined },
     ]
     render(
-      <DataTable columns={nullableColumns} rows={nullableRows} getRowKey={(row) => row.id} />,
+      <DataTable
+        columns={nullableColumns}
+        rows={nullableRows}
+        getRowKey={(row) => row.id}
+      />,
     )
 
     await user.click(screen.getByRole('button', { name: 'Quantity' }))

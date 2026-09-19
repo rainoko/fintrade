@@ -33,7 +33,9 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Watchlist' })).toBeVisible()
 
     const watchlistTable = page.getByRole('table', { name: 'Watchlist' })
-    const emptyState = page.getByText('Your watchlist is empty. Add a ticker to get started.')
+    const emptyState = page.getByText(
+      'Your watchlist is empty. Add a ticker to get started.',
+    )
     await expect(watchlistTable.or(emptyState)).toBeVisible()
   })
 

@@ -77,7 +77,9 @@ describe('DashboardPage', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText('No positions yet. Add one from the Portfolio page to get started.'),
+        screen.getByText(
+          'No positions yet. Add one from the Portfolio page to get started.',
+        ),
       ).toBeInTheDocument(),
     )
     expect(screen.queryByRole('table')).not.toBeInTheDocument()

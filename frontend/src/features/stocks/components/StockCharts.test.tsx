@@ -52,7 +52,8 @@ describe('StockCharts', () => {
       }),
       http.get('/api/stocks/:ticker/history', ({ request }) => {
         const url = new URL(request.url)
-        const interval = (url.searchParams.get('interval') ?? 'daily') as 'daily' | 'weekly'
+        const interval = (url.searchParams.get('interval') ?? 'daily') as
+          'daily' | 'weekly'
         return HttpResponse.json({
           ticker: 'AAPL',
           interval,

@@ -26,7 +26,10 @@ export interface IndicatorsPanelProps {
 // shared formatNullableNumber (utils/format.ts) with this panel's own two-decimal
 // formatting convention, rather than ScreensPanel's independent copy of the same guard.
 function formatValue(value: number | null | undefined): string {
-  return formatNullableNumber(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatNullableNumber(value, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 /**
@@ -57,7 +60,10 @@ export default function IndicatorsPanel({ indicators }: IndicatorsPanelProps) {
             metricLabel={ema13Help.metricLabel}
             definition={ema13Help.definition}
             elderContext={ema13Help.elderContext}
-            valueInterpretation={ema13Help.interpretValue(indicators.ema_13, indicators.ema_26)}
+            valueInterpretation={ema13Help.interpretValue(
+              indicators.ema_13,
+              indicators.ema_26,
+            )}
           />
         }
       />
@@ -69,7 +75,10 @@ export default function IndicatorsPanel({ indicators }: IndicatorsPanelProps) {
             metricLabel={ema26Help.metricLabel}
             definition={ema26Help.definition}
             elderContext={ema26Help.elderContext}
-            valueInterpretation={ema26Help.interpretValue(indicators.ema_26, indicators.ema_13)}
+            valueInterpretation={ema26Help.interpretValue(
+              indicators.ema_26,
+              indicators.ema_13,
+            )}
           />
         }
       />
@@ -81,7 +90,9 @@ export default function IndicatorsPanel({ indicators }: IndicatorsPanelProps) {
             metricLabel={macdHistogramHelp.metricLabel}
             definition={macdHistogramHelp.definition}
             elderContext={macdHistogramHelp.elderContext}
-            valueInterpretation={macdHistogramHelp.interpretValue(indicators.macd_histogram)}
+            valueInterpretation={macdHistogramHelp.interpretValue(
+              indicators.macd_histogram,
+            )}
           />
         }
       />

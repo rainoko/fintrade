@@ -21,7 +21,11 @@ export interface RiskPercentProps {
  * `breached`, or a neutral/muted color otherwise — see this task's
  * `decisions` entry for the alternatives considered.
  */
-export default function RiskPercent({ value, breached = false, decimals = 2 }: RiskPercentProps) {
+export default function RiskPercent({
+  value,
+  breached = false,
+  decimals = 2,
+}: RiskPercentProps) {
   const theme = useTheme()
 
   const color = breached ? theme.palette.riskBreach.main : theme.palette.text.secondary

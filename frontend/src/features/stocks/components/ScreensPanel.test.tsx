@@ -101,7 +101,9 @@ describe('ScreensPanel', () => {
       trigger: { fired: false, reference: 'no_trigger' },
     }
 
-    expect(() => renderWithTheme(<ScreensPanel screens={screensWithNullIndicators} />)).not.toThrow()
+    expect(() =>
+      renderWithTheme(<ScreensPanel screens={screensWithNullIndicators} />),
+    ).not.toThrow()
 
     const stochasticValue = screen.getByText('Stochastic %K').parentElement
     expect(stochasticValue).toHaveTextContent('—')

@@ -169,7 +169,12 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
       // outcome, always alongside a null confidence/confidence_band too).
       render: (row) =>
         row.isPendingSkeleton ? (
-          <Skeleton data-testid="watchlist-skeleton" variant="rounded" width={56} height={24} />
+          <Skeleton
+            data-testid="watchlist-skeleton"
+            variant="rounded"
+            width={56}
+            height={24}
+          />
         ) : row.signal == null ? (
           '—'
         ) : (
@@ -181,7 +186,12 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
       header: 'Confidence',
       render: (row) =>
         row.isPendingSkeleton ? (
-          <Skeleton data-testid="watchlist-skeleton" variant="rounded" width={96} height={24} />
+          <Skeleton
+            data-testid="watchlist-skeleton"
+            variant="rounded"
+            width={96}
+            height={24}
+          />
         ) : row.confidence == null ? (
           '—'
         ) : (
@@ -206,7 +216,8 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
             aria-label={`Remove ${row.ticker}`}
             size="small"
             disabled={
-              removeWatchlistItem.isPending && removeWatchlistItem.variables === row.ticker
+              removeWatchlistItem.isPending &&
+              removeWatchlistItem.variables === row.ticker
             }
             onClick={() => setPendingRemove(row)}
           >

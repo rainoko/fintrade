@@ -3,7 +3,10 @@ import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '../../tests/mocks/server'
-import { createTestQueryClient, renderWithProviders } from '../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../tests/renderWithProviders'
 import StockDetailPage from './StockDetailPage'
 
 // StockCharts (rendered below IndicatorsPanel) composes PriceChart and
@@ -202,10 +205,16 @@ describe('StockDetailPage', () => {
           screens: {
             tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
             impulse: 'GREEN',
-            wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+            wave: {
+              stochastic_k: 24.3,
+              force_index_2ema: -18234.5,
+              state: 'OVERSOLD_PULLBACK',
+            },
             trigger: { fired: true, reference: 'close_above_prior_high' },
           },
-          confidence_breakdown: [{ component: 'tide_alignment', weight: 0.3, score: 1.0 }],
+          confidence_breakdown: [
+            { component: 'tide_alignment', weight: 0.3, score: 1.0 },
+          ],
           indicators: {
             ema_13: 226.4,
             ema_26: 220.1,

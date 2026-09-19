@@ -187,7 +187,11 @@ function addZeroBaselineHistogramPane(
  * is the latest-value-only counterpart for Stochastic %K/Force Index. This
  * component is their historical-trend complement, not a replacement.
  */
-export default function OscillatorChart({ ticker, range, enabled = true }: OscillatorChartProps) {
+export default function OscillatorChart({
+  ticker,
+  range,
+  enabled = true,
+}: OscillatorChartProps) {
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -209,10 +213,13 @@ export default function OscillatorChart({ ticker, range, enabled = true }: Oscil
 
     const chart = createBaseChart(container)
 
-    const { stochastic, forceIndex, macdHistogram } = buildOscillatorSeriesData(data.points, {
-      positive: theme.palette.signal.buy,
-      negative: theme.palette.signal.sell,
-    })
+    const { stochastic, forceIndex, macdHistogram } = buildOscillatorSeriesData(
+      data.points,
+      {
+        positive: theme.palette.signal.buy,
+        negative: theme.palette.signal.sell,
+      },
+    )
 
     const stochasticSeries = chart.addSeries(
       LineSeries,

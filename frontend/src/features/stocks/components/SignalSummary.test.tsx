@@ -235,9 +235,13 @@ describe('SignalSummary', () => {
     await user.keyboard('{Escape}')
 
     // The tide_alignment breakdown row's own help, not a different component's.
-    await user.click(screen.getByRole('button', { name: 'Tide alignment (Screen 1) help' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Tide alignment (Screen 1) help' }),
+    )
     expect(
-      screen.getByText(/scored 100% at a 30% weight -- contributing 30 of the 100 possible/),
+      screen.getByText(
+        /scored 100% at a 30% weight -- contributing 30 of the 100 possible/,
+      ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Currently BUY/)).not.toBeInTheDocument()
   })

@@ -25,7 +25,9 @@ describe('metricHelpContent', () => {
 
   describe('confidenceHelp.interpretValue', () => {
     it('renders the raw percentage alongside the band, at the 0/100 boundaries', () => {
-      expect(confidenceHelp.interpretValue(0, 'Low')).toBe('Currently 0% -- Low confidence.')
+      expect(confidenceHelp.interpretValue(0, 'Low')).toBe(
+        'Currently 0% -- Low confidence.',
+      )
       expect(confidenceHelp.interpretValue(100, 'High')).toBe(
         'Currently 100% -- High confidence.',
       )
@@ -114,7 +116,9 @@ describe('metricHelpContent', () => {
   describe('waveHelp.interpretValue', () => {
     it('reads a Stochastic %K of 36.9 as neutral (matching the task description’s own example)', () => {
       const result = waveHelp.interpretValue(36.9, -100, 'RANGING')
-      expect(result).toContain('Stochastic %K of 36.9 is in the neutral zone (30-70): neither overbought nor oversold')
+      expect(result).toContain(
+        'Stochastic %K of 36.9 is in the neutral zone (30-70): neither overbought nor oversold',
+      )
     })
 
     it('reads exactly 30 as not oversold (oversold is strictly below 30)', () => {
@@ -141,15 +145,17 @@ describe('metricHelpContent', () => {
 
     it('handles a null/undefined stochastic reading without throwing', () => {
       expect(() => waveHelp.interpretValue(null, null, 'RANGING')).not.toThrow()
-      expect(waveHelp.interpretValue(undefined, undefined, 'RANGING')).toContain('unavailable')
+      expect(waveHelp.interpretValue(undefined, undefined, 'RANGING')).toContain(
+        'unavailable',
+      )
     })
   })
 
   describe('triggerHelp.interpretValue', () => {
     it('describes a fired trigger with its reference', () => {
-      expect(triggerHelp.interpretValue(true, 'close_above_prior_high', 'BULLISH')).toContain(
-        'Fired -- Close above prior high',
-      )
+      expect(
+        triggerHelp.interpretValue(true, 'close_above_prior_high', 'BULLISH'),
+      ).toContain('Fired -- Close above prior high')
     })
 
     it('describes a not_applicable trigger caused by a Neutral tide (the common case)', () => {
@@ -223,7 +229,9 @@ describe('metricHelpContent', () => {
     })
 
     it('reads positive Bear Power as an unusually strong bullish reading', () => {
-      expect(bearPowerHelp.interpretValue(0.5)).toMatch(/unusually strong bullish reading/)
+      expect(bearPowerHelp.interpretValue(0.5)).toMatch(
+        /unusually strong bullish reading/,
+      )
     })
 
     it('handles a missing value without throwing', () => {

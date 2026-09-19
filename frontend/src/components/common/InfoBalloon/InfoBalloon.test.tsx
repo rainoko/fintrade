@@ -7,7 +7,11 @@ import InfoBalloon from './InfoBalloon'
 describe('InfoBalloon', () => {
   it('renders only the trigger, not the balloon content, before it is clicked', () => {
     renderWithTheme(
-      <InfoBalloon triggerAriaLabel="Why BUY?" title="Why BUY?" content="Explanation body.">
+      <InfoBalloon
+        triggerAriaLabel="Why BUY?"
+        title="Why BUY?"
+        content="Explanation body."
+      >
         <span>BUY</span>
       </InfoBalloon>,
     )
@@ -19,7 +23,11 @@ describe('InfoBalloon', () => {
   it('opens the balloon with the title and content on click, and closes on a second interaction', async () => {
     const user = userEvent.setup()
     renderWithTheme(
-      <InfoBalloon triggerAriaLabel="Why BUY?" title="Why BUY?" content="Explanation body.">
+      <InfoBalloon
+        triggerAriaLabel="Why BUY?"
+        title="Why BUY?"
+        content="Explanation body."
+      >
         <span>BUY</span>
       </InfoBalloon>,
     )

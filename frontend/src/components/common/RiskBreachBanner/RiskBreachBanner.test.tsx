@@ -6,7 +6,9 @@ import RiskBreachBanner from './RiskBreachBanner'
 
 describe('RiskBreachBanner', () => {
   it('renders the given message with an alert role', () => {
-    renderWithTheme(<RiskBreachBanner message="6% rule breached — trim your positions." />)
+    renderWithTheme(
+      <RiskBreachBanner message="6% rule breached — trim your positions." />,
+    )
 
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('6% rule breached — trim your positions.')
@@ -15,6 +17,8 @@ describe('RiskBreachBanner', () => {
   it('styles the message in the riskBreach warning color', () => {
     renderWithTheme(<RiskBreachBanner message="Breach!" />)
 
-    expect(screen.getByText('Breach!')).toHaveStyle({ color: theme.palette.riskBreach.main })
+    expect(screen.getByText('Breach!')).toHaveStyle({
+      color: theme.palette.riskBreach.main,
+    })
   })
 })

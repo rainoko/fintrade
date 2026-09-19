@@ -95,7 +95,9 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
 
   const stochasticKValue: number | null | undefined = wave.stochastic_k
   const stochasticIsKnown =
-    stochasticKValue !== null && stochasticKValue !== undefined && !Number.isNaN(stochasticKValue)
+    stochasticKValue !== null &&
+    stochasticKValue !== undefined &&
+    !Number.isNaN(stochasticKValue)
   const stochasticNote = !stochasticIsKnown
     ? null
     : stochasticKValue < 30
@@ -194,7 +196,9 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
         }
       >
         <LabeledValue label="Fired">{trigger.fired ? 'Yes' : 'No'}</LabeledValue>
-        <LabeledValue label="Reference">{humanizeSnakeCase(trigger.reference)}</LabeledValue>
+        <LabeledValue label="Reference">
+          {humanizeSnakeCase(trigger.reference)}
+        </LabeledValue>
       </ScreenSection>
     </Stack>
   )

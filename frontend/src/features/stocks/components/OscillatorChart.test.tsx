@@ -17,10 +17,12 @@ const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const fitContentMock = vi.fn()
 const createPriceLineMock = vi.fn()
-const addSeriesMock = vi.fn((_definition: unknown, _options: unknown, paneIndex?: number) => ({
-  setData: (data: unknown) => setDataMock(paneIndex, data),
-  createPriceLine: (options: unknown) => createPriceLineMock(paneIndex, options),
-}))
+const addSeriesMock = vi.fn(
+  (_definition: unknown, _options: unknown, paneIndex?: number) => ({
+    setData: (data: unknown) => setDataMock(paneIndex, data),
+    createPriceLine: (options: unknown) => createPriceLineMock(paneIndex, options),
+  }),
+)
 const createChartMock = vi.fn(() => ({
   addSeries: addSeriesMock,
   timeScale: () => ({ fitContent: fitContentMock }),
@@ -35,7 +37,9 @@ vi.mock('lightweight-charts', () => ({
 }))
 
 function mockIndicators(response: IndicatorHistoryResponse) {
-  server.use(http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)))
+  server.use(
+    http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)),
+  )
 }
 
 const indicatorPoints: IndicatorHistoryResponse = {
@@ -153,14 +157,18 @@ describe('OscillatorChart', () => {
     )
 
     // Force Index: 1000.0 (>= 0) then -18234.5 (< 0) -- two different colors.
-    const forceIndexData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 1)?.[1] as {
+    const forceIndexData = setDataMock.mock.calls.find(
+      ([paneIndex]) => paneIndex === 1,
+    )?.[1] as {
       color: string
     }[]
     expect(forceIndexData[0].color).not.toBe(forceIndexData[1].color)
 
     // MACD Histogram: 1.2 (>= 0) then -1.82 (< 0) -- two different colors,
     // matching the same sign->color mapping as Force Index.
-    const macdData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 2)?.[1] as {
+    const macdData = setDataMock.mock.calls.find(
+      ([paneIndex]) => paneIndex === 2,
+    )?.[1] as {
       color: string
     }[]
     expect(macdData[0].color).not.toBe(macdData[1].color)
@@ -181,9 +189,13 @@ describe('OscillatorChart', () => {
       .filter(([paneIndex]) => paneIndex === 0)
       .map(([, options]) => options as { price: number; title: string })
     expect(stochasticLines).toHaveLength(2)
-    expect(stochasticLines.map((line) => line.price).sort((a, b) => a - b)).toEqual([30, 70])
+    expect(stochasticLines.map((line) => line.price).sort((a, b) => a - b)).toEqual([
+      30, 70,
+    ])
     expect(stochasticLines.find((line) => line.price === 30)?.title).toContain('Oversold')
-    expect(stochasticLines.find((line) => line.price === 70)?.title).toContain('Overbought')
+    expect(stochasticLines.find((line) => line.price === 70)?.title).toContain(
+      'Overbought',
+    )
 
     const forceIndexLines = createPriceLineMock.mock.calls
       .filter(([paneIndex]) => paneIndex === 1)
@@ -223,18 +235,25 @@ describe('OscillatorChart', () => {
     ])
 
     // Force Index (pane 1): same gap treatment for its own null value.
-    const forceIndexData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 1)?.[1] as {
+    const forceIndexData = setDataMock.mock.calls.find(
+      ([paneIndex]) => paneIndex === 1,
+    )?.[1] as {
       time: string
       value: number
     }[]
-    expect(forceIndexData.map((point) => point.time)).toEqual(['2026-09-01', '2026-09-02'])
+    expect(forceIndexData.map((point) => point.time)).toEqual([
+      '2026-09-01',
+      '2026-09-02',
+    ])
 
     // MACD Histogram (pane 2): only the very first bar (which has no macd
     // value yet either) is dropped -- the warm-up point had a finite
     // macd_histogram, so it is NOT dropped there. Each series is filtered
     // independently, not the whole point removed from every series just
     // because one field was null.
-    const macdData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 2)?.[1] as {
+    const macdData = setDataMock.mock.calls.find(
+      ([paneIndex]) => paneIndex === 2,
+    )?.[1] as {
       time: string
       value: number
     }[]

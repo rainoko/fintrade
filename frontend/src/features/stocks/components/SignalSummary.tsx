@@ -1,6 +1,10 @@
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import type { AnalysisResponse, ConfidenceBreakdownItem, Screens } from '../../../api/stocks'
+import type {
+  AnalysisResponse,
+  ConfidenceBreakdownItem,
+  Screens,
+} from '../../../api/stocks'
 import ConfidenceGauge from '../../../components/common/ConfidenceGauge/ConfidenceGauge'
 import DataTable, {
   type DataTableColumn,
@@ -9,7 +13,11 @@ import InfoBalloon from '../../../components/common/InfoBalloon/InfoBalloon'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import { humanizeSnakeCase } from '../../../utils/format'
-import { confidenceHelp, getConfidenceComponentHelp, signalHelp } from './metricHelpContent'
+import {
+  confidenceHelp,
+  getConfidenceComponentHelp,
+  signalHelp,
+} from './metricHelpContent'
 import SignalExplanationContent from './SignalExplanationContent'
 
 export interface SignalSummaryProps {
@@ -139,7 +147,10 @@ export default function SignalSummary({
             metricLabel={confidenceHelp.metricLabel}
             definition={confidenceHelp.definition}
             elderContext={confidenceHelp.elderContext}
-            valueInterpretation={confidenceHelp.interpretValue(confidence, confidenceBand)}
+            valueInterpretation={confidenceHelp.interpretValue(
+              confidence,
+              confidenceBand,
+            )}
           />
         </Stack>
       </Stack>
