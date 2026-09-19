@@ -58,5 +58,11 @@
       "decision": "RSI is exposed as a new top-level indicators.rsi field on both GET /api/stocks/{ticker}/analysis and GET /api/stocks/{ticker}/indicators (mirroring channel_upper/channel_lower's shape and passthrough-parameter pattern in app.signals.engine.analyse/analyse_history), not nested under screens.wave the way stochastic_k is.",
       "rationale": "screens.wave is tightly coupled to Screen 2's own oversold/overbought state machine (evaluate_wave, STOCHASTIC_OVERSOLD/OVERBOUGHT thresholds) -- folding RSI in there would misleadingly suggest it participates in that state determination, which this task's own description explicitly scopes out ('wiring RSI into _determine_signal is out of scope'). channel_upper/channel_lower already established the precedent for a computed-but-not-wired-in oscillator/band living directly under indicators instead, with the exact same precomputed-series passthrough contract analyse_history() needs to share one rsi() pass across every bar rather than recomputing per bar -- reusing that established pattern keeps the shape predictable for both this task's own indicator-history endpoint and the future backend-divergence-detection task (depends_on this task), which just needs a plain pd.Series of RSI values aligned with daily_ohlcv to run swing-point-based divergence detection against -- exactly what rsi() returns and what analyse_history's rsi_full precomputed series already is internally."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-indicator-rsi",
+    "pr_number": 155,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/155",
+    "pushed_at": "2026-09-19T15:00:01Z"
+  }
 }
