@@ -3,7 +3,7 @@
   "title": "Horizontal support/resistance zone detection + false-breakout signal",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -80,5 +80,28 @@
     "pr_number": 147,
     "pr_url": "https://github.com/rainoko/fintrade/pull/147",
     "pushed_at": "2026-09-19T10:08:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T10:15:02Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/147",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Efficiency: detect_support_resistance_zones runs the full O(n) break/false-breakout scan and dollar_volume window computation for every candidate cluster before sorting by strength_score and truncating to max_zones (15), even though the sort key only depends on the cheap length/height categories -- a ~20yr history produces ~104 candidates while only 15 survive, so most of that scan work is thrown away on every call for a long-history ticker. Non-blocking; tracked on backend-support-resistance-followups.",
+        "file": "backend/app/signals/support_resistance.py",
+        "line": 423
+      },
+      {
+        "summary": "docs/architecture/Backend.md's module-layout tree wasn't updated to list the new app/signals/support_resistance.py module, unlike prior tasks (autoenvelope.py, _validation.py) that updated this same list when adding a new module. Non-blocking; tracked on backend-support-resistance-followups.",
+        "file": "docs/architecture/Backend.md",
+        "line": 30
+      },
+      {
+        "summary": "_cluster_touches's sequential merge-by-running-mean can chain: each new point is compared against the cluster's current (shifting) mean, not its original anchor, so an unbroken sequence of touches each within 1% of the running mean can end up spanning noticeably more than 1% end-to-end. Not a bug (upper/lower are still the cluster's real extremes) but this known limitation isn't acknowledged in the task's decisions entry. Non-blocking; tracked on backend-support-resistance-followups.",
+        "file": "backend/app/signals/support_resistance.py",
+        "line": 161
+      }
+    ],
+    "notes": "Full review. Tests: backend pytest --cov=app -- 598 passed, app/signals/support_resistance.py 100% line+branch, overall 99.88% (gate 90%), no regression. Frontend vitest run --coverage -- 349 passed, overall ~99.7% (gate 90%). Static analysis: backend ruff + mypy clean; frontend eslint + tsc clean. Re-ran python scripts/export_openapi.py and yarn generate:api-types against the checked-out branch -- both byte-for-byte identical to the committed backend/openapi.json and frontend/src/api/types.ts, genuinely regenerated not hand-edited. Elder-methodology scrutiny: false-breakout detection checks close only (breach and reentry), never high/low -- confirmed it requires a close beyond the zone AND a later close back inside, not a wick. Role-flip only fires on a confirmed break (no reentry within the 10-day window); a false breakout leaves role unchanged, verified against both unit and integration tests exercising both paths on the same fixture. Length thresholds (14/60/730 days) match the book's 2wk/2mo/2yr anchors directly (unambiguous). Height thresholds (2%/5% boundaries around 1%/3%/7% anchors) are a reasonable midpoint interpretation of the book's anchor-only guidance, and boundary tests confirm each anchor classifies as the book intends. No look-ahead bias: the module is called once per /analysis request over the full available history to produce a current-moment snapshot, not a per-bar walk-forward loop (it's explicitly not wired into analyse()/analyse_history()), so the fractal window's symmetric lookback/lookforward is the standard, correct swing-point definition here, not a leak of future data into a historical per-date determination. The zone-detection algorithm (5-bar fractal + close-price clustering at 1% tolerance + 2-touch/14-day floor) is a reasonable, well-justified interpretation of 'congestion area... not the extreme wick', backed by six decisions entries each with rejected alternatives, meeting CLAUDE.md's decision-memory bar. Router-placement (computing zones directly in get_analysis rather than inside analyse()/analyse_history()) is reasonable and consistent with how this codebase already distinguishes 'shared per-bar scalar, worth precomputing' (channel_upper/channel_lower) from 'whole-history, single-consumer computation' (this one, no second consumer exists). Checklist<->decisions cross-check: the one 'decide X' checklist item (the detection algorithm) has a corresponding decisions entry; every other judgment call implicit in the checklist is also backed by its own entry -- no gap. docs/Analyse.md and docs/architecture/API.md both updated with real content. No UI surface: this PR only adds a backend module + schema/route field + regenerated frontend types + an MSW mock fixture no component currently reads -- browser walkthrough and e2e-test explicitly skipped, no UI to exercise. Ran code-review (medium) against the diff: one real non-blocking efficiency finding (see comments), no correctness bugs. Three non-blocking findings recorded above and tracked on docs/tasks/backend-support-resistance-followups.json per the autonomous-pipeline rule."
   }
 }
