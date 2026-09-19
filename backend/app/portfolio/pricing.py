@@ -49,7 +49,7 @@ def enrich_positions_with_price(
     """
     enriched: list[EnrichedPosition] = []
     for row in rows:
-        current_price, daily_ohlcv = _latest_close(provider, row.ticker)
+        current_price, daily_ohlcv = latest_close(provider, row.ticker)
         unrealized_pnl_pct = (
             (current_price - row.avg_cost_basis) / row.avg_cost_basis * 100.0
             if current_price is not None
@@ -85,7 +85,7 @@ def positions_value(enriched: list[EnrichedPosition]) -> float:
     )
 
 
-def _latest_close(
+def latest_close(
     provider: DataProvider, ticker: str
 ) -> tuple[float | None, pd.DataFrame | None]:
     """Most recent daily close for `ticker` plus the frame it came from, or `(None, None)`
@@ -96,6 +96,11 @@ def _latest_close(
     `.dropna()`), so the NaN check guards against silently NaN-poisoning any running total a
     caller derives from `current_price` (NaN is contagious under float addition), not just
     this one field.
+
+    Public (not `_`-prefixed) since `app.api.routers.portfolio.delete_position` also calls
+    this directly -- to price a position's exit at today's latest close when recording its
+    `ClosedTradeORM` row (see the backend-trade-history-table task's `decisions` entry) --
+    rather than only being used internally by `enrich_positions_with_price` above.
     """
     try:
         frame = provider.get_daily_ohlcv(ticker)

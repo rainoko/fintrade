@@ -69,6 +69,7 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "account",
             "ohlcv_cache",
             "watchlist_items",
+            "closed_trades",
             "alembic_version",
         } <= tables
 
@@ -94,6 +95,17 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "fetched_at",
         }
         assert _table_columns(db_path, "watchlist_items") == {"ticker", "added_at"}
+        assert _table_columns(db_path, "closed_trades") == {
+            "id",
+            "ticker",
+            "quantity",
+            "entry_price",
+            "entry_date",
+            "exit_price",
+            "exit_date",
+            "realized_pnl",
+            "exit_reason",
+        }
 
     def test_records_the_head_revision_in_alembic_version(self, tmp_path: Path) -> None:
         db_path = tmp_path / "fresh.db"

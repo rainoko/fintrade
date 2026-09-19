@@ -50,6 +50,7 @@ describe('RiskPanel', () => {
   it('renders total open risk with no breach banner and no flagged rows when nothing is breached', async () => {
     mockRisk({
       total_open_risk_pct: 3.2,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -113,6 +114,7 @@ describe('RiskPanel', () => {
   it('renders an em dash in the Signal column for a held position whose signal could not be computed', async () => {
     mockRisk({
       total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -147,6 +149,7 @@ describe('RiskPanel', () => {
   it('visually flags the row and lists readable exit-flag labels when the 2% rule is breached on one position', async () => {
     mockRisk({
       total_open_risk_pct: 3.9,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -202,6 +205,7 @@ describe('RiskPanel', () => {
   it('shows a prominent warning banner when the 6% rule is breached', async () => {
     mockRisk({
       total_open_risk_pct: 6.4,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: true,
       positions: [
         {
@@ -226,6 +230,7 @@ describe('RiskPanel', () => {
   it('surfaces a non-blocking note for a held position silently excluded from the risk response', async () => {
     mockRisk({
       total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -259,6 +264,7 @@ describe('RiskPanel', () => {
   it('pluralizes the silent-exclusion note when more than one held position is missing', async () => {
     mockRisk({
       total_open_risk_pct: 0,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [],
     })
@@ -276,6 +282,7 @@ describe('RiskPanel', () => {
   it('falls back to a humanized label for an exit flag not in the known label map', async () => {
     mockRisk({
       total_open_risk_pct: 1.0,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {

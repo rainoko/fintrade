@@ -155,7 +155,7 @@ class TestDropMalformedDailyBars:
 
 class TestDropMalformedDailyBarsRequireFullOhlcOnLatestBarFalse:
     """`require_full_ohlc_on_latest_bar=False` -- app.api.routers.portfolio.get_risk's own
-    argument, reconciling this function's default with app.portfolio.pricing._latest_close's
+    argument, reconciling this function's default with app.portfolio.pricing.latest_close's
     close-only validity rule for the latest bar. See the
     api-stocks-analysis-nullable-indicators-followups task's `decisions` entry (and
     tests/integration/test_portfolio_risk.py's

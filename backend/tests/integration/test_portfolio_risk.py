@@ -17,7 +17,7 @@ threshold-derived response fields (two_percent_rule_breached/six_percent_rule_br
 degrade-gracefully exclusion of a position whose price/history couldn't be fetched.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
@@ -26,10 +26,10 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import TickerNotFoundError
-from app.db.models import AccountORM, PositionORM
+from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
-from app.portfolio.models import Position
+from app.portfolio.models import ExitReason, Position
 from app.portfolio.risk import protective_stop
 
 # The hand-computed 5-row reference series from test_portfolio_risk.py's
@@ -135,6 +135,7 @@ class TestGetRisk:
         assert response.status_code == 200
         assert response.json() == {
             "total_open_risk_pct": 0.0,
+            "realized_losses_this_month_pct": 0.0,
             "six_percent_rule_breached": False,
             "positions": [],
         }
@@ -335,7 +336,7 @@ class TestGetRisk:
         assert position["ticker"] == "AAPL"
 
     def test_position_with_daily_frame_missing_low_column_is_excluded(self, db_session: Session) -> None:
-        # Enough rows/columns for _latest_close (which only needs "close") to succeed, but
+        # Enough rows/columns for latest_close (which only needs "close") to succeed, but
         # protective_stop's own column validation requires "low" too -- the resulting
         # ValueError must exclude the position from the response rather than propagate as an
         # unhandled 500.
@@ -436,7 +437,7 @@ class TestGetRisk:
         self, db_session: Session
     ) -> None:
         """A malformed bar (NaN OHLC) anywhere in a position's daily history -- not just the
-        very latest bar `app.portfolio.pricing._latest_close` already excludes a position
+        very latest bar `app.portfolio.pricing.latest_close` already excludes a position
         outright for -- is dropped via `drop_malformed_daily_bars` before
         `protective_stop`/`evaluate_exit_flags` ever see it, so the response is identical to
         what it would be had that malformed bar simply never been fetched. Inserting it inside
@@ -554,12 +555,12 @@ class TestGetRisk:
     ) -> None:
         """Same stop-hit setup as `test_stop_hit_flag_surfaces_in_exit_flags`, except today's
         bar has a real `close` (80.0, still below the ~98 stop) but NaN `open`/`high`/`low` --
-        the "not yet settled" yfinance shape `app.portfolio.pricing._latest_close` already
+        the "not yet settled" yfinance shape `app.portfolio.pricing.latest_close` already
         tolerates for `position.current_price` (it only checks `close`). Before this test's
         fix, `drop_malformed_daily_bars` required full OHLC on *every* bar including the
         latest, so this bar was dropped entirely -- `evaluate_exit_flags` then read
         yesterday's close (100.0, above the stop) instead of today's, silently losing the
-        stop_hit flag despite `position.current_price` (from `_latest_close`) correctly
+        stop_hit flag despite `position.current_price` (from `latest_close`) correctly
         reflecting today's real 80.0 close. Reverting the `require_full_ohlc_on_latest_bar`
         fix (or the router's `False` argument) reproduces exactly that: `exit_flags == []`
         instead of `['stop_hit']`."""
@@ -581,3 +582,123 @@ class TestGetRisk:
         assert response.status_code == 200
         [position] = response.json()["positions"]
         assert "stop_hit" in position["exit_flags"]
+
+
+class TestRealizedLossesThisMonth:
+    """Coverage for the backend-trade-history-table task: the book's actual two-part 6% Rule
+    (docs/Analyse.md §7, per docs/ideas.md's ch. 51 cross-check) sums this calendar month's
+    realized losses from `closed_trades` alongside open-position risk -- these tests insert
+    `ClosedTradeORM` rows directly (rather than going through DELETE) to isolate the
+    `GET /api/portfolio/risk` computation itself; the DELETE -> closed_trades -> GET /risk
+    wiring end to end is covered separately in test_portfolio_delete_position.py."""
+
+    def test_prior_realized_losses_this_month_push_an_individually_fine_position_over_six_percent(
+        self, db_session: Session
+    ) -> None:
+        # A single, individually-fine open position (its own risk is a small fraction of a
+        # percent -- see test_clean_portfolio_has_no_breaches_or_flags above, which uses this
+        # exact same UPTREND fixture and asserts total_open_risk_pct < 2.0 on its own) plus two
+        # stopped-out losses already realized earlier *this* calendar month, summing to well
+        # over 6% of equity on their own -- concretely reproducing this task's own motivating
+        # scenario: "a user who took three straight stopped-out losses earlier this month, then
+        # opens a new, individually-fine 2%-sized position, sails right past the 6% Rule".
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        this_month = date.today().replace(day=1)
+        db_session.add_all(
+            [
+                ClosedTradeORM(
+                    id="trade_1", ticker="MSFT", quantity=10.0, entry_price=100.0,
+                    entry_date=date(2020, 1, 1), exit_price=67.0, exit_date=this_month,
+                    realized_pnl=-3300.0, exit_reason=ExitReason.STOP_HIT.value,
+                ),
+                ClosedTradeORM(
+                    id="trade_2", ticker="GOOG", quantity=10.0, entry_price=200.0,
+                    entry_date=date(2020, 1, 1), exit_price=167.0, exit_date=this_month,
+                    realized_pnl=-3300.0, exit_reason=ExitReason.STOP_HIT.value,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        body = response.json()
+
+        equity_total = 100_000.0 + 1.0 * _UPTREND_CLOSES[-1]
+        expected_realized_losses_pct = 6_600.0 / equity_total * 100.0
+        assert body["realized_losses_this_month_pct"] == pytest.approx(expected_realized_losses_pct)
+        assert expected_realized_losses_pct > 6.0  # realized losses alone already breach 6%
+
+        [position] = body["positions"]
+        assert position["two_percent_rule_breached"] is False  # individually fine
+        assert body["total_open_risk_pct"] > body["realized_losses_this_month_pct"]  # open risk still added on top
+        assert body["six_percent_rule_breached"] is True
+        assert "six_percent_rule_contributor" in position["exit_flags"]
+
+    def test_fresh_calendar_month_excludes_prior_months_realized_losses(
+        self, db_session: Session
+    ) -> None:
+        # Identical setup to the test above, except both closed trades are dated the *last day
+        # of the previous* calendar month -- this month's realized-losses component must be
+        # 0.0, and the portfolio must not breach the 6% rule (its only real risk is the same
+        # negligible open-position risk as test_clean_portfolio_has_no_breaches_or_flags).
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        last_day_of_prior_month = date.today().replace(day=1) - timedelta(days=1)
+        db_session.add_all(
+            [
+                ClosedTradeORM(
+                    id="trade_1", ticker="MSFT", quantity=10.0, entry_price=100.0,
+                    entry_date=date(2020, 1, 1), exit_price=67.0, exit_date=last_day_of_prior_month,
+                    realized_pnl=-3300.0, exit_reason=ExitReason.STOP_HIT.value,
+                ),
+                ClosedTradeORM(
+                    id="trade_2", ticker="GOOG", quantity=10.0, entry_price=200.0,
+                    entry_date=date(2020, 1, 1), exit_price=167.0, exit_date=last_day_of_prior_month,
+                    realized_pnl=-3300.0, exit_reason=ExitReason.STOP_HIT.value,
+                ),
+            ]
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["realized_losses_this_month_pct"] == pytest.approx(0.0)
+        assert body["total_open_risk_pct"] < 2.0
+        assert body["six_percent_rule_breached"] is False
+
+    def test_a_profitable_month_contributes_zero_not_a_negative_offset(
+        self, db_session: Session
+    ) -> None:
+        # A winning closed trade this month must not *reduce* realized_losses_this_month_pct
+        # below 0 -- only losing trades (realized_pnl < 0) count, per this task's `decisions`.
+        db_session.add(AccountORM(id=1, cash=10_000.0))
+        db_session.add(
+            ClosedTradeORM(
+                id="trade_1", ticker="MSFT", quantity=10.0, entry_price=100.0,
+                entry_date=date(2020, 1, 1), exit_price=150.0, exit_date=date.today(),
+                realized_pnl=500.0, exit_reason=ExitReason.TARGET_HIT.value,
+            )
+        )
+        db_session.commit()
+
+        response = _get_risk(db_session, _StubProvider())
+
+        assert response.status_code == 200
+        assert response.json()["realized_losses_this_month_pct"] == pytest.approx(0.0)

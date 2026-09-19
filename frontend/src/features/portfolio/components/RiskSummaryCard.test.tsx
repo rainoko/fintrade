@@ -14,6 +14,7 @@ describe('RiskSummaryCard', () => {
   it('shows a loading state, then total risk and a zero breach count when nothing is breached', async () => {
     mockRisk({
       total_open_risk_pct: 3.2,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -41,6 +42,7 @@ describe('RiskSummaryCard', () => {
   it('counts positions breaching the 2% rule and shows the 6% breach banner', async () => {
     mockRisk({
       total_open_risk_pct: 6.4,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: true,
       positions: [
         {

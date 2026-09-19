@@ -1013,7 +1013,7 @@
       "id": "backend-trade-history-table",
       "area": "backend/db",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-history-table.json"
     },
     {

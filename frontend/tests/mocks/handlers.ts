@@ -167,6 +167,7 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
 
 const riskFixture: RiskResponse = {
   total_open_risk_pct: 5.4,
+  realized_losses_this_month_pct: 0,
   six_percent_rule_breached: false,
   positions: [
     {

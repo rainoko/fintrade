@@ -270,7 +270,7 @@ class TestGetPortfolio:
         """Regression test for pr-reviewer's PR #30 finding: neither provider's daily
         series is guaranteed NaN-free (only the derived weekly series gets `.dropna()`),
         so a real, non-empty, non-erroring fetch whose latest close is NaN must be treated
-        as a failed fetch by `_latest_close` (current_price=None, excluded from
+        as a failed fetch by `latest_close` (current_price=None, excluded from
         positions_value) rather than flowing float('nan') into the running positions_value
         total via `+=` and NaN-poisoning the WHOLE response (equity.positions_value/total
         going to null even for other, perfectly good positions)."""
@@ -451,7 +451,7 @@ class TestGetPortfolioSignal:
         self, db_session: Session
     ) -> None:
         """Today's daily bar has a real `close` (110.0) but NaN `open`/`high`/`low` -- the
-        "not yet settled" yfinance shape `app.portfolio.pricing._latest_close` already
+        "not yet settled" yfinance shape `app.portfolio.pricing.latest_close` already
         tolerates for `current_price` (it only checks `close`), same as
         test_portfolio_risk.py's `test_malformed_open_high_low_on_latest_bar_does_not_
         suppress_stop_hit`. Unlike GET /api/portfolio/risk (whose `evaluate_exit_flags` only

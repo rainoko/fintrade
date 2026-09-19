@@ -94,7 +94,7 @@ def drop_malformed_daily_bars(
     ``evaluate_impulse`` -- read the latest bar's ``close`` only; the *older* bars' ``low`` still
     feeds ``protective_stop``'s swing-low window, which is why they still need full validity).
     Using the default (``True``) there would silently desync ``position.current_price``
-    (``app.portfolio.pricing._latest_close``, which only ever checks the latest bar's ``close``
+    (``app.portfolio.pricing.latest_close``, which only ever checks the latest bar's ``close``
     for NaN) from ``daily_ohlcv``'s own last row once filtered -- a real stop-hit could then be
     missed by testing a stale prior close instead of today's -- see the
     api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
