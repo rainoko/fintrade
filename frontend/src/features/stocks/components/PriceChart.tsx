@@ -891,12 +891,24 @@ export default function PriceChart({
   const latestClose = bars.at(-1)?.close
   const latestIndicatorPoint = indicatorsQuery.data?.points.at(-1)
 
-  // Support/resistance zones for the legend below -- same source
-  // (`analysisQuery.data`) and display cap (`MAX_DISPLAYED_ZONES`) the
-  // chart-drawing effect above uses, so the legend's "showing N of M" count
-  // always matches what's actually plotted.
+  // Support/resistance zones for the legend below. Post-review fix (PR
+  // #152 retry round 2): this used to read the raw, unfiltered `zones`
+  // array (and a stale `Math.min(zones.length, MAX_DISPLAYED_ZONES)`
+  // formula) for the legend's "Showing N of M" count and its
+  // "Nearest to the latest close" reading -- which could name a zone the
+  // chart-drawing effect above had actually excluded via the relevance
+  // filter (e.g. a pre-split-era AAPL zone at $0.34-0.35 reported as
+  // "nearest" to a $336 close while 0 zones were actually drawn). Now this
+  // runs the exact same `selectDisplayedZones` (relevance-filtered +
+  // strongest-N-capped) call, with the same `bars.length < 2` guard the
+  // effect uses (`bars` here is already `historyQuery.data.bars` filtered
+  // by `hasFiniteOhlc`, the same source/filter the effect's own
+  // `finiteBars` uses), so the legend can never describe a zone that isn't
+  // actually on the chart.
   const zones = analysisQuery.data?.support_resistance_zones ?? []
-  const displayedZoneCount = Math.min(zones.length, MAX_DISPLAYED_ZONES)
+  const zoneReferencePrice = bars.length >= 2 ? bars.at(-1)?.close : undefined
+  const displayedZones =
+    zoneReferencePrice != null ? selectDisplayedZones(zones, zoneReferencePrice) : []
 
   return (
     <Stack spacing={2}>
@@ -988,14 +1000,18 @@ export default function PriceChart({
       {/*
         Support/resistance zone legend + MetricHelp affordances (frontend-
         support-resistance-overlay). Gated on the chart itself having bars
-        and at least one zone to show -- unlike the channel/value-zone
-        legend above, NOT on `showOverlaySection`/`overlayEnabled`, since
-        zones come from `/analysis` (interval-agnostic), not `/indicators`.
+        and at least one zone actually DISPLAYED (`displayedZones`, not the
+        raw `zones` count -- post-review fix, PR #152 retry round 2: a
+        legend for zones that were all filtered out as irrelevant would
+        describe nothing actually on the chart) -- unlike the channel/
+        value-zone legend above, NOT on `showOverlaySection`/`overlayEnabled`,
+        since zones come from `/analysis` (interval-agnostic), not
+        `/indicators`.
       */}
       {historyQuery.isSuccess &&
         hasBars &&
         analysisQuery.isSuccess &&
-        zones.length > 0 && (
+        displayedZones.length > 0 && (
           <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
               <Box
@@ -1016,7 +1032,7 @@ export default function PriceChart({
                 elderContext={supportResistanceZoneHelp.elderContext}
                 valueInterpretation={supportResistanceZoneHelp.interpretValue(
                   zones,
-                  displayedZoneCount,
+                  displayedZones,
                   latestClose,
                 )}
               />
@@ -1037,7 +1053,7 @@ export default function PriceChart({
                 metricLabel={falseBreakoutHelp.metricLabel}
                 definition={falseBreakoutHelp.definition}
                 elderContext={falseBreakoutHelp.elderContext}
-                valueInterpretation={falseBreakoutHelp.interpretValue(zones)}
+                valueInterpretation={falseBreakoutHelp.interpretValue(displayedZones)}
               />
             </Stack>
           </Stack>

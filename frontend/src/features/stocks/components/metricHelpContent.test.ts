@@ -340,17 +340,17 @@ describe('metricHelpContent', () => {
 
   describe('supportResistanceZoneHelp.interpretValue', () => {
     it('reports no zones detected when the list is empty', () => {
-      expect(supportResistanceZoneHelp.interpretValue([], 0, 229.7)).toBe(
+      expect(supportResistanceZoneHelp.interpretValue([], [], 229.7)).toBe(
         'No support/resistance zones detected yet for this ticker -- needs at least 2 clustered swing-point touches spanning 14+ days.',
       )
     })
 
     it('reports the displayed/detected count without a nearest-zone reading when latestClose is unknown', () => {
       const zones = [buildZone()]
-      expect(supportResistanceZoneHelp.interpretValue(zones, 1, undefined)).toBe(
+      expect(supportResistanceZoneHelp.interpretValue(zones, zones, undefined)).toBe(
         'Showing 1 of 1 detected zone (strongest first).',
       )
-      expect(supportResistanceZoneHelp.interpretValue(zones, 1, null)).toBe(
+      expect(supportResistanceZoneHelp.interpretValue(zones, zones, null)).toBe(
         'Showing 1 of 1 detected zone (strongest first).',
       )
     })
@@ -358,12 +358,12 @@ describe('metricHelpContent', () => {
     it('pluralizes "zone(s)" correctly for a single vs. multiple detected zones', () => {
       const oneZone = [buildZone()]
       const twoZones = [buildZone(), buildZone({ upper: 210, lower: 205 })]
-      expect(supportResistanceZoneHelp.interpretValue(oneZone, 1, undefined)).toMatch(
-        /1 detected zone \(/,
-      )
-      expect(supportResistanceZoneHelp.interpretValue(twoZones, 2, undefined)).toMatch(
-        /2 detected zones \(/,
-      )
+      expect(
+        supportResistanceZoneHelp.interpretValue(oneZone, oneZone, undefined),
+      ).toMatch(/1 detected zone \(/)
+      expect(
+        supportResistanceZoneHelp.interpretValue(twoZones, twoZones, undefined),
+      ).toMatch(/2 detected zones \(/)
     })
 
     it('identifies the zone nearest the latest close among several, by distance to its nearer edge', () => {
@@ -371,7 +371,7 @@ describe('metricHelpContent', () => {
       const support = buildZone({ role: 'support', upper: 210.0, lower: 205.0 })
       const message = supportResistanceZoneHelp.interpretValue(
         [resistance, support],
-        2,
+        [resistance, support],
         229.7,
       )
       expect(message).toMatch(
@@ -388,7 +388,7 @@ describe('metricHelpContent', () => {
       })
       const message = supportResistanceZoneHelp.interpretValue(
         [containing, nearButOutside],
-        2,
+        [containing, nearButOutside],
         229.7,
       )
       expect(message).toMatch(/Support 228\.00-231\.00/)
@@ -396,14 +396,46 @@ describe('metricHelpContent', () => {
 
     it('notes when the nearest zone has flipped role after a confirmed break', () => {
       const zone = buildZone({ broken: true, break_date: '2026-08-01' })
-      const message = supportResistanceZoneHelp.interpretValue([zone], 1, 235.0)
+      const message = supportResistanceZoneHelp.interpretValue([zone], [zone], 235.0)
       expect(message).toMatch(/role flipped after a confirmed break/)
     })
 
     it('omits the role-flipped clause for a zone that has never broken', () => {
       const zone = buildZone({ broken: false })
-      const message = supportResistanceZoneHelp.interpretValue([zone], 1, 235.0)
+      const message = supportResistanceZoneHelp.interpretValue([zone], [zone], 235.0)
       expect(message).not.toMatch(/role flipped/)
+    })
+
+    it('reports the displayed count against the total detected count, not just the detected count twice, when some zones are filtered out', () => {
+      // Regression test for PR #152 retry round 2: the legend must describe
+      // `displayedZones` (relevance-filtered + capped), never the raw
+      // `zones` list -- distinct arguments here catch a caller that
+      // accidentally passes the same list twice.
+      const allZones = [buildZone(), buildZone({ upper: 210, lower: 205 })]
+      const displayed = [allZones[0]]
+      expect(
+        supportResistanceZoneHelp.interpretValue(allZones, displayed, 235.0),
+      ).toMatch(/^Showing 1 of 2 detected zones/)
+    })
+
+    it("picks 'nearest' only from displayedZones, never from a zone that was filtered out of the raw list", () => {
+      // The exact bug the reviewer reproduced live on AAPL/MSFT/AMD: a
+      // stale/irrelevant zone (here, one far below the close) is closer to
+      // `latestClose` than every zone actually displayed, but must never be
+      // reported as "nearest" since it isn't drawn on the chart.
+      const farAway = buildZone({ role: 'support', upper: 1.0, lower: 0.5 })
+      const displayedResistance = buildZone({
+        role: 'resistance',
+        upper: 350.0,
+        lower: 340.0,
+      })
+      const message = supportResistanceZoneHelp.interpretValue(
+        [farAway, displayedResistance],
+        [displayedResistance],
+        300.0,
+      )
+      expect(message).toMatch(/Resistance 340\.00-350\.00/)
+      expect(message).not.toMatch(/0\.50-1\.00/)
     })
   })
 
@@ -509,6 +541,33 @@ describe('metricHelpContent', () => {
       const message = falseBreakoutHelp.interpretValue([newer, older])
       expect(message).toMatch(/support zone 205\.00-210\.00/)
       expect(message).toMatch(/203\.50/)
+    })
+
+    it('never describes a false breakout belonging to a zone excluded from displayedZones', () => {
+      // Regression test for PR #152 retry round 2: the caller must pass
+      // the relevance-filtered/capped `displayedZones` list here, not the
+      // raw API response -- a zone with a false breakout that isn't in
+      // that list must not be described, even if it's the only breakout
+      // that exists at all.
+      const excludedWithBreakout = buildZone({
+        role: 'support',
+        upper: 1.0,
+        lower: 0.5,
+        false_breakout: {
+          direction: 'down',
+          breakout_date: '2026-08-20',
+          reentry_date: '2026-09-02',
+          extreme_price: 0.4,
+        },
+      })
+      // Simulates the caller passing only the displayed zones -- the
+      // excluded zone above isn't among them.
+      const displayedZones = [buildZone({ role: 'resistance', upper: 350.0, lower: 340.0 })]
+      const message = falseBreakoutHelp.interpretValue(displayedZones)
+      expect(message).toBe('No false breakouts detected among these zones right now.')
+      expect(message).not.toMatch(
+        excludedWithBreakout.false_breakout!.extreme_price.toFixed(2),
+      )
     })
   })
 })

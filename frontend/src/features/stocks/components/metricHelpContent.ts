@@ -423,17 +423,22 @@ export const supportResistanceZoneHelp = {
     'Strength is scored from how long the zone has persisted (length: ~2 weeks minor, ~2 months intermediate, ~2 years major) and how wide it is as a percentage of price (height: ~1%/~3%/>=7%) -- shaded more strongly here the higher that score, so a major, long-lived zone reads as more visually prominent than a weak, recent one. A zone whose role has flipped after a confirmed break (dashed border here) keeps existing with its role inverted -- old resistance becomes new support, and vice versa -- rather than being discarded (docs/Analyse.md §4 row 9). Up to 6 of the strongest zones are shown here, out of up to 15 this app detects per ticker.',
   interpretValue(
     zones: readonly SupportResistanceZone[],
-    displayedCount: number,
+    displayedZones: readonly SupportResistanceZone[],
     latestClose: number | null | undefined,
   ): string {
     if (zones.length === 0) {
       return 'No support/resistance zones detected yet for this ticker -- needs at least 2 clustered swing-point touches spanning 14+ days.'
     }
-    const shown = `Showing ${displayedCount} of ${zones.length} detected zone${zones.length === 1 ? '' : 's'} (strongest first).`
-    if (!isKnown(latestClose)) {
+    const shown = `Showing ${displayedZones.length} of ${zones.length} detected zone${zones.length === 1 ? '' : 's'} (strongest first).`
+    if (!isKnown(latestClose) || displayedZones.length === 0) {
       return shown
     }
-    const nearest = zones.reduce((closest, zone) =>
+    // Nearest is found among `displayedZones` (relevance-filtered + capped
+    // -- see `PriceChart.tsx`'s `selectDisplayedZones`), NOT the raw `zones`
+    // list, so this reading can never name a zone that isn't actually drawn
+    // on the chart (post-review fix, PR #152 retry round 2 -- see the
+    // caller's own comment for the AAPL/MSFT/AMD mismatch this fixes).
+    const nearest = displayedZones.reduce((closest, zone) =>
       distanceToZone(latestClose, zone) < distanceToZone(latestClose, closest)
         ? zone
         : closest,
@@ -458,8 +463,13 @@ export const falseBreakoutHelp = {
     'A specific reversal setup, not just noise: price closes beyond a support/resistance zone, then closes back inside it within about two trading weeks.',
   elderContext:
     'Elder ch. 18 calls a false breakout "a specific, high-value trade setup" -- the market tested a level, failed to hold beyond it, and is now more likely to reverse. The book\'s explicit stop-placement rule is to place a stop near the failed move\'s own extreme (the highest high reached for a failed break up, the lowest low for a failed break down) -- not further out, since that extreme is exactly how far the market proved it could reach before reversing. Marked on the chart with a distinct marker at the close that confirmed the reversal, plus a dashed price line at that extreme.',
-  interpretValue(zones: readonly SupportResistanceZone[]): string {
-    const withBreakout = zones.filter(hasFalseBreakout)
+  interpretValue(displayedZones: readonly SupportResistanceZone[]): string {
+    // `displayedZones` -- the same relevance-filtered + capped list the
+    // chart-drawing effect actually renders (`PriceChart.tsx`'s
+    // `selectDisplayedZones`), not the raw API response -- so this can
+    // never describe a false breakout for a zone that isn't actually on
+    // the chart (post-review fix, PR #152 retry round 2).
+    const withBreakout = displayedZones.filter(hasFalseBreakout)
     if (withBreakout.length === 0) {
       return 'No false breakouts detected among these zones right now.'
     }

@@ -1335,6 +1335,58 @@ describe('PriceChart', () => {
           ([definition]) => definition === 'BaselineSeries-definition',
         ),
       ).toBe(false)
+      // Post-review fix (PR #152 retry round 2): the legend itself must
+      // also disappear when nothing survives the relevance filter -- not
+      // just the chart bands -- since a legend describing zones that
+      // aren't actually drawn is exactly the bug this fix addresses.
+      expect(screen.queryByText('Support/Resistance Zones')).not.toBeInTheDocument()
+      expect(screen.queryByText('False Breakout')).not.toBeInTheDocument()
+    })
+
+    it("keeps the legend's \"Showing N of M\" count and \"Nearest to the latest close\" reading consistent with the zones actually drawn, when some zones are filtered out as irrelevant (PR #152 retry round 2 regression)", async () => {
+      mockHistory(twoBars)
+      const relevantResistance = buildZone({
+        role: 'resistance',
+        upper: 231.0,
+        lower: 229.9,
+        strength_score: 10,
+      })
+      const irrelevantHighStrength = buildZone({
+        // Far pre-split-era-style level, well outside the 50% relevance
+        // window around the 229.7 latest close, but given the HIGHEST
+        // strength_score so a bug that searches "nearest"/counts "shown"
+        // over the raw (unfiltered) zones list would surface it.
+        role: 'support',
+        upper: 2350.0,
+        lower: 2300.0,
+        strength_score: 100,
+      })
+      mockAnalysis([irrelevantHighStrength, relevantResistance])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Support/Resistance Zones')).toBeInTheDocument(),
+      )
+      // Only the one relevant zone actually reaches `setData`/the pane.
+      await waitFor(() => {
+        const baselineCalls = addSeriesMock.mock.calls.filter(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        )
+        expect(baselineCalls).toHaveLength(1)
+      })
+
+      await user.click(
+        screen.getByRole('button', { name: 'Support/Resistance Zones help' }),
+      )
+      // The legend must report 1 of 2 (the actually-displayed count), never
+      // the raw zones.length, and must name the relevant resistance zone as
+      // "nearest" -- never the far, unrendered support zone, even though it
+      // has the highest strength_score.
+      expect(screen.getByText(/Showing 1 of 2 detected zones/)).toBeInTheDocument()
+      expect(screen.getByText(/Resistance 229\.90-231\.00/)).toBeInTheDocument()
+      expect(screen.queryByText(/2300\.00-2350\.00/)).not.toBeInTheDocument()
     })
 
     it('swaps the zone band/marker/price-line series in place (without recreating the candlestick chart) when only the analysis query refetches', async () => {
