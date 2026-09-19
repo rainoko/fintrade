@@ -5,7 +5,8 @@
   "skill": "add-indicator",
   "state": "planned",
   "depends_on": [
-    "backend-swing-point-detector"
+    "backend-swing-point-detector",
+    "backend-indicator-rsi"
   ],
   "references": [
     "backend/app/indicators/macd.py",
