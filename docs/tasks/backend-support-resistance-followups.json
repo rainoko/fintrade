@@ -3,7 +3,7 @@
   "title": "Support/resistance zones — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-support-resistance"],
   "references": [
     "docs/tasks/done/backend-support-resistance.json#review",
@@ -37,5 +37,11 @@
       "decision": "Chain-drift in `_cluster_touches`: kept the existing sequential merge-by-running-mean behavior as-is (not switched to anchor-based tolerance), and instead (a) documented the limitation explicitly in `_cluster_touches`'s own docstring, and (b) added a regression test (`TestClusterTouchesChainDrift::test_running_mean_merge_can_drift_a_clusters_span_beyond_tolerance_pct`) that hand-demonstrates a 3-point cluster where each merge step is individually within the 1% tolerance of the running mean at that point, yet the cluster's final end-to-end span (100.0 to 101.45, i.e. 1.45%) exceeds the nominal 1% tolerance.",
       "rationale": "This is judged an acceptable, non-blocking documented limitation rather than something requiring a fix, for several reasons: (1) it is not a correctness bug against this module's own contract -- `upper`/`lower` are always the cluster's genuine touch-price extremes, never fabricated or extrapolated, so a zone's boundaries are still real, auditable price levels a trader could see on a chart; 'tolerance_pct' was always documented as governing each individual merge decision, not a hard cap on the resulting cluster's total width. (2) The book (Elder ch. 18) gives no numeric tolerance at all, let alone a stated guarantee about a zone's total span versus a per-touch tolerance -- there's no methodology requirement being violated. (3) Switching to anchor-based comparison (compare each new point to the cluster's FIRST point, not its running mean) is a real behavior change, not just a bugfix: it would produce more, smaller clusters in cases where prices drift gradually across a wide congestion band, potentially splitting what a trader would still recognize as one wide zone into several disconnected minor ones -- an equally defensible interpretation, but not obviously superior, and it would change the already-hand-verified fixture assertions in the original task's tests (e.g. `TestCleanMultiTouchZone`'s 108.8/109.0/109.3 zone) in ways that would need re-justifying from scratch. Given the finding itself was filed as non-blocking by pr-reviewer, and 'is an acceptable, documented limitation' is one of the two options this task's checklist explicitly offers, documenting + regression-testing the current behavior (so it can never silently change without a test noticing) was chosen over a speculative behavior change with no clear methodology mandate behind it. Rejected alternative: switch to anchor-based tolerance (compare every point in a cluster to its first point rather than the running mean) -- rejected per the above; noted here as the natural change to make later IF a real-world false-negative/false-positive zone-boundary case is ever actually observed, rather than pre-emptively now on a purely theoretical concern."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-support-resistance-followups",
+    "pr_number": 164,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/164",
+    "pushed_at": "2026-09-19T19:56:37Z"
+  }
 }

@@ -978,7 +978,7 @@
       "id": "backend-support-resistance-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-support-resistance-followups.json"
     },
     {
