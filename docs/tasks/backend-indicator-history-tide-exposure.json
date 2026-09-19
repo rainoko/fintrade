@@ -37,10 +37,16 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-19T00:00:00Z",
+      "timestamp": "2026-09-19T21:30:00Z",
       "recorded_by": "task-worker",
       "decision": "Added a nested `tide: TideScreen` object to `IndicatorHistoryPoint` (reusing the exact same `TideScreen` model -- `trend` + `weekly_macd_histogram_slope` -- that `AnalysisResponse.screens.tide` already uses), sourced per-bar from `result.screens[\"tide\"]` via the same `cast(TideScreen, ...)`-for-mypy-only pattern `get_analysis` already uses for `screens=cast(Screens, result.screens)`/`indicators=cast(Indicators, result.indicators)`. The field is never null (unlike stochastic_k/channel_upper/rsi/season): `evaluate_tide` always returns a concrete trend ('NEUTRAL'/'flat' rather than an absent value) even with insufficient weekly history, so there's no warm-up-null case to model here.",
       "rationale": "Rejected the flat `tide_trend: 'BULLISH'|'BEARISH'|'NEUTRAL'` alternative from the checklist: it would drop `weekly_macd_histogram_slope`, which the /analysis response's own screens.tide already exposes alongside trend specifically so a client can distinguish a genuinely-flat slope from a slope that was overridden to NEUTRAL by a disagreeing EMA relationship (see evaluate_tide's own docstring) -- the chart-shading consumer this task exists for may well want that same distinction for a tooltip/legend, and there's no cost to keeping it since analyse_history() already computes and carries weekly_macd_histogram_slope through unchanged. Nesting under `tide` (rather than flattening both fields with a `tide_` prefix) directly reuses the existing `TideScreen` Pydantic model instead of duplicating its two fields, keeping the two endpoints' schemas byte-for-byte consistent for this screen and matching the task's own stated preference for schema consistency with /analysis absent a good reason not to."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-indicator-history-tide-exposure",
+    "pr_number": 168,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/168",
+    "pushed_at": "2026-09-19T21:42:09Z"
+  }
 }
