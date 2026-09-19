@@ -5,10 +5,13 @@
 
 .DEFAULT_GOAL := help
 
-# `dev`'s fail-fast cleanup (below) uses bash's `wait -n <pids...>`, which needs
-# an actual bash, not just any POSIX /bin/sh (e.g. dash, this container's default
-# SHELL). The dev container guarantees bash; other repo scripts already assume it
-# too (see .devcontainer/*.sh shebangs).
+# `dev`'s fail-fast cleanup (below) uses bash's `wait -n <pids...>` with an explicit pid
+# list, which needs bash >= 5.1, not just any POSIX /bin/sh (e.g. dash, this container's
+# default SHELL). The dev container guarantees bash >= 5.1 (ships 5.3.9; see README.md's
+# Quick Start); other repo scripts already assume bash too (see .devcontainer/*.sh
+# shebangs). `SHELL := bash` resolves `bash` via PATH search (GNU Make's documented
+# behavior for a non-absolute SHELL), so outside the devcontainer this recipe depends on
+# whatever `bash` PATH resolves to actually being >= 5.1.
 SHELL := bash
 
 .PHONY: help backend frontend dev install test e2e
@@ -31,18 +34,18 @@ backend: ## Run the backend dev server (FastAPI/uvicorn, --reload) on http://loc
 frontend: ## Run the frontend dev server (Vite) on http://localhost:5173 (bound to 0.0.0.0 so the dev container's forwarded port reaches it)
 	cd frontend && yarn dev --host 0.0.0.0
 
+# Known limitation of `dev` (below): a bare SIGINT sent to only this recipe's top-level
+# `make dev` PID (not via a real terminal, and not SIGTERM) does nothing -- GNU Make
+# ignores SIGINT while a recipe's child is running (it defers to the terminal to deliver
+# interactive Ctrl-C to the whole foreground process group directly), so the trap in the
+# recipe never gets a chance to forward it in that specific case. Interactive Ctrl-C and
+# `kill -TERM <top-pid>` from another shell both work correctly (each reaches the trap,
+# which cleans up both process groups); only a standalone `kill -INT <top-pid>` does not.
+# This is inherent GNU Make behavior, not fixable from within the recipe's own
+# trap/signal handling -- if `make dev` is ever run under a supervisor that specifically
+# sends bare SIGINT to just the top PID (most default to SIGTERM, which already works),
+# it won't stop that way.
 dev: ## Run backend and frontend dev servers together; Ctrl-C/kill stops both, including uvicorn's reloader and vite's node process
-	@# Known limitation: a bare SIGINT sent to only this recipe's top-level `make dev`
-	@# PID (not via a real terminal, and not SIGTERM) does nothing -- GNU Make ignores
-	@# SIGINT while a recipe's child is running (it defers to the terminal to deliver
-	@# interactive Ctrl-C to the whole foreground process group directly), so the trap
-	@# below never gets a chance to forward it in that specific case. Interactive
-	@# Ctrl-C and `kill -TERM <top-pid>` from another shell both work correctly (each
-	@# reaches the trap, which cleans up both process groups); only a standalone
-	@# `kill -INT <top-pid>` does not. This is inherent GNU Make behavior, not fixable
-	@# from within the recipe's own trap/signal handling -- if `make dev` is ever run
-	@# under a supervisor that specifically sends bare SIGINT to just the top PID
-	@# (most default to SIGTERM, which already works), it won't stop that way.
 	@setsid $(MAKE) backend </dev/null & bpid=$$!; \
 	setsid $(MAKE) frontend </dev/null & fpid=$$!; \
 	trap 'kill -TERM -$$bpid -$$fpid 2>/dev/null' EXIT INT TERM; \
