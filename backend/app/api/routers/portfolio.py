@@ -2,6 +2,7 @@ import math
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import cast
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,8 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
 from app.api.schemas import (
+    ClosedTradeOut,
+    ClosedTradesResponse,
     Equity,
     ErrorDetail,
+    ExitReasonOut,
     PortfolioResponse,
     PositionIn,
     PositionOut,
@@ -22,6 +26,7 @@ from app.data.exceptions import DataProviderError
 from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.portfolio.exits import evaluate_exit_flags
+from app.portfolio.grading import TradeGrade, grade_closed_trade
 from app.portfolio.models import Account, ExitReason
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import (
@@ -142,6 +147,43 @@ def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> Sig
     if daily_ohlcv.empty or daily_ohlcv.index[-1] != e.daily_ohlcv.index[-1]:
         return None
     return analyse(e.position.ticker, daily_ohlcv, weekly_ohlcv)
+
+
+def _grade_closed_trades(
+    rows: list[ClosedTradeORM], provider: DataProvider
+) -> dict[str, TradeGrade]:
+    """Grades every row in `rows` (`app.portfolio.grading.grade_closed_trade`), fetching each
+    distinct ticker's daily OHLCV at most once -- closed trades for the same ticker (a ticker
+    bought, sold, and later bought/sold again) share one fetch rather than one per row.
+    Returns a dict keyed by `ClosedTradeORM.id`.
+
+    A ticker whose fetch fails (`DataProviderError` -- unknown/delisted ticker, provider
+    unavailable) grades every one of its rows as an all-`None` `TradeGrade` rather than
+    raising or excluding the row from the response entirely -- same degrade-gracefully
+    convention as `_compute_position_signal`/`enrich_positions_with_price`: a closed trade
+    whose grade can't currently be computed is still a real trade the user closed, and should
+    still show up in their trade history with its own recorded price/date/P&L fields intact,
+    just without a grade attached."""
+    frames: dict[str, pd.DataFrame | None] = {}
+    grades: dict[str, TradeGrade] = {}
+    for row in rows:
+        if row.ticker not in frames:
+            try:
+                frames[row.ticker] = provider.get_daily_ohlcv(row.ticker)
+            except DataProviderError:
+                frames[row.ticker] = None
+        frame = frames[row.ticker]
+        if frame is None:
+            grades[row.id] = TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+        else:
+            grades[row.id] = grade_closed_trade(
+                entry_price=row.entry_price,
+                entry_date=row.entry_date,
+                exit_price=row.exit_price,
+                exit_date=row.exit_date,
+                daily_ohlcv=frame,
+            )
+    return grades
 
 
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
@@ -521,4 +563,61 @@ def get_risk(
         realized_losses_this_month_pct=realized_losses_this_month,
         six_percent_rule_breached=six_percent_rule_breached,
         positions=risk_positions,
+    )
+
+
+@router.get(
+    "/closed-trades",
+    response_model=ClosedTradesResponse,
+    operation_id="get_closed_trades",
+    summary="Get closed trades (trade history) with A-trade grades",
+)
+def get_closed_trades(
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> ClosedTradesResponse:
+    """Every row in the `closed_trades` table (docs/Analyse.md §7's trade-history/ledger
+    table, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first
+    (`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors
+    `_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since
+    trade history is read for recency rather than portfolio composition).
+
+    Each trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`
+    (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7 / docs/ideas.md ch. 55) --
+    `app.portfolio.grading.grade_closed_trade`, sourced from the ticker's daily OHLCV (that
+    day's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation
+    `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is
+    preferred over judging it by raw P&L alone, since it accounts for how much was
+    realistically available to capture that day/that channel, not just what was captured.
+
+    Grading never fails the request: a ticker whose current daily-history fetch fails, or a
+    trade whose entry/exit date isn't an exact row in that history (e.g. it predates the
+    fetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets
+    null grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s
+    docstring."""
+    rows = (
+        db.query(ClosedTradeORM)
+        .order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc())
+        .all()
+    )
+    grades = _grade_closed_trades(rows, provider)
+
+    return ClosedTradesResponse(
+        items=[
+            ClosedTradeOut(
+                id=row.id,
+                ticker=row.ticker,
+                quantity=row.quantity,
+                entry_price=row.entry_price,
+                entry_date=row.entry_date,
+                exit_price=row.exit_price,
+                exit_date=row.exit_date,
+                realized_pnl=row.realized_pnl,
+                exit_reason=cast(ExitReasonOut, row.exit_reason),
+                buy_grade_pct=grades[row.id].buy_grade_pct,
+                sell_grade_pct=grades[row.id].sell_grade_pct,
+                trade_grade_pct=grades[row.id].trade_grade_pct,
+            )
+            for row in rows
+        ]
     )

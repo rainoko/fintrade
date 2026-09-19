@@ -154,6 +154,14 @@ Implementation: `app.portfolio.risk.total_open_risk_pct` computes part (2) only;
 ### Stop-loss placement (SafeZone concept)
 Stop-loss for a long position = recent swing low minus a volatility buffer (average size of downside penetrations of a short EMA over the last N days). This stop is what feeds the 2%/6% calculations above, and a **close below this stop is itself a SELL trigger** for that position regardless of Screen 2/3 state ("protective stop hit").
 
+### Trade grading ("Is This an A-Trade?")
+Once a position is closed (recorded in the `closed_trades` table above), grade it by three exact, checkable formulas (Elder ch. 55) rather than by raw dollars/percent-return alone — they measure how much of what was *realistically available* got captured, not just what was captured:
+- **Buy grade** = (entry day's high − buy price) / (entry day's high − entry day's low) — how close to the entry day's low the buy was. **>50% is "very good."**
+- **Sell grade** = (sell price − exit day's low) / (exit day's high − exit day's low) — how close to the exit day's high the sell was. **>50% is "very good."**
+- **Trade grade** = (sell price − buy price) / (channel high − channel low, measured on the *entry* day) — the trade's actual gain as a fraction of the entry day's Autoenvelope/channel height (§4). **≥30% capture is an "A" trade, ~10% a "C" trade.**
+
+Implementation: `app.portfolio.grading` (pure formulas, hand-verified against the book's own worked ADSK example — buy grade 97%, sell grade 35%, trade grade 32% — in `tests/unit/test_portfolio_grading.py`), exposed per closed trade via `GET /api/portfolio/closed-trades`. Any grade is `null` when its inputs aren't available for that trade (the ticker's fetched daily history doesn't reach back to the entry/exit date, or — trade grade only — the entry date falls inside the Autoenvelope's own ~100-bar warm-up window) rather than a fabricated number.
+
 ### Existing-position exit signals (beyond fresh technical SELL)
 A held position should be flagged **SELL/reduce** if any of:
 - Price closes below its computed protective stop.

@@ -74,6 +74,126 @@
         "title": "AnalysisResponse",
         "type": "object"
       },
+      "ClosedTradeOut": {
+        "properties": {
+          "buy_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(entry day's high - entry_price) / (entry day's high - entry day's low), as a percentage -- how close to the entry day's low the buy actually was (Elder ch. 55 'Is This an A-Trade?', docs/Analyse.md \u00a77 / docs/ideas.md ch. 55). >50% is 'very good'. Null whenever the entry day's own OHLC can't be found in the ticker's currently-fetchable daily history (e.g. entry_date predates that history, the fetch itself failed, or that bar was dropped as malformed) or the entry day had a zero/negative trading range -- see app.portfolio.grading.grade_closed_trade.",
+            "title": "Buy Grade Pct"
+          },
+          "entry_date": {
+            "format": "date",
+            "title": "Entry Date",
+            "type": "string"
+          },
+          "entry_price": {
+            "title": "Entry Price",
+            "type": "number"
+          },
+          "exit_date": {
+            "format": "date",
+            "title": "Exit Date",
+            "type": "string"
+          },
+          "exit_price": {
+            "title": "Exit Price",
+            "type": "number"
+          },
+          "exit_reason": {
+            "description": "Why this position was closed, from Elder's own taxonomy (docs/Analyse.md \u00a77 / docs/ideas.md's ch. 51 cross-check) plus this app's own 'unspecified' default for a trade closed with no explicit reason supplied -- see DELETE /api/portfolio/positions/{id}.",
+            "enum": [
+              "target_hit",
+              "stop_hit",
+              "reached_value_zone",
+              "going_nowhere",
+              "starting_to_turn",
+              "couldnt_stand_the_pain",
+              "recognized_junk_trade_after_entry",
+              "unspecified"
+            ],
+            "title": "Exit Reason",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "number"
+          },
+          "realized_pnl": {
+            "description": "quantity * (exit_price - entry_price) -- see DELETE /api/portfolio/positions/{id} for how this row is recorded.",
+            "title": "Realized Pnl",
+            "type": "number"
+          },
+          "sell_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(exit_price - exit day's low) / (exit day's high - exit day's low), as a percentage -- how close to the exit day's high the sell actually was. >50% is 'very good'. Null under the same conditions as buy_grade_pct, evaluated for the exit day instead.",
+            "title": "Sell Grade Pct"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "trade_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(exit_price - entry_price) / (channel_upper - channel_lower, measured on entry_date), as a percentage -- the trade's actual gain as a fraction of the entry day's Autoenvelope/channel height (docs/Analyse.md \u00a74, same channel AnalysisResponse.indicators.channel_upper/channel_lower expose). >=30% capture is an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't available -- the ticker's fetched daily history doesn't reach back to entry_date, or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
+            "title": "Trade Grade Pct"
+          }
+        },
+        "required": [
+          "id",
+          "ticker",
+          "quantity",
+          "entry_price",
+          "entry_date",
+          "exit_price",
+          "exit_date",
+          "realized_pnl",
+          "exit_reason"
+        ],
+        "title": "ClosedTradeOut",
+        "type": "object"
+      },
+      "ClosedTradesResponse": {
+        "properties": {
+          "items": {
+            "description": "Every closed trade (the docs/Analyse.md \u00a77 trade-history/ledger table), most recently exited first.",
+            "items": {
+              "$ref": "#/components/schemas/ClosedTradeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ClosedTradesResponse",
+        "type": "object"
+      },
       "ConfidenceBreakdownItem": {
         "properties": {
           "component": {
@@ -1133,6 +1253,28 @@
           }
         },
         "summary": "Get current positions and account equity",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/portfolio/closed-trades": {
+      "get": {
+        "description": "Every row in the `closed_trades` table (docs/Analyse.md \u00a77's trade-history/ledger\ntable, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first\n(`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors\n`_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since\ntrade history is read for recency rather than portfolio composition).\n\nEach trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`\n(Elder ch. 55 \"Is This an A-Trade?\", docs/Analyse.md \u00a77 / docs/ideas.md ch. 55) --\n`app.portfolio.grading.grade_closed_trade`, sourced from the ticker's daily OHLCV (that\nday's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation\n`AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is\npreferred over judging it by raw P&L alone, since it accounts for how much was\nrealistically available to capture that day/that channel, not just what was captured.\n\nGrading never fails the request: a ticker whose current daily-history fetch fails, or a\ntrade whose entry/exit date isn't an exact row in that history (e.g. it predates the\nfetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets\nnull grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s\ndocstring.",
+        "operationId": "get_closed_trades",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosedTradesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get closed trades (trade history) with A-trade grades",
         "tags": [
           "portfolio"
         ]
