@@ -81,6 +81,25 @@ const analysisFixture: AnalysisResponse = {
     bull_power: 3.1,
     bear_power: -1.4,
   },
+  support_resistance_zones: [
+    {
+      role: 'resistance',
+      upper: 236.9,
+      lower: 233.4,
+      first_touch_date: '2026-06-02',
+      last_touch_date: '2026-08-14',
+      touch_count: 3,
+      length_days: 73,
+      length_category: 'intermediate',
+      height_pct: 1.5,
+      height_category: 'minor',
+      dollar_volume: 12_400_000_000,
+      strength_score: 50,
+      broken: false,
+      break_date: null,
+      false_breakout: null,
+    },
+  ],
 }
 
 function buildHistoryFixture(ticker: string, interval: HistoryInterval): HistoryResponse {

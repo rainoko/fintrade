@@ -957,7 +957,7 @@
       "id": "backend-support-resistance",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-support-resistance.json"
     },
     {
