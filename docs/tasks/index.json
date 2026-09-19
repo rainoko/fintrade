@@ -1020,7 +1020,7 @@
       "id": "backend-trade-grading",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-trade-grading.json"
     },
     {

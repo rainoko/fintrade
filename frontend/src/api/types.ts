@@ -44,6 +44,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portfolio/closed-trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get closed trades (trade history) with A-trade grades
+         * @description Every row in the `closed_trades` table (docs/Analyse.md §7's trade-history/ledger
+         *     table, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first
+         *     (`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors
+         *     `_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since
+         *     trade history is read for recency rather than portfolio composition).
+         *
+         *     Each trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`
+         *     (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7 / docs/ideas.md ch. 55) --
+         *     `app.portfolio.grading.grade_closed_trade`, sourced from the ticker's daily OHLCV (that
+         *     day's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation
+         *     `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is
+         *     preferred over judging it by raw P&L alone, since it accounts for how much was
+         *     realistically available to capture that day/that channel, not just what was captured.
+         *
+         *     Grading never fails the request: a ticker whose current daily-history fetch fails, or a
+         *     trade whose entry/exit date isn't an exact row in that history (e.g. it predates the
+         *     fetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets
+         *     null grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s
+         *     docstring.
+         */
+        get: operations["get_closed_trades"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/portfolio/positions": {
         parameters: {
             query?: never;
@@ -401,6 +439,63 @@ export interface components {
             support_resistance_zones: components["schemas"]["SupportResistanceZone"][];
             /** Ticker */
             ticker: string;
+        };
+        /** ClosedTradeOut */
+        ClosedTradeOut: {
+            /**
+             * Buy Grade Pct
+             * @description (entry day's high - entry_price) / (entry day's high - entry day's low), as a percentage -- how close to the entry day's low the buy actually was (Elder ch. 55 'Is This an A-Trade?', docs/Analyse.md §7 / docs/ideas.md ch. 55). >50% is 'very good'. Null whenever the entry day's own OHLC can't be found in the ticker's currently-fetchable daily history (e.g. entry_date predates that history, the fetch itself failed, or that bar was dropped as malformed) or the entry day had a zero/negative trading range -- see app.portfolio.grading.grade_closed_trade.
+             */
+            buy_grade_pct?: number | null;
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /** Entry Price */
+            entry_price: number;
+            /**
+             * Exit Date
+             * Format: date
+             */
+            exit_date: string;
+            /** Exit Price */
+            exit_price: number;
+            /**
+             * Exit Reason
+             * @description Why this position was closed, from Elder's own taxonomy (docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check) plus this app's own 'unspecified' default for a trade closed with no explicit reason supplied -- see DELETE /api/portfolio/positions/{id}.
+             * @enum {string}
+             */
+            exit_reason: "target_hit" | "stop_hit" | "reached_value_zone" | "going_nowhere" | "starting_to_turn" | "couldnt_stand_the_pain" | "recognized_junk_trade_after_entry" | "unspecified";
+            /** Id */
+            id: string;
+            /** Quantity */
+            quantity: number;
+            /**
+             * Realized Pnl
+             * @description quantity * (exit_price - entry_price) -- see DELETE /api/portfolio/positions/{id} for how this row is recorded.
+             */
+            realized_pnl: number;
+            /**
+             * Sell Grade Pct
+             * @description (exit_price - exit day's low) / (exit day's high - exit day's low), as a percentage -- how close to the exit day's high the sell actually was. >50% is 'very good'. Null under the same conditions as buy_grade_pct, evaluated for the exit day instead.
+             */
+            sell_grade_pct?: number | null;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Trade Grade Pct
+             * @description (exit_price - entry_price) / (channel_upper - channel_lower, measured on entry_date), as a percentage -- the trade's actual gain as a fraction of the entry day's Autoenvelope/channel height (docs/Analyse.md §4, same channel AnalysisResponse.indicators.channel_upper/channel_lower expose). >=30% capture is an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't available -- the ticker's fetched daily history doesn't reach back to entry_date, or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.
+             */
+            trade_grade_pct?: number | null;
+        };
+        /** ClosedTradesResponse */
+        ClosedTradesResponse: {
+            /**
+             * Items
+             * @description Every closed trade (the docs/Analyse.md §7 trade-history/ledger table), most recently exited first.
+             */
+            items: components["schemas"]["ClosedTradeOut"][];
         };
         /** ConfidenceBreakdownItem */
         ConfidenceBreakdownItem: {
@@ -965,6 +1060,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioResponse"];
+                };
+            };
+        };
+    };
+    get_closed_trades: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosedTradesResponse"];
                 };
             };
         };

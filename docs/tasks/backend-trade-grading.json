@@ -3,7 +3,7 @@
   "title": "A-trade grading (buy grade / sell grade / trade grade) for closed trades",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-trade-history-table",
     "backend-channel-envelope-exposure"
@@ -16,19 +16,51 @@
   "checklist": [
     {
       "step": "Implement the three grade formulas as pure functions taking a closed-trade row + that day's OHLC + channel bounds.",
-      "done": false
+      "done": true
     },
     {
       "step": "Hand-computed reference test reproducing the book's own worked ADSK example (buy grade 97%, sell grade 35%, trade grade 32%) exactly.",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose grades on a closed-trade list/detail endpoint (new, or extending whatever endpoint backend-trade-history-table introduced for reading closed trades).",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json/frontend types; document the formulas and thresholds in docs/Analyse.md.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "backend-trade-history-table's own task never actually built a closed-trade read endpoint (only DELETE /api/portfolio/positions/{id}, which writes closed_trades rows) -- confirmed via grep across app/api/routers/ before starting. Added a new endpoint, GET /api/portfolio/closed-trades, returning every closed_trades row (most recently exited first: exit_date descending, id descending as a same-day tiebreaker) each annotated with buy_grade_pct/sell_grade_pct/trade_grade_pct.",
+      "rationale": "The checklist item itself says 'new, or extending whatever endpoint backend-trade-history-table introduced for reading closed trades' -- since that task introduced none, 'new' is the only applicable branch, not a judgment call between two real options. Ordering newest-first (rather than _ordered_positions's entry_date-ascending convention used for the positions list) was chosen because trade *history* is read for recency (what did I just close, and how did it grade) rather than portfolio composition -- mirrors WatchlistResponse's own oldest-first-for-a-different-reason precedent in spirit (each list picks the order that matches how it's actually consumed) rather than blindly copying _ordered_positions's ascending convention for a list serving a different purpose."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Grading logic lives in a new app/portfolio/grading.py module: three pure formula functions (buy_grade_pct/sell_grade_pct/trade_grade_pct, each returning float | None) plus grade_trade (combines all three, pure) and grade_closed_trade (the data-fetching wrapper: takes a ticker's already-fetched daily_ohlcv frame + a closed trade's entry/exit price+date, derives the eight grade_trade arguments -- that day's own high/low for entry and exit, plus the entry-day Autoenvelope channel bounds via app.indicators.autoenvelope.autoenvelope -- and returns an all-None TradeGrade rather than raising when entry_date/exit_date isn't an exact row in the (drop_malformed_daily_bars-filtered) frame). The router's own new helper, _grade_closed_trades, fetches each distinct ticker's daily_ohlcv at most once per request (shared across multiple closed trades for that ticker) and degrades a whole ticker's grades to all-None on a DataProviderError, mirroring _compute_position_signal's/enrich_positions_with_price's existing per-ticker degrade-gracefully convention.",
+      "rationale": "Matches this codebase's established pure-domain-function-plus-thin-router-glue split (app.portfolio.risk/exits hold pure formulas over an already-fetched frame; the router owns all I/O and per-ticker fetch/cache/degrade logic) rather than folding I/O into the grading module itself, which would make grade_trade's formulas harder to unit-test in isolation (the ADSK reference-value test needs zero I/O) and would duplicate the fetch-once-per-ticker sharing logic that already exists as a pattern (_realized_losses_this_month_pct/_compute_position_signal) rather than reusing it. grade_closed_trade (not grade_trade directly) is the router's actual call site because a closed trade's grade needs values (day OHLC, channel bounds) derived from a whole-history frame, not just handed eight bare floats -- keeping that derivation as its own testable function (rather than inlined in the router) lets tests/unit/test_portfolio_grading.py's TestGradeClosedTrade class verify the wiring (correct rows/columns pulled for the right dates) independently of the router/DB/HTTP layer, consistent with how autoenvelope()/ema() etc. are unit-tested without a FastAPI TestClient anywhere in the stack. Rejected alternative: compute grades inline in the GET /api/portfolio/closed-trades handler itself -- rejected because it would mix HTTP/DB concerns with the actual math in one function, making both harder to test and diverging from every other computation in this codebase (protective_stop, evaluate_exit_flags, realized_losses_pct) that instead lives in app.portfolio.* as testable pure(-ish) functions the router calls."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "grade_closed_trade calls app.signals.engine.drop_malformed_daily_bars(daily_ohlcv) with its default require_full_ohlc_on_latest_bar=True (i.e. every bar, not just the latest, needs a full non-NaN OHLC) before looking up entry_date/exit_date -- unlike GET /api/portfolio/risk's more lenient require_full_ohlc_on_latest_bar=False call.",
+      "rationale": "entry_date/exit_date are essentially never the very latest bar in the ticker's currently-fetched history (a closed trade's exit date is, at the newest, 'recent', not literally 'today' by the time this endpoint is called later), so the lenient carve-out GET /api/portfolio/risk needs specifically for its own latest-bar desync concern doesn't apply here -- what grading actually needs is a real, non-NaN high/low for two arbitrary historical days, which is exactly what the stricter default guarantees across the whole frame. Using the lenient variant instead would risk silently computing a grade from a malformed (NaN open/high/low, valid-close-only) bar on a day that happens to still be the latest fetched bar, producing NaN-poisoned or wrong grade values instead of the intended null-when-ungradeable behavior."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ClosedTradeOut.exit_reason is typed as a new schemas.py Literal (ExitReasonOut, duplicating ExitReason's 8 string values) rather than importing app.portfolio.models.ExitReason directly into schemas.py.",
+      "rationale": "Matches this module's own established convention: Signal/Trend/Impulse/ConfidenceBand are all Literal type aliases defined directly in schemas.py rather than importing the domain-layer types they mirror (app.signals.engine has no such enums to import from in the first place, by design -- see docs/architecture/Backend.md's layering), and schemas.py has zero existing imports from app.portfolio or app.signals anywhere. Rejected alternative: import ExitReason directly as the field type (as DELETE /api/portfolio/positions/{id}'s Query(...) param already does, but that's a router, not the shared schemas.py module) -- rejected because it would be the first domain-type import into schemas.py, a layering precedent this task doesn't need to set just to avoid duplicating 8 short string literals that (per ExitReason's own docstring) are themselves meant to be a stable, rarely-changing taxonomy."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No frontend client function (frontend/src/api/portfolio.ts) or MSW mock handler was added for GET /api/portfolio/closed-trades in this PR -- only backend/openapi.json and the regenerated frontend/src/api/types.ts changed on the frontend side.",
+      "rationale": "docs/tasks/frontend-trade-journal.json already exists as a separate, already-planned task (depends_on: [backend-trade-history-table, backend-trade-grading], skill add-frontend-feature) whose entire scope is building the actual UI consumer of this endpoint, including its own MetricHelp-explained grade display, placement decision, and tests -- adding an unused client function/mock here now would be dead code with no consumer until that task lands, and duplicate/preempt a placement and data-shape decision that task's own skill (add-frontend-feature) is meant to make deliberately. Matches the identical, already-accepted precedent set by backend-channel-envelope-exposure (PR #146), whose review explicitly confirmed 'no UI-facing surface in this PR... no existing frontend code reads the new fields yet' was correct scoping, not an omission."
     }
   ]
 }

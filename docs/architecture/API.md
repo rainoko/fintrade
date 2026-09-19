@@ -204,6 +204,33 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 
 A position whose risk can't be computed at all (its current price couldn't be fetched, same degrade-gracefully rule as `GET /api/portfolio`; too little daily/weekly history; a weekly-history fetch failure) is silently excluded from `positions` and from the open-risk half of `total_open_risk_pct`, rather than appearing with partial/null fields — every field on a `positions` entry is required (see the `api-portfolio-risk` task's `decisions` for the full rationale).
 
+### `GET /api/portfolio/closed-trades`
+
+Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` populates), most recently exited first, each row annotated with its buy/sell/trade "A-trade" grades (Elder ch. 55 "Is This an A-Trade?", Analyse.md §7 — see the `backend-trade-grading` task).
+
+```json
+{
+  "items": [
+    {
+      "id": "trade_abc123",
+      "ticker": "ADSK",
+      "quantity": 100,
+      "entry_price": 51.77,
+      "entry_date": "2026-03-02",
+      "exit_price": 53.78,
+      "exit_date": "2026-03-09",
+      "realized_pnl": 201.0,
+      "exit_reason": "target_hit",
+      "buy_grade_pct": 97.3,
+      "sell_grade_pct": 35.5,
+      "trade_grade_pct": 32.1
+    }
+  ]
+}
+```
+
+The three grade fields are `null` whenever they can't currently be computed — the ticker's daily-history fetch failed, `entry_date`/`exit_date` isn't an exact trading-day row in that history (e.g. it predates the fetched history), or (`trade_grade_pct` only) `entry_date` falls inside the Autoenvelope/channel's own ~100-bar warm-up window (same warm-up `GET /api/stocks/{ticker}/analysis`'s `indicators.channel_upper`/`channel_lower` document) — never a request-level error; the row itself is always present with its recorded price/date/P&L fields intact. See `app.portfolio.grading` for the formulas themselves.
+
 ### `GET /api/watchlist`
 
 Every watched ticker, annotated with its current signal/confidence via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check.

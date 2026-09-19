@@ -304,6 +304,74 @@ class WatchlistItemIn(BaseModel):
         return stripped
 
 
+# --- /api/portfolio/closed-trades ------------------------------------------
+
+ExitReasonOut = Literal[
+    "target_hit",
+    "stop_hit",
+    "reached_value_zone",
+    "going_nowhere",
+    "starting_to_turn",
+    "couldnt_stand_the_pain",
+    "recognized_junk_trade_after_entry",
+    "unspecified",
+]
+
+
+class ClosedTradeOut(BaseModel):
+    id: str
+    ticker: str
+    quantity: float
+    entry_price: float
+    entry_date: date
+    exit_price: float
+    exit_date: date
+    realized_pnl: float = Field(
+        description="quantity * (exit_price - entry_price) -- see DELETE "
+        "/api/portfolio/positions/{id} for how this row is recorded."
+    )
+    exit_reason: ExitReasonOut = Field(
+        description="Why this position was closed, from Elder's own taxonomy "
+        "(docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check) plus this app's own "
+        "'unspecified' default for a trade closed with no explicit reason supplied -- see "
+        "DELETE /api/portfolio/positions/{id}."
+    )
+    buy_grade_pct: float | None = Field(
+        default=None,
+        description="(entry day's high - entry_price) / (entry day's high - entry day's "
+        "low), as a percentage -- how close to the entry day's low the buy actually was "
+        "(Elder ch. 55 'Is This an A-Trade?', docs/Analyse.md §7 / docs/ideas.md ch. 55). "
+        ">50% is 'very good'. Null whenever the entry day's own OHLC can't be found in the "
+        "ticker's currently-fetchable daily history (e.g. entry_date predates that history, "
+        "the fetch itself failed, or that bar was dropped as malformed) or the entry day had "
+        "a zero/negative trading range -- see app.portfolio.grading.grade_closed_trade.",
+    )
+    sell_grade_pct: float | None = Field(
+        default=None,
+        description="(exit_price - exit day's low) / (exit day's high - exit day's low), as "
+        "a percentage -- how close to the exit day's high the sell actually was. >50% is "
+        "'very good'. Null under the same conditions as buy_grade_pct, evaluated for the "
+        "exit day instead.",
+    )
+    trade_grade_pct: float | None = Field(
+        default=None,
+        description="(exit_price - entry_price) / (channel_upper - channel_lower, measured "
+        "on entry_date), as a percentage -- the trade's actual gain as a fraction of the "
+        "entry day's Autoenvelope/channel height (docs/Analyse.md §4, same channel "
+        "AnalysisResponse.indicators.channel_upper/channel_lower expose). >=30% capture is "
+        "an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't "
+        "available -- the ticker's fetched daily history doesn't reach back to entry_date, "
+        "or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
+    )
+
+
+class ClosedTradesResponse(BaseModel):
+    items: list[ClosedTradeOut] = Field(
+        description="Every closed trade (the docs/Analyse.md §7 trade-history/ledger table), "
+        "most recently exited first."
+    )
+
+
 # --- shared error shape (FastAPI default, documented for clarity) ---------
 
 
