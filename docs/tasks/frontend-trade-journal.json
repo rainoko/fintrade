@@ -1,0 +1,34 @@
+{
+  "id": "frontend-trade-journal",
+  "title": "Trade journal: closed-trade history with A-trade grades",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-trade-history-table",
+    "backend-trade-grading"
+  ],
+  "references": [
+    "frontend/src/features/portfolio/components",
+    "docs/ideas.md"
+  ],
+  "description": "A new page/section surfacing the closed-trade history (backend-trade-history-table) with its buy/sell/trade grades (backend-trade-grading) -- Elder's own emphasis, worth carrying into the UI directly: grade by how much of what was realistically available got captured (the channel-height-based trade grade), not raw P&L alone, since a profitable trade can still be a 'C' and a barely-profitable one can be an 'A'. Include the exit-reason tag captured by backend-trade-history-table's schema so a user can eventually see patterns (e.g. how often they exit via 'couldn't stand the pain' vs. 'target hit') -- Elder credits exactly this kind of segmented review with concretely improving his own trading. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the trade-journal list/detail view: entry/exit price+date, realized P&L, the three grades, exit-reason tag.",
+      "done": false
+    },
+    {
+      "step": "Implement as a new page or a section of the existing portfolio area -- decide placement and record.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp/inline content explaining each grade formula in plain terms next to the grade itself (e.g. 'you sold at 35% up the day's range -- Elder considers >50% very good'), not just the bare percentage.",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook stories for any new common/ pieces; confirm 90% coverage gate holds; run make e2e if this introduces new navigable routes.",
+      "done": false
+    }
+  ]
+}

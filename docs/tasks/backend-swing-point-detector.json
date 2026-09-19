@@ -1,0 +1,31 @@
+{
+  "id": "backend-swing-point-detector",
+  "title": "Swing-high / swing-low detector (shared prerequisite for divergence detection)",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/signals/triple_screen.py",
+    "docs/ideas.md"
+  ],
+  "description": "Every divergence-detection idea logged in docs/ideas.md (MACD-Histogram, Stochastic, RSI, and eventually OBV/A-D) needs a shared prerequisite: identifying swing highs/lows in a price or indicator series, so two comparable peaks or troughs can be measured against each other. Nothing like this exists in the codebase today. Build one small, reusable, well-tested utility (not duplicated per indicator) that both this task's own dependents (backend-divergence-detection) and any future divergence work can share. Keep the algorithm simple and explainable (e.g. a local-extremum test over a configurable lookback window) rather than importing a heavyweight peak-finding library -- decide and record the exact approach.",
+  "checklist": [
+    {
+      "step": "Decide and record the swing-point definition (e.g. a bar whose value is the max/min within a +/-N-bar window) and the window size, with rationale.",
+      "done": false
+    },
+    {
+      "step": "Implement as a small, reusable function (e.g. backend/app/signals/swing_points.py) operating on any pd.Series (price or an indicator series), not price-specific.",
+      "done": false
+    },
+    {
+      "step": "Unit tests covering: a clean uptrend/downtrend with no swings, a single well-defined swing, and a noisy series with multiple candidate swings close together.",
+      "done": false
+    },
+    {
+      "step": "Document the function's contract clearly (what counts as a swing, how ties/plateaus are handled) since every later divergence-detection task depends on this behavior being predictable.",
+      "done": false
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "frontend-volume-indicators-chart",
+  "title": "New chart panel: On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-indicator-obv-ad"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Surface OBV and A/D (backend-indicator-obv-ad) as cumulative line series in a new volume-indicators panel. Since these are cumulative series whose absolute level is meaningless (only the pattern of highs/lows and divergence against price matters), make sure the chart/legend doesn't invite misreading the raw number -- explain this explicitly in the help content, since it's a genuinely different reading style from every other indicator already in this app. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Implement the new panel with OBV and A/D as separate cumulative line series.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content explicitly warning that the absolute level is meaningless (depends on the data's start date) and explaining what to actually look for (pattern of highs/lows vs. price).",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

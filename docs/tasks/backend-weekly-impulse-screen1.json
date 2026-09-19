@@ -1,0 +1,45 @@
+{
+  "id": "backend-weekly-impulse-screen1",
+  "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/signals/impulse.py",
+    "backend/app/signals/triple_screen.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Verified against the primary source (Elder ch. 39, the actual Triple Screen chapter, quoted directly in docs/ideas.md): Screen 1 in Elder's own later methodology IS the weekly Impulse System color, not a separate standalone weekly-MACD-H-slope test -- it directly replaced that test as his main trend tool. This app's `evaluate_impulse` (backend/app/signals/impulse.py) today only ever runs on daily_ohlcv; there is no weekly Impulse computation anywhere. This is a real methodology question, not just a plumbing gap -- resolve the open questions below as explicit decisions entries before or during implementation, since they materially change how BUY/SELL eligibility is gated.",
+  "checklist": [
+    {
+      "step": "DECIDE AND RECORD: does weekly Impulse fully replace evaluate_tide's current standalone test, or does the app keep both and reconcile disagreements (and if so, how)? This is the central open question from docs/ideas.md.",
+      "done": false
+    },
+    {
+      "step": "DECIDE AND RECORD: does _determine_signal's existing daily-Impulse gate stay as an additional check per ch. 40's separate technique, or was it effectively superseded by making weekly-Impulse the Screen 1 test itself?",
+      "done": false
+    },
+    {
+      "step": "Implement evaluate_impulse (or a new weekly-scoped variant) against weekly_ohlcv, reusing the existing daily implementation's structure where it makes sense.",
+      "done": false
+    },
+    {
+      "step": "Implement whatever reconciliation the first decision above calls for.",
+      "done": false
+    },
+    {
+      "step": "Update docs/Analyse.md \u00a72/\u00a73 to reflect the corrected methodology (cite the ch. 39 primary-source quote from docs/ideas.md) -- this is a genuine correction to the documented methodology, not just new code.",
+      "done": false
+    },
+    {
+      "step": "Tests covering the reconciliation logic's actual decision paths, not just the weekly-Impulse computation in isolation.",
+      "done": false
+    },
+    {
+      "step": "Run the elder-signal-reviewer agent (or the verify-elder-signal skill directly) against the result before considering this done, given how central Screen 1 is to every downstream signal.",
+      "done": false
+    }
+  ]
+}

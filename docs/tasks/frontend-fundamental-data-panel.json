@@ -1,0 +1,33 @@
+{
+  "id": "frontend-fundamental-data-panel",
+  "title": "Display earnings/dividend dates, short interest, and insider transactions",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-market-data-extra-fields"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components",
+    "docs/ideas.md"
+  ],
+  "description": "Surface the newly-exposed earnings/dividend dates, short interest, and insider-transaction data (backend-market-data-extra-fields) on the stock detail page as a new panel. The earnings-date warning is the highest-value piece -- Elder's own rationale is explicit ('a nasty earnings surprise can do serious damage to your position... can jump straight past any stop level') -- so it should be visually prominent, not buried, when a position or a fresh BUY signal falls within the warning window. Handle the Stooq-fallback unavailability case explicitly (show 'unavailable' distinctly from 'checked, nothing found') rather than a silent blank. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the panel layout (earnings/dividend dates, short interest metrics, recent insider transactions) and the prominent earnings-warning treatment for positions/signals within the warning window.",
+      "done": false
+    },
+    {
+      "step": "Implement, handling the 'data unavailable on this provider path' case explicitly and distinctly from 'no data found.'",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content explaining each field (what short-percent-of-float and days-to-cover mean and why a squeeze matters for a BUY; why 3+ insider buys/sells in a month is treated as meaningful but a single transaction isn't).",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

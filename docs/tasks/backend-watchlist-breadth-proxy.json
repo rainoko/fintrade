@@ -1,0 +1,32 @@
+{
+  "id": "backend-watchlist-breadth-proxy",
+  "title": "\"Personal breadth\" proxy across watchlist/portfolio tickers",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/watchlist.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "A cheap, no-new-data-source alternative to full market-breadth indicators (NH-NL, Advance/Decline, % stocks above 50-day MA -- all of which need a broad ticker universe this app doesn't have). Elder's own justification applies regardless of scale: general market trends drive as much as half of any individual stock's movement, so knowing 'how bullish is the user's own tracked universe right now' is useful context even without a real index. Compute, across the user's current watchlist + portfolio tickers: the count/percentage currently showing BULLISH vs. BEARISH vs. NEUTRAL Tide, refreshed whenever the underlying tickers' analyses are. Cheap because every one of these tickers is already fetched/analyzed for other reasons -- no new provider calls.",
+  "checklist": [
+    {
+      "step": "Implement the aggregate computation (count/% BULLISH/BEARISH/NEUTRAL Tide across the user's watchlist+portfolio tickers) as a new small endpoint or field.",
+      "done": false
+    },
+    {
+      "step": "Decide the refresh/caching behavior -- should this be computed fresh on every request (cheap, since it just aggregates already-computed per-ticker analyses) or cached -- and record.",
+      "done": false
+    },
+    {
+      "step": "Unit tests covering an empty watchlist, an all-bullish watchlist, and a mixed one.",
+      "done": false
+    },
+    {
+      "step": "Regenerate backend/openapi.json/frontend types; document as an explicit approximation of true market breadth in docs/Analyse.md, citing the practical-obstacle rationale from docs/ideas.md.",
+      "done": false
+    }
+  ]
+}

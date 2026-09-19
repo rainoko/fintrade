@@ -1,0 +1,42 @@
+{
+  "id": "backend-market-data-extra-fields",
+  "title": "Expose earnings/dividend dates, short interest, and insider transactions",
+  "area": "backend/data",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/data/base.py",
+    "backend/app/data/yfinance_provider.py",
+    "backend/app/data/stooq_provider.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Confirmed live in this session (not speculative): the already-installed `yfinance` dependency exposes `Ticker.calendar`/`Ticker.earnings_dates` (earnings + dividend dates), `Ticker.info`'s `sharesShort`/`shortRatio`/`shortPercentOfFloat`/`floatShares` (short interest), and `Ticker.insider_transactions` (insider transaction history) -- all real, populated data, right now. This app's `DataProvider` protocol (backend/app/data/base.py) is currently a strict `get_daily_ohlcv`/`get_weekly_ohlcv`-only interface; `YFinanceProvider` never calls any of the above. This is wrapper-extension work, not a new data-source integration. Value: (a) earnings-date awareness lets a BUY signal or open position get a 'earnings expected within N days' warning (a gap-through-the-stop risk no technical stop protects against); (b) short interest feeds the 'extra fuel for a rally on a squeeze' idea logged in docs/ideas.md; (c) insider-transaction clusters (3+ buys or sells within a month) is a real, if secondary, signal per Elder ch. 37. The Stooq fallback provider has no equivalent for any of this -- these fields will only ever populate on the primary yfinance path; decide and record how to represent 'unavailable, fallback provider active' rather than silently returning nulls indistinguishable from 'checked, nothing found'.",
+  "checklist": [
+    {
+      "step": "Extend the DataProvider protocol with new methods for these three data types (decide the exact shape -- one combined method or three separate ones -- and record as a decisions entry).",
+      "done": false
+    },
+    {
+      "step": "Implement in YFinanceProvider using the confirmed-available yfinance fields; implement StooqProvider's equivalent as an explicit 'not supported by this provider' rather than silently returning empty/null.",
+      "done": false
+    },
+    {
+      "step": "Decide and record how CachedDataProvider should treat this new, non-OHLCV, less-frequently-changing data (same SQLite read-through cache as OHLCV, or a separate cache policy -- this data changes far less often than daily prices).",
+      "done": false
+    },
+    {
+      "step": "Add an 'earnings within N days' warning field to GET /api/stocks/{ticker}/analysis (or wherever makes sense) and expose short interest + insider transactions likewise.",
+      "done": false
+    },
+    {
+      "step": "Tests mocking yfinance's richer Ticker fields (info/calendar/insider_transactions), not just history() -- confirm graceful handling when a field is missing/None (yfinance's own data can be incomplete for smaller tickers).",
+      "done": false
+    },
+    {
+      "step": "Regenerate backend/openapi.json/frontend types; document in docs/Analyse.md and docs/architecture/Backend.md's data-provider section.",
+      "done": false
+    }
+  ]
+}

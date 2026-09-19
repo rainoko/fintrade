@@ -1,0 +1,36 @@
+{
+  "id": "backend-safezone-stop-coefficient-fix",
+  "title": "Fix protective_stop()'s missing SafeZone multiplier coefficient",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/portfolio/risk.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Verified, concrete discrepancy against this function's own cited methodology. `protective_stop()`'s docstring explicitly names 'SafeZone concept' as its basis. The book's actual SafeZone formula (Elder ch. 54): average the downside penetrations of a trend EMA over a lookback window (Average Downside Penetration), then multiply that average by a coefficient of 2 or greater before subtracting from price -- his own words, 'placing your stop any closer would be self-defeating.' Current code (`app/portfolio/risk.py:38-108`) computes `swing_low - volatility_buffer` where `volatility_buffer` is the RAW, UNMULTIPLIED average downside penetration -- there is no coefficient anywhere in the calculation. This means computed stops are very plausibly placed inside the zone of normal market noise, closer to price than SafeZone's own inventor considers safe. Separately, `_VOLATILITY_EMA_PERIOD = 13` differs from the book's specific 22-day EMA -- a defensible reuse of this app's existing standard fast-EMA period, not necessarily wrong, but worth an explicit decision either way rather than leaving it unrecorded.",
+  "checklist": [
+    {
+      "step": "Decide the coefficient value (book says 2 or greater; this app is long-only today so the short-specific 3x figure may not currently apply -- record whether/how to future-proof for a later short-position feature) and add it to the formula.",
+      "done": false
+    },
+    {
+      "step": "Decide whether to keep _VOLATILITY_EMA_PERIOD at 13 (existing app convention) or change it to the book's 22, and record the rationale either way.",
+      "done": false
+    },
+    {
+      "step": "Update protective_stop()'s docstring to state the exact formula and coefficient being used, since it currently claims 'SafeZone concept' without stating the coefficient explicitly.",
+      "done": false
+    },
+    {
+      "step": "Update/add unit tests confirming the new, wider stop distance; check for any existing test that hardcodes the old (unmultiplied) expected stop value and needs updating.",
+      "done": false
+    },
+    {
+      "step": "Check downstream consumers (app/portfolio/exits.py, the /api/portfolio/risk route) for any behavior that assumed the old, tighter stop distance.",
+      "done": false
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "frontend-channel-overlay",
+  "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-channel-envelope-exposure"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Draw the now-exposed Autoenvelope upper/lower bands (backend-channel-envelope-exposure) on the price chart, plus a visually distinct shaded 'value zone' between the fast/slow EMA -- a concept this app's own confidence scoring and stop logic already reference internally but has never shown a user. This is existing, tested backend math that's simply never been visible before this task. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Implement the channel band rendering (upper/lower lines or a shaded region) and the separate value-zone shading between the fast/slow EMA.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content explaining the channel (what ~95% of recent price action means, why buying/selling near the bands is the intended read) and the value zone concept, referencing where this is already used internally today (the portfolio exit-flag rule) so the connection is explicit.",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

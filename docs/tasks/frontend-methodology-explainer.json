@@ -1,0 +1,37 @@
+{
+  "id": "frontend-methodology-explainer",
+  "title": "\"Signals we considered\" \u2014 a dedicated Elder-methodology reference page",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/Analyse.md",
+    "docs/ideas.md",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "frontend/src/components/common/MetricHelp"
+  ],
+  "description": "Direct user request: a page (or a clearly-findable section) listing every Elder-methodology signal/indicator this app is aware of -- both the ones actively used in BUY/SELL/HOLD logic (Tide, Impulse, Wave, Trigger, Force Index, Elder-Ray, Stochastic, the 2%/6% Rules) and the ones considered/available-but-not-load-bearing (divergence, support/resistance, ADX/Directional System, ATR, RSI, OBV, A/D, Kangaroo Tails, Indicator Seasons, channels, market breadth, IBKR-sourced data) -- what each one is, how it relates to Dr. Elder's methodology (book/chapter citation), and, honestly, whether/how it currently affects the signal a user sees. This is explicitly an education feature, not a settings/config page -- it should read as 'here's the full toolkit Elder describes and where this app currently stands on each piece,' pulling directly from docs/Analyse.md and docs/ideas.md's own content rather than duplicating it by hand from scratch. Depends on nothing else in this batch since it can launch describing today's state and be extended as each other task in this batch lands (update this page's content as part of each of those tasks' own checklist, or keep this page as a living reference updated whenever the signal roster changes -- decide and record which).",
+  "checklist": [
+    {
+      "step": "Decide the page's structure: grouped by Elder's own Triple Screen taxonomy (Screen 1/2/3, Impulse, risk rules) vs. by implementation status (active / available-but-unused / not yet built) -- or both as filterable dimensions; record as a decisions entry.",
+      "done": false
+    },
+    {
+      "step": "Populate initial content for every signal already implemented (Tide, Impulse, Wave, Trigger, Force Index, Elder-Ray, Stochastic, 2%/6% Rules) plus every one logged in docs/ideas.md, each with a book/chapter citation and an honest current-status label.",
+      "done": false
+    },
+    {
+      "step": "Decide and record how this page's content stays in sync as other tasks in this batch land (a living reference each dependent task's own checklist updates, vs. a point-in-time snapshot) -- avoid letting it silently go stale.",
+      "done": false
+    },
+    {
+      "step": "Make it genuinely discoverable (linked from stock detail and/or the app's main navigation), not a hidden route.",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story if new common/ pieces were introduced; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

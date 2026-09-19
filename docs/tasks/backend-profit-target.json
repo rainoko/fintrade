@@ -1,0 +1,39 @@
+{
+  "id": "backend-profit-target",
+  "title": "Compute a suggested profit target and reward:risk ratio for BUY/SELL signals",
+  "area": "backend/signals",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [
+    "backend-channel-envelope-exposure",
+    "backend-support-resistance"
+  ],
+  "references": [
+    "backend/app/portfolio/risk.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "This app computes a signal, a confidence score, and a protective stop, but never a target price -- confirmed gap. Elder ch. 53 gives three concrete, style-dependent techniques, all buildable from tasks already in this batch: exit in the value zone or at the near channel line (backend-channel-envelope-exposure) for swing-style trades, or at the nearest prior support/resistance level (backend-support-resistance) for position-style trades. Pair with an explicit, checkable sanity rule: potential reward should be at least 2x the risk (target distance / stop distance >= 2) -- flag, don't silently hide, a fresh BUY/SELL whose own target/stop combination fails this ratio. Elder's own Tradebill gives one specific numeric formula worth matching: an 'A' target = entry price + 30% of that day's channel height (the same 30% figure the A-trade grading rubric uses).",
+  "checklist": [
+    {
+      "step": "Decide the target-selection logic (channel line / value zone vs. nearest S/R level) -- record as a decisions entry, including whether it varies by some existing notion of trade style or just always uses one consistent rule for v1.",
+      "done": false
+    },
+    {
+      "step": "Implement the 2:1 minimum reward:risk sanity check as an explicit flag on the response (not merely computed and silently used to filter).",
+      "done": false
+    },
+    {
+      "step": "Expose target price + reward:risk ratio alongside the existing protective_stop() output on GET /api/portfolio/risk and/or GET /api/stocks/{ticker}/analysis -- decide which endpoint(s) and record.",
+      "done": false
+    },
+    {
+      "step": "Unit tests covering a BUY near a clean value zone, a BUY where support/resistance gives a tighter target than the channel would, and a case where the 2:1 ratio fails and is correctly flagged.",
+      "done": false
+    },
+    {
+      "step": "Regenerate backend/openapi.json/frontend types; document the formula in docs/Analyse.md \u00a77.",
+      "done": false
+    }
+  ]
+}
