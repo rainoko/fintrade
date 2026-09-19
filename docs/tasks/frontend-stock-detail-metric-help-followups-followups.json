@@ -1,0 +1,26 @@
+{
+  "id": "frontend-stock-detail-metric-help-followups-followups",
+  "title": "Non-blocking follow-ups from PR #128 review (frontend-stock-detail-metric-help-followups)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-stock-detail-metric-help-followups"],
+  "references": [
+    "docs/tasks/frontend-stock-detail-metric-help-followups.json",
+    "https://github.com/rainoko/fintrade/pull/128",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "frontend/src/features/stocks/components/signalExplanation.ts"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #128 (frontend-stock-detail-metric-help-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. PR #128 itself was accepted -- both findings below are minor and didn't block it.",
+  "checklist": [
+    {
+      "step": "metricHelpContent.ts's tideHelp.interpretValue Neutral/flat message still opens with an unqualified 'Currently Neutral (weekly MACD-H slope Flat)' clause before the hedged 'there isn't enough weekly price history yet ... or the weekly MACD-H slope is genuinely flat' clause in the very same sentence -- the raw slope label itself asserts 'Flat' with full confidence even in the <2-weekly-bar case where no slope was ever computed. This mirrors the same 'Flat' label shown unconditionally on the Tide (Screen 1) summary card next to the balloon. Inherent to evaluate_tide's current data model (TideResult/TideScreen expose only the string 'flat' for both causes, per this task's own parent's decisions entry) rather than a frontend bug, so genuinely low-impact and not worth a dedicated backend field on its own -- but worth revisiting together if/when a bar-count (or similar discriminating) field is ever added to TideScreen for the already-tracked <2-weekly-bar case.",
+      "done": false
+    },
+    {
+      "step": "metricHelpContent.ts's tideHelp.interpretValue and signalExplanation.ts's explainSignal now each independently hardcode their own near-identical 'there isn't enough weekly price history yet to compute a slope, or the weekly slope is genuinely flat' wording for the same underlying evaluate_tide ambiguity -- exactly the kind of duplicated copy that let this same inaccuracy drift out of sync once already (PR #127 fixed metricHelpContent.ts's copy; signalExplanation.ts's independent copy of the same bug went unnoticed until PR #128). Consider extracting a small shared helper/constant (e.g. a `tideNeutralFlatCause(slope)` string builder in a shared module, or at least a shared substring constant both call sites interpolate) so a future wording fix only has one place to touch instead of relying on a reviewer to notice a second copy again.",
+      "done": false
+    }
+  ],
+  "questions": []
+}

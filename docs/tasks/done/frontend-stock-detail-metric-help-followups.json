@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #127 review (frontend-stock-detail-metric-help)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-detail-metric-help"],
   "references": [
     "docs/tasks/frontend-stock-detail-metric-help.json",
@@ -53,6 +53,34 @@
     "pr_number": 128,
     "pr_url": "https://github.com/rainoko/fintrade/pull/128",
     "pushed_at": "2026-09-19T00:55:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T00:36:10Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/128",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the core claim directly against the code (not just the PR's narrative): TideResult (backend/app/signals/triple_screen.py) and TideScreen (backend/app/api/schemas.py) really do expose only `trend`/`weekly_macd_histogram_slope`, and evaluate_tide's <2-weekly-bar short-circuit (`return TideResult(trend=\"NEUTRAL\", weekly_macd_histogram_slope=\"flat\")`) and its genuinely-flat-slope branch both produce the identical (NEUTRAL, flat) pair with no other field anywhere in the response to discriminate them. No TideScreen(...) construction anywhere else in the codebase adds a discriminating field either. The 'no existing signal to branch on' claim holds.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 155
+      },
+      {
+        "summary": "Confirmed both new messages (metricHelpContent.ts's tideHelp.interpretValue, signalExplanation.ts's explainSignal tide-condition detail) accurately name both candidate causes without asserting either -- verified in the browser against a real fixture ticker (ORCL, which has a genuinely NEUTRAL/flat tide) via both the help-icon balloon and the 'Why HOLD?' balloon; wording is honest and not overstated, no console/network errors.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 136
+      },
+      {
+        "summary": "Minor, non-blocking: the same balloon's opening clause ('Currently Neutral (weekly MACD-H slope Flat)') still asserts 'Flat' unqualified in the same sentence that then hedges on whether a slope was ever computed at all -- inherent to evaluate_tide's data model (both causes literally report the same 'flat' string), not fixable without new backend plumbing, so not blocking. Filed as a tracked follow-up.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 140
+      },
+      {
+        "summary": "Minor, non-blocking: metricHelpContent.ts and signalExplanation.ts now each independently hardcode their own copy of the same 'insufficient history vs. genuinely flat' wording -- the exact kind of duplication that let this inaccuracy drift out of sync once already (this PR fixes a second, previously-missed copy of the same bug PR #127 fixed once). Worth extracting a shared helper/constant so a future wording change only needs one edit. Filed as a tracked follow-up.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": 111
+      }
+    ],
+    "notes": "Full review: backend pytest 573 passed, 99.86% coverage; frontend vitest 335 passed, 99.69%/99.42% statements/branches -- both well above the 90% gate, no regressions. ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) found no correctness/reuse/efficiency issues. No backend/API changes in this PR, so no openapi.json regeneration needed. Browser walkthrough against ORCL (a real NEUTRAL/flat-tide fixture ticker) confirmed both the click-the-help-icon balloon and the click-the-signal-badge 'Why HOLD?' balloon render the new wording correctly with no console/network errors. make e2e: 13/13 Playwright specs passed. Task JSON's checklist/decisions are complete and well-reasoned -- the task-worker's decision not to branch on bar count (no discriminating field exists) is verified correct, not just asserted. Two minor, non-blocking findings filed as docs/tasks/frontend-stock-detail-metric-help-followups-followups.json."
   },
   "questions": []
 }
