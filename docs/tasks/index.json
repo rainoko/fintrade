@@ -831,8 +831,8 @@
       "id": "frontend-stock-detail-metric-help",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-stock-detail-metric-help.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-stock-detail-metric-help.json"
     },
     {
       "id": "frontend-stock-detail-metric-help-followups",

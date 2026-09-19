@@ -3,7 +3,7 @@
   "title": "Stock detail page: help icon on every metric explaining what it is, its Elder methodology basis, and the current value",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -70,16 +70,31 @@
     "pushed_at": "2026-09-18T23:58:20Z"
   },
   "review": {
-    "reviewed_at": "2026-09-19T00:05:32Z",
+    "reviewed_at": "2026-09-19T00:19:20Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/127",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: triggerHelp.interpretValue (metricHelpContent.ts) attributes every 'not_applicable' trigger reference to 'there isn't enough daily price history yet to compare today's close against a prior high/low.' Per backend/app/signals/triple_screen.py's evaluate_trigger, 'not_applicable' actually has two distinct causes: (1) Tide is NEUTRAL (no directional rule applies at all) -- the common case -- or (2) fewer than 2 daily bars (a rare data-scarcity edge case). Verified live via a browser walkthrough against the fixture backend: AAPL has 420 daily bars and a Neutral tide, and the Trigger help balloon still says 'there isn't enough daily price history yet', which is factually false and actively misleading in exactly the common case. ScreensPanel.tsx already has `tide.trend` in scope at the Trigger call site (the same value already passed to tideHelp.interpretValue next to it) -- triggerHelp.interpretValue needs to take tide/trend as a parameter and branch its not-fired message on Tide-Neutral vs genuinely-insufficient-history instead of assuming the latter unconditionally.",
+        "summary": "Confirmed fix for the prior round's blocking finding: triggerHelp.interpretValue now takes a tideTrend parameter and branches its not_applicable message -- NEUTRAL tide gets 'Not applicable -- the Tide is Neutral...', any other tide value keeps the prior insufficient-daily-history wording for the genuinely rare <2-daily-bar case. Verified against backend/app/signals/triple_screen.py's evaluate_trigger (its two not_applicable causes match the two frontend branches exactly), independently reproduced live via a headless Playwright script against the fixture backend (AAPL, 420 daily bars, Neutral tide) confirming the balloon now reads 'Tide is Neutral' and not 'enough daily price history', and confirmed the <2-bar sub-case is covered by a direct unit test (metricHelpContent.test.ts) since no fixture ticker can produce it live. ScreensPanel.tsx's Trigger call site correctly passes tide.trend.",
         "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
         "line": 190
+      },
+      {
+        "summary": "Confirmed the three round-1 non-blocking follow-ups are genuinely resolved in this pass: (1) MetricHelp's non-unique data-testid removed (aria-label is the query target); (2) new call-site tests in IndicatorsPanel.test.tsx/ScreensPanel.test.tsx/SignalSummary.test.tsx click a specific metric's help icon and assert that metric's specific rendered text appears (and a sibling metric's text does not) -- these are genuine content assertions, not mount-only checks; (3) tideHelp.interpretValue's Neutral-case wording now distinguishes a genuinely flat weekly MACD-H slope from a slope/EMA disagreement, matching evaluate_tide's own two paths for a computed (non-history-starved) NEUTRAL.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 123
+      },
+      {
+        "summary": "Non-blocking (new, found this round): tideHelp.interpretValue's new 'genuinely flat' branch is itself inaccurate for evaluate_tide's <2-weekly-bar short-circuit (triple_screen.py lines 154-155), which returns slope='flat' without ever computing a slope at all -- the same class of two-distinct-causes conflation this PR just fixed for triggerHelp, left unaddressed in tideHelp's own fix in the same pass. Narrower/rarer than the original Trigger bug (needs <2 weekly bars, which nothing in the current fixture set can produce) so not blocking, consistent with how the analogous <2-daily-bar Trigger sub-case was itself accepted via unit-test-only coverage last round. Tracked as a follow-up.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 126
+      },
+      {
+        "summary": "Non-blocking (new, found this round, pre-existing and outside this PR's diff): signalExplanation.ts's HOLD-explanation headline for a Neutral tide (the 'Why HOLD?' balloon, from the already-merged frontend-signal-why-explanation PR #125) unconditionally states 'the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree' even when the real cause is a genuinely flat slope -- the identical inaccuracy this PR's tideHelp fix just corrected, left uncorrected in a second, adjacent call site on the same page. Not part of this diff (signalExplanation.ts isn't touched), so not blocking this PR, but tracked as a follow-up since it now visibly contradicts the freshly-corrected tideHelp balloon right next to it for a flat-slope Neutral ticker.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": 101
       }
     ],
-    "notes": "Everything else checked out: backend pytest 99.86% (573 passed), frontend vitest 99.68%/99.41% (329 passed) -- both well above the 90% gate, no regressions. ruff/mypy/eslint/tsc all clean. make e2e: 13/13 passed. Browser walkthrough of the stock detail page (AAPL, fixture provider) confirmed MetricHelp opens correctly with accurate content for Signal, Confidence, a confidence-breakdown row, Tide, Impulse, Wave, Trigger, EMA13, EMA26, MACD Histogram, Bull Power, and Bear Power -- all current-value interpretations matched the live API response except the Trigger case above. common/MetricHelp is correctly domain-agnostic (reuses common/InfoBalloon, takes only plain strings) and metricHelpContent.ts is correctly feature-scoped (Elder/Analyse.md domain concepts) -- no common/-vs-feature placement violations found among the touched/new components (MetricHelp, StatCard's new `corner` slot, ScreensPanel's internal ScreenSection). Spot-checked every metricHelpContent.ts docs/Analyse.md citation against the actual doc section (Tide/Impulse/Wave/Trigger definitions in §2-3, the confidence weighting table in §6) -- all accurate. The new question-mark icon next to the Signal badge/each ScreenSection/each StatCard reads as coherent, not duplicative, alongside frontend-signal-why-explanation's existing click-the-badge 'why this result' balloon: distinct trigger, distinct title, and SignalSummary.tsx's own doc comment explains the split (generic/definitional vs causal/ticker-specific) -- confirmed by clicking both in the browser. The StockCharts-deferral decision is reasonable given Lightweight Charts has no per-series DOM anchor and every plotted value already has help coverage elsewhere on the same page. Non-blocking findings filed as docs/tasks/frontend-stock-detail-metric-help-followups.json."
+    "notes": "Retry round 2 of 3. Re-ran everything independently rather than trusting the report: backend pytest 99.86% (573 passed), frontend vitest 99.69%/99.42% (all files, 4 test files covering the touched code re-run individually and pass: 53/53), both well above the 90% gate, no regressions from round 1's numbers. ruff/mypy/eslint/tsc all clean. make e2e: 13/13 passed (dashboard, navigation, portfolio, stock-analysis specs). Independently reproduced the round-1 blocking case live via a headless Playwright script against a freshly-started fixture-mode backend + vite dev server (not reusing the report's own claim): AAPL's Trigger help now shows 'Tide is Neutral' with no trace of the old insufficient-history text, and no console errors or failed network requests during the walkthrough. Read metricHelpContent.ts and ScreensPanel.tsx directly (not the report) and cross-checked both against backend/app/signals/triple_screen.py's evaluate_trigger/evaluate_tide docstrings and code -- the fix's branch logic matches the backend's actual two-cause split exactly. code-review skill (medium effort) run against the incremental diff surfaced two additional message-accuracy findings (both non-blocking, detailed above, filed as follow-ups) but no correctness bugs, regressions, or reuse/efficiency issues in the changed code itself. No API/schema changes in this diff, so no openapi.json check applies. No new frontend components added this round (only edits to existing MetricHelp/metricHelpContent/ScreensPanel/test files), so no new common/-vs-feature placement question beyond what round 1 already cleared. Non-blocking findings (2 new, on top of round 1's 3 already-resolved ones) added to docs/tasks/frontend-stock-detail-metric-help-followups.json."
   }
 }
