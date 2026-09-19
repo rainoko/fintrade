@@ -65,5 +65,11 @@
       "decision": "Did not update the frontend's 'Total Open Risk' StatCard label/copy (RiskPanel.tsx, RiskSummaryCard.tsx) to reflect that the underlying field now also includes this month's realized losses, beyond the minimal fixture changes needed to keep tsc/tests passing against the widened RiskResponse type.",
       "rationale": "This task is scoped backend/db (skill add-api-endpoint, no add-frontend-feature); a genuine label/copy change would ripple across both risk components, their unit tests, PortfolioPage.test.tsx, DashboardPage.test.tsx, two Storybook stories, and two Playwright e2e specs -- real UI-facing feature work, not a type-compatibility fix, and better scoped to the already-planned frontend-trade-journal task (or its own follow-up) where the realized-losses breakdown can be surfaced properly (e.g. showing the two components separately) rather than a quick label edit here."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-history-table",
+    "pr_number": 148,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/148",
+    "pushed_at": "2026-09-19T10:37:07Z"
+  }
 }
