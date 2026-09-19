@@ -3,7 +3,7 @@
   "title": "Watchlist add-skeleton — non-blocking review follow-ups",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-watchlist-add-skeleton"],
   "references": [
     "docs/tasks/frontend-watchlist-add-skeleton.json#review",
@@ -33,5 +33,12 @@
     "pr_number": 133,
     "pr_url": "https://github.com/rainoko/fintrade/pull/133",
     "pushed_at": "2026-09-19T02:15:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:06:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/133",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest 573/573 (99.86% coverage), frontend vitest 344/344 (99.69% stmts / 99.44% branches), ruff/mypy/eslint/tsc all clean, code-review skill (medium) found no correctness/reuse/simplification issues, e2e suite (make e2e) 16/16 passing. Browser walkthrough done via a direct Playwright script (Playwright MCP tools weren't available in this session) against a manually-started backend (fixture provider) + Vite dev server, with the add POST artificially delayed: seeded AAPL/MSFT as real rows, added GOOGL as pending, and independently confirmed the skeleton row stays at the 'newest' end of the Added column across ascending/descending toggles while pending (last ascending, first descending, screenshot-verified for descending), then lands exactly where the real GOOGL row appears once the mutation resolves -- no jump in either direction, matching the PR's claim. submittedAt's stability was confirmed both via @tanstack/query-core's type (set once at mutate()-time) and behaviorally (toggling sort twice mid-pending never moved the row, which drift would have revealed). Doc-comment fix (action column renders null, not Skeleton) verified accurate against the code and the walkthrough screenshots. No API/schema change (no openapi.json touch needed), no new components (no placement check needed), area isn't backend/signals or backend/portfolio (verify-elder-signal not applicable), no new module/dependency/layer (architecture-review not applicable). No blocking or non-blocking findings; no follow-up task filed."
   }
 }
