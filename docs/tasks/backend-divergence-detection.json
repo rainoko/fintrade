@@ -3,7 +3,7 @@
   "title": "MACD-Histogram / Stochastic / RSI divergence detection (bullish & bearish)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-swing-point-detector",
     "backend-indicator-rsi"
@@ -85,5 +85,11 @@
       "decision": "app.signals.engine.analyse_history does not call app.signals.divergence.current_divergence fresh per bar (the 'compute internally when not given' path every other analyse() passthrough uses, and what analyse() itself falls back to for a single, non-history call). Instead it precomputes one DivergenceSwingCache over the full daily close series up front and calls confirmed_divergence_as_of (a no-look-ahead, already-confirmed-swings-only lookup) per bar, passed into analyse() via a new divergence= passthrough parameter guarded by a private _DIVERGENCE_NOT_GIVEN sentinel (since, unlike every other passthrough parameter, None is itself a legitimate 'no divergence' answer here, not just 'not supplied').",
       "rationale": "app.signals.swing_points.find_swing_points's core scan is an unvectorized Python-level loop (not a pandas/numpy vectorized rolling-window operation like the EMA/MACD/Stochastic passes elsewhere in this module), so re-running it on every one of analyse_history's up-to-thousands of per-bar calls would be a real O(history_length^2) Python-loop cost -- confirmed by direct estimation (~35k Python-level operations per full-series swing-point scan at a 5,000-bar history, times 5,000 calls) as measurably slower than the already-accepted O(i)-per-bar costs elsewhere in this module (e.g. the confidence-scoring branch's volume.rolling(...).mean() call, which is vectorized C code even at O(i)). Rejected the simpler 'just call current_divergence() fresh every bar, matching elder_bull_power/bear_power's own not-precomputed precedent' alternative for this specific reason: elder_bull_power/bear_power are themselves vectorized O(i) operations (a High/Low - EMA(13) subtraction), not a per-bar Python loop, so that precedent doesn't transfer to swing-point detection. The chosen precompute-and-slice design mirrors the same pattern engine.py already uses for ema_13_full/histogram_full/etc, and its no-look-ahead correctness (a swing point at position p is only usable once p + window <= the current bar) is directly covered by tests/unit/signals/test_divergence.py's TestDivergenceSwingCache tests and confirmed end to end against the real API in tests/integration/test_stocks_indicator_history.py's TestDivergenceField."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-divergence-detection",
+    "pr_number": 156,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/156",
+    "pushed_at": "2026-09-19T15:45:05Z"
+  }
 }
