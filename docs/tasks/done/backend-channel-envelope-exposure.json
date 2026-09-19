@@ -3,7 +3,7 @@
   "title": "Expose the existing Autoenvelope (channel) computation via the API",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/indicators/autoenvelope.py",
@@ -60,5 +60,53 @@
     "pr_number": 146,
     "pr_url": "https://github.com/rainoko/fintrade/pull/146",
     "pushed_at": "2026-09-19T09:37:27Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T09:45:19Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/146",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Pure additive exposure confirmed: diff touches only app/signals/engine.py (new channel_upper/channel_lower indicators-dict entries + passthrough params, mirroring the existing ema_13/ema_26/histogram/stochastic_k/force_index_2ema precompute-and-slice pattern), the two schemas, the router wiring, docs, and tests. app/signals/confidence.py, app/signals/triple_screen.py, app/signals/impulse.py, app/portfolio/risk.py, and app/portfolio/exits.py's own source are untouched -- no behavior change to Screen 1/2/3, the Impulse gate, confidence scoring, or portfolio risk/exit logic.",
+        "file": "backend/app/signals/engine.py",
+        "line": 0
+      },
+      {
+        "summary": "Consistency test (TestChannelBandExposureConsistency::test_exposed_channel_bands_match_evaluate_exit_flags_internal_bands) genuinely exercises the claimed guarantee: it spies on app.portfolio.exits.autoenvelope with wraps= (real math, not a stub), captures the actual internal band evaluate_exit_flags computed for a >=100-bar fixture (so the ~100-bar warm-up window is actually full, not trivially NaN==NaN), then asserts analyse() over the same daily/weekly OHLCV reports identical channel_upper/channel_lower. Verified by hand that both call sites share the same EMA(13) formula (ema(daily_close, 13), default autoenvelope() params) so the values are structurally guaranteed to match, not just coincidentally equal on this fixture.",
+        "file": "backend/tests/unit/test_portfolio_exits.py",
+        "line": 526
+      },
+      {
+        "summary": "EMA(13)-backbone decision is soundly reasoned and consistent with docs/Analyse.md §4's own indicator table (Row 6: 'EMA 13 ± avg % deviation'), not just Elder's book -- confirmed docs/ideas.md's ch. 41 note (which the decision cites) does describe the book's own preference for a slower EMA, so the decision accurately characterizes that as a different-source preference this app's own spec already overrode, not a mischaracterization.",
+        "file": "docs/Analyse.md",
+        "line": 84
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts regenerated correctly: re-ran python scripts/export_openapi.py and yarn generate:api-types locally against this branch and both produced zero diff against what's committed.",
+        "file": "backend/openapi.json",
+        "line": 0
+      },
+      {
+        "summary": "Nullability/warm-up handling verified end to end, not just by reading the schema: NaN-to-null conversion through Indicators.channel_upper/channel_lower (float | None, populated from _latest()'s raw NaN, same pattern as the pre-existing stochastic_k/force_index_2ema fields) was confirmed by actually running the relevant integration tests, which assert body['indicators']['channel_upper'] is None during warm-up and a real float after ~100 bars, via response.json() -- not just a type-level check. code-review (high effort) independently investigated this same NaN-serialization path and confirmed FastAPI's response_model path serializes NaN -> null correctly.",
+        "file": "backend/app/api/schemas.py",
+        "line": 80
+      },
+      {
+        "summary": "Full backend suite: 582 passed, 99.87% overall coverage, engine.py itself at 100% statement/branch coverage. Full frontend suite: 349 passed, 99.69%/99.44%/100%/99.68% (statements/branches/functions/lines). Both well above the 90% gate, no regressions. Backend ruff + mypy clean; frontend eslint + tsc -b clean.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "No UI-facing surface in this PR: only frontend/src/api/types.ts changed (a regenerated file), no component/page/hook touched, and no existing frontend code reads the new fields yet (IndicatorsPanel.tsx reads specific named fields only, not a generic iteration that could break). Browser walkthrough (step 9) and the persisted e2e suite (step 9a) were skipped explicitly as not applicable, rather than silently omitted.",
+        "file": null,
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: TestAnalyseHistoryPerformance (backend/tests/unit/signals/test_engine.py) has a dedicated wraps=-spy test asserting each of ema/macd_components/stochastic_oscillator/force_index is computed exactly once per analyse_history() call regardless of bar count -- the exact invariant this PR's own second decisions entry extends to autoenvelope() (computed once as channel_bands_full, sliced per bar via .iloc[:i+1]). Manual inspection confirms the code is correct (the call site is outside the per-bar loop), but no analogous spy-based test was added for autoenvelope(), so a future refactor could silently reintroduce a per-bar call without any test catching it. Tracked as backend-channel-envelope-exposure-followups.",
+        "file": "backend/tests/unit/signals/test_engine.py",
+        "line": 1039
+      }
+    ],
+    "notes": "Full review: gh pr checkout 146, ran backend pytest+coverage (582 passed, 99.87%, engine.py 100%) and frontend vitest+coverage (349 passed, ~99.7% across metrics) directly, ruff/mypy/eslint/tsc all clean, re-generated openapi.json and frontend/src/api/types.ts locally (zero diff against committed), ran code-review skill at high effort against main...HEAD (zero findings -- it independently investigated and ruled out the same NaN-serialization concern I checked manually), and walked the verify-elder-signal checklist given this touches app/signals/engine.py: confirmed Screens 1-3, the Impulse gate, confidence scoring, and portfolio risk/exit logic are all untouched by this diff (only engine.py's indicators dict and analyse_history's precompute list gained two new entries), and confirmed the EMA(13) decision against docs/Analyse.md §4's own table plus docs/ideas.md's ch. 41 note. No new module/dependency/layer, so architecture-review wasn't triggered. No API-route/schema change went undocumented -- openapi.json, docs/Analyse.md, and docs/architecture/API.md all updated in the same PR. All three checklist items phrased as judgment calls have matching decisions entries. One non-blocking finding (missing performance-regression test symmetry for autoenvelope's once-per-history-call guarantee) filed as docs/tasks/backend-channel-envelope-exposure-followups.json rather than left only in this comment."
   }
 }

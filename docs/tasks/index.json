@@ -978,8 +978,15 @@
       "id": "backend-channel-envelope-exposure",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-channel-envelope-exposure.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-channel-envelope-exposure.json"
+    },
+    {
+      "id": "backend-channel-envelope-exposure-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-channel-envelope-exposure-followups.json"
     },
     {
       "id": "backend-profit-target",
