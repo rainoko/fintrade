@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { DivergenceOut, SupportResistanceZone } from '../../../api/stocks'
+import type {
+  DivergenceOut,
+  HistoryResponse,
+  KangarooTailOut,
+  SupportResistanceZone,
+} from '../../../api/stocks'
 import {
   bearPowerHelp,
   bullPowerHelp,
@@ -11,6 +16,7 @@ import {
   falseBreakoutHelp,
   getConfidenceComponentHelp,
   impulseHelp,
+  kangarooTailHelp,
   macdHistogramHelp,
   rsiHelp,
   seasonHelp,
@@ -754,6 +760,102 @@ describe('metricHelpContent', () => {
       // ...plus the out-of-range explanation.
       expect(message).toContain('isn’t drawn on the chart right now')
       expect(message).toContain('2026-08-03 to 2026-08-31')
+    })
+  })
+
+  describe('kangarooTailHelp.interpretValue', () => {
+    function buildTail(overrides: Partial<KangarooTailOut> = {}): KangarooTailOut {
+      return {
+        direction: 'up',
+        tail_date: '2026-08-15',
+        confirmed_date: '2026-08-16',
+        high: 150.0,
+        low: 137.66,
+        range_multiple: 2.8,
+        suggested_stop: 143.83,
+        ...overrides,
+      }
+    }
+
+    function buildTailBar(
+      overrides: Partial<HistoryResponse['bars'][number]> = {},
+    ): HistoryResponse['bars'][number] {
+      return {
+        date: '2026-08-15',
+        open: 145.2,
+        high: 150.0,
+        low: 137.66,
+        close: 139.1,
+        volume: 5_000_000,
+        ...overrides,
+      }
+    }
+
+    it('reports no tail when null', () => {
+      expect(kangarooTailHelp.interpretValue(null, undefined)).toBe(
+        'No currently confirmed Kangaroo Tail pattern detected for this ticker.',
+      )
+    })
+
+    it("names the tail's own range vs. the recent average, its open/close vs. the extreme, the confirming bar, and the suggested stop, all in this ticker's own actual numbers", () => {
+      const message = kangarooTailHelp.interpretValue(buildTail(), buildTailBar())
+      expect(message).toContain('Bearish (upward-pointing) Kangaroo Tail')
+      expect(message).toContain('On 2026-08-15')
+      expect(message).toContain('12.34')
+      expect(message).toContain('high 150.00, low 137.66')
+      expect(message).toContain('2.8x')
+      expect(message).toContain('~4.41 average range')
+      expect(message).toContain('open (145.20)')
+      expect(message).toContain('close (139.10)')
+      expect(message).toContain('nearest the low')
+      expect(message).toContain('not the new high')
+      expect(message).toContain('Confirmed on 2026-08-16')
+      expect(message).toContain("continued below this bar's close")
+      expect(message).toContain('Suggested stop: 143.83')
+      expect(message).toContain('tip (150.00, too wide)')
+      expect(message).toContain('base (137.66, too tight)')
+    })
+
+    it('describes a downward (bullish) tail with the mirrored open/close/tip/base language', () => {
+      const tail = buildTail({
+        direction: 'down',
+        high: 112.0,
+        low: 99.5,
+        suggested_stop: 105.75,
+      })
+      const tailBar = buildTailBar({ high: 112.0, low: 99.5, open: 104.0, close: 108.9 })
+      const message = kangarooTailHelp.interpretValue(tail, tailBar)
+      expect(message).toContain('Bullish (downward-pointing) Kangaroo Tail')
+      expect(message).toContain('nearest the high')
+      expect(message).toContain('not the new low')
+      expect(message).toContain("continued above this bar's close")
+      expect(message).toContain('tip (99.50, too wide)')
+      expect(message).toContain('base (112.00, too tight)')
+    })
+
+    it('still describes the pattern from high/low/range_multiple/suggested_stop alone when the tail bar itself is unavailable (e.g. its date falls outside the currently fetched history)', () => {
+      const message = kangarooTailHelp.interpretValue(buildTail(), undefined)
+      expect(message).toContain('Bearish (upward-pointing) Kangaroo Tail')
+      expect(message).toContain('12.34')
+      expect(message).toContain('Suggested stop: 143.83')
+      expect(message).not.toContain('open (')
+      expect(message).not.toContain('close (')
+    })
+
+    it('omits the out-of-range clause when inVisibleRange is true (or omitted, the default)', () => {
+      expect(kangarooTailHelp.interpretValue(buildTail(), buildTailBar())).not.toContain(
+        "isn't marked on the chart right now",
+      )
+      expect(
+        kangarooTailHelp.interpretValue(buildTail(), buildTailBar(), true),
+      ).not.toContain("isn't marked on the chart right now")
+    })
+
+    it("appends an out-of-range clause naming the tail's own date when inVisibleRange is false", () => {
+      const message = kangarooTailHelp.interpretValue(buildTail(), buildTailBar(), false)
+      expect(message).toContain('Bearish (upward-pointing) Kangaroo Tail')
+      expect(message).toContain("isn't marked on the chart right now")
+      expect(message).toContain('2026-08-15 falls outside the currently selected range')
     })
   })
 })

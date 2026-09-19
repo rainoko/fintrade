@@ -24,6 +24,7 @@ import type {
   HistoryInterval,
   HistoryResponse,
   IndicatorHistoryPoint,
+  KangarooTailOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { AnchoredInfoBalloon } from '../../../components/common/InfoBalloon/InfoBalloon'
@@ -40,6 +41,7 @@ import {
   channelHelp,
   divergenceHelp,
   falseBreakoutHelp,
+  kangarooTailHelp,
   supportResistanceZoneHelp,
   valueZoneHelp,
 } from './metricHelpContent'
@@ -440,6 +442,54 @@ function buildDivergencePriceOverlay(
 }
 
 /**
+ * `true` when `tail.tail_date` falls within `[firstDate, lastDate]` -- the
+ * currently visible bar range (inclusive) -- the same windowing test
+ * `isDivergenceInRange` (`divergenceClick.ts`) already applies to the
+ * divergence overlay, for the exact same reason: a marker/price-line at a
+ * date outside the currently selected range has nothing sensible to plot
+ * against (see that function's own doc comment for the axis-distortion bug
+ * this pattern was introduced to fix, PR #152/#158). Only one date to check
+ * here (unlike divergence's two extremes), since a Kangaroo Tail is a
+ * single-bar event.
+ */
+function isKangarooTailInRange(
+  tail: KangarooTailOut,
+  firstDate: string,
+  lastDate: string,
+): boolean {
+  return tail.tail_date >= firstDate && tail.tail_date <= lastDate
+}
+
+/**
+ * Projects `AnalysisResponse.kangaroo_tail` into a single chart marker at
+ * the tail bar itself (frontend-kangaroo-tail-markers) -- `square` shape
+ * (unused by every other marker type on this chart: BUY/SELL use
+ * `arrowUp`/`arrowDown`, divergence uses `circle`, false breakouts use
+ * `arrowDown`/`arrowUp`) in `theme.palette.kangarooTail.main`, so this
+ * reads as visually distinct from all of them at a glance, per this task's
+ * own "distinct from every other marker type already present" requirement.
+ *
+ * Positioned on the side the tail itself physically points to -- `aboveBar`
+ * for an `'up'` (bearish) tail, which spiked to a new HIGH, `belowBar` for
+ * a `'down'` (bullish) one, which spiked to a new LOW -- mirroring where
+ * the tall bar's own tip actually sits, the same "position mirrors the
+ * event's own direction" convention `buildFalseBreakoutMarkers` already
+ * uses for its arrow shape (though that one marks the *reversal* side, not
+ * the event's own side -- this marker sits right at the pattern itself, so
+ * it belongs on the same side the tail protrudes toward).
+ */
+function buildKangarooTailMarker(tail: KangarooTailOut, color: string): SeriesMarker<Time> {
+  const label = tail.direction === 'up' ? 'Kangaroo Tail (bearish)' : 'Kangaroo Tail (bullish)'
+  return {
+    time: tail.tail_date as Time,
+    position: tail.direction === 'up' ? 'aboveBar' : 'belowBar',
+    shape: 'square',
+    color,
+    text: label,
+  }
+}
+
+/**
  * Candlestick price chart for `GET /api/stocks/{ticker}/history`, built on
  * TradingView Lightweight Charts. Owns its own range/interval selection as
  * local UI state (Frontend.md §2 — not server data, so plain `useState`
@@ -503,6 +553,24 @@ function buildDivergencePriceOverlay(
  * chart's own overlay. See this task's `decisions` entry for why a
  * mirrored-callback pattern was used instead of converting this component
  * into a fully controlled one.
+ *
+ * Also draws `GET /api/stocks/{ticker}/analysis`'s `kangaroo_tail`
+ * (frontend-kangaroo-tail-markers) — the single most recently confirmed
+ * Kangaroo Tail reversal pattern (Elder ch. 20, "fingers") — as a `square`
+ * marker at the tail bar itself, distinct in both shape and color
+ * (`theme.palette.kangarooTail.main`) from the BUY/SELL/divergence/false-
+ * breakout markers already on this chart, plus a dashed price line at
+ * `suggested_stop` (the book's own "halfway through the tail" reference,
+ * same treatment as the false-breakout stop line above). Windowed to the
+ * currently visible bar range via `isKangarooTailInRange` — same
+ * axis-distortion-avoidance pattern `isDivergenceInRange` already
+ * established for the divergence overlay (see this task's `decisions`
+ * entry). Since the pattern's underlying "unusual bar" shape isn't obvious
+ * from a name alone, `kangarooTailHelp`'s `MetricHelp` legend affordance
+ * explains it using this tail's own actual numbers (its range vs. the
+ * recent average, its open/close relative to the extreme it spiked to,
+ * the suggested stop) rather than a generic definition — see
+ * `metricHelpContent.ts`'s own doc comment on `kangarooTailHelp`.
  */
 export default function PriceChart({
   ticker,
@@ -1038,6 +1106,73 @@ export default function PriceChart({
     }
   }, [historyQuery.data, analysisQuery.data, theme])
 
+  // Kangaroo Tail overlay (frontend-kangaroo-tail-markers): the single most
+  // recently confirmed Kangaroo Tail (`AnalysisResponse.kangaroo_tail`, or
+  // nothing when `null`) drawn as one `square` marker at the tail bar
+  // itself plus a dashed price line at `suggested_stop` -- see
+  // `buildKangarooTailMarker`'s own doc comment for why the shape/color are
+  // deliberately distinct from every other marker on this chart. A
+  // SEPARATE effect from the divergence one above (same "deliberately
+  // separate, differently-gated effects on the same chart" convention this
+  // component already uses for the zone-band/divergence pair), even though
+  // both read `analysisQuery.data`, since this one has no click-to-explain
+  // subscription to isolate the lifecycle of the way the divergence effect
+  // does.
+  //
+  // Windowed to the currently visible bar range via `isKangarooTailInRange`
+  // -- same axis-distortion-avoidance pattern PR #152/#158 already
+  // established for zone false-breakout markers/the divergence overlay (see
+  // this task's `decisions` entry): a single out-of-range marker/price line
+  // has nothing sensible to plot, and an out-of-range price line specifically
+  // would still render at its own price level even with no visible bar at
+  // its date, which is confusing rather than merely absent.
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !data) {
+      return
+    }
+    const kangarooTail = analysisQuery.data?.kangaroo_tail
+    if (!kangarooTail) {
+      return
+    }
+    // Same "no separate finiteBars.length === 0 guard needed" reasoning as
+    // the divergence effect above -- see its own comment for the
+    // effect-cleanup-ordering invariant this relies on.
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    if (!isKangarooTailInRange(kangarooTail, firstDate, lastDate)) {
+      return
+    }
+
+    const color = theme.palette.kangarooTail.main
+    const marker = buildKangarooTailMarker(kangarooTail, color)
+    const kangarooTailMarkersPlugin = createSeriesMarkers(series, [marker])
+
+    const kangarooTailStopLine = series.createPriceLine({
+      price: kangarooTail.suggested_stop,
+      color,
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: 'Kangaroo Tail stop',
+    })
+
+    bringSeriesToFront(chart, series)
+
+    return () => {
+      // See the signal-overlay effect's own cleanup guard above: skip if
+      // the candlestick effect already disposed this chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      kangarooTailMarkersPlugin.detach()
+      series.removePriceLine(kangarooTailStopLine)
+    }
+  }, [historyQuery.data, analysisQuery.data, theme])
+
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
       setRange(value)
@@ -1112,6 +1247,36 @@ export default function PriceChart({
     divergence != null && bars.length > 0
       ? isDivergenceInRange(divergence, bars[0].date, bars[bars.length - 1].date)
       : false
+
+  // The single most recently confirmed Kangaroo Tail, read directly from
+  // `/analysis` -- same "one value, no separate filtered variant" pattern
+  // as `divergence` above (there's nothing to filter/cap for a single
+  // pattern the way `displayedZones` filters/caps a list).
+  const kangarooTail = analysisQuery.data?.kangaroo_tail ?? null
+
+  // Whether `kangarooTail` (if any) is actually drawn on the chart this
+  // render -- same `isKangarooTailInRange` check the overlay effect above
+  // runs, computed here from `bars` (same source/filter) so the legend can
+  // describe whether the tail is currently plotted without duplicating the
+  // effect's own windowing logic differently.
+  const kangarooTailInVisibleRange =
+    kangarooTail != null && bars.length > 0
+      ? isKangarooTailInRange(kangarooTail, bars[0].date, bars[bars.length - 1].date)
+      : false
+
+  // The tail bar's own OHLC bar, looked up by date from the currently
+  // fetched `/history` bars -- see `kangarooTailHelp`'s own doc comment
+  // (`metricHelpContent.ts`) for why this lookup (rather than a field on
+  // `KangarooTailOut` itself) is how the legend gets the open/close values
+  // its explanation needs. Uses the unfiltered `historyQuery.data?.bars`
+  // (not `bars`, which drops a still-forming latest bar) since the tail bar
+  // itself, being a past confirmed bar, was never the one that could be
+  // still-forming -- but a plain `.find` over the raw array is simplest and
+  // correct either way.
+  const kangarooTailBar =
+    kangarooTail != null
+      ? historyQuery.data?.bars.find((bar) => bar.date === kangarooTail.tail_date)
+      : undefined
 
   return (
     <Stack spacing={2}>
@@ -1305,6 +1470,42 @@ export default function PriceChart({
             valueInterpretation={divergenceHelp.interpretValue(
               divergence,
               divergenceInVisibleRange,
+            )}
+          />
+        </Stack>
+      )}
+
+      {/*
+        Kangaroo Tail legend + MetricHelp affordance (frontend-kangaroo-
+        tail-markers). Same "reads directly from `/analysis`, no separate
+        filtered variant, stays visible even when out of the current range"
+        posture as the divergence legend directly above -- see that block's
+        own comment for the rationale, which applies identically here (a
+        single, real, currently-confirmed pattern for this ticker, whose
+        out-of-range-ness is a temporary range-selection state, not a
+        permanent exclusion).
+      */}
+      {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && kangarooTail && (
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 12,
+              height: 12,
+              bgcolor: 'kangarooTail.main',
+              opacity: kangarooTailInVisibleRange ? 1 : 0.4,
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Kangaroo Tail{!kangarooTailInVisibleRange && ' (not in current range)'}
+          </Typography>
+          <MetricHelp
+            metricLabel={kangarooTailHelp.metricLabel}
+            definition={kangarooTailHelp.definition}
+            elderContext={kangarooTailHelp.elderContext}
+            valueInterpretation={kangarooTailHelp.interpretValue(
+              kangarooTail,
+              kangarooTailBar,
+              kangarooTailInVisibleRange,
             )}
           />
         </Stack>

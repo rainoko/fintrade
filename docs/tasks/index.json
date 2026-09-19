@@ -1153,8 +1153,15 @@
       "id": "frontend-kangaroo-tail-markers",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-kangaroo-tail-markers.json"
+    },
+    {
+      "id": "frontend-kangaroo-tail-markers-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-kangaroo-tail-markers.json"
+      "path": "docs/tasks/frontend-kangaroo-tail-markers-followups.json"
     },
     {
       "id": "frontend-indicator-seasons-badge",
