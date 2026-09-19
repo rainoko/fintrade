@@ -3,7 +3,7 @@
   "title": "Root Makefile -- non-blocking review follow-up from PR #97",
   "area": "infra",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "dev-makefile-followups"
   ],
@@ -52,5 +52,38 @@
     "pr_number": 139,
     "pr_url": "https://github.com/rainoko/fintrade/pull/139",
     "pushed_at": "2026-09-19T03:08:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T03:15:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/139",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the comment-move is behavior-neutral: `make -n dev` and `make help` dry-run output on this branch differs from `main` only by the removal of the 11 `@#...` comment lines (each of which previously appeared as a literal shell invocation in the `-n` trace, confirming they really were extra no-op forks) -- the functional recipe commands (setsid/trap/wait -n/kill/exit) are byte-identical before and after, and `make help`'s output has zero diff.",
+        "file": "Makefile",
+        "line": 22
+      },
+      {
+        "summary": "Re-ran both scenarios directly against this branch's Makefile: (1) fail-fast, with backend/.venv moved aside -- make dev exited immediately with status 2, no leftover uvicorn/vite/node processes, ports 8000/5173 free; (2) clean shutdown, healthy make dev, SIGTERM to the real top-level make dev pid (found via `ps -eo pid,ppid,pgid,cmd` since setsid backgrounding doesn't hand back the right pid across separate shell invocations) -- all processes (make, yarn, vite, uvicorn, its reloader/multiprocessing children) exited within ~3s, ports free, log shows `make: *** [Makefile:49: dev] Error 143` confirming the expected exit code.",
+        "file": "Makefile",
+        "line": 49
+      },
+      {
+        "summary": "Independently re-verified the corrected decisions[1] claim in docs/tasks/done/dev-makefile-followups.json with a scratch Makefile: a target that does `exit 7` or `exit 42`, and a sub-make invoking a failing target, all yield the *outer* make's own exit status of 2 -- confirms GNU Make always exits 2 on a recipe/sub-make failure regardless of the failing command's real exit code, matching the corrected text and refuting the removed 'reflects whichever sub-target failed' claim.",
+        "file": "docs/tasks/done/dev-makefile-followups.json",
+        "line": 37
+      },
+      {
+        "summary": "Backend pytest+coverage (578 passed, 99.87% line coverage) and frontend vitest+coverage (344 passed across 49 files, 99.69%/99.44%/100%/99.69% stmts/branches/funcs/lines) both well above the 90% gate; no regression, as expected since no application code is touched. Backend ruff+mypy and frontend eslint+tsc all clean. scripts/validate_tasks.py passes (128 task files, no violations, after this review's own additions). No UI surface in this PR (Makefile/README/task-board only), so no browser walkthrough or e2e suite run applies -- explicitly noted rather than silently skipped. Not applicable: architecture-review, verify-elder-signal (area is infra, no backend/signals or backend/portfolio code, skill is null), OpenAPI snapshot check (no API changes).",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (found by a code-review pass, independently re-verified before recording): the corrected decisions[1] text this PR writes is itself imprecise in a related way -- 'make dev exits non-zero right away' is accurate for the failure case the sentence is about, but wait -n actually returns with whichever sub-make's exit status finishes first for any reason, including a clean 0 if one side exits cleanly while the other is still healthy (verified empirically). Not a runtime bug, just a residual precision gap in the decision-log prose. Filed as docs/tasks/dev-makefile-followups-followups-followups.json.",
+        "file": "docs/tasks/done/dev-makefile-followups.json",
+        "line": 37
+      }
+    ],
+    "notes": "Small, well-contained infra/docs diff (Makefile comment tightening + relocation, README addition, and a decision-log correction; no application code touched). All three checklist items independently re-verified against the real repo rather than taken on trust: the comment move confirmed behavior-neutral via make -n dev/make help diffed against main, the fail-fast and clean-shutdown scenarios re-run from scratch with process/port inspection, and the corrected decisions[1] claim about GNU Make's sub-recipe exit-code behavior independently reproduced with a scratch Makefile. Test/coverage suites well above the 90% gate on both sides, static analysis clean, task board validates. One non-blocking finding (a residual precision gap in the very sentence this PR corrected) filed as a tracked follow-up rather than left only in this comment."
   }
 }
