@@ -179,6 +179,11 @@ class TestGetAnalysis:
         assert 0 <= body["confidence"] <= 100
         assert body["confidence_band"] in ("Low", "Medium", "High")
         assert body["screens"]["tide"]["trend"] == "BULLISH"
+        # A fresh BUY already proves showed_pullback_in_lookback was true at some point in
+        # the 5-day window (one of _determine_signal's four required conditions) -- and
+        # showed_rally_in_lookback is real (not null) False, since tide is directional.
+        assert body["screens"]["wave"]["showed_pullback_in_lookback"] is True
+        assert body["screens"]["wave"]["showed_rally_in_lookback"] is False
         assert len(body["confidence_breakdown"]) == 5
         assert set(body["indicators"]) == {
             "ema_13",
@@ -238,6 +243,8 @@ class TestGetAnalysis:
         body = response.json()
         assert body["signal"] == "SELL"
         assert body["screens"]["tide"]["trend"] == "BEARISH"
+        assert body["screens"]["wave"]["showed_rally_in_lookback"] is True
+        assert body["screens"]["wave"]["showed_pullback_in_lookback"] is False
         assert len(body["confidence_breakdown"]) == 5
 
     def test_hold_signal_has_zero_confidence_and_empty_breakdown(self) -> None:
@@ -253,6 +260,11 @@ class TestGetAnalysis:
         assert body["confidence"] == 0
         assert body["confidence_band"] == "Low"
         assert body["confidence_breakdown"] == []
+        # Tide is NEUTRAL for this fixture -- Wave was never evaluated against a
+        # direction, so both lookback fields are null, not False.
+        assert body["screens"]["tide"]["trend"] == "NEUTRAL"
+        assert body["screens"]["wave"]["showed_pullback_in_lookback"] is None
+        assert body["screens"]["wave"]["showed_rally_in_lookback"] is None
 
     def test_ticker_is_uppercased(self) -> None:
         provider = _StubProvider(

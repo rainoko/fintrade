@@ -23,7 +23,18 @@ function screens(
   return {
     tide: { trend: tideTrend, weekly_macd_histogram_slope: weeklySlope },
     impulse,
-    wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: waveState },
+    wave: {
+      stochastic_k: 24.3,
+      force_index_2ema: -18234.5,
+      state: waveState,
+      // `explainSignal` doesn't yet consume these two fields (see this module's own
+      // docstring on the api-stocks-analysis-wave-lookback follow-up) -- populated here
+      // only so this fixture matches the `Screens` type, using a simple approximation
+      // (not a faithful re-implementation of `_wave_lookback`) since it's inert for
+      // every test in this file.
+      showed_pullback_in_lookback: tideTrend === 'NEUTRAL' ? null : tideTrend === 'BULLISH',
+      showed_rally_in_lookback: tideTrend === 'NEUTRAL' ? null : tideTrend === 'BEARISH',
+    },
     trigger: { fired: triggerFired, reference: triggerReference },
   }
 }

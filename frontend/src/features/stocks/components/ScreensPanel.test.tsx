@@ -8,7 +8,13 @@ import ScreensPanel from './ScreensPanel'
 const bullishScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'GREEN',
-  wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+  wave: {
+    stochastic_k: 24.3,
+    force_index_2ema: -18234.5,
+    state: 'OVERSOLD_PULLBACK',
+    showed_pullback_in_lookback: true,
+    showed_rally_in_lookback: false,
+  },
   trigger: { fired: true, reference: 'close_above_prior_high' },
 }
 
@@ -55,7 +61,13 @@ describe('ScreensPanel', () => {
     const bearishScreens: Screens = {
       tide: { trend: 'BEARISH', weekly_macd_histogram_slope: 'falling' },
       impulse: 'RED',
-      wave: { stochastic_k: 82.1, force_index_2ema: 5000, state: 'OVERBOUGHT_RALLY' },
+      wave: {
+        stochastic_k: 82.1,
+        force_index_2ema: 5000,
+        state: 'OVERBOUGHT_RALLY',
+        showed_pullback_in_lookback: false,
+        showed_rally_in_lookback: true,
+      },
       trigger: { fired: false, reference: 'no_trigger' },
     }
 
@@ -72,7 +84,13 @@ describe('ScreensPanel', () => {
     const neutralScreens: Screens = {
       tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
       impulse: 'BLUE',
-      wave: { stochastic_k: 50, force_index_2ema: 0, state: 'RANGING' },
+      wave: {
+        stochastic_k: 50,
+        force_index_2ema: 0,
+        state: 'RANGING',
+        showed_pullback_in_lookback: null,
+        showed_rally_in_lookback: null,
+      },
       trigger: { fired: false, reference: 'no_trigger' },
     }
 
@@ -97,6 +115,8 @@ describe('ScreensPanel', () => {
         stochastic_k: null as unknown as number,
         force_index_2ema: null as unknown as number,
         state: 'RANGING',
+        showed_pullback_in_lookback: null,
+        showed_rally_in_lookback: null,
       },
       trigger: { fired: false, reference: 'no_trigger' },
     }
@@ -120,7 +140,13 @@ describe('ScreensPanel', () => {
     const neutralScreens: Screens = {
       tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
       impulse: 'BLUE',
-      wave: { stochastic_k: 50, force_index_2ema: 0, state: 'RANGING' },
+      wave: {
+        stochastic_k: 50,
+        force_index_2ema: 0,
+        state: 'RANGING',
+        showed_pullback_in_lookback: null,
+        showed_rally_in_lookback: null,
+      },
       trigger: { fired: false, reference: 'not_applicable' },
     }
     renderWithTheme(<ScreensPanel screens={neutralScreens} />)

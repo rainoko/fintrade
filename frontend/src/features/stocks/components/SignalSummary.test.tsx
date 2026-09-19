@@ -16,28 +16,52 @@ const breakdown: ConfidenceBreakdownItem[] = [
 const buyScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'GREEN',
-  wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+  wave: {
+    stochastic_k: 24.3,
+    force_index_2ema: -18234.5,
+    state: 'OVERSOLD_PULLBACK',
+    showed_pullback_in_lookback: true,
+    showed_rally_in_lookback: false,
+  },
   trigger: { fired: true, reference: 'close_above_prior_high' },
 }
 
 const sellScreens: Screens = {
   tide: { trend: 'BEARISH', weekly_macd_histogram_slope: 'falling' },
   impulse: 'RED',
-  wave: { stochastic_k: 78.1, force_index_2ema: 15234.2, state: 'OVERBOUGHT_RALLY' },
+  wave: {
+    stochastic_k: 78.1,
+    force_index_2ema: 15234.2,
+    state: 'OVERBOUGHT_RALLY',
+    showed_pullback_in_lookback: false,
+    showed_rally_in_lookback: true,
+  },
   trigger: { fired: true, reference: 'close_below_prior_low' },
 }
 
 const holdNeutralScreens: Screens = {
   tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
   impulse: 'BLUE',
-  wave: { stochastic_k: 50.0, force_index_2ema: 100.0, state: 'NO_WAVE' },
+  wave: {
+    stochastic_k: 50.0,
+    force_index_2ema: 100.0,
+    state: 'NO_WAVE',
+    showed_pullback_in_lookback: null,
+    showed_rally_in_lookback: null,
+  },
   trigger: { fired: false, reference: 'not_applicable' },
 }
 
 const holdMissingWaveScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'GREEN',
-  wave: { stochastic_k: 55.0, force_index_2ema: 200.0, state: 'NO_WAVE' },
+  wave: {
+    stochastic_k: 55.0,
+    force_index_2ema: 200.0,
+    state: 'NO_WAVE',
+    showed_pullback_in_lookback: false,
+    showed_rally_in_lookback: false,
+  },
   trigger: { fired: true, reference: 'close_above_prior_high' },
 }
 

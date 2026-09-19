@@ -548,7 +548,11 @@ class TestAnalyseCombinations:
         assert result.screens == {
             "tide": {"trend": "BULLISH", "weekly_macd_histogram_slope": "rising"},
             "impulse": "BLUE",
-            "wave": wave,
+            "wave": {
+                **wave,
+                "showed_pullback_in_lookback": False,
+                "showed_rally_in_lookback": False,
+            },
             "trigger": trigger,
         }
         assert set(result.indicators) == {"ema_13", "ema_26", "macd_histogram", "bull_power", "bear_power"}
@@ -601,8 +605,15 @@ class TestAnalyseEndToEnd:
         assert result.screens["tide"]["trend"] == "BULLISH"
         assert result.screens["impulse"] != "RED"
         assert bool(result.screens["trigger"]["fired"]) is True
-        # Confirms this really is the "showed" (not "shows") case, not a fixture mistake.
+        # Confirms this really is the "showed" (not "shows") case, not a fixture mistake:
+        # today's own Wave state doesn't show the pullback, but showed_pullback_in_lookback
+        # (what _determine_signal actually gated the BUY on) is True regardless -- this is
+        # exactly the case api-stocks-analysis-wave-lookback's showed_pullback_in_lookback
+        # field exists to expose, since `state` alone can't distinguish it from the
+        # condition never having been met.
         assert result.screens["wave"]["state"] != "OVERSOLD_PULLBACK"
+        assert result.screens["wave"]["showed_pullback_in_lookback"] is True
+        assert result.screens["wave"]["showed_rally_in_lookback"] is False
 
         assert result.signal == "BUY"
         assert 0 <= result.confidence <= 100
@@ -698,7 +709,11 @@ class TestAnalyseEndToEnd:
         assert result.screens["tide"]["trend"] == "BEARISH"
         assert result.screens["impulse"] != "GREEN"
         assert bool(result.screens["trigger"]["fired"]) is True
+        # Mirror image of the BUY case above: today's Wave state doesn't show the rally,
+        # but showed_rally_in_lookback (what gated the SELL) is True regardless.
         assert result.screens["wave"]["state"] != "OVERBOUGHT_RALLY"
+        assert result.screens["wave"]["showed_rally_in_lookback"] is True
+        assert result.screens["wave"]["showed_pullback_in_lookback"] is False
 
         assert result.signal == "SELL"
         assert 0 <= result.confidence <= 100
@@ -728,6 +743,11 @@ class TestAnalyseEndToEnd:
 
         assert result.signal == "HOLD"
         assert result.screens["tide"]["trend"] == "NEUTRAL"
+        # Neutral tide: Wave is never evaluated against a direction, so both lookback
+        # fields are null (not False) -- see WaveScreen.showed_pullback_in_lookback's
+        # docstring in backend/app/api/schemas.py for why null rather than False here.
+        assert result.screens["wave"]["showed_pullback_in_lookback"] is None
+        assert result.screens["wave"]["showed_rally_in_lookback"] is None
         assert result.confidence == 0
         assert result.confidence_band == "Low"
         assert result.breakdown == []

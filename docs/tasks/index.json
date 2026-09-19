@@ -880,8 +880,15 @@
       "id": "api-stocks-analysis-wave-lookback",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/api-stocks-analysis-wave-lookback.json"
+    },
+    {
+      "id": "frontend-signal-wave-lookback-explanation",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-signal-wave-lookback-explanation.json"
     },
     {
       "id": "frontend-watchlist-add-skeleton",

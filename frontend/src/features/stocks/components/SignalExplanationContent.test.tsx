@@ -7,7 +7,13 @@ import SignalExplanationContent from './SignalExplanationContent'
 const ambiguousWaveScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'RED',
-  wave: { stochastic_k: 45.0, force_index_2ema: 10.0, state: 'NO_WAVE' },
+  wave: {
+    stochastic_k: 45.0,
+    force_index_2ema: 10.0,
+    state: 'NO_WAVE',
+    showed_pullback_in_lookback: false,
+    showed_rally_in_lookback: false,
+  },
   trigger: { fired: false, reference: 'not_applicable' },
 }
 

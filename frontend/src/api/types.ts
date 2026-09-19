@@ -744,8 +744,18 @@ export interface components {
              */
             force_index_2ema: number;
             /**
+             * Showed Pullback In Lookback
+             * @description Whether Screen 2 showed OVERSOLD_PULLBACK on any of the last 5 trading days (today inclusive), not just today -- docs/Analyse.md §5's 'Wave shows/showed oversold pullback' language, and the exact condition `_determine_signal` (backend/app/signals/engine.py) gates a fresh BUY on (see `_wave_lookback`'s own docstring). A BUY can therefore occur even when `state` above isn't OVERSOLD_PULLBACK today, if it was on an earlier day within the window -- this field is what lets a client (e.g. a signal explanation) distinguish that case from the condition never having been met at all. Null when `screens.tide.trend` is NEUTRAL, since Wave is evaluated against a tide direction that doesn't exist in that case -- neither this nor showed_rally_in_lookback is ever reachable, so `False` would misleadingly read as 'checked, and it didn't happen' rather than 'not applicable'.
+             */
+            showed_pullback_in_lookback: boolean | null;
+            /**
+             * Showed Rally In Lookback
+             * @description Same as showed_pullback_in_lookback, mirrored for OVERBOUGHT_RALLY / the SELL side (what `_determine_signal` gates a fresh SELL on). Exactly one of these two fields is ever the 'reachable' one for a given non-Neutral tide (BULLISH -> only showed_pullback_in_lookback can be true; BEARISH -> only showed_rally_in_lookback can be true) -- the other is `False`, not null, since that's itself a real (if structurally guaranteed) fact about this tide, not a not-applicable case.
+             */
+            showed_rally_in_lookback: boolean | null;
+            /**
              * State
-             * @description Human-readable wave state, e.g. 'OVERSOLD_PULLBACK' — evaluated against the tide direction, not in isolation (docs/Analyse.md §2).
+             * @description Human-readable wave state, e.g. 'OVERSOLD_PULLBACK' — evaluated against the tide direction, not in isolation (docs/Analyse.md §2). Reflects only TODAY's bar -- see showed_pullback_in_lookback/showed_rally_in_lookback below for whether the qualifying state appeared on an earlier day within the signal's own lookback window.
              */
             state: string;
             /**
