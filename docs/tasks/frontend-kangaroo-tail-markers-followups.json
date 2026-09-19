@@ -1,0 +1,23 @@
+{
+  "id": "frontend-kangaroo-tail-markers-followups",
+  "title": "Non-blocking review follow-ups from PR #165 (Kangaroo Tail markers)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-kangaroo-tail-markers"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-kangaroo-tail-markers.json",
+    "https://github.com/rainoko/fintrade/pull/165",
+    "frontend/src/theme/theme.ts",
+    "frontend/src/features/stocks/components/PriceChart.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's PR #165 review of frontend-kangaroo-tail-markers, tracked here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "theme.palette.kangarooTail.main (#ad1457, magenta, hue ~334deg) sits fairly close in hue to theme.palette.signal.sell (#c62828, red, hue ~0deg) -- theme.test.ts only asserts hex inequality, not perceptual distance. On the chart itself the two are still reliably distinguishable because they also use different marker shapes (square vs. arrowDown), so this isn't blocking, but a future pass could consider a hue further from the red family (e.g. a violet/purple) so the Kangaroo Tail marker also reads as distinct by color alone (e.g. for a quick glance, a colorblind user, or any future legend/report view that shows color swatches without shape).",
+      "done": false
+    }
+  ]
+}

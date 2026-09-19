@@ -3,7 +3,7 @@
   "title": "Mark Kangaroo Tail patterns on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-kangaroo-tail-pattern"
   ],
@@ -67,5 +67,18 @@
     "pr_number": 165,
     "pr_url": "https://github.com/rainoko/fintrade/pull/165",
     "pushed_at": "2026-09-19T20:21:37Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T20:28:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/165",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "theme.palette.kangarooTail.main (#ad1457, magenta) sits fairly close in hue to signal.sell (#c62828, red) -- theme.test.ts only checks hex inequality, not perceptual distance. Not blocking because the marker shape (square vs. arrowDown) already makes them unambiguous on the chart itself, but worth reconsidering a hue further from the red family in a future pass. Filed as frontend-kangaroo-tail-markers-followups.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 122
+      }
+    ],
+    "notes": "Full review: backend pytest (741 passed, 99.92% cov) and frontend vitest (506 passed, 99.7% statements/98.88% branches) both clean and well above the 90% gate -- the worker's claimed 'one pre-existing PortfolioPage flake' did not reproduce here (506/506 green). ruff/mypy/eslint/tsc all clean. code-review (medium) found no correctness bugs, traced the frontend avgRange = barRange / range_multiple math against the backend's actual range_multiple = bar_range / baseline_range formula (app/signals/kangaroo_tail.py) and confirmed it inverts correctly. verify-elder-signal not triggered (area is frontend/pages/stocks, not backend/signals or backend/portfolio) but spot-checked kangarooTailHelp's prose against docs/Analyse.md row 13/line 130-140 (3-bar pattern, 2.5x/10-day baseline, halfway stop, hard next-bar confirmation gate) and the backend's DEFAULT_LOOKBACK=10 -- all consistent. No new module/dependency/component added (existing PriceChart.tsx/metricHelpContent.ts/theme.ts modified only), so architecture-review and the components/common/ vs feature placement check (step 7a) don't apply. No API route/schema changed by this PR (KangarooTailOut already existed from the merged backend-kangaroo-tail-pattern task) -- openapi.json correctly untouched. /history and /analysis both call the same provider.get_daily_ohlcv(ticker) (same SQLite-cached data), and the tail bar is always a past, confirmed bar (never the still-forming latest bar), so the open/close lookup by date cannot see a data-consistency mismatch between the two endpoints. Re-read the checklist wording myself: item 3 only requires MetricHelp/InfoBalloon content with the ticker's own numbers, which kangarooTailHelp.interpretValue fully satisfies via the legend's MetricHelp -- the 'no click-to-explain balloon' decision is a reasonable, non-blocking scope call, not a checklist gap. Browser walkthrough: ran the actual dev app (fixture backend + Vite frontend) and used a Playwright script to intercept AAPL's /analysis response and inject a hand-crafted Kangaroo Tail (fixture data has no naturally-occurring one), then drove the real UI. Confirmed: (1) default 1Y range draws a magenta square marker aboveBar at the tail bar plus a dashed 'Kangaroo Tail stop' price line, axis stays sane (180-300); (2) MetricHelp popup opens and shows the exact numbers from the injected tail (range 1.68, 3.0x the ~0.56 average, open/close, suggested stop 265.60, tip/base) -- content matches the ticker's own actual numbers as required; (3) switching to 1M pushes the tail out of range -- marker and price line both correctly disappear (not just clipped), legend dims and appends '(not in current range)', axis stays sane (no distortion); (4) switching to Max brings it back in range -- marker/price line/undimmed legend all correctly return, axis sane (150-325). No browser console errors, no failed network requests, at any step. Also ran make e2e (16/16 specs passed) as the persisted regression suite alongside the exploratory walkthrough. Decisions array is thorough and well-justified (marker shape/color/position, windowing mirroring isDivergenceInRange, open/close-from-/history sourcing, legend-stays-visible-when-out-of-range convention, no second click-affordance) -- no undecided 'decide X' checklist items found. One non-blocking finding filed as a follow-up task (frontend-kangaroo-tail-markers-followups) per CLAUDE.md's tracked-finding requirement."
   }
 }
