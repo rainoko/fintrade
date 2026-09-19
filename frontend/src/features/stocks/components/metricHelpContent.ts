@@ -1,4 +1,5 @@
 import { humanizeSnakeCase } from '../../../utils/format'
+import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
 /**
  * Shared help content for every metric shown on `StockDetailPage`
@@ -135,9 +136,18 @@ export const tideHelp = {
       // fix (see this task's `decisions` entry).
       const cause =
         slope === 'flat'
-          ? 'there isn’t enough weekly price history yet to compute a slope, or the weekly MACD-H slope is genuinely flat -- either way, there’s no clear direction to read'
+          ? `${TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE} -- either way, there’s no clear direction to read`
           : 'the weekly slope and EMA13/26 relationship disagree'
-      return `Currently Neutral (weekly MACD-H slope ${slopeLabel}) -- ${cause}, so no directional Triple Screen setup is being evaluated for this ticker right now.`
+      // Omit the raw "(weekly MACD-H slope Flat)" parenthetical entirely
+      // when slope === 'flat': stating it unqualified in the same sentence
+      // that then hedges on whether a slope was ever computed at all would
+      // assert, with full confidence, the exact reading this sentence is
+      // simultaneously saying it can't be sure of (frontend-stock-detail-
+      // metric-help-followups-followups task `decisions` entry). The
+      // parenthetical stays for the disagree branch, where the slope value
+      // itself (rising/falling) is never ambiguous.
+      const slopeClause = slope === 'flat' ? '' : ` (weekly MACD-H slope ${slopeLabel})`
+      return `Currently Neutral${slopeClause} -- ${cause}, so no directional Triple Screen setup is being evaluated for this ticker right now.`
     }
     const action = trend === 'BULLISH' ? 'buy' : 'sell'
     return `Currently ${trendLabel} (weekly MACD-H slope ${slopeLabel}) -- only fresh ${action} signals are considered while the tide holds this direction.`

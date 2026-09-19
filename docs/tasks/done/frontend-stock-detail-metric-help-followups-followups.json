@@ -1,0 +1,79 @@
+{
+  "id": "frontend-stock-detail-metric-help-followups-followups",
+  "title": "Non-blocking follow-ups from PR #128 review (frontend-stock-detail-metric-help-followups)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-stock-detail-metric-help-followups"],
+  "references": [
+    "docs/tasks/frontend-stock-detail-metric-help-followups.json",
+    "https://github.com/rainoko/fintrade/pull/128",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "frontend/src/features/stocks/components/signalExplanation.ts"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #128 (frontend-stock-detail-metric-help-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. PR #128 itself was accepted -- both findings below are minor and didn't block it.",
+  "checklist": [
+    {
+      "step": "metricHelpContent.ts's tideHelp.interpretValue Neutral/flat message still opens with an unqualified 'Currently Neutral (weekly MACD-H slope Flat)' clause before the hedged 'there isn't enough weekly price history yet ... or the weekly MACD-H slope is genuinely flat' clause in the very same sentence -- the raw slope label itself asserts 'Flat' with full confidence even in the <2-weekly-bar case where no slope was ever computed. This mirrors the same 'Flat' label shown unconditionally on the Tide (Screen 1) summary card next to the balloon. Inherent to evaluate_tide's current data model (TideResult/TideScreen expose only the string 'flat' for both causes, per this task's own parent's decisions entry) rather than a frontend bug, so genuinely low-impact and not worth a dedicated backend field on its own -- but worth revisiting together if/when a bar-count (or similar discriminating) field is ever added to TideScreen for the already-tracked <2-weekly-bar case.",
+      "done": true
+    },
+    {
+      "step": "metricHelpContent.ts's tideHelp.interpretValue and signalExplanation.ts's explainSignal now each independently hardcode their own near-identical 'there isn't enough weekly price history yet to compute a slope, or the weekly slope is genuinely flat' wording for the same underlying evaluate_tide ambiguity -- exactly the kind of duplicated copy that let this same inaccuracy drift out of sync once already (PR #127 fixed metricHelpContent.ts's copy; signalExplanation.ts's independent copy of the same bug went unnoticed until PR #128). Consider extracting a small shared helper/constant (e.g. a `tideNeutralFlatCause(slope)` string builder in a shared module, or at least a shared substring constant both call sites interpolate) so a future wording fix only has one place to touch instead of relying on a reviewer to notice a second copy again.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T01:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared hedge text as a single exported string constant (`TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE`) in a new colocated module `frontend/src/features/stocks/components/tideNeutralCause.ts`, rather than a `tideNeutralFlatCause(slope)` function as the checklist's example suggested. Both call sites already branch on `slope === 'flat'`/`weeklySlope === 'flat'` themselves for other reasons (metricHelpContent.ts also needs the branch to decide whether to show the slope-label parenthetical at all, per the other checklist item; signalExplanation.ts needs it to pick between two structurally different sentences, not just interpolate one hedge fragment) -- a function that took `slope` and returned the whole sentence would either have to also take a per-call-site continuation string/callback (more indirection than the actual duplication warranted) or bake in one of the two calling conventions, which doesn't fit signalExplanation.ts's differently-shaped surrounding sentence. A single shared constant for the exact overlapping substring, interpolated into each call site's own sentence, is the 'at least a shared substring constant' alternative the checklist item itself named, and is simpler for this actual case. Placed in `frontend/src/features/stocks/components/` (not `components/common/`) since the wording is Elder Triple Screen/evaluate_tide domain-specific (references weekly MACD-Histogram slope semantics directly), not a generic reusable UI primitive -- same placement test `signalExplanation.ts`/`metricHelpContent.ts` themselves already apply, and colocated with its only two consumers rather than a level up, matching how those two files are already split out of (but colocated with) the components that render them.",
+      "rationale": "Rejected a `tideNeutralFlatCause(slope)`-returns-full-sentence function because the two call sites' sentences differ in more than just the hedge fragment (different opening clause, different trailing clause, and metricHelpContent.ts additionally needs the `slope === 'flat'` boolean itself to decide on the parenthetical, addressed by the sibling checklist item) -- forcing a single function signature to cover both would either under-fit one call site or grow parameters/options that don't earn their complexity for a 2-consumer, ~120-character shared fragment. Rejected common/ because nothing about this wording is meaningful outside the Elder Tide/evaluate_tide context; a generic components/common/ helper would be a placement lie about its actual reusability, and no other feature area references evaluate_tide's NEUTRAL/flat semantics (verified via repository-wide grep before deciding)."
+    },
+    {
+      "timestamp": "2026-09-19T01:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the first checklist item (unqualified 'Flat' assertion before the hedge) by omitting the '(weekly MACD-H slope Flat)' parenthetical entirely from metricHelpContent.ts's Neutral-tide message when `slope === 'flat'`, rather than rewording it to hedge the label itself in place. The parenthetical is kept, unchanged, for the disagree branch (`slope !== 'flat'`, i.e. 'rising'/'falling'), where the raw slope value is never ambiguous.",
+      "rationale": "The finding is specifically that the sentence asserts 'Flat' with full confidence in the same breath it then hedges on whether a slope was ever computed at all -- self-contradictory regardless of how the hedge itself is phrased. Rewording the parenthetical in place (e.g. 'slope reads as Flat') would still assert a specific value for a reading that, in the <2-weekly-bar case, was never taken; only *not stating* the value in that branch actually removes the contradiction while still being accurate. This doesn't require any new backend field (the checklist item itself notes a bar-count field isn't worth adding for this alone) -- it only changes what the already-available `slope === 'flat'` boolean is used to decide."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-stock-detail-metric-help-followups-followups",
+    "pr_number": 129,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/129",
+    "pushed_at": "2026-09-19T01:30:00Z"
+  },
+  "test": {
+    "reviewed_at": "2026-09-19T01:01:29Z",
+    "method": ["static_analysis", "unit_tests", "browser_walkthrough"],
+    "verdict": "pass"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T01:01:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/129",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed both metricHelpContent.ts's tideHelp.interpretValue and signalExplanation.ts's explainSignal genuinely import and interpolate the shared TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE constant from the new tideNeutralCause.ts (not just visually similar hardcoded text); no other file still hardcodes the old duplicated wording (repo-wide grep).",
+        "file": "frontend/src/features/stocks/components/tideNeutralCause.ts"
+      },
+      {
+        "summary": "Browser walkthrough (fixture provider, AAPL = flat/ambiguous tide, GOOGL = falling/disagree tide) confirms: the flat-slope parenthetical omission fix works on both the Tide-help balloon and the 'Why HOLD?' balloon and doesn't leak into the disagree branch, where the '(weekly MACD-H slope falling)' parenthetical still renders correctly on both balloons. No console errors or failed/4xx+ network requests observed.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts"
+      },
+      {
+        "summary": "architecture-review: tideNeutralCause.ts is a plain non-component helper: Frontend.md §3's utils/-vs-common/-vs-features/<domain>/ placement test applies, and since it encodes Elder Tide/evaluate_tide domain semantics, features/stocks/components/ (colocated with its two consumers) is the correct placement, matching the task's own decisions entry.",
+        "file": "frontend/src/features/stocks/components/tideNeutralCause.ts"
+      },
+      {
+        "summary": "Backend pytest 573 passed at 99.86% coverage, frontend vitest 336 passed at 99.69%/99.42% (statements/branches), backend ruff+mypy clean, frontend eslint+tsc clean, make e2e 13/13 passed. No API/schema changes, so the OpenAPI-snapshot check doesn't apply."
+      }
+    ],
+    "notes": "No blocking findings; no new non-blocking findings from this pass either, so nothing filed to a further follow-up task. Full review: tests+coverage, static analysis, code-review skill (medium effort, no bugs found), architecture-review (placement conforms to Frontend.md §3's utils/common/features test), and a live browser walkthrough of both balloons across the flat and disagree branches, plus the persisted e2e suite."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T01:04:39Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: backend pytest 573 passed, 99.86% coverage; frontend vitest 336 passed, 99.69%/99.42% statements/branches -- both match pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD): confirmed metricHelpContent.ts and signalExplanation.ts both genuinely `import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'` (not just similar text; repo-wide grep found no other hardcoded copy), and hand-traced metricHelpContent.ts's conditional: `slopeClause` is only blanked when `slope === 'flat'`, so the disagree branch (`slope !== 'flat'`, e.g. 'rising'/'falling') keeps the `(weekly MACD-H slope ...)` parenthetical unchanged. tsc --noEmit and eslint on the three changed files both clean. Accept holds up."
+  },
+  "questions": []
+}
