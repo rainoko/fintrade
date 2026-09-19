@@ -1,0 +1,99 @@
+{
+  "id": "backend-safezone-stop-coefficient-fix",
+  "title": "Fix protective_stop()'s missing SafeZone multiplier coefficient",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/portfolio/risk.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Verified, concrete discrepancy against this function's own cited methodology. `protective_stop()`'s docstring explicitly names 'SafeZone concept' as its basis. The book's actual SafeZone formula (Elder ch. 54): average the downside penetrations of a trend EMA over a lookback window (Average Downside Penetration), then multiply that average by a coefficient of 2 or greater before subtracting from price -- his own words, 'placing your stop any closer would be self-defeating.' Current code (`app/portfolio/risk.py:38-108`) computes `swing_low - volatility_buffer` where `volatility_buffer` is the RAW, UNMULTIPLIED average downside penetration -- there is no coefficient anywhere in the calculation. This means computed stops are very plausibly placed inside the zone of normal market noise, closer to price than SafeZone's own inventor considers safe. Separately, `_VOLATILITY_EMA_PERIOD = 13` differs from the book's specific 22-day EMA -- a defensible reuse of this app's existing standard fast-EMA period, not necessarily wrong, but worth an explicit decision either way rather than leaving it unrecorded.",
+  "checklist": [
+    {
+      "step": "Decide the coefficient value (book says 2 or greater; this app is long-only today so the short-specific 3x figure may not currently apply -- record whether/how to future-proof for a later short-position feature) and add it to the formula.",
+      "done": true
+    },
+    {
+      "step": "Decide whether to keep _VOLATILITY_EMA_PERIOD at 13 (existing app convention) or change it to the book's 22, and record the rationale either way.",
+      "done": true
+    },
+    {
+      "step": "Update protective_stop()'s docstring to state the exact formula and coefficient being used, since it currently claims 'SafeZone concept' without stating the coefficient explicitly.",
+      "done": true
+    },
+    {
+      "step": "Update/add unit tests confirming the new, wider stop distance; check for any existing test that hardcodes the old (unmultiplied) expected stop value and needs updating.",
+      "done": true
+    },
+    {
+      "step": "Check downstream consumers (app/portfolio/exits.py, the /api/portfolio/risk route) for any behavior that assumed the old, tighter stop distance.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T18:29:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `_SAFEZONE_COEFFICIENT = 2.0` and changed `protective_stop()`'s formula from `swing_low - volatility_buffer` to `swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)`. Used the book's minimum (2.0), not a higher multiple (his worked examples go up to 3x for shorts, and traders can go wider still). The book's short-side minimum (3.0) is documented in a code comment next to the constant, with an explicit note that a future short-position feature should introduce its own `_SAFEZONE_SHORT_COEFFICIENT = 3.0` rather than reusing this one -- not implemented now since this app is long-only today and there's no short-position code path to wire it into yet.",
+      "rationale": "docs/Analyse.md §7 and docs/ideas.md's ch. 54 cross-check both confirm the book's SafeZone formula requires this multiplier ('placing your stop any closer would be self-defeating') and the pre-fix code omitted it entirely -- a genuine correctness bug against the function's own cited methodology, not a stylistic gap. 2.0 (the floor) was chosen over a wider constant (e.g. 2.5 or 3.0) because docs/Analyse.md doesn't specify a value beyond the SafeZone concept itself, and a wider coefficient is explicitly a risk-tolerance dial the book leaves to the individual trader's judgment (his own examples range 2-3x) rather than something this app's own methodology doc pins down -- using the book's stated floor is the least speculative choice that still fixes the actual bug (a stop strictly inside the noise band). Rejected: hardcoding 3.0 for all positions (over-widens every long stop, which the book doesn't ask for -- 3.0 is specifically the *short*-side minimum); making the coefficient user-configurable (no UI/settings surface exists anywhere in this app for a risk-parameter dial like this, and docs/Analyse.md doesn't call for one -- out of scope for a bug-fix task)."
+    },
+    {
+      "timestamp": "2026-09-19T18:29:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Kept `_VOLATILITY_EMA_PERIOD` at 13 rather than changing it to the book's 22-day EMA.",
+      "rationale": "13 is already this app's standard fast-EMA period, shared across Impulse, Elder-Ray, and Autoenvelope (docs/Analyse.md §4), and `protective_stop`'s EMA(13) is already deliberately shared (via the `short_ema` parameter) with `app.portfolio.exits.evaluate_exit_flags`'s own EMA(13) pass for autoenvelope/Impulse -- switching this one call site to a 22-day EMA would mean either introducing a second, SafeZone-only EMA period with its own separate warm-up/plumbing (duplicating work `evaluate_exit_flags` already shares), or diverging protective_stop's downside-penetration EMA from the EMA the rest of the app treats as 'the' short EMA. This is a re-affirmation of the identical choice already recorded in the `portfolio-risk-rules` task's own `decisions` entry, made explicit again here since this task's own description flagged it as worth a fresh, explicit decision rather than assuming the prior one still stood unexamined. Rejected: switching to 22 (matches the book exactly, but breaks EMA sharing with evaluate_exit_flags and introduces a second EMA period into a module that currently has exactly one); making the period itself a per-caller parameter (no caller currently needs anything other than 13, and doing so would be speculative scope creep for a bug-fix task focused on the missing coefficient)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-safezone-stop-coefficient-fix",
+    "pr_number": 160,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/160",
+    "pushed_at": "2026-09-19T18:30:24Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T18:38:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/160",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified the formula and test math myself: swing_low - (2.0 * volatility_buffer), coefficient applied to the raw average downside penetration before subtracting, matching Elder ch. 54 ('placing your stop any closer would be self-defeating') as cross-checked in docs/ideas.md:134. Reference test: swing_low=99, raw buffer=0.534694 -> old stop 98.465306, new stop 99-(2*0.534694)=97.930612 -- a genuine, meaningfully wider stop, not a no-op.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 147
+      },
+      {
+        "summary": "Verified downstream-consumer claims directly (not just trusted the task-worker's characterization): app/portfolio/exits.py's flag tests mock protective_stop entirely except TestEvaluateExitFlagsEndToEnd's 3 real-computation tests, which I hand-checked don't sit near a boundary the widened stop could flip -- stop_hit's gap-down scenario clears both the old (98) and new (97) stop by a wide margin, the two-percent-rule-without-stop-hit scenario's close (100) stays comfortably above the new (97) stop, and the quiet-uptrend no-stop-hit scenario is only made safer by a wider (lower) stop. position_risk_pct's distance_to_stop = current_price - stop increases (not decreases) as the stop widens, so the two updated integration-test risk percentages (~3.62%, ~5.49%, both up from the pre-fix ~3.46%/~5.24%) move in the mathematically correct direction and don't approach a rule threshold by coincidence. GET /api/portfolio/risk (app/api/routers/portfolio.py) has no hardcoded stop-distance assumption, just consumes protective_stop()'s return value.",
+        "file": "backend/app/portfolio/exits.py",
+        "line": null
+      },
+      {
+        "summary": "Confirmed the _VOLATILITY_EMA_PERIOD=13-vs-22 re-affirmation claim against the actual portfolio-risk-rules task (docs/tasks/done/portfolio-risk-rules.json): its own decisions entry does independently justify EMA(13) over the book's 22 for coherence with Impulse/Elder-Ray/Autoenvelope, so this task's 're-affirming' framing is accurate, not a fabricated citation.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 8
+      },
+      {
+        "summary": "Checked every other done/planned task referencing protective_stop/SafeZone for a hardcoded assumption of the old unmultiplied formula (portfolio-risk-rules-followups, portfolio-exit-rules and its followups chain, backend-profit-target) -- none hardcode a specific stop numeric value or assume the pre-fix magnitude; backend-profit-target (planned, not yet implemented) computes its reward:risk ratio dynamically off whatever protective_stop() returns at implementation time, so it isn't affected.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: docs/Analyse.md §7's SafeZone description still reads as the pre-fix, unmultiplied formula (no mention of the >=2x coefficient) even though CLAUDE.md names Analyse.md as the source of truth for what the app computes -- the verify-elder-signal skill's own guidance is to update Analyse.md in the same change when the doc goes stale relative to a deliberate code change. There's real precedent for leaving formula specifics (window days, EMA period) out of Analyse.md per the original portfolio-risk-rules decision, so this may be a deliberate continuation of that pattern rather than an oversight, but it's worth an explicit decision either way. Tracked as backend-safezone-stop-coefficient-fix-followups.",
+        "file": "docs/Analyse.md",
+        "line": 182
+      },
+      {
+        "summary": "Non-blocking: backend/app/api/schemas.py:274's RiskPosition.protective_stop field description likewise doesn't mention the coefficient. No schema/route signature changed so openapi.json regeneration isn't required by CLAUDE.md's standard, but the description is now less accurate for API consumers. Tracked as backend-safezone-stop-coefficient-fix-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 274
+      }
+    ],
+    "notes": "Full backend suite: 713 passed, 99.91% overall coverage, risk.py 100% line/branch. ruff check app/ and mypy both clean (backend-only diff; frontend untouched, last known state clean modulo one pre-existing, already-tracked flake below). Frontend vitest --coverage: 472/473 passed, one PortfolioPage.test.tsx timeout under coverage-instrumentation load that passes both in isolation and with a bumped --testTimeout=20000 (all 473 pass, 99%+ coverage across the board) -- this exact flake is already tracked in backend-indicator-seasons-followups from a prior PR review, confirmed as pre-existing and unrelated to this backend-only diff, not a new finding. code-review skill (medium effort) against the diff: no findings. e2e-test skill (make e2e): all 16 specs passed, including the portfolio risk-panel spec exercising the new formula through a real browser against a real backend, plus the dashboard 'no console errors' spec -- no MCP browser tool was available in this session's toolset, so this persisted suite plus direct curl smoke checks against a running GET /api/portfolio/risk substituted for the interactive walkthrough step; no UI regression observed. No API route/schema signature changed, so no openapi.json regeneration was required, and none was made. No architecture-review needed (no new module/dependency/layer). No frontend components touched (step 7a n/a). Two non-blocking documentation-accuracy findings tracked as backend-safezone-stop-coefficient-fix-followups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T18:41:34Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite myself (713 passed, 99.91% coverage, risk.py 100% -- matches pr-reviewer exactly) plus ruff/mypy (both clean). Hand-verified the reference case in git diff origin/main...HEAD -- backend/app/portfolio/risk.py: swing_low=99, raw buffer=0.534694, new stop = 99-(2.0*0.534694) = 97.930612 vs old 98.465306, confirming the coefficient is genuinely applied to the raw average downside penetration before subtracting from swing_low, and is a real, meaningfully wider stop. Read exits.py and hand-traced its three real-computation end-to-end tests myself: test_real_stop_hit's gap-down close (80) clears both old (~98) and new (~97) stops by a wide margin; test_real_two_percent_rule_breach_without_stop_hit's close (100) stays comfortably above the new (~97) stop; position_risk_pct's distance_to_stop = current_price - stop mathematically increases as the stop widens (confirmed against risk.py:170), so the updated risk-percentage assertions move in the correct direction, not by boundary coincidence. Confirmed both non-blocking follow-up findings (Analyse.md §7 and schemas.py:274 still describing the unmultiplied formula) are accurate and correctly filed as backend-safezone-stop-coefficient-fix-followups rather than blocking. Accept holds."
+  }
+}

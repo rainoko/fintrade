@@ -69,7 +69,7 @@ class TestProtectiveStop:
 
         volatility_buffer = mean(p0..p4) = (1 + 0.285714 + 1.387755) / 5 = 0.534694
         swing_low = min(low) = 99
-        protective_stop = 99 - 0.534694 = 98.465306
+        protective_stop = 99 - (_SAFEZONE_COEFFICIENT=2.0 * 0.534694) = 99 - 1.069388 = 97.930612
         """
         daily_ohlcv = pd.DataFrame(
             {
@@ -80,7 +80,7 @@ class TestProtectiveStop:
 
         stop = protective_stop(_position(), daily_ohlcv)
 
-        assert stop == pytest.approx(98.465306, abs=1e-5)
+        assert stop == pytest.approx(97.930612, abs=1e-5)
 
     def test_stop_is_below_swing_low(self) -> None:
         """The buffer must be subtracted (never added), so the stop is
@@ -112,7 +112,7 @@ class TestProtectiveStop:
         (padded or not), so penetration_t = max(100 - low_t, 0):
           - recent rows: 100 - 95 = 5, for all 10 rows -> buffer = 5
           - swing_low over the recent window = 95
-          - protective_stop = 95 - 5 = 90
+          - protective_stop = 95 - (_SAFEZONE_COEFFICIENT=2.0 * 5) = 85
 
         This must come out identical whether or not the padding (and its
         low=1 outlier) precedes it, since only the last 10 rows are
@@ -131,7 +131,7 @@ class TestProtectiveStop:
         stop_recent_only = protective_stop(_position(), recent)
         stop_padded = protective_stop(_position(), padded)
 
-        assert stop_recent_only == pytest.approx(90.0)
+        assert stop_recent_only == pytest.approx(85.0)
         assert stop_padded == pytest.approx(stop_recent_only)
 
     def test_empty_dataframe_raises(self) -> None:
@@ -209,6 +209,30 @@ class TestProtectiveStop:
         stop_with_wrong_ema = protective_stop(_position(), daily_ohlcv, short_ema=wrong_ema)
 
         assert stop_with_wrong_ema != pytest.approx(stop_default)
+
+    def test_safezone_coefficient_is_applied_not_raw_buffer(self) -> None:
+        """Regression test for the SafeZone coefficient fix (backend-safezone-stop-
+        coefficient-fix task): the book's own formula (Elder ch. 54) multiplies the raw
+        average downside penetration by a coefficient (>= 2) before subtracting it from
+        the swing low -- `swing_low - raw_buffer` (no multiplier) was the pre-fix bug.
+        Confirms the actual distance from swing_low is exactly
+        `_SAFEZONE_COEFFICIENT * raw_buffer`, not the raw, unmultiplied buffer itself."""
+        daily_ohlcv = pd.DataFrame(
+            {
+                "close": [100.0, 102.0, 101.0, 103.0, 104.0],
+                "low": [99.0, 100.0, 99.0, 101.0, 102.0],
+            }
+        )
+        # Hand-computed raw (unmultiplied) buffer from test_reference_values_short_series
+        # above: mean(1.0, 0.285714, 1.387755, 0.0, 0.0) = 0.534694.
+        raw_buffer = 0.534694
+
+        stop = protective_stop(_position(), daily_ohlcv)
+        swing_low = float(daily_ohlcv["low"].min())
+        distance_from_swing_low = swing_low - stop
+
+        assert distance_from_swing_low == pytest.approx(2.0 * raw_buffer, abs=1e-5)
+        assert distance_from_swing_low != pytest.approx(raw_buffer, abs=1e-5)
 
 
 class TestPositionRiskPct:

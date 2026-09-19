@@ -8,11 +8,29 @@ from app.portfolio.models import Account, Position
 # parameters -- see this task's `decisions` entry in docs/tasks/portfolio-risk-rules.json.
 _SWING_LOW_WINDOW_DAYS = 10
 
-# The "short EMA" referenced by §7's stop-loss definition. Reuses EMA(13),
-# the same period already used as the app's standard trend-following EMA
-# (Impulse gate, Elder-Ray, Autoenvelope -- docs/Analyse.md §4) rather than
-# introducing a new, unrelated period just for this calculation.
+# The "short EMA" referenced by §7's stop-loss definition. The book's own SafeZone
+# formula (Elder ch. 54, per docs/ideas.md) uses a 22-day EMA; this app instead reuses
+# EMA(13), the same period already used as the app's standard trend-following EMA
+# (Impulse gate, Elder-Ray, Autoenvelope -- docs/Analyse.md §4), for coherence with the
+# rest of the app's indicator stack rather than introducing a second, SafeZone-only EMA
+# period that would need its own separate warm-up/plumbing everywhere this value is
+# shared (app.portfolio.exits, GET /api/portfolio/risk) -- a deliberate, re-affirmed
+# deviation from the book's specific number, not an oversight. See this task's
+# (backend-safezone-stop-coefficient-fix) `decisions` entry.
 _VOLATILITY_EMA_PERIOD = 13
+
+# SafeZone's own multiplier coefficient (Elder ch. 54, per docs/ideas.md): "placing your
+# stop any closer [than 2x the Average Downside Penetration] would be self-defeating."
+# 2.0 is the book's minimum for a long stop (his worked examples use 2-3x); this app
+# always uses the minimum rather than a wider multiple, since a wider coefficient is a
+# risk-tolerance dial the book leaves to the trader's own judgment, not something
+# docs/Analyse.md specifies a value for. The book's short-side figure starts at 3.0
+# ("shorting near the highs requires wider stops than buying near quiet, sold-out
+# bottoms") -- not applied here since this app is long-only today (see protective_stop's
+# own docstring); a future short-position feature should introduce its own
+# `_SAFEZONE_SHORT_COEFFICIENT = 3.0` alongside this one rather than reusing it, per this
+# task's `decisions` entry.
+_SAFEZONE_COEFFICIENT = 2.0
 
 
 def validate_daily_ohlcv_columns(daily_ohlcv: pd.DataFrame) -> None:
@@ -42,17 +60,29 @@ def protective_stop(
     short_ema: pd.Series | None = None,
     columns_validated: bool = False,
 ) -> float:
-    """Swing low minus a volatility buffer (docs/Analyse.md §7, SafeZone concept).
+    """Swing low minus a coefficient-multiplied volatility buffer (docs/Analyse.md §7,
+    SafeZone concept, Elder ch. 54).
+
+    Exact formula: ``stop = swing_low - (_SAFEZONE_COEFFICIENT * average_downside_penetration)``,
+    i.e. ``swing_low - (2.0 * volatility_buffer)``.
 
     Long-only: this is the stop-loss for a long position.
 
     - Swing low: the lowest ``low`` over the most recent ``_SWING_LOW_WINDOW_DAYS``
       trading days.
-    - Volatility buffer: the average "downside penetration" of a short EMA
-      (EMA(13) of ``close``) over that same window -- i.e. for each day, how far
-      the day's low fell *below* the EMA that day (0 on days it didn't), averaged
-      across the window. A choppier/more volatile recent history produces a
-      wider buffer; a quiet uptrend with no penetrations produces a buffer near 0.
+    - Volatility buffer (Average Downside Penetration): the average "downside
+      penetration" of a short EMA (EMA(13) of ``close``) over that same window -- i.e.
+      for each day, how far the day's low fell *below* the EMA that day (0 on days it
+      didn't), averaged across the window. A choppier/more volatile recent history
+      produces a wider buffer; a quiet uptrend with no penetrations produces a buffer
+      near 0.
+    - Coefficient: the raw buffer above is multiplied by ``_SAFEZONE_COEFFICIENT``
+      (2.0, the book's own stated minimum -- "placing your stop any closer would be
+      self-defeating") before being subtracted from the swing low. Without this
+      multiplier the stop sits inside the zone of ordinary market noise the buffer
+      itself measures, which is exactly what SafeZone exists to avoid -- see this
+      task's (backend-safezone-stop-coefficient-fix) `decisions` entry for the
+      pre-fix state and why 2.0 (not a higher multiple) was chosen.
 
     ``position`` isn't used by the calculation itself (this app is long-only
     for now); it's kept in the signature for symmetry with
@@ -107,7 +137,7 @@ def protective_stop(
     downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
     volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())
 
-    return swing_low - volatility_buffer
+    return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)
 
 
 def position_risk_pct(position: Position, stop: float, account: Account) -> float:

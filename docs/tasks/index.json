@@ -1020,8 +1020,8 @@
       "id": "backend-safezone-stop-coefficient-fix",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-safezone-stop-coefficient-fix.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-safezone-stop-coefficient-fix.json"
     },
     {
       "id": "backend-trade-history-table",
@@ -1218,6 +1218,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-indicator-seasons-followups.json"
+    },
+    {
+      "id": "backend-safezone-stop-coefficient-fix-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-safezone-stop-coefficient-fix-followups.json"
     }
   ]
 }
