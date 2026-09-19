@@ -3,7 +3,7 @@
   "title": "MACD-Histogram / Stochastic / RSI divergence detection (bullish & bearish)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-swing-point-detector",
     "backend-indicator-rsi"
@@ -91,5 +91,48 @@
     "pr_number": 156,
     "pr_url": "https://github.com/rainoko/fintrade/pull/156",
     "pushed_at": "2026-09-19T15:45:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T15:58:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/156",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: `yarn tsc -b --noEmit` fails with 2 real type errors. `frontend/src/api/types.ts`'s regenerated `AnalysisResponse.divergence` field is required (no `?`, matches `app/api/schemas.py`'s `DivergenceOut | None` with no `default=None`), but two pre-existing test fixtures that construct `AnalysisResponse`-shaped objects were not updated to include it: `tests/mocks/handlers.ts` and `src/features/stocks/components/PriceChart.test.tsx`. `vitest run` passes (414/414) only because it doesn't type-check via esbuild transform, but `yarn build` (which runs `tsc -b && vite build`) would fail outright. The PR's own claim of 'frontend tsc/vitest clean' does not hold. Fix: add `divergence: null` (or an appropriate `DivergenceOut` value) to both fixtures.",
+        "file": "frontend/tests/mocks/handlers.ts",
+        "line": 53
+      },
+      {
+        "summary": "Same blocking tsc error, second occurrence: AnalysisResponse mock is missing the now-required `divergence` field.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": 142
+      },
+      {
+        "summary": "Verified: task-worker's claim that docs/ideas.md contains no DJIA/2007-2009 divergence chart example is accurate (grepped docs/ideas.md and docs/Analyse.md for 'DJIA'/'2007'/'2008'/'2009' -- zero hits in both). The synthetic hand-computed fixtures plus one real-RSI-math integration fixture (tests/integration/test_stocks_analysis.py's/test_stocks_indicator_history.py's _divergence_daily_ohlcv) are a reasonable substitution, not a shortcut to avoid harder fixtures -- 28 hand-verified reference tests in tests/unit/signals/test_divergence.py cover every filter boundary (spacing 19/20/40/41, exact-half depth ratio, centerline-crossing required-vs-not-required, Hound-of-the-Baskervilles both directions) by direct inspection.",
+        "file": "backend/tests/unit/signals/test_divergence.py",
+        "line": 0
+      },
+      {
+        "summary": "Verified: both cross-task followup edits are accurate and transparent (visible in the PR's own diff plus a documented decisions entry, not silent). docs/architecture/Backend.md's module-layout tree now lists support_resistance.py (backend-support-resistance-followups' flagged gap), swing_points.py, and divergence.py all three under signals/. The swing-point-detector-followups plateau/tie-merging item's own narrower question (does the middle-bar merge convention distort the 20-40-bar Lovvorn spacing measurement?) is reasonably answered -- the spacing filter's own soft 'closer to 20 is better' framing absorbs a small mid-run shift. See the next comment for a related but distinct gap that reasoning did not cover.",
+        "file": "docs/architecture/Backend.md",
+        "line": 36
+      },
+      {
+        "summary": "NON-BLOCKING (tracked as docs/tasks/backend-divergence-detection-followups.json): confirmed_divergence_as_of's no-look-ahead guarantee has a narrow leak for a swing point born from a run of 3+ exact-value-tied consecutive bars. Demonstrated concretely: for vals=[10,9,8,7,6,5,5,5,5,5,6,7,8,9,10,...] (a 5-bar plateau at indices 5-9), swing_lows(window=3) over the FULL series reports the merged point at index 7; the cache's confirm threshold for that point is 7+window(3)=10, but swing_lows on the series truncated to position 10 (what a genuinely causal per-bar recomputation would see) still reports index 6, not 7 -- convergence to index 7 only happens once truncated at position 11. So at position 10, confirmed_divergence_as_of reports a swing point one bar earlier than a truly causal recomputation would -- a real, if narrow, look-ahead leak. Requires an exact multi-bar tie in real float price/indicator data (vanishingly rare with real market data, matching this task's own 'vanishingly rare outside synthetic data' reasoning elsewhere), but this is a distinct claim from the spacing-distortion question the swing-point-detector-followups item's 'no mitigation needed' conclusion actually analyzed -- that conclusion did not cover this confirm-threshold correctness question, so marking that followup item done based on it was slightly premature on this narrower point (though reasonable on the point it did address).",
+        "file": "backend/app/signals/divergence.py",
+        "line": 651
+      },
+      {
+        "summary": "NON-BLOCKING (tracked as docs/tasks/backend-divergence-detection-followups.json): `_evaluate_pair` calls `is_beyond_reference_line(...)` for RSI without explicitly passing `oversold=_RSI_OVERSOLD, overbought=_RSI_OVERBOUGHT` -- it silently relies on the function's own defaults, which are `_STOCHASTIC_OVERSOLD`/`_STOCHASTIC_OVERBOUGHT`. Correct today only because both constant pairs are numerically 30.0/70.0, but they were deliberately kept as distinct named constants (per this task's own decisions entry) specifically so RSI's reference line could diverge from Stochastic's later -- if either pair changes independently without also fixing this call site, RSI's `beyond_reference_line` would silently compute against the wrong thresholds, and no existing test would catch it. Found by a code-review pass; verified directly against the source.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 355
+      },
+      {
+        "summary": "Verified: MACD-Histogram centerline-crossing requirement is genuinely enforced as a hard filter (macd_centerline_crossed returns False -> _evaluate_pair returns None entirely, not merely flagged weak), directly covered by test_no_centerline_crossing_means_no_divergence_at_all. Stochastic/RSI correctly have no centerline requirement (beyond_reference_line is informational only, never gates). Lovvorn's 20-40-bar spacing and half-depth filters are implemented as named, independently-testable functions (is_spacing_valid, is_second_extreme_shallow_enough) with direct boundary tests (19/20/40/41 bars; exactly-half/just-over-half ratios). Hound of the Baskervilles (_is_aborted) correctly checks price beyond the second extreme's own level after its date, covered both directions. Full backend suite (699 tests) and frontend suite (414 tests, run serially to rule out worker-contention flakiness) pass; backend coverage 99.91% (divergence.py itself 100%), frontend coverage 99.6%/99%/99.6%/99.75% (statements/branches/functions/lines) -- both well above the 90% gate. ruff/mypy clean. backend/openapi.json regenerated locally and diffs clean against the committed snapshot. docs/Analyse.md/API.md/Backend.md updates are accurate and thorough.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 0
+      }
+    ],
+    "notes": "No UI surface: this PR is backend-only plus a regenerated frontend/src/api/types.ts (no rendering code consumes the new field yet -- frontend-divergence-markers is a separate, still-planned task) -- browser walkthrough (review step 9) and the persisted e2e suite (step 9a) both explicitly skipped as not applicable. Verdict is needs_work solely for the blocking frontend tsc failure (frontend/tests/mocks/handlers.ts and src/features/stocks/components/PriceChart.test.tsx missing the newly-required AnalysisResponse.divergence field) -- the backend divergence-detection logic itself (Elder methodology conformance, no-look-ahead precompute path modulo the tracked plateau edge case, coverage, architecture placement) is sound. Frontend flaky test observed and confirmed unrelated: src/pages/PortfolioPage.test.tsx's 'adds a new position end to end' test times out under full parallel vitest run but passes consistently in isolation and serially (--no-file-parallelism) -- pure worker-resource contention, not a regression (PortfolioPage.tsx/test.tsx untouched by this PR)."
   }
 }
