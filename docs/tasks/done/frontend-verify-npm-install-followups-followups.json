@@ -82,5 +82,10 @@
       }
     ],
     "notes": "Trivial-scope docs-only PR as described: one paragraph reworded in docs/architecture/Frontend.md §6, resolving both non-blocking findings PR #137's review filed. Verified independently rather than trusting the description: re-read the paragraph and confirmed it's genuinely internally consistent (not just superficially reworded) and reproduced the underlying YN0060 peer warning myself via yarn install; cross-checked both citation targets (frontend-verify-npm-install and frontend-verify-npm-install-followups) against their actual decisions arrays and confirmed each claim now points to the task that actually recorded that evidence. Full test/coverage suites, static analysis, and an independent code-review pass all clean, matching PR #137's own numbers exactly (no regression, as expected for a docs-only change). No blocking findings; no new non-blocking findings either -- this PR fully closed out both items it set out to close. Accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T03:02:54Z",
+    "verdict": "merge",
+    "notes": "Independently re-read the reworded Frontend.md §6 paragraph and confirmed it's internally consistent (forces language scoped to npm overrides/PR #115; Yarn resolutions described conditionally with the open question left to migrate-yarn2-followups). Spot-checked both citation targets in their decisions arrays: frontend-verify-npm-install.json genuinely contains the fresh-install-clean and byte-for-byte generate:api-types claims (PR #115), and frontend-verify-npm-install-followups.json genuinely contains the oneOf/allOf/readOnly/webhooks synthetic-schema smoke test (PR #137). Re-ran backend pytest --cov=app --cov-report=term-missing (578 passed, 99.87% coverage) and frontend yarn vitest run --coverage (49 files, 344 tests passed, 99.69%/99.44%/100%/99.69%), and python3 scripts/validate_tasks.py (126 files, no violations) -- all match pr-reviewer's reported numbers exactly. Diff is docs + task-board JSON only, matching the described scope. Accept holds."
   }
 }
