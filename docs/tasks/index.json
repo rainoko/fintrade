@@ -1125,8 +1125,8 @@
       "id": "frontend-channel-overlay",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-channel-overlay.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-channel-overlay.json"
     },
     {
       "id": "frontend-channel-overlay-followups",

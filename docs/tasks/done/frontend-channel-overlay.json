@@ -3,7 +3,7 @@
   "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-channel-envelope-exposure"
   ],
@@ -77,26 +77,26 @@
     "pushed_at": "2026-09-19T11:55:07Z"
   },
   "review": {
-    "reviewed_at": "2026-09-19T12:04:38Z",
+    "reviewed_at": "2026-09-19T12:21:07Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/151",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: the value-zone 'mask' AreaSeries (zoneBottomMaskSeries, opaque theme.palette.background.paper) is added to the same pane as, and after (i.e. on top of), the CandlestickSeries. Lightweight Charts draws later-added series above earlier ones on the same pane, so this mask doesn't just erase empty space below the value zone -- it also paints over and hides any candlestick wick/body that falls below the zone's bottom boundary. Verified visually with fixture data across TSLA (1M -- nearly all candle data hidden, including the most recent bar, which sits below EMA13), GOOGL (1M -- every candle wick dipping into the zone is cut off exactly at the top boundary), and MSFT (1M -- same clipping, less visible only because the zone is narrow there). This happens whenever price trades below the fast/slow EMA -- a routine occurrence (any pullback or downtrend), not an edge case -- and defeats the primary purpose of a price chart. Needs the render order/pane structure reworked (e.g. draw the zone/mask series before the candlesticks, or on a genuinely separate layer) and re-verified visually before this can be accepted.",
+        "summary": "Retry round 1 (post prior needs_work): the setSeriesOrder(2) fix for the candlestick-occlusion bug is genuinely correct, not just plausible. Confirmed setSeriesOrder/seriesOrder are real, documented ISeriesApi methods in the actually-installed lightweight-charts@5.2.1 (node_modules/lightweight-charts/dist/typings.d.ts:2606-2623, matching package.json's ^5.2.1 and package.json's resolved version). Confirmed it's called in the right place with effect ordering that survives re-renders: the overlay effect (deps historyQuery.data/indicatorsQuery.data/overlayEnabled/theme) fully tears down (removeSeries on both zone series + EMA/channel series) and rebuilds the zone series plus re-calls setSeriesOrder(2) every time it reruns -- not a mount-only call -- so the pin doesn't go stale as the zone series get added/removed dynamically across range/interval/theme changes.",
         "file": "frontend/src/features/stocks/components/PriceChart.tsx",
-        "line": 386
+        "line": 411
       },
       {
-        "summary": "Non-blocking, confirmed correct: the light-mode-only mask-color assumption (theme.palette.background.paper matching what's actually behind the transparent chart) checks out -- theme.ts hardcodes mode: 'light' with no toggle anywhere, and no Card/Paper wraps PriceChart between it and the page background.",
-        "file": "frontend/src/theme/theme.ts",
+        "summary": "Own real browser walkthrough (Playwright, not the reported screenshots) against a manually-started fixture-mode backend+frontend, independent of task-worker's own verification: TSLA/GOOGL/MSFT at 1M (the original repro conditions) all render every candlestick fully un-occluded, including wicks/bodies trading below the value zone. Also checked two conditions beyond the original repro: GOOGL at Max range (a dense multi-year view where price tracks tightly inside/along the zone for long stretches) and TSLA with 7 rapid range-switch clicks ending back at 1M (exercises repeated effect teardown/rebuild) -- both still render correctly, no occlusion, zero browser console errors, zero failed network requests across the whole walkthrough. Dark mode is not applicable: confirmed (again) the app has no dark-mode/theme-toggle infrastructure, so that edge case doesn't exist yet to regress.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
         "line": 0
       },
       {
-        "summary": "Non-blocking, confirmed accurate: channelHelp's claim that evaluate_exit_flags checks the exact same upper-Autoenvelope-band computation is correct (backend/app/portfolio/exits.py's 'profit_zone_impulse_red' flag uses autoenvelope(daily_close, mid=daily_ema_13)[\"upper\"], the same computation /indicators' channel_upper exposes); valueZoneHelp's more conservative scoping (no backend target/stop computed from the value zone yet) is also accurate -- no overclaiming in either.",
-        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
-        "line": 0
+        "summary": "Non-blocking (tracked as a new checklist entry on frontend-channel-overlay-followups, already 'planned'): setSeriesOrder(2)'s target index is a literal magic number tied to 'exactly 2 series added before this line in the effect today', not derived from the actual series count at call time. Correct now (traced against the real minified source: addSeries appends to the pane's data-source list, setSeriesOrder splices/reclamps against that list's length), but a future change adding/removing a series before this call without updating the literal would silently reintroduce the occlusion bug, and the existing regression test (asserting setSeriesOrder was called with exactly 2) wouldn't catch it since it only checks the literal argument, not the resulting z-order relative to the zone series.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 411
       }
     ],
-    "notes": "Full backend (639 passed, 99.89% coverage) and frontend (382 passed -- one PortfolioPage.test.tsx timeout confirmed flaky/pre-existing by re-running in isolation, coverage 99.73%/99.49% stmts/branches) suites pass well above the 90% gate; ruff/mypy/eslint/tsc all clean; no backend files touched so openapi.json correctly untouched; the persisted e2e suite (make e2e) passed 16/16 including stock-analysis specs that exercise PriceChart, which is exactly why the rendering bug wasn't caught there (no spec asserts on chart pixels). isFiniteNumber promotion from OscillatorChart.tsx is behavior-preserving (identical logic, existing tests pass unmodified). No new component files added, so no common/-vs-feature placement violation to flag. All 6 decisions entries are genuine judgment calls with rationale. Branch history double-checked per dispatcher's note: origin/main unaffected (still at 3d8691c), branch cleanly based on it."
+    "notes": "Retry round 1 verification, independent of task-worker's own re-verification. Full backend (639 passed, 99.89% coverage) and frontend (383 passed, coverage 99.73%/99.49%/100%/99.72% stmts/branches/functions/lines) suites pass well above the 90% gate; ruff/mypy/eslint/tsc all clean; no backend files touched so openapi.json correctly untouched. The persisted e2e suite (make e2e) passed 16/16 (run separately from, and after, the manual walkthrough to avoid port 8000/5173 contention with Playwright's own webServer). code-review skill (medium effort) found only the one non-blocking magic-number finding above after tracing the actual Lightweight Charts v5.2.1 source for both addSeries append-order and setSeriesOrder's splice/reclamp behavior -- no other correctness bugs found; confirmed the three touched test-mock files (PriceChart.test.tsx, StockCharts.test.tsx, StockDetailPage.test.tsx) all correctly added the new no-op setSeriesOrder mock and OscillatorChart.test.tsx correctly didn't need it (never renders PriceChart). No new component files added in this fix commit, so no common/-vs-feature placement re-check needed. No checklist items phrased as 'decide X' are missing a decisions entry -- the new decisions entry for this fix is a genuine judgment call with rationale and alternatives considered. Prior review's other two non-blocking findings (light-mode mask-color assumption, channelHelp/valueZoneHelp accuracy) were already confirmed correct in the previous pass and unaffected by this fix commit."
   }
 }
