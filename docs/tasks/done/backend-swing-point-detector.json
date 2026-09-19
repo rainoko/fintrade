@@ -1,0 +1,78 @@
+{
+  "id": "backend-swing-point-detector",
+  "title": "Swing-high / swing-low detector (shared prerequisite for divergence detection)",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/signals/triple_screen.py",
+    "docs/ideas.md"
+  ],
+  "description": "Every divergence-detection idea logged in docs/ideas.md (MACD-Histogram, Stochastic, RSI, and eventually OBV/A-D) needs a shared prerequisite: identifying swing highs/lows in a price or indicator series, so two comparable peaks or troughs can be measured against each other. Nothing like this exists in the codebase today. Build one small, reusable, well-tested utility (not duplicated per indicator) that both this task's own dependents (backend-divergence-detection) and any future divergence work can share. Keep the algorithm simple and explainable (e.g. a local-extremum test over a configurable lookback window) rather than importing a heavyweight peak-finding library -- decide and record the exact approach.",
+  "checklist": [
+    {
+      "step": "Decide and record the swing-point definition (e.g. a bar whose value is the max/min within a +/-N-bar window) and the window size, with rationale.",
+      "done": true
+    },
+    {
+      "step": "Implement as a small, reusable function (e.g. backend/app/signals/swing_points.py) operating on any pd.Series (price or an indicator series), not price-specific.",
+      "done": true
+    },
+    {
+      "step": "Unit tests covering: a clean uptrend/downtrend with no swings, a single well-defined swing, and a noisy series with multiple candidate swings close together.",
+      "done": true
+    },
+    {
+      "step": "Document the function's contract clearly (what counts as a swing, how ties/plateaus are handled) since every later divergence-detection task depends on this behavior being predictable.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Checked app.signals.support_resistance's internal _find_swing_points (PR #147, backend-support-resistance) first, as this task's own description asked, and decided NOT to reuse or extract it as a shared utility -- app.signals.swing_points is a new, independent module operating on a single pd.Series (any series: price close, or an indicator series like MACD-Histogram/Stochastic %K/RSI), rather than an OHLCV DataFrame. Swing-point definition: bar i is a swing high if its own value equals the max of the (2*window+1)-bar window centered on it (mirrored via min for a swing low), default window=3 (a 7-bar window). Ties/plateaus: a run of index-consecutive, equal-value candidates of the same kind is merged into one SwingPoint at the run's middle bar (floor-rounded toward the later bar for an even-length run), so a flat top/bottom never produces one swing point per bar. A candidate bar is skipped entirely (not just its own NaN, any NaN anywhere in its comparison window) rather than computing a partial max/min over the remaining real values, since a partial comparison could make a bar look like a local extreme purely because it lost fewer real neighbors to compare against, not because it genuinely is one.",
+      "rationale": "support_resistance's _find_swing_points is purpose-built for its own zone-clustering use case: it tests a bar's raw `high`/`low` OHLCV columns against a window of *other bars'* highs/lows, then reports a DIFFERENT column (`close`) as the 'touch' value fed into 1-D price clustering -- a deliberate high/low-vs-close split that only makes sense because an OHLCV bar has three distinct price concepts (high, low, close) to choose from. This task's use case has no such split available: an indicator series like MACD-Histogram has only one value per bar, no separate 'wick' to test against a different 'touch' value, so the same high/low-vs-close design doesn't transfer -- extracting a shared implementation would have meant forcing a DataFrame-shaped, OHLCV-specific interface onto callers (like the future backend-divergence-detection task) that only ever have a single Series to hand it. A fresh, Series-in/Series-out module is simpler for that caller and doesn't smuggle price-specific assumptions into what's meant to be a generic utility. Window default (3, vs. support_resistance's 2): this module is routinely expected to run over oscillator series (Stochastic %K in particular) that whipsaw more readily bar-to-bar than raw price highs/lows, so a slightly wider default window reduces flagging short-lived noise as a 'swing' out of the box -- it's overridable per call site regardless, so the exact default matters less than documenting it clearly. The strict all-window-non-NaN rule (rather than pandas' default NaN-skipping max/min) was chosen after finding, while writing the reference tests, that skipna-based comparison lets the very first real bar after a NaN warm-up prefix register as a spurious local extreme (it only has to beat a handful of real neighbors instead of the full window) -- rejected as violating this module's own 'a swing needs bars on both sides' contract; the stricter rule instead defers the first possible swing point until a bar's entire window falls after the warm-up period, which is simpler to reason about and test. Rejected alternatives: (a) generalizing support_resistance's function to accept either an OHLCV DataFrame or a bare Series -- rejected as adding branching/complexity to an already-shipped, tested module for a caller shape (bare indicator Series) it was never designed for; (b) a scipy.signal.argrelextrema-based implementation -- rejected per this task's own description ('keep the algorithm simple and explainable... rather than importing a heavyweight peak-finding library'), and because a hand-rolled fractal-window comparison is trivially hand-verifiable in unit tests, matching this app's existing indicator-testing bar."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-swing-point-detector",
+    "pr_number": 153,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/153",
+    "pushed_at": "2026-09-19T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T14:44:23Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/153",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "docs/architecture/Backend.md §2's module-layout tree wasn't updated to list the new app/signals/swing_points.py module -- the same recurring gap already flagged (still unresolved) on the prior backend-support-resistance PR (#147). Non-blocking; tracked on backend-swing-point-detector-followups.",
+        "file": "docs/architecture/Backend.md",
+        "line": 30
+      },
+      {
+        "summary": "Plateau/tie merging collapses a run of identical-value bars into a SwingPoint at the run's middle bar, shifting the reported extreme's date away from where it actually first/last occurred. Very unlikely to matter for continuous float series in practice, but the future backend-divergence-detection task (Kerry Lovvorn's 20-40-bars-apart spacing rule) should explicitly confirm this doesn't distort spacing measurement rather than silently inheriting the assumption. Non-blocking; tracked on backend-swing-point-detector-followups.",
+        "file": "backend/app/signals/swing_points.py",
+        "line": 156
+      },
+      {
+        "summary": "The decisions entry evaluated two alternatives for avoiding duplication with support_resistance._find_swing_points (generalize it to accept DataFrame-or-Series; scipy argrelextrema) and rejected both -- both rejections are sound given the two modules' genuinely different NaN-handling and touch-value semantics. A third, narrower option wasn't considered: extracting just the low-level 'is bar i a local extreme over a full non-NaN window' comparison as a shared primitive, with each module's own post-processing layered on top. Non-blocking simplification opportunity; tracked on backend-swing-point-detector-followups.",
+        "file": "backend/app/signals/swing_points.py",
+        "line": 108
+      },
+      {
+        "summary": "swing_highs()/swing_lows() each independently run the full find_swing_points() pass and then filter by kind -- a caller wanting both sides (plausible for a divergence detector) does the full merge pass twice. Trivial at typical daily-bar series lengths. Non-blocking; tracked on backend-swing-point-detector-followups.",
+        "file": "backend/app/signals/swing_points.py",
+        "line": 121
+      },
+      {
+        "summary": "find_swing_points's core scan uses a manual Python loop with a fresh series.iloc[...] slice + .max()/.min()/.isna().any() per candidate bar (O(n*window)) instead of the vectorized centered-rolling idiom (series.rolling(2*window+1, center=True).max()/.min()) already used elsewhere in this codebase (app/indicators/stochastic.py, app/signals/engine.py). Not a correctness issue at typical daily-bar lengths, but stylistically inconsistent and the slower path over longer/intraday series. Non-blocking; tracked on backend-swing-point-detector-followups.",
+        "file": "backend/app/signals/swing_points.py",
+        "line": 96
+      }
+    ],
+    "notes": "Full review per pr-reviewer process. Tests: backend suite 657 passed, 99.90% total coverage, 100% on the new module (matches PR claim); ran `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` myself. Static analysis: ruff and mypy both clean on app/ (verified directly). No frontend changes in this PR -- frontend suite not re-run, last known state unaffected. No API/schema changes -- backend/openapi.json not applicable. No UI surface (pure backend utility module, not yet wired into any router or the signal engine) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) explicitly skipped as genuinely not applicable. verify-elder-signal: also explicitly checked -- app.signals.swing_points has zero callers anywhere else in the codebase (grepped), so it doesn't yet participate in Screen 1/2/3, the Impulse gate, confidence scoring, or the portfolio risk overlay; nothing in docs/Analyse.md to diverge from until backend-divergence-detection wires it in. architecture-review: also explicitly checked -- new module fits the existing signals/ precedent set by support_resistance.py (a standalone detection algorithm, not indicator math), no new dependency, no DB/persistence change, no API/frontend touch; only gap found is the pre-existing Backend.md module-tree omission noted above (a documentation-completeness point, non-blocking, same as the still-open prior instance). Scrutinized the reuse-vs-support_resistance decision specifically as asked: support_resistance._find_swing_points takes an OHLCV DataFrame, tests high/low columns, reports a different column (close) as the touch value, and has no NaN-handling at all (relies on clean OHLCV); swing_points takes a bare Series, requires a strict full-window NaN check (verified by hand: a naive skipna-based max/min would register a spurious low at index 2 of the NaN-warm-up test fixture, matching the decision's own claim), and merges plateau runs to a single point (which support_resistance deliberately does NOT do, since each touch needs to count separately for its own zone-strength scoring) -- these are genuine, not cosmetic, behavioral differences, so the decision not to force-share the two implementations is sound. Hand-computed reference tests confirmed present (not just golden-output regression) -- e.g. test_multiple_close_candidate_swings_are_all_detected_in_order and test_narrower_window_finds_more_swings_than_a_wider_one_on_the_same_series show the window contents and expected max/min inline in comments before asserting. All 4 checklist items are done and match actual code/tests/docstring. The task's one 'decide X'-shaped checklist item (swing-point definition + window size) has a corresponding decisions entry with real rationale, not just an assertion. Also ran the code-review skill (medium effort) against the diff, which independently confirmed no correctness bug (hand-traced window-boundary math, NaN-window exclusion, plateau-merge run detection, and mid-bar tie-break against both the docstring and the tests) and surfaced the two efficiency findings above (duplicate scan in swing_highs/swing_lows; manual Python loop vs. this codebase's usual vectorized rolling idiom), both folded into the follow-up task. No blocking findings."
+  }
+}
