@@ -831,8 +831,15 @@
       "id": "frontend-stock-detail-metric-help",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-stock-detail-metric-help.json"
+    },
+    {
+      "id": "frontend-stock-detail-metric-help-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-stock-detail-metric-help-followups.json"
     },
     {
       "id": "frontend-signal-why-explanation",

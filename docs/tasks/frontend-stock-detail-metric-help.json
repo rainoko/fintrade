@@ -3,7 +3,7 @@
   "title": "Stock detail page: help icon on every metric explaining what it is, its Elder methodology basis, and the current value",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "frontend/src/pages/StockDetailPage.tsx",
@@ -55,5 +55,18 @@
     "pr_number": 127,
     "pr_url": "https://github.com/rainoko/fintrade/pull/127",
     "pushed_at": "2026-09-18T23:58:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T00:05:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/127",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: triggerHelp.interpretValue (metricHelpContent.ts) attributes every 'not_applicable' trigger reference to 'there isn't enough daily price history yet to compare today's close against a prior high/low.' Per backend/app/signals/triple_screen.py's evaluate_trigger, 'not_applicable' actually has two distinct causes: (1) Tide is NEUTRAL (no directional rule applies at all) -- the common case -- or (2) fewer than 2 daily bars (a rare data-scarcity edge case). Verified live via a browser walkthrough against the fixture backend: AAPL has 420 daily bars and a Neutral tide, and the Trigger help balloon still says 'there isn't enough daily price history yet', which is factually false and actively misleading in exactly the common case. ScreensPanel.tsx already has `tide.trend` in scope at the Trigger call site (the same value already passed to tideHelp.interpretValue next to it) -- triggerHelp.interpretValue needs to take tide/trend as a parameter and branch its not-fired message on Tide-Neutral vs genuinely-insufficient-history instead of assuming the latter unconditionally.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 190
+      }
+    ],
+    "notes": "Everything else checked out: backend pytest 99.86% (573 passed), frontend vitest 99.68%/99.41% (329 passed) -- both well above the 90% gate, no regressions. ruff/mypy/eslint/tsc all clean. make e2e: 13/13 passed. Browser walkthrough of the stock detail page (AAPL, fixture provider) confirmed MetricHelp opens correctly with accurate content for Signal, Confidence, a confidence-breakdown row, Tide, Impulse, Wave, Trigger, EMA13, EMA26, MACD Histogram, Bull Power, and Bear Power -- all current-value interpretations matched the live API response except the Trigger case above. common/MetricHelp is correctly domain-agnostic (reuses common/InfoBalloon, takes only plain strings) and metricHelpContent.ts is correctly feature-scoped (Elder/Analyse.md domain concepts) -- no common/-vs-feature placement violations found among the touched/new components (MetricHelp, StatCard's new `corner` slot, ScreensPanel's internal ScreenSection). Spot-checked every metricHelpContent.ts docs/Analyse.md citation against the actual doc section (Tide/Impulse/Wave/Trigger definitions in §2-3, the confidence weighting table in §6) -- all accurate. The new question-mark icon next to the Signal badge/each ScreenSection/each StatCard reads as coherent, not duplicative, alongside frontend-signal-why-explanation's existing click-the-badge 'why this result' balloon: distinct trigger, distinct title, and SignalSummary.tsx's own doc comment explains the split (generic/definitional vs causal/ticker-specific) -- confirmed by clicking both in the browser. The StockCharts-deferral decision is reasonable given Lightweight Charts has no per-series DOM anchor and every plotted value already has help coverage elsewhere on the same page. Non-blocking findings filed as docs/tasks/frontend-stock-detail-metric-help-followups.json."
   }
 }
