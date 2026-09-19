@@ -164,6 +164,74 @@ def _hold_weekly_ohlcv() -> pd.DataFrame:
     )
 
 
+def _divergence_daily_ohlcv() -> pd.DataFrame:
+    """A real bullish RSI divergence, end to end: a sharp, monotonic 16-day selloff (100 ->
+    40, RSI fully saturates at 0 -- as extreme a first low as RSI can register) followed by a
+    rally, then a slower, zigzagging (down 7 / up 2, repeated) decline that reaches a new,
+    LOWER closing low (17, below the first selloff's 40) without ever saturating RSI the same
+    way -- the up-days along the way keep RSI's trailing gain/loss average well off zero, so
+    its reading at the second low (~18.6) is markedly shallower than the first (0). Confirmed
+    empirically against this app's own real app.signals.divergence.current_divergence (not
+    hand-derived by hand -- RSI's 9-day rolling-average math over a 38-bar span isn't
+    hand-tractable the way tests/unit/signals/test_divergence.py's own synthetic-indicator
+    fixtures are) -- this is the "as closely as fixture data allows" case docs/tasks/
+    backend-divergence-detection.json's own checklist anticipates for a real, non-synthetic
+    indicator path; see that task's `decisions` entry. MACD-Histogram/Stochastic do NOT
+    independently qualify on this same fixture (confirmed the same way), so RSI is
+    unambiguously the winner here, not just the tie-break priority order.
+    """
+    closes = [100.0 - i * 4 for i in range(16)]  # idx 0-15: 100 -> 40 (first low, idx 15)
+    for _i in range(1, 10):
+        closes.append(closes[-1] + 6.0)  # idx 16-24: rally 40 -> 94
+    value = closes[-1]
+    for i in range(30):  # idx 25-54: zigzag decline to a new low
+        value = value - 7.0 if i % 2 == 0 else value + 2.0
+        closes.append(value)
+    while len(closes) < 70:
+        closes.append(closes[-1] + 3.0)  # idx 55-69: rally after the second low
+    closes = closes[:70]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + 0.3 for c in closes],
+            "low": [c - 0.3 for c in closes],
+            "close": closes,
+            "volume": [1_000_000] * len(closes),
+        },
+        index=pd.date_range("2026-01-01", periods=len(closes), freq="D", name="date"),
+    )
+
+
+class TestDivergenceField:
+    """Integration coverage for `divergence`'s end-to-end wiring (detection ->
+    `_divergence_to_schema` -> `AnalysisResponse.divergence`) using a real (not mocked)
+    RSI computation -- see `_divergence_daily_ohlcv`'s own docstring for how this fixture was
+    built and confirmed."""
+
+    def test_bullish_rsi_divergence_is_detected_and_mapped(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _divergence_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        divergence = response.json()["divergence"]
+        assert divergence is not None
+        assert divergence["kind"] == "bullish"
+        assert divergence["indicator"] == "rsi"
+        assert divergence["first_extreme_date"] == "2026-01-16"
+        assert divergence["first_extreme_price"] == 40.0
+        assert divergence["first_extreme_indicator_value"] == 0.0
+        assert divergence["second_extreme_date"] == "2026-02-23"
+        assert divergence["second_extreme_price"] == 17.0
+        assert divergence["second_extreme_indicator_value"] == pytest.approx(18.604651162790702)
+        assert divergence["bars_apart"] == 38
+        assert divergence["centerline_crossed"] is None
+        assert divergence["beyond_reference_line"] is False
+        assert divergence["aborted"] is False
+
+
 class TestGetAnalysis:
     def test_buy_signal_response_shape(self) -> None:
         provider = _StubProvider(
@@ -209,6 +277,11 @@ class TestGetAnalysis:
         # zone (min_zone_length_days=14 plus the fractal/clustering machinery needs real
         # repeated touches) -- see TestSupportResistanceZones below for the populated case.
         assert body["support_resistance_zones"] == []
+        # Same reasoning as support_resistance_zones above: this fixture is far too short/
+        # simple for a genuine divergence (Kerry Lovvorn's own 20-40-bar spacing filter alone
+        # needs more history than this 26-bar fixture has) -- see TestDivergenceField below
+        # for the populated case.
+        assert body["divergence"] is None
 
     def test_malformed_latest_daily_bar_is_excluded_not_nulled(self) -> None:
         """Regression test for the real, observed yfinance condition this task fixes: the

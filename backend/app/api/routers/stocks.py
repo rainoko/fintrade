@@ -7,6 +7,7 @@ from app.api.dependencies import get_data_provider
 from app.api.schemas import (
     AnalysisResponse,
     ConfidenceBreakdownItem,
+    DivergenceOut,
     ErrorDetail,
     FalseBreakoutOut,
     HistoryResponse,
@@ -23,6 +24,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.signals.divergence import Divergence
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
 from app.signals.support_resistance import Zone, detect_support_resistance_zones
 
@@ -219,6 +221,26 @@ def _zone_to_schema(zone: Zone) -> SupportResistanceZone:
     )
 
 
+def _divergence_to_schema(divergence: Divergence) -> DivergenceOut:
+    """Maps `app.signals.divergence.Divergence` (the domain type, keeping `pd.Timestamp` dates
+    per that module's own contract) onto `DivergenceOut` (the API schema, plain `datetime.date`
+    fields) -- same boundary-mapping pattern as `_zone_to_schema` above."""
+    return DivergenceOut(
+        kind=divergence.kind,
+        indicator=divergence.indicator,
+        first_extreme_date=divergence.first.date.date(),
+        first_extreme_price=divergence.first.price,
+        first_extreme_indicator_value=divergence.first.indicator_value,
+        second_extreme_date=divergence.second.date.date(),
+        second_extreme_price=divergence.second.price,
+        second_extreme_indicator_value=divergence.second.indicator_value,
+        bars_apart=divergence.bars_apart,
+        centerline_crossed=divergence.centerline_crossed,
+        beyond_reference_line=divergence.beyond_reference_line,
+        aborted=divergence.aborted,
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -299,6 +321,7 @@ def get_analysis(
         ],
         indicators=cast(Indicators, result.indicators),
         support_resistance_zones=[_zone_to_schema(zone) for zone in zones],
+        divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
     )
 
 
@@ -399,6 +422,7 @@ def get_indicator_history(
             signal=result.signal,
             confidence=result.confidence,
             confidence_band=result.confidence_band,
+            divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
         )
         for bar_date, result in history
     ]

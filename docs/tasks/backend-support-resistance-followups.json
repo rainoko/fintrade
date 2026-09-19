@@ -17,7 +17,7 @@
     },
     {
       "step": "docs/architecture/Backend.md §2's module-layout tree wasn't updated to list the new app/signals/support_resistance.py module under signals/, unlike prior tasks that added a new module to this same list (e.g. indicators/autoenvelope.py, indicators/_validation.py). Add it.",
-      "done": false
+      "done": true
     },
     {
       "step": "_cluster_touches's sequential merge-by-running-mean can chain: each new point is compared against the cluster's current (shifting) mean rather than its original anchor, so an unbroken sequence of touches each within 1% of the running mean can end up spanning noticeably more than 1% end-to-end. Not a bug (upper/lower are still the cluster's actual price extremes), but this known limitation of naive sequential 1-D clustering isn't acknowledged in the task's decisions entry (which only compares against k-means/density alternatives on complexity/auditability grounds). Consider documenting this explicitly or tightening to an anchor-based tolerance check.",

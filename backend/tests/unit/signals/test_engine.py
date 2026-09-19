@@ -632,6 +632,64 @@ class TestAnalyseCombinations:
 
         assert result.indicators["rsi"] == 42.0
 
+    def test_divergence_passthrough_is_used_verbatim(self) -> None:
+        """``divergence``, like ``rsi``/``channel_upper``/etc, is a precomputed-value
+        passthrough parameter -- but unlike those (always a real ``pd.Series``), ``None`` is
+        itself a legitimate supplied value here (no divergence), distinct from the sentinel
+        default meaning "compute it yourself" (``app.signals.divergence.current_divergence``
+        would otherwise run against this fixture's own real MACD-Histogram/Stochastic/RSI,
+        which -- being flat/too-short -- has no genuine divergence anyway, but this test
+        confirms the *given* value is used regardless of what internal computation would have
+        produced, the same contract every other passthrough parameter has)."""
+        from app.signals.divergence import Divergence, DivergenceExtreme
+
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+        given_divergence = Divergence(
+            indicator="rsi",
+            kind="bullish",
+            first=DivergenceExtreme(date=pd.Timestamp("2024-01-01"), price=10.0, indicator_value=15.0),
+            second=DivergenceExtreme(date=pd.Timestamp("2024-01-31"), price=8.0, indicator_value=25.0),
+            bars_apart=21,
+            centerline_crossed=None,
+            beyond_reference_line=True,
+            aborted=False,
+        )
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse(
+                "TEST", daily_ohlcv, weekly_ohlcv, divergence=given_divergence
+            )
+        assert result.divergence == given_divergence
+
+        # Explicit `None` (a real "no divergence" answer) must also be used verbatim, not
+        # trigger the "not supplied, compute it" sentinel path.
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv, divergence=None)
+        assert result.divergence is None
+
+    def test_divergence_is_computed_internally_when_not_supplied(self) -> None:
+        """Omitting `divergence` entirely computes it from this same call's own
+        histogram/stochastic_k/rsi -- this fixture is far too short/flat for a genuine
+        divergence (needs 20+ bars of real swing structure), so the only thing under test here
+        is that *some* value (not a crash) comes back, and that it's None for this fixture --
+        the real detection math itself is covered by tests/unit/signals/test_divergence.py."""
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert result.divergence is None
+
 
 class TestAnalyseEndToEnd:
     """Real (unmocked) composition of analyse() -> every Screen/gate/indicator function, over
@@ -936,6 +994,7 @@ class TestAnalyseHistory:
         # comment: this fixture is shorter than the Autoenvelope channel's ~100-bar warm-up.
         assert _nan_tolerant_equal(last_result.indicators, expected.indicators)
         assert last_result.screens == expected.screens
+        assert last_result.divergence == expected.divergence
 
     def test_dates_are_oldest_first_and_one_per_bar(self) -> None:
         daily_ohlcv = _dated_buy_daily_ohlcv()

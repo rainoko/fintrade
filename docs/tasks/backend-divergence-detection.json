@@ -3,7 +3,7 @@
   "title": "MACD-Histogram / Stochastic / RSI divergence detection (bullish & bearish)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-swing-point-detector",
     "backend-indicator-rsi"
@@ -19,27 +19,71 @@
   "checklist": [
     {
       "step": "Implement bullish/bearish divergence detection for MACD-Histogram (centerline-crossing required) using backend-swing-point-detector.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the same for Stochastic and RSI (no centerline-crossing requirement, simpler comparison) -- reuse the same swing-point utility.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement Kerry Lovvorn's 20-40-bar-spacing and half-depth filters as named, documented, and independently testable checks (not hardcoded inline).",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the 'Hound of the Baskervilles' continuation-signal detection (a formed divergence price subsequently ignores).",
-      "done": false
+      "done": true
     },
     {
       "step": "Hand-verifiable reference tests reproducing the exact chart examples described in docs/ideas.md (the DJIA 2007-2009 bullish/bearish divergence examples) as closely as fixture data allows.",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose divergence state on GET /api/stocks/{ticker}/analysis and the indicator-history endpoint; regenerate openapi.json and frontend types; document in docs/Analyse.md.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "docs/ideas.md does not actually contain a DJIA 2007-2009 divergence chart example (confirmed via grep for 'DJIA'/'2007'/'2008'/'2009' across docs/ideas.md and docs/Analyse.md -- zero hits); the checklist's wording describing one appears to be inaccurate. Built hand-computed synthetic price/indicator fixtures instead (tests/unit/signals/test_divergence.py's FIXTURE_A and its variants -- exact arithmetic sequences with every filter boundary independently verifiable by inspection, per the add-indicator skill's reference-value-test bar), plus one additional fixture (tests/integration/test_stocks_analysis.py's/test_stocks_indicator_history.py's _divergence_daily_ohlcv) that drives the app's own real RSI/Stochastic/MACD-Histogram math end to end (confirmed empirically, not hand-derived by hand -- RSI's 9-day rolling-average math over a 38-bar span isn't hand-tractable the way a small synthetic-indicator fixture is) to prove the real (not synthetic) wiring path also produces a correct result. This is the closest reproduction of the checklist's intent the actually-available fixture data allows.",
+      "rationale": "Rejected: inventing a plausible-looking DJIA numeric series from memory and presenting it as 'the book's own chart' would misrepresent an unverifiable claim as fact; skipping hand-verified tests entirely would violate the add-indicator skill's explicit reference-value-test requirement. The chosen approach keeps every number in the test suite either independently hand-checkable or empirically reproducible against this app's own already-tested indicator functions."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Swing points for divergence detection are found on PRICE (close) alone, via app.signals.swing_points -- never independently on the indicator series. Each indicator's value is then read at exactly those two price-swing dates, rather than detecting swing points on the indicator series too and fuzzily matching the two series' extrema by date proximity.",
+      "rationale": "docs/ideas.md's own 'Implementation shape' note phrases the algorithm the same way ('compare the latest swing extreme in price against the indicator's value at the prior comparable swing extreme'). Anchoring on one series' swings keeps detection deterministic (no tolerance-window matching heuristic to invent and justify) and means every indicator needs only one already-computed swing-point pass, shared via app.signals.divergence.current_divergence's single swing_lows/swing_highs call over price -- rejected the two-independent-swing-series alternative as materially more complex (needing a fuzzy date-matching tolerance with no textual basis for its width) for no clear accuracy benefit, since a genuine price/indicator divergence's turning points are, in practice, at the same bars anyway."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Investigated the swing-point-detector-followups task's flagged concern (plateau/tie-merging in app.signals.swing_points shifting a reported extreme's date, and whether that could distort the 20-40-bar Lovvorn spacing measurement here) and concluded no mitigation is needed. Marked that followup's checklist item done in docs/tasks/backend-swing-point-detector-followups.json.",
+      "rationale": "The spacing filter (is_spacing_valid) measures bar-count distance via price.index.get_loc on each SwingPoint's own reported index -- if a plateau run were merged to its middle bar per swing_points.py's documented convention, that bar (not the run's true first/last occurrence) is what bars_apart is computed from, a real shift bounded by run_length // 2. In practice this doesn't matter here: (1) an exact multi-bar tie in a continuous float close/indicator series is vanishingly rare outside synthetic data (the same conclusion the swing-point-detector task itself reached), and (2) even if it did occur, Lovvorn's own 20-40-bar range is already a wide empirical band with an explicit soft preference ('closer to 20 is better'), not a single exact cutoff -- a shift of a handful of bars from a plateau wouldn't flip a genuine divergence from qualifying to non-qualifying except in an already-marginal edge case, and an edge case at exactly the 20 or 40 boundary is exactly the kind of borderline call the book's own 'closer to 20 is better' phrasing already treats as weaker anyway. No code changes made for this; not worth a defensive workaround for a combination (multi-bar exact tie + landing exactly on the spacing boundary) this unlikely."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Kerry Lovvorn's half-depth filter measures each extreme's 'depth' as its distance from a reference line: MACD-Histogram's own zero centerline (explicit in the book); for Stochastic/RSI (which have no signed centerline the same way -- their scale is bounded 0-100, not centered on zero), reused their own overbought/oversold reference line (30/70) as the reference instead of inventing an unrelated 50-midline or 0/100-bound convention.",
+      "rationale": "The book invokes that exact same reference line in the same breath as the depth rule for Stochastic/RSI ('strongest when the first extreme is beyond the oscillator's own overbought/oversold reference line') -- reusing it keeps the depth and strength-flag math consistent and textually grounded, rather than introducing a second, unexplained reference point. RSI itself has no OB/OS reference line defined anywhere else in this codebase (docs/Analyse.md exposes it for computation + display only); reused Stochastic's existing 30.0/70.0 constants (app.signals.triple_screen.STOCHASTIC_OVERSOLD/OVERBOUGHT) as RSI's convention too, rather than a different pair -- Elder's own book also treats 30/70 as RSI's classic reference lines (ch. 27), and using the same numbers for both oscillators keeps app.signals.divergence's depth/strength math uniform."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "When more than one indicator (MACD-Histogram/Stochastic/RSI) independently qualifies with a divergence sharing the exact same second-extreme date (expected to be common in practice, since all three are checked against the same price swing points), app.signals.divergence.current_divergence breaks the tie by a fixed priority order: MACD-Histogram, then Stochastic, then RSI.",
+      "rationale": "docs/ideas.md repeatedly calls MACD-Histogram 'his usual choice' for divergence work and Stochastic/RSI get 'the exact same... treatment, slightly simpler' -- reads as MACD-H being the primary/preferred indicator, Stochastic next (already computed pre-existing in this app, RSI newest). Rejected returning a list of every qualifying indicator's divergence instead of a single winner: the task's own description says 'Expose divergence state (none/bullish/bearish, which indicator, extreme dates) as a new field' (singular), and AnalysisResponse.divergence follows that singular-field shape, matching every other latest-bar-only field on that response rather than introducing the only list-shaped field that isn't already a list-of-zones/list-of-breakdown-items concept."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "'Hound of the Baskervilles' (Divergence.aborted) is defined as: at any point after the divergence's second extreme date, price closes beyond that same second extreme's own price level in the 'wrong' direction (a new low below it for an aborted bullish divergence, a new high above it for an aborted bearish one). This is detection + exposure only -- no stop-and-reverse trading action is implemented, and aborted is not wired into _determine_signal or confidence scoring.",
+      "rationale": "docs/ideas.md's own phrasing ('price does the opposite of what it implies -- keeps falling despite a bullish divergence') doesn't specify an exact numeric trigger (a bar count, a percentage move, etc.) beyond 'ignores it', so this is the simplest, most literal, and most directly checkable reading: the second extreme's own price is the natural line in the sand a genuine reversal should hold above (bullish) or below (bearish); price breaching it again is precisely 'the opposite of what it implies'. Not implementing the stop-and-reverse trading action itself matches this task's own description ('detection + exposure only... a separate, later decision -- out of scope for this task') -- confidence-scoring/signal-engine wiring for aborted, same as for the base divergence signal itself, is left for a future task."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "app.signals.engine.analyse_history does not call app.signals.divergence.current_divergence fresh per bar (the 'compute internally when not given' path every other analyse() passthrough uses, and what analyse() itself falls back to for a single, non-history call). Instead it precomputes one DivergenceSwingCache over the full daily close series up front and calls confirmed_divergence_as_of (a no-look-ahead, already-confirmed-swings-only lookup) per bar, passed into analyse() via a new divergence= passthrough parameter guarded by a private _DIVERGENCE_NOT_GIVEN sentinel (since, unlike every other passthrough parameter, None is itself a legitimate 'no divergence' answer here, not just 'not supplied').",
+      "rationale": "app.signals.swing_points.find_swing_points's core scan is an unvectorized Python-level loop (not a pandas/numpy vectorized rolling-window operation like the EMA/MACD/Stochastic passes elsewhere in this module), so re-running it on every one of analyse_history's up-to-thousands of per-bar calls would be a real O(history_length^2) Python-loop cost -- confirmed by direct estimation (~35k Python-level operations per full-series swing-point scan at a 5,000-bar history, times 5,000 calls) as measurably slower than the already-accepted O(i)-per-bar costs elsewhere in this module (e.g. the confidence-scoring branch's volume.rolling(...).mean() call, which is vectorized C code even at O(i)). Rejected the simpler 'just call current_divergence() fresh every bar, matching elder_bull_power/bear_power's own not-precomputed precedent' alternative for this specific reason: elder_bull_power/bear_power are themselves vectorized O(i) operations (a High/Low - EMA(13) subtraction), not a per-bar Python loop, so that precedent doesn't transfer to swing-point detection. The chosen precompute-and-slice design mirrors the same pattern engine.py already uses for ema_13_full/histogram_full/etc, and its no-look-ahead correctness (a swing point at position p is only usable once p + window <= the current bar) is directly covered by tests/unit/signals/test_divergence.py's TestDivergenceSwingCache tests and confirmed end to end against the real API in tests/integration/test_stocks_indicator_history.py's TestDivergenceField."
     }
   ]
 }

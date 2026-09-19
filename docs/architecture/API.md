@@ -79,7 +79,21 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
       "break_date": null,
       "false_breakout": null
     }
-  ]
+  ],
+  "divergence": {
+    "kind": "bullish",
+    "indicator": "rsi",
+    "first_extreme_date": "2026-01-16",
+    "first_extreme_price": 40.0,
+    "first_extreme_indicator_value": 0.0,
+    "second_extreme_date": "2026-02-23",
+    "second_extreme_price": 17.0,
+    "second_extreme_indicator_value": 18.6,
+    "bars_apart": 38,
+    "centerline_crossed": null,
+    "beyond_reference_line": false,
+    "aborted": false
+  }
 }
 ```
 
@@ -92,6 +106,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 `indicators.rsi` is the Relative Strength Index (Analyse.md §4 row 10, Elder ch. 27) — `app.indicators.rsi.rsi(close)`, a 9-day, simple/arithmetic-average (not Wilder-smoothed) closing-price-only oscillator, exposed alongside `screens.wave.stochastic_k` as a second, less-noisy overbought/oversold timing tool per Elder's own comparison. Computation + exposure only — not read by `signal`/`confidence_breakdown`/`screens` above (see the `backend-indicator-rsi` task's `decisions`). `null` for the first 9 trading days of a ticker's history (needs 9 daily closing changes) — a much shorter warm-up than `channel_upper`/`channel_lower`.
 
 `support_resistance_zones` is a list of horizontal support/resistance zones (Analyse.md §4 row 9, Elder ch. 18) detected from swing-point clustering over the ticker's full available daily history — `app.signals.support_resistance.detect_support_resistance_zones`, computed directly in `get_analysis` (not inside `app.signals.engine.analyse()`, since it's not needed by `GET /api/stocks/{ticker}/indicators`'s per-bar `analyse_history()` loop — see the `backend-support-resistance` task's `decisions`). Up to the 15 strongest zones, ordered by `strength_score` descending. Each zone's `role` (`support`/`resistance`) is its *current* role — a broken zone keeps existing with an inverted role (old resistance becomes new support) rather than being discarded, per Elder's own rule; `broken`/`break_date` record a confirmed break, and `false_breakout` (nullable) records the most recent false-breakout episode — price closing beyond the zone, then closing back inside it within a 10-trading-day window — with `extreme_price` giving the failed move's own extreme, Elder's explicit stop-placement reference. `dollar_volume` is Elder's own `days-in-zone × average volume × average price` formula, exposed raw (not folded into `strength_score`, which is a length/height-only composite — see Analyse.md §4). This is detection + scoring + false-breakout flagging only: zones are not wired into `signal`/`confidence`/`screens` above, nor into `GET /api/portfolio/risk`'s `protective_stop` — see Analyse.md §4 and the task's `decisions` for why that's an explicit, separate follow-up.
+
+`divergence` (Analyse.md §4 row 11, Elder ch. 15/23/26/27) is the single most recent qualifying MACD-Histogram/Stochastic/RSI divergence — `app.signals.divergence.current_divergence`, using the same PRICE swing points (`app.signals.swing_points`) each of the three indicators' own value is read at, per-indicator, per divergence.py's own module docstring. `null` if none currently qualifies. `kind` ∈ `bullish | bearish`; `indicator` ∈ `macd_histogram | stochastic | rsi` — when more than one indicator qualifies with the same `second_extreme_date` (common, since all three are checked against the same price swing points), MACD-Histogram wins the tie-break, then Stochastic, then RSI (Elder's own preferred indicator for this signal). `bars_apart` is always 20–40 (Kerry Lovvorn's empirical spacing filter). `centerline_crossed` is non-null (always `true`) only for `indicator: "macd_histogram"` — a non-crossing pair is never reported as a divergence at all, per the book's "no crossover, no divergence" rule; `null` for stochastic/rsi, which have no such requirement. `beyond_reference_line` is the mirror: non-null only for `indicator` in `stochastic`/`rsi`, `true` when this divergence is at its textbook strongest (first extreme beyond the oscillator's own 30/70 overbought/oversold line, second back inside it) — informational only, never a requirement. `aborted` is the "Hound of the Baskervilles" state — whether price has, as of `as_of`, already ignored this divergence (continued in the "wrong" direction instead of the reversal it implied), which Elder treats as a strong continuation signal in the opposite direction rather than a failed signal to discard. **Detection + exposure only**: not wired into `signal`/`confidence_breakdown`/`screens` above — see the `backend-divergence-detection` task's `decisions`.
 
 ### `GET /api/stocks/{ticker}/indicators`
 
@@ -117,7 +133,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
       "rsi": 61.4,
       "signal": "BUY",
       "confidence": 72,
-      "confidence_band": "High"
+      "confidence_band": "High",
+      "divergence": null
     }
   ]
 }
@@ -130,6 +147,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 `channel_upper`/`channel_lower` are likewise nullable, same definition/source as `/analysis`'s `indicators.channel_upper`/`channel_lower` above (per-bar, not held fixed) — but null for a much longer leading span than `stochastic_k`/`force_index_2ema`: the Autoenvelope deviation-average needs a full ~100-bar trailing window, so both bands stay null for roughly the first 100 bars of any long-enough `range` (e.g. `range=max`) before becoming real numbers for every bar after that.
 
 `rsi` is likewise nullable, same definition/source as `/analysis`'s `indicators.rsi` above — null for the first 9 bars of any long-enough `range` (needs 9 daily closing changes), a much shorter warm-up than `stochastic_k`/`force_index_2ema`/`channel_upper`/`channel_lower`.
+
+`divergence` is the same definition/shape as `/analysis`'s `divergence` above, restricted per-bar to only the swing points confirmable using data available through that bar (no look-ahead) — `app.signals.divergence.confirmed_divergence_as_of`, using a full-history swing-point cache (`build_divergence_swing_cache`) built once and sliced per bar rather than re-running swing-point detection on each bar's own truncated prefix (the same precompute-and-slice pattern this endpoint's other fields already use). A swing point needs the same 3-bar-each-side window `app.signals.swing_points` always requires to confirm, so a bar can lag `/analysis`'s own divergence by a few bars right after a new extreme forms — see the `backend-divergence-detection` task's `decisions` for why the swing-point detector's plateau-merging convention doesn't distort this in practice.
 
 Latency scales linearly with the number of daily bars in the ticker's *full* available history (not just the requested `range`), since `app.signals.engine.analyse_history` always needs the complete series for correct indicator warm-up even when `range` trims the response — see its own docstring for the precompute-and-slice design that makes this O(history_length) rather than the O(range_size × history_length) an earlier implementation had. Measured at roughly 1ms/bar (a `range=max` request against a synthetic ~11,500-bar series — about as long as AAPL's real daily history back to 1980 — completes in ~10s end to end), so a request against a ticker with decades of daily history is a multi-second, not sub-second, response; a ticker with a few years of history responds in well under a second.
 

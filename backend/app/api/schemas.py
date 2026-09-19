@@ -135,6 +135,21 @@ class SupportResistanceZone(BaseModel):
     false_breakout: FalseBreakoutOut | None = Field(default=None, description="The most recent false-breakout episode detected for this zone (docs/ideas.md, Elder ch. 18: price closes beyond the zone, then closes back inside it -- a specific, high-value reversal signal). Null if none detected. Can be non-null even when broken is also true, if an earlier false breakout was followed by a later, separate breakout that did hold.")
 
 
+class DivergenceOut(BaseModel):
+    kind: Literal["bullish", "bearish"] = Field(description="Which way the divergence points -- 'bullish' from two successive price swing LOWS (a potential buy setup), 'bearish' from two successive swing HIGHS (a potential sell setup). Elder ch. 15/23/26/27, docs/ideas.md.")
+    indicator: Literal["macd_histogram", "stochastic", "rsi"] = Field(description="Which oscillator this divergence was detected against -- MACD-Histogram (the book's usual choice, and the only one of the three with a centerline-crossing requirement), Stochastic %K, or RSI.")
+    first_extreme_date: date = Field(description="Date of the earlier of the two compared price swing points.")
+    first_extreme_price: float = Field(description="Price (close) at first_extreme_date.")
+    first_extreme_indicator_value: float = Field(description="indicator's own value at first_extreme_date -- not necessarily a local extreme of the indicator itself, just its reading on the day price made this swing point (docs/ideas.md's own phrasing: 'the indicator's value at the prior comparable swing extreme').")
+    second_extreme_date: date = Field(description="Date of the later of the two compared price swing points -- always the more recent, more extreme price swing (a new high for bearish, a new low for bullish) with a shallower indicator reading than first_extreme_indicator_value.")
+    second_extreme_price: float = Field(description="Price (close) at second_extreme_date.")
+    second_extreme_indicator_value: float = Field(description="indicator's own value at second_extreme_date.")
+    bars_apart: int = Field(description="Trading-day spacing between the two extremes. Always between 20 and 40 inclusive (Kerry Lovvorn's empirical spacing filter, docs/ideas.md) -- a closer-together or further-apart pair is never reported as a divergence at all.")
+    centerline_crossed: bool | None = Field(description="Whether MACD-Histogram crossed its own zero centerline between the two extremes -- 'an absolute must for a true divergence' per the book. Always true when indicator is 'macd_histogram' (a non-crossing pair is never reported as a divergence at all, so this is never false here); null for 'stochastic'/'rsi', which have no such requirement.")
+    beyond_reference_line: bool | None = Field(description="Whether this divergence is at its textbook strongest for Stochastic/RSI: the first extreme beyond the oscillator's own overbought/oversold reference line (30/70) and the second back inside it. Informational only, never a requirement. Null for 'macd_histogram', where this concept doesn't apply.")
+    aborted: bool = Field(description="'Hound of the Baskervilles' (docs/ideas.md): whether price has, as of as_of, already ignored this divergence -- continued making new lows past second_extreme_price despite a bullish divergence, or new highs past it despite a bearish one -- which Elder treats as a strong continuation signal in the opposite direction (his one explicit stop-and-reverse case), not a failed signal to discard.")
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     as_of: date
@@ -145,6 +160,7 @@ class AnalysisResponse(BaseModel):
     confidence_breakdown: list[ConfidenceBreakdownItem] = Field(description="Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.")
     indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
     support_resistance_zones: list[SupportResistanceZone] = Field(description="Horizontal support/resistance zones detected from swing-point clustering over the ticker's full available daily history (docs/ideas.md, Elder ch. 18) -- up to the 15 strongest by strength_score, descending. Not currently wired into signal/confidence computation or protective_stop -- informational context only (see the backend-support-resistance task's decisions for why tightening protective_stop near a zone is an explicit, separate follow-up).")
+    divergence: DivergenceOut | None = Field(description="The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions).")
 
 
 # --- /api/stocks/{ticker}/indicators ------------------------------------
@@ -165,6 +181,7 @@ class IndicatorHistoryPoint(BaseModel):
     signal: Signal = Field(description="BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.")
     confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")
+    divergence: DivergenceOut | None = Field(default=None, description="Same definition as AnalysisResponse.divergence, using only swing points confirmable from data available through this bar (no look-ahead) -- so this can differ from a later bar's divergence at the same underlying extreme dates once more history confirms a swing point AnalysisResponse.divergence.")
 
 
 class IndicatorHistoryResponse(BaseModel):
