@@ -223,6 +223,7 @@ class TestGetIndicatorHistory:
             "confidence",
             "confidence_band",
             "divergence",
+            "kangaroo_tail",
         }
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
         # ~100-bar deviation-average warm-up window, so every point's bands are still null --

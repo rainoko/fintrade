@@ -163,6 +163,16 @@ class DivergenceOut(BaseModel):
     aborted: bool = Field(description="'Hound of the Baskervilles' (docs/ideas.md): whether price has, as of as_of, already ignored this divergence -- continued making new lows past second_extreme_price despite a bullish divergence, or new highs past it despite a bearish one -- which Elder treats as a strong continuation signal in the opposite direction (his one explicit stop-and-reverse case), not a failed signal to discard.")
 
 
+class KangarooTailOut(BaseModel):
+    direction: Literal["up", "down"] = Field(description="The tail's own physical shape -- 'up' (a new high, closing back down -- Elder's bearish reversal reading) or 'down' (a new low, closing back up -- bullish). Elder ch. 20 ('fingers').")
+    tail_date: date = Field(description="The tail bar's own date. Not named `date` (unlike GET /api/stocks/{ticker}/indicators' own per-point field) since this object is nested wherever it appears, and needs to be distinguished from confirmed_date below.")
+    confirmed_date: date = Field(description="Date of the very next bar, whose own close confirmed the reversal (below the tail's close for an 'up' tail, above it for a 'down' one) and whose own range stayed normal (not itself tail-sized) -- this pattern isn't reported at all until this bar exists and confirms it.")
+    high: float = Field(description="The tail bar's own high.")
+    low: float = Field(description="The tail bar's own low.")
+    range_multiple: float = Field(description="How many times the recent average bar range (over the preceding lookback window) this bar's own high-low range was -- always >= the qualifying threshold (2.5x).")
+    suggested_stop: float = Field(description="Elder's explicit stop-placement rule: halfway through the tail, not at its tip (too wide) or its base (too tight) -- the tail bar's own range midpoint, (high + low) / 2.")
+
+
 class AnalysisResponse(BaseModel):
     ticker: str
     as_of: date
@@ -174,6 +184,7 @@ class AnalysisResponse(BaseModel):
     indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
     support_resistance_zones: list[SupportResistanceZone] = Field(description="Horizontal support/resistance zones detected from swing-point clustering over the ticker's full available daily history (docs/ideas.md, Elder ch. 18) -- up to the 15 strongest by strength_score, descending. Not currently wired into signal/confidence computation or protective_stop -- informational context only (see the backend-support-resistance task's decisions for why tightening protective_stop near a zone is an explicit, separate follow-up).")
     divergence: DivergenceOut | None = Field(description="The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions).")
+    kangaroo_tail: KangarooTailOut | None = Field(description="The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions).")
 
 
 # --- /api/stocks/{ticker}/indicators ------------------------------------
@@ -196,6 +207,7 @@ class IndicatorHistoryPoint(BaseModel):
     confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")
     divergence: DivergenceOut | None = Field(default=None, description="Same definition as AnalysisResponse.divergence, using only swing points confirmable from data available through this bar (no look-ahead) -- so this can differ from a later bar's divergence at the same underlying extreme dates once more history confirms a swing point AnalysisResponse.divergence.")
+    kangaroo_tail: KangarooTailOut | None = Field(default=None, description="Same definition as AnalysisResponse.kangaroo_tail, restricted per-bar to only a tail whose own confirming bar has arrived by this bar (no look-ahead) -- so this stays null for every bar strictly between a tail's own date and its confirmed_date, then reports that same tail from confirmed_date onward until (if ever) a later one supersedes it.")
 
 
 class IndicatorHistoryResponse(BaseModel):

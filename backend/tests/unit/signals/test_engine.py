@@ -696,6 +696,56 @@ class TestAnalyseCombinations:
 
         assert result.divergence is None
 
+    def test_kangaroo_tail_passthrough_is_used_verbatim(self) -> None:
+        """``kangaroo_tail``, like ``divergence``, is a precomputed-value passthrough
+        parameter where ``None`` is itself a legitimate supplied value (no currently confirmed
+        Kangaroo Tail), distinct from the sentinel default meaning "compute it yourself"."""
+        from app.signals.kangaroo_tail import KangarooTail
+
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+        given_tail = KangarooTail(
+            direction="up",
+            date=pd.Timestamp("2024-01-01"),
+            confirmed_date=pd.Timestamp("2024-01-02"),
+            high=110.0,
+            low=99.0,
+            range_multiple=5.5,
+            suggested_stop=104.5,
+        )
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv, kangaroo_tail=given_tail)
+        assert result.kangaroo_tail == given_tail
+
+        # Explicit `None` (a real "no tail" answer) must also be used verbatim, not trigger
+        # the "not supplied, compute it" sentinel path.
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv, kangaroo_tail=None)
+        assert result.kangaroo_tail is None
+
+    def test_kangaroo_tail_is_computed_internally_when_not_supplied(self) -> None:
+        """Omitting `kangaroo_tail` entirely computes it from this same call's own
+        `daily_ohlcv` -- this fixture is far too short for a genuine tail (needs at least
+        `DEFAULT_LOOKBACK + 2` bars), so the only thing under test here is that *some* value
+        (not a crash) comes back, and that it's None for this fixture -- the real detection
+        math itself is covered by tests/unit/signals/test_kangaroo_tail.py."""
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert result.kangaroo_tail is None
+
 
 class TestAnalyseEndToEnd:
     """Real (unmocked) composition of analyse() -> every Screen/gate/indicator function, over
@@ -1001,6 +1051,7 @@ class TestAnalyseHistory:
         assert _nan_tolerant_equal(last_result.indicators, expected.indicators)
         assert last_result.screens == expected.screens
         assert last_result.divergence == expected.divergence
+        assert last_result.kangaroo_tail == expected.kangaroo_tail
 
     def test_dates_are_oldest_first_and_one_per_bar(self) -> None:
         daily_ohlcv = _dated_buy_daily_ohlcv()
@@ -1117,6 +1168,37 @@ class TestAnalyseHistory:
 
         ema_13_values = {result.indicators["ema_13"] for _, result in history}
         assert len(ema_13_values) > 1
+
+    def test_kangaroo_tail_appears_only_from_its_confirming_bar_onward_no_look_ahead(self) -> None:
+        """A Kangaroo Tail at position 10 (confirmed by position 11) must be invisible to
+        every bar before position 11 -- and become the reported "current" tail from position
+        11 onward -- proving `analyse_history` genuinely uses `kangaroo_tail_confirmed_as_of`'s
+        position filtering rather than the full-history `detect_kangaroo_tails` result
+        unfiltered (which would leak it onto every earlier bar too)."""
+        filler = {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1_000_000}
+        rows = [dict(filler) for _ in range(10)]
+        rows.append(
+            {"open": 100.0, "high": 110.0, "low": 99.0, "close": 100.5, "volume": 1_000_000}
+        )  # tail, idx 10
+        rows.append(
+            {"open": 100.5, "high": 101.5, "low": 98.5, "close": 99.0, "volume": 1_000_000}
+        )  # confirms, idx 11
+        rows += [dict(filler) for _ in range(3)]
+        daily_ohlcv = pd.DataFrame(
+            rows,
+            index=pd.date_range("2026-01-01", periods=len(rows), freq="D", name="date"),
+        )
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        for i in range(11):
+            assert history[i][1].kangaroo_tail is None, f"bar {i} should not see the unconfirmed tail yet"
+        for i in range(11, len(history)):
+            tail = history[i][1].kangaroo_tail
+            assert tail is not None
+            assert tail.date == daily_ohlcv.index[10]
+            assert tail.direction == "up"
 
 
 class TestAnalyseHistoryPerformance:

@@ -428,6 +428,8 @@ export interface components {
             divergence: components["schemas"]["DivergenceOut"] | null;
             /** @description Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
+            /** @description The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions). */
+            kangaroo_tail: components["schemas"]["KangarooTailOut"] | null;
             screens: components["schemas"]["Screens"];
             /**
              * Signal
@@ -718,6 +720,8 @@ export interface components {
              * @description Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~2 prior bars) -- same warm-up-only caveat as stochastic_k above.
              */
             force_index_2ema?: number | null;
+            /** @description Same definition as AnalysisResponse.kangaroo_tail, restricted per-bar to only a tail whose own confirming bar has arrived by this bar (no look-ahead) -- so this stays null for every bar strictly between a tail's own date and its confirmed_date, then reports that same tail from confirmed_date onward until (if ever) a later one supersedes it. */
+            kangaroo_tail?: components["schemas"]["KangarooTailOut"] | null;
             /**
              * Macd Histogram
              * @description Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.
@@ -793,6 +797,47 @@ export interface components {
              * @description 'Indicator Seasons' (docs/Analyse.md, Elder ch. 32) -- a four-way classification of `macd_histogram`'s bar-over-bar slope combined with its position relative to its own zero centerline: Spring (rising, below -- best time to go long), Summer (rising, above -- crowd-recognized uptrend, take profits on longs into strength), Autumn (falling, above -- best time to go short), Winter (falling, below -- crowd-recognized downtrend, cover shorts into weakness). Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-seasons task). Null only when there are fewer than 2 daily bars available to compute a slope from.
              */
             season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
+        };
+        /** KangarooTailOut */
+        KangarooTailOut: {
+            /**
+             * Confirmed Date
+             * Format: date
+             * @description Date of the very next bar, whose own close confirmed the reversal (below the tail's close for an 'up' tail, above it for a 'down' one) and whose own range stayed normal (not itself tail-sized) -- this pattern isn't reported at all until this bar exists and confirms it.
+             */
+            confirmed_date: string;
+            /**
+             * Direction
+             * @description The tail's own physical shape -- 'up' (a new high, closing back down -- Elder's bearish reversal reading) or 'down' (a new low, closing back up -- bullish). Elder ch. 20 ('fingers').
+             * @enum {string}
+             */
+            direction: "up" | "down";
+            /**
+             * High
+             * @description The tail bar's own high.
+             */
+            high: number;
+            /**
+             * Low
+             * @description The tail bar's own low.
+             */
+            low: number;
+            /**
+             * Range Multiple
+             * @description How many times the recent average bar range (over the preceding lookback window) this bar's own high-low range was -- always >= the qualifying threshold (2.5x).
+             */
+            range_multiple: number;
+            /**
+             * Suggested Stop
+             * @description Elder's explicit stop-placement rule: halfway through the tail, not at its tip (too wide) or its base (too tight) -- the tail bar's own range midpoint, (high + low) / 2.
+             */
+            suggested_stop: number;
+            /**
+             * Tail Date
+             * Format: date
+             * @description The tail bar's own date. Not named `date` (unlike GET /api/stocks/{ticker}/indicators' own per-point field) since this object is nested wherever it appears, and needs to be distinguished from confirmed_date below.
+             */
+            tail_date: string;
         };
         /** OHLCVBar */
         OHLCVBar: {
