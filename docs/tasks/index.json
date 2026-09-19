@@ -957,8 +957,8 @@
       "id": "backend-divergence-detection",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "testing",
-      "path": "docs/tasks/backend-divergence-detection.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-divergence-detection.json"
     },
     {
       "id": "backend-divergence-detection-followups",

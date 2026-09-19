@@ -3,7 +3,7 @@
   "title": "MACD-Histogram / Stochastic / RSI divergence detection (bullish & bearish)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-swing-point-detector",
     "backend-indicator-rsi"
@@ -99,10 +99,25 @@
     "pushed_at": "2026-09-19T15:45:05Z"
   },
   "review": {
-    "reviewed_at": "2026-09-19T15:58:37Z",
+    "reviewed_at": "2026-09-19T16:11:23Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/156",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
+      {
+        "summary": "RE-REVIEW (round 2, confirms fix of round-1's sole blocking finding): verified independently that `yarn tsc -b --noEmit` and `yarn build` (`tsc -b && vite build`) both now succeed cleanly on this branch. `git diff 69fd943..HEAD --stat` confirms the fix commit (4903670) is exactly the minimal diff claimed -- two frontend fixture edits (`frontend/tests/mocks/handlers.ts`, `frontend/src/features/stocks/components/PriceChart.test.tsx`, each adding `divergence: null`) plus two task-JSON bookkeeping edits; zero backend files touched. `divergence: null` is schema-legal (matches `DivergenceOut | None`'s documented 'no currently-qualifying divergence' semantics) and neither fixture's own tests assert on the field.",
+        "file": "frontend/tests/mocks/handlers.ts",
+        "line": 76
+      },
+      {
+        "summary": "Re-ran full backend suite: 699/699 passing, 99.91% coverage (divergence.py itself 100%), ruff clean, mypy clean -- matches round-1 exactly, as expected since this fix touched zero backend files. Re-ran frontend suite serially (`--no-file-parallelism`, same methodology as round 1): 414/414 passing, coverage 99.64%/98.97%/99.6%/99.75% (statements/branches/functions/lines), eslint clean -- matches the task-worker's claimed numbers exactly. The same pre-existing `PortfolioPage.test.tsx` 'adds a new position end to end' timeout under full-parallel `vitest run` was reproduced again here and is the same worker-resource-contention flake round 1 already identified and confirmed unrelated (PortfolioPage untouched by this PR either round). `backend/openapi.json` regenerated locally via `scripts/export_openapi.py`: zero diff against the committed snapshot, still clean.",
+        "file": "backend/tests/unit/signals/test_divergence.py",
+        "line": 0
+      },
+      {
+        "summary": "Sanity re-check of round-1's other verified items, confirmed unaffected by this fix-only commit (no backend files in its diff): MACD-Histogram centerline-crossing hard-filter, Stochastic/RSI no-centerline requirement, Lovvorn's 20-40-bar spacing and half-depth filters, Hound of the Baskervilles, and the no-look-ahead `analyse_history` precompute path are all unchanged since round 1's review of commit 1e34c94. Both of round 1's non-blocking findings (RSI's divergence check silently relying on Stochastic's default reference-line constants; the narrow exact-3+-bar-plateau-tie look-ahead leak in `confirmed_divergence_as_of`) remain correctly tracked as open checklist items on `docs/tasks/backend-divergence-detection-followups.json` -- no new findings from this fix-only commit, so no additional follow-up entries needed.",
+        "file": "backend/app/signals/divergence.py",
+        "line": 0
+      },
       {
         "summary": "BLOCKING: `yarn tsc -b --noEmit` fails with 2 real type errors. `frontend/src/api/types.ts`'s regenerated `AnalysisResponse.divergence` field is required (no `?`, matches `app/api/schemas.py`'s `DivergenceOut | None` with no `default=None`), but two pre-existing test fixtures that construct `AnalysisResponse`-shaped objects were not updated to include it: `tests/mocks/handlers.ts` and `src/features/stocks/components/PriceChart.test.tsx`. `vitest run` passes (414/414) only because it doesn't type-check via esbuild transform, but `yarn build` (which runs `tsc -b && vite build`) would fail outright. The PR's own claim of 'frontend tsc/vitest clean' does not hold. Fix: add `divergence: null` (or an appropriate `DivergenceOut` value) to both fixtures.",
         "file": "frontend/tests/mocks/handlers.ts",
@@ -139,6 +154,6 @@
         "line": 0
       }
     ],
-    "notes": "No UI surface: this PR is backend-only plus a regenerated frontend/src/api/types.ts (no rendering code consumes the new field yet -- frontend-divergence-markers is a separate, still-planned task) -- browser walkthrough (review step 9) and the persisted e2e suite (step 9a) both explicitly skipped as not applicable. Verdict is needs_work solely for the blocking frontend tsc failure (frontend/tests/mocks/handlers.ts and src/features/stocks/components/PriceChart.test.tsx missing the newly-required AnalysisResponse.divergence field) -- the backend divergence-detection logic itself (Elder methodology conformance, no-look-ahead precompute path modulo the tracked plateau edge case, coverage, architecture placement) is sound. Frontend flaky test observed and confirmed unrelated: src/pages/PortfolioPage.test.tsx's 'adds a new position end to end' test times out under full parallel vitest run but passes consistently in isolation and serially (--no-file-parallelism) -- pure worker-resource contention, not a regression (PortfolioPage.tsx/test.tsx untouched by this PR)."
+    "notes": "ROUND 2 (re-review after needs_work fix, commit 4903670 on top of the round-1-reviewed 69fd943): accepted. Round 1's sole blocking finding (missing `divergence` field on two pre-existing frontend AnalysisResponse test fixtures, causing a real `yarn tsc -b --noEmit`/`yarn build` failure vitest alone didn't catch) is genuinely fixed -- independently re-ran both commands myself and both succeed cleanly. The fix commit is confirmed minimal (`git diff 69fd943..HEAD --stat`): two fixture edits plus task-JSON bookkeeping, zero backend files. Full suites re-run: backend 699/699 passing, 99.91% coverage, ruff/mypy clean; frontend 414/414 passing serially, 99.64%/98.97%/99.6%/99.75% coverage, eslint clean; openapi.json regenerated with zero diff. The previously-observed PortfolioPage.test.tsx flake under full-parallel vitest reproduced again here, same pre-existing worker-contention cause, unrelated to this PR both rounds. No UI surface (backend-only change plus regenerated types.ts, no consumer yet) -- browser walkthrough and e2e suite (review steps 9/9a) not applicable, as in round 1. Round 1's other verified items (Elder methodology conformance -- MACD-H centerline-crossing hard filter, Stochastic/RSI no-centerline requirement, Lovvorn's spacing/depth filters, Hound of the Baskervilles; no-look-ahead precompute path) are unaffected by this fix-only commit and were spot-confirmed unchanged. Both round-1 non-blocking findings remain correctly tracked as open items on docs/tasks/backend-divergence-detection-followups.json; no new findings from this round, so nothing further to add there."
   }
 }
