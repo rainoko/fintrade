@@ -1146,8 +1146,8 @@
       "id": "frontend-support-resistance-overlay-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-support-resistance-overlay-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-support-resistance-overlay-followups.json"
     },
     {
       "id": "frontend-kangaroo-tail-markers",
