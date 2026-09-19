@@ -33,7 +33,9 @@ describe('MetricHelp', () => {
     await user.click(screen.getByRole('button', { name: 'EMA (13) help' }))
 
     expect(screen.getAllByText('EMA (13)').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('A 13-period Exponential Moving Average.')).toBeInTheDocument()
+    expect(
+      screen.getByText('A 13-period Exponential Moving Average.'),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Feeds the Tide and Impulse System (docs/Analyse.md §2-3).'),
     ).toBeInTheDocument()

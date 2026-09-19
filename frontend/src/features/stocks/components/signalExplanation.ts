@@ -126,13 +126,15 @@ export function explainSignal(
         key: 'wave',
         label: 'Wave pullback/rally (Screen 2)',
         met: null,
-        detail: 'Not evaluated -- Wave is read against the Tide direction, and Tide is Neutral.',
+        detail:
+          'Not evaluated -- Wave is read against the Tide direction, and Tide is Neutral.',
       },
       {
         key: 'trigger',
         label: 'Trigger fired (Screen 3)',
         met: null,
-        detail: 'Not evaluated -- Trigger confirms a resumption of the Tide direction, and Tide is Neutral.',
+        detail:
+          'Not evaluated -- Trigger confirms a resumption of the Tide direction, and Tide is Neutral.',
       },
     ]
     return {

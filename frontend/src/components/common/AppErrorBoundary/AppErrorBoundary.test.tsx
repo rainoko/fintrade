@@ -56,7 +56,7 @@ describe('AppErrorBoundary', () => {
     consoleError.mockRestore()
   })
 
-  it('drops the fallback heading to an h2 when fullPage is false, so it never duplicates a page\'s own PageHeader h1', () => {
+  it("drops the fallback heading to an h2 when fullPage is false, so it never duplicates a page's own PageHeader h1", () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     function ThrowingComponent(): never {
@@ -124,9 +124,7 @@ describe('AppErrorBoundary', () => {
       `${window.innerHeight}px`,
     )
     expect(getComputedStyle(heading.parentElement!).minHeight).toBe('200px')
-    expect(
-      screen.getByText(/rendering this section\. try again\./i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/rendering this section\. try again\./i)).toBeInTheDocument()
     expect(screen.queryByText(/reload the app/i)).not.toBeInTheDocument()
     consoleError.mockRestore()
   })

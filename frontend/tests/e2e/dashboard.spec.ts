@@ -31,9 +31,7 @@ test('dashboard renders equity summary, risk summary, sell-flagged positions, an
   // but one of the two must render either way (depends on the shared e2e database's
   // fixture positions/risk state at run time).
   const sellFlaggedTable = page.getByRole('table', { name: 'Positions flagged to sell' })
-  const sellFlaggedEmptyState = page.getByText(
-    'No positions currently flagged to sell.',
-  )
+  const sellFlaggedEmptyState = page.getByText('No positions currently flagged to sell.')
   await expect(sellFlaggedTable.or(sellFlaggedEmptyState)).toBeVisible()
 
   // PositionsGlanceTable: either real rows or its own empty state, but the table region

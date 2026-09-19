@@ -37,12 +37,16 @@ test.describe('stock analysis page', () => {
     await page.getByRole('button', { name: `Why ${signalText}?` }).click()
     const explanationList = page.getByRole('list', { name: 'Signal condition breakdown' })
     await expect(explanationList).toBeVisible()
-    await expect(explanationList.getByText('Tide direction (Screen 1)', { exact: true })).toBeVisible()
+    await expect(
+      explanationList.getByText('Tide direction (Screen 1)', { exact: true }),
+    ).toBeVisible()
     await expect(explanationList.getByText('Impulse gate', { exact: true })).toBeVisible()
     await expect(
       explanationList.getByText('Wave pullback/rally (Screen 2)', { exact: true }),
     ).toBeVisible()
-    await expect(explanationList.getByText('Trigger fired (Screen 3)', { exact: true })).toBeVisible()
+    await expect(
+      explanationList.getByText('Trigger fired (Screen 3)', { exact: true }),
+    ).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(explanationList).not.toBeVisible()
 
@@ -125,7 +129,9 @@ test.describe('stock analysis page', () => {
     // its chart with an explanatory message rather than showing daily data
     // under weekly candles (OscillatorChart.tsx's `enabled` gating).
     await expect(
-      page.getByText('Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.'),
+      page.getByText(
+        'Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.',
+      ),
     ).toBeVisible()
     await expect(page.getByTestId('oscillator-chart-canvas')).not.toBeVisible()
 

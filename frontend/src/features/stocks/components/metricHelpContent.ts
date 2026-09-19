@@ -63,7 +63,12 @@ function interpretComponentScore(score: number, weight: number): string {
 
 export const confidenceComponentHelp: Record<
   string,
-  { metricLabel: string; definition: string; elderContext: string; interpretValue: (score: number, weight: number) => string }
+  {
+    metricLabel: string
+    definition: string
+    elderContext: string
+    interpretValue: (score: number, weight: number) => string
+  }
 > = {
   tide_alignment: {
     metricLabel: 'Tide alignment (Screen 1)',
@@ -177,7 +182,11 @@ export const waveHelp = {
     'Screen 2 of the Triple Screen system: within the tide’s direction, oscillators time entries by waiting for a counter-trend dip (in a bullish tide) or rally (in a bearish tide).',
   elderContext:
     'Stochastic %K (5,3,3) below 30 is oversold, above 70 is overbought. Force Index (2-period EMA) spiking negative in an uptrend is a buying opportunity; spiking positive in a downtrend is a selling opportunity (docs/Analyse.md §2 Screen 2, §4).',
-  interpretValue(stochasticK: number | null | undefined, forceIndex: number | null | undefined, state: string): string {
+  interpretValue(
+    stochasticK: number | null | undefined,
+    forceIndex: number | null | undefined,
+    state: string,
+  ): string {
     const stochasticKnown =
       stochasticK !== null && stochasticK !== undefined && !Number.isNaN(stochasticK)
     const stochasticNote = !stochasticKnown
@@ -234,7 +243,10 @@ export const ema13Help = {
     'The 13-period Exponential Moving Average of closing price -- a short-term trend-following average.',
   elderContext:
     'Feeds both the Tide (13-week/26-week EMA relationship, §2 Screen 1) and the Impulse System (EMA13 rising/falling is half of its Green/Red gate, §3). Also the baseline Elder-Ray measures Bull/Bear Power against (§2 Screen 2, §4).',
-  interpretValue(ema13: number | null | undefined, ema26: number | null | undefined): string {
+  interpretValue(
+    ema13: number | null | undefined,
+    ema26: number | null | undefined,
+  ): string {
     if (!isKnown(ema13)) {
       return 'Currently unavailable for this ticker.'
     }
@@ -243,7 +255,11 @@ export const ema13Help = {
     }
     const relation = ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'
     const reading =
-      ema13 > ema26 ? 'an uptrend reading' : ema13 < ema26 ? 'a downtrend reading' : 'a flat reading'
+      ema13 > ema26
+        ? 'an uptrend reading'
+        : ema13 < ema26
+          ? 'a downtrend reading'
+          : 'a flat reading'
     return `Currently ${ema13.toFixed(2)}, ${relation} EMA(26) (${ema26.toFixed(2)}) -- Elder reads 13 EMA above 26 EMA as an uptrend, so this is ${reading} (docs/Analyse.md §2).`
   },
 }
@@ -254,7 +270,10 @@ export const ema26Help = {
     'The 26-period Exponential Moving Average of closing price -- the longer of the two trend-following averages Elder pairs together.',
   elderContext:
     'Paired with EMA(13) as the Tide’s secondary trend confirmation: 13 EMA above 26 EMA reads as an uptrend, below as a downtrend (docs/Analyse.md §2 Screen 1).',
-  interpretValue(ema26: number | null | undefined, ema13: number | null | undefined): string {
+  interpretValue(
+    ema26: number | null | undefined,
+    ema13: number | null | undefined,
+  ): string {
     if (!isKnown(ema26)) {
       return 'Currently unavailable for this ticker.'
     }

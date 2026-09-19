@@ -159,11 +159,15 @@ describe('api/stocks', () => {
     })
 
     it('throws a 503 ApiError when the market data provider is unavailable', async () => {
-      await expect(getIndicatorHistory('NOPROVIDER')).rejects.toMatchObject({ status: 503 })
+      await expect(getIndicatorHistory('NOPROVIDER')).rejects.toMatchObject({
+        status: 503,
+      })
     })
 
     it('throws a 422 ApiError for insufficient weekly history regardless of range', async () => {
-      await expect(getIndicatorHistory('THINHISTORY')).rejects.toMatchObject({ status: 422 })
+      await expect(getIndicatorHistory('THINHISTORY')).rejects.toMatchObject({
+        status: 422,
+      })
     })
   })
 })

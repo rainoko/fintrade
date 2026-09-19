@@ -13,7 +13,9 @@ const ambiguousWaveScreens: Screens = {
 
 describe('SignalExplanationContent', () => {
   it('renders the headline and one list item per Triple Screen condition', () => {
-    renderWithTheme(<SignalExplanationContent signal="HOLD" screens={ambiguousWaveScreens} />)
+    renderWithTheme(
+      <SignalExplanationContent signal="HOLD" screens={ambiguousWaveScreens} />,
+    )
 
     expect(
       screen.getByRole('list', { name: 'Signal condition breakdown' }),

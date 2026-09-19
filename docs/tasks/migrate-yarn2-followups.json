@@ -3,7 +3,7 @@
   "title": "Yarn Berry migration — non-blocking review follow-ups",
   "area": "infra",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["migrate-yarn2"],
   "references": [
     "docs/tasks/migrate-yarn2.json#review",
@@ -17,13 +17,26 @@
     },
     {
       "step": "Repo-wide Prettier drift on `main`: `yarn format:check` (`prettier --check .`) currently fails on ~22 files unrelated to the npm->yarn migration (e.g. src/components/common/RiskPercent/RiskPercent.tsx, several src/features/stocks/components/*.tsx and their tests, src/pages/DashboardPage.test.tsx, src/pages/StockDetailPage.test.tsx, tests/e2e/dashboard.spec.ts, tests/e2e/stock-analysis.spec.ts). Confirmed via pr-reviewer round 2 of PR #116: checked out origin/main into a separate git worktree and ran the exact same prettier binary/version against it -- the identical 22-file list already fails on main, independent of and predating this PR (migrate-yarn2 itself only touched frontend/README.md's table padding, which is clean). Worth a dedicated cleanup pass (a scoped `yarn format --write .` limited to these files, reviewed for any unintended behavior change from the reformat) since a red `format:check` on main undermines the gate's value as a regression check.",
-      "done": false
+      "done": true
     },
     {
       "step": "frontend/package.json's `resolutions` field (`\"openapi-typescript/typescript\": \"$typescript\"`, translated from the pre-migration npm `overrides` in PR #116) is likely a no-op in Yarn's dependency graph: `typescript` is only a `peerDependency` of `openapi-typescript`, not a regular dependency, and Yarn's `resolutions` only rewrites entries that exist as actual dependency edges. Not a functional bug -- peer resolution already converges on a single top-level typescript@6.0.3 without it, per migrate-yarn2's own verification -- but likely vestigial config carried over from the npm overrides syntax that no longer does anything under Yarn. Worth either removing it (with a follow-up check that peer resolution still converges the same way) or adding a comment noting it's intentionally inert, so a future reader doesn't assume it's load-bearing. Raised independently by the code-review skill during pr-reviewer's round-2 pass on PR #116.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Ran a repo-wide `yarn prettier --write .` to fix the pre-existing Prettier drift on `main`, after reviewing the full diff. By the time this task ran, the drift had grown from PR #116's ~22-file list to 35 files (new components/tests added by later merged tasks never ran through the format gate either), all still unrelated to the yarn migration itself. Confirmed the entire diff is purely mechanical whitespace/line-wrapping reformatting driven by prettier's printWidth=90 config (long function signatures, object literals, and template/regex assertions wrapped onto multiple lines) -- no string literal content, test selector text, or logic changed in any file. `src/api/types.ts` (the generated OpenAPI client, `.prettierignore`d) was untouched, confirming the ignore rule held. `yarn format:check` passes clean afterward; full frontend test suite (yarn test:coverage: 344 tests across 49 files, no regression, coverage unchanged) and `make e2e` (16/16 specs pass) both confirm nothing broke.",
+      "rationale": "Reviewed the diff file-by-file (git diff) before committing rather than trusting the tool blindly, per the task's own instruction, since a repo-wide reformat is exactly the kind of change where an unreviewed --write could silently absorb an unrelated hand-edit or reformat something that should stay byte-identical. Rejected reformatting only the original ~22-file list frozen at PR #116's review time -- the drift is a property of the format gate not having been enforced as new files were added since, not a fixed snapshot, so scoping to the stale list would leave the newly-added files still red on `format:check` and understate the actual current gap. Rejected leaving the drift in place (e.g. just re-confirming it's pre-existing again) since that was already established by two independent prior verification passes per this task's own checklist wording -- the point of this checklist item was to actually close the gap, not re-verify it a third time."
+    },
+    {
+      "timestamp": "2026-09-19T00:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Removed frontend/package.json's `resolutions` field (`\"openapi-typescript/typescript\": \"$typescript\"`) entirely, rather than keeping it with an explanatory comment marking it inert.",
+      "rationale": "The prior investigation chain (this task's own checklist entry; migrate-yarn2's decisions and review from PR #116; frontend-verify-npm-install-followups-followups's decisions and review from PR #138, which independently reproduced the YN0060 peer warning with the entry present) had already conclusively established the entry does nothing under Yarn: `typescript` is only a peerDependency of `openapi-typescript`, not a real dependency edge, and Yarn's `resolutions` only rewrites real edges. Re-derived the evidence one more time here rather than just trusting the prior chain, since removal (unlike documenting) is a real code change: ran a fresh `yarn install` after deleting the field and diffed `frontend/yarn.lock` before/after (byte-identical, zero changes) and confirmed `node_modules/typescript` still resolves to a single top-level `typescript@6.0.3` with no nested copy under `node_modules/openapi-typescript` -- exactly the same outcome as with the entry present. Also reran `yarn generate:api-types` and diffed the regenerated `src/api/types.ts` against the committed file (byte-identical). JSON5/package.json comments aren't valid syntax in npm/Yarn's package.json (no comment support), so 'document as inert in package.json itself' wasn't actually available as an option -- the real choice was between removing it and leaving unexplained dead config with only external doc pointers (as it already had via migrate-yarn2-followups' own checklist and frontend-verify-npm-install-followups-followups' Frontend.md paragraph). Since the lockfile-diff evidence is now conclusive and reproduced independently three times across three separate PRs, removing the truly-inert entry is cleaner than perpetuating dead config a future reader has to keep re-verifying is safe to ignore; updated docs/architecture/Frontend.md's §6 `resolutions` paragraph (previously describing the entry as present-but-likely-inert with an open question) to instead describe its history and why it was removed, closing the open question the paragraph itself had flagged as `migrate-yarn2-followups`'s to resolve."
+    }
+  ],
   "questions": []
 }

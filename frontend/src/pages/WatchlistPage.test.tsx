@@ -99,8 +99,20 @@ describe('WatchlistPage', () => {
           resolveGet = resolve
         })
         const items: WatchlistItemOut[] = [
-          { ticker: 'AAPL', added_at: '2026-09-10T09:15:00Z', signal: null, confidence: null, confidence_band: null },
-          { ticker: 'MSFT', added_at: '2026-09-12T09:15:00Z', signal: null, confidence: null, confidence_band: null },
+          {
+            ticker: 'AAPL',
+            added_at: '2026-09-10T09:15:00Z',
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
+          {
+            ticker: 'MSFT',
+            added_at: '2026-09-12T09:15:00Z',
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
           {
             ticker: 'TSLA',
             added_at: '2026-09-19T00:00:00Z',

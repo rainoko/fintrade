@@ -56,7 +56,9 @@ describe('PositionsGlanceTable', () => {
   it('renders a row per position with a ticker link into stock detail and its signal badge', () => {
     renderWithRouter([aaplPosition])
 
-    expect(screen.getByRole('table', { name: 'Positions at a glance' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('table', { name: 'Positions at a glance' }),
+    ).toBeInTheDocument()
     const link = screen.getByRole('link', { name: 'AAPL' })
     expect(link).toHaveAttribute('href', '/stocks/AAPL')
     expect(screen.getByText('$228.90')).toBeInTheDocument()
@@ -82,7 +84,9 @@ describe('PositionsGlanceTable', () => {
     renderWithRouter([])
 
     expect(
-      screen.getByText('No positions yet. Add one from the Portfolio page to get started.'),
+      screen.getByText(
+        'No positions yet. Add one from the Portfolio page to get started.',
+      ),
     ).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })

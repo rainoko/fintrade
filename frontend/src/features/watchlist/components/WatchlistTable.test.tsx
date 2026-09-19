@@ -25,7 +25,13 @@ function renderWatchlistTable(items: WatchlistTableProps['items']) {
  * button calling `.mutate` is enough to exercise WatchlistTable's own
  * pending-ticker-derivation and per-column skeleton branches in isolation.
  */
-function TriggerAddHarness({ items, ticker }: { items: WatchlistItemOut[]; ticker: string }) {
+function TriggerAddHarness({
+  items,
+  ticker,
+}: {
+  items: WatchlistItemOut[]
+  ticker: string
+}) {
   const addWatchlistItem = useAddWatchlistItem()
   return (
     <MemoryRouter>
@@ -274,7 +280,9 @@ describe('WatchlistTable', () => {
     // Give the pending mutation a chance to be observed -- there is
     // deliberately no skeleton to wait for, since AAPL's real row is
     // already in `items`.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'trigger-add' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'trigger-add' })).toBeInTheDocument(),
+    )
     expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument()
     const table = screen.getByRole('table', { name: 'Watchlist' })
     expect(within(table).getAllByText('AAPL')).toHaveLength(1)
@@ -286,7 +294,9 @@ describe('WatchlistTable', () => {
       confidence: 72,
       confidence_band: 'High',
     })
-    await waitFor(() => expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument(),
+    )
   })
 
   it('keeps the pending skeleton row sorted at the "newest" end of the Added column instead of jumping', async () => {

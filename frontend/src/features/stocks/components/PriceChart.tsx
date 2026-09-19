@@ -13,7 +13,11 @@ import {
   type Time,
 } from 'lightweight-charts'
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import type { HistoryInterval, HistoryResponse, IndicatorHistoryPoint } from '../../../api/stocks'
+import type {
+  HistoryInterval,
+  HistoryResponse,
+  IndicatorHistoryPoint,
+} from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
@@ -408,9 +412,11 @@ export default function PriceChart({
         <ErrorState error={indicatorsQuery.error} />
       )}
 
-      {showOverlaySection && indicatorsQuery.isSuccess && indicatorsQuery.data.points.length === 0 && (
-        <EmptyState message={`No signal history available for ${ticker}.`} />
-      )}
+      {showOverlaySection &&
+        indicatorsQuery.isSuccess &&
+        indicatorsQuery.data.points.length === 0 && (
+          <EmptyState message={`No signal history available for ${ticker}.`} />
+        )}
     </Stack>
   )
 }

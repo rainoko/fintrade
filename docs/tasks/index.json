@@ -817,7 +817,7 @@
       "id": "migrate-yarn2-followups",
       "area": "infra",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/migrate-yarn2-followups.json"
     },
     {

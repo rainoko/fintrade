@@ -44,7 +44,11 @@ export default function StockCharts({ ticker }: StockChartsProps) {
 
   return (
     <Stack spacing={3}>
-      <PriceChart ticker={ticker} onRangeChange={setRange} onIntervalChange={setInterval} />
+      <PriceChart
+        ticker={ticker}
+        onRangeChange={setRange}
+        onIntervalChange={setInterval}
+      />
       <OscillatorChart ticker={ticker} range={range} enabled={interval === 'daily'} />
     </Stack>
   )

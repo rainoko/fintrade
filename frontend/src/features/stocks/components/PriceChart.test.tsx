@@ -4,7 +4,10 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HistoryResponse, IndicatorHistoryResponse } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
-import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../../../tests/renderWithProviders'
 import { stocksKeys } from '../hooks/queryKeys'
 import PriceChart from './PriceChart'
 
@@ -69,7 +72,9 @@ function mockHistory(response: HistoryResponse) {
 }
 
 function mockIndicators(response: IndicatorHistoryResponse) {
-  server.use(http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)))
+  server.use(
+    http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)),
+  )
 }
 
 const indicatorPoints: IndicatorHistoryResponse = {
@@ -408,8 +413,22 @@ describe('PriceChart', () => {
         interval: 'daily',
         bars: [
           ...twoBars.bars,
-          { date: '2026-09-03', open: 229.7, high: 231.0, low: 229.0, close: 230.5, volume: 40000000 },
-          { date: '2026-09-04', open: 230.5, high: 232.0, low: 228.0, close: 228.5, volume: 41000000 },
+          {
+            date: '2026-09-03',
+            open: 229.7,
+            high: 231.0,
+            low: 229.0,
+            close: 230.5,
+            volume: 40000000,
+          },
+          {
+            date: '2026-09-04',
+            open: 230.5,
+            high: 232.0,
+            low: 228.0,
+            close: 228.5,
+            volume: 41000000,
+          },
         ],
       })
       mockIndicators({
@@ -444,7 +463,10 @@ describe('PriceChart', () => {
         }),
         http.get('/api/stocks/:ticker/history', ({ request }) => {
           const interval = new URL(request.url).searchParams.get('interval')
-          return HttpResponse.json({ ...twoBars, interval: (interval ?? 'daily') as 'daily' | 'weekly' })
+          return HttpResponse.json({
+            ...twoBars,
+            interval: (interval ?? 'daily') as 'daily' | 'weekly',
+          })
         }),
       )
       const user = userEvent.setup()
@@ -523,7 +545,9 @@ describe('PriceChart', () => {
       server.use(
         http.get('/api/stocks/:ticker/indicators', () =>
           HttpResponse.json(
-            { detail: 'Market data provider is currently unavailable. Try again shortly.' },
+            {
+              detail: 'Market data provider is currently unavailable. Try again shortly.',
+            },
             { status: 503 },
           ),
         ),
@@ -567,7 +591,9 @@ describe('PriceChart', () => {
         points: [{ ...indicatorPoints.points[1], date: '2026-09-03', signal: 'SELL' }],
       }
       mockIndicators(updatedIndicators)
-      await queryClient.invalidateQueries({ queryKey: stocksKeys.indicators('AAPL', '1y') })
+      await queryClient.invalidateQueries({
+        queryKey: stocksKeys.indicators('AAPL', '1y'),
+      })
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(2))
 

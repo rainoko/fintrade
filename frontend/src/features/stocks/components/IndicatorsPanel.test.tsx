@@ -45,7 +45,9 @@ describe('IndicatorsPanel', () => {
       bear_power: null as unknown as number,
     }
 
-    expect(() => renderWithTheme(<IndicatorsPanel indicators={indicatorsWithNulls} />)).not.toThrow()
+    expect(() =>
+      renderWithTheme(<IndicatorsPanel indicators={indicatorsWithNulls} />),
+    ).not.toThrow()
 
     expect(screen.getByText('226.40')).toBeInTheDocument()
     const dashes = screen.getAllByText('—')
@@ -66,7 +68,9 @@ describe('IndicatorsPanel', () => {
     // Bull Power's icon should open Bull-Power-specific content instead.
     await user.click(screen.getByRole('button', { name: 'Bull Power help' }))
     expect(
-      screen.getByText(/Currently 3\.10 -- positive: today’s high traded above EMA\(13\)/),
+      screen.getByText(
+        /Currently 3\.10 -- positive: today’s high traded above EMA\(13\)/,
+      ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/above EMA\(26\)/)).not.toBeInTheDocument()
   })

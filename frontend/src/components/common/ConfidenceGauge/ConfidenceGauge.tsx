@@ -26,7 +26,10 @@ export interface ConfidenceGaugeProps {
  * label, per Analyse.md's note that the band is a display aid, not a
  * replacement for the number.
  */
-export default function ConfidenceGauge({ confidence, band: bandProp }: ConfidenceGaugeProps) {
+export default function ConfidenceGauge({
+  confidence,
+  band: bandProp,
+}: ConfidenceGaugeProps) {
   const theme = useTheme()
   const clamped = Math.min(100, Math.max(0, confidence))
   const band = bandProp ?? confidenceBand(clamped)
