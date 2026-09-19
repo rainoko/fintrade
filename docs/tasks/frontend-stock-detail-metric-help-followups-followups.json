@@ -36,5 +36,11 @@
       "rationale": "The finding is specifically that the sentence asserts 'Flat' with full confidence in the same breath it then hedges on whether a slope was ever computed at all -- self-contradictory regardless of how the hedge itself is phrased. Rewording the parenthetical in place (e.g. 'slope reads as Flat') would still assert a specific value for a reading that, in the <2-weekly-bar case, was never taken; only *not stating* the value in that branch actually removes the contradiction while still being accurate. This doesn't require any new backend field (the checklist item itself notes a bar-count field isn't worth adding for this alone) -- it only changes what the already-available `slope === 'flat'` boolean is used to decide."
     }
   ],
+  "git": {
+    "branch": "task/frontend-stock-detail-metric-help-followups-followups",
+    "pr_number": 129,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/129",
+    "pushed_at": "2026-09-19T01:30:00Z"
+  },
   "questions": []
 }
