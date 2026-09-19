@@ -22,8 +22,25 @@ from app.signals.confidence import (
     score_tide_alignment,
     score_volume_confirmation,
 )
+from app.signals.divergence import (
+    DEFAULT_SWING_WINDOW,
+    Divergence,
+    build_divergence_swing_cache,
+    confirmed_divergence_as_of,
+    current_divergence,
+)
 from app.signals.impulse import evaluate_impulse
 from app.signals.triple_screen import evaluate_tide, evaluate_trigger, evaluate_wave
+
+# Sentinel default for `analyse()`'s `divergence` parameter -- distinct from `None`, which is
+# itself a legitimate *value* for this parameter (no divergence detected), not just "not
+# supplied". `analyse_history` always passes an explicit value (a `Divergence` or `None`) from
+# its own precomputed `DivergenceSwingCache`; a bare `analyse()` call that omits `divergence`
+# entirely computes it internally instead, the same "compute unless given" contract every other
+# optional passthrough parameter below already has -- but those have no such ambiguity, since
+# none of their own computed values is ever `None` in the same "this IS the real answer" sense.
+# See this task's `decisions` entry.
+_DIVERGENCE_NOT_GIVEN = object()
 
 # How many trailing daily bars (today inclusive) evaluate_wave's qualifying oversold/
 # overbought state is allowed to have appeared on before today, for the "Wave shows/showed"
@@ -44,6 +61,7 @@ class SignalResult:
     breakdown: list[ConfidenceComponent]
     screens: dict = field(default_factory=dict)
     indicators: dict = field(default_factory=dict)
+    divergence: Divergence | None = None
 
 
 def drop_malformed_daily_bars(
@@ -247,6 +265,7 @@ def analyse(
     channel_upper: pd.Series | None = None,
     channel_lower: pd.Series | None = None,
     rsi: pd.Series | None = None,
+    divergence: Divergence | None = _DIVERGENCE_NOT_GIVEN,  # type: ignore[assignment]
     _daily_ohlcv_already_clean: bool = False,
 ) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
@@ -349,6 +368,19 @@ def analyse(
     or confidence scoring; wiring it in is explicitly out of scope for the task that added it
     (docs/tasks/backend-indicator-rsi.json).
 
+    ``divergence``, if given (a ``Divergence`` or ``None``, distinct from the sentinel default
+    that means "not supplied" -- see ``_DIVERGENCE_NOT_GIVEN``), is used as-is instead of being
+    computed here -- letting ``analyse_history`` supply its own per-bar, look-ahead-free result
+    from a precomputed ``app.signals.divergence.DivergenceSwingCache`` (see that module's
+    ``confirmed_divergence_as_of``) instead of this function re-running swing-point detection
+    on its own truncated ``daily_ohlcv`` slice every call. When omitted, this function computes
+    ``app.signals.divergence.current_divergence`` itself, across MACD-Histogram/Stochastic/RSI
+    (``histogram``/``stochastic_k`` if given, else computed the same way ``evaluate_wave``'s
+    own default would; ``rsi``, already resolved above). Exposed on ``SignalResult.divergence``
+    (``AnalysisResponse.divergence``, docs/architecture/API.md) purely as detection + exposure,
+    per docs/tasks/backend-divergence-detection.json's own scope -- not read by
+    ``_determine_signal``, the Impulse gate, or confidence scoring.
+
     ``_daily_ohlcv_already_clean`` is a private, ``analyse_history``-only optimization escape
     hatch -- not part of this function's public contract -- that skips the
     ``drop_malformed_daily_bars`` call above entirely when the caller can *prove* (not just
@@ -399,6 +431,19 @@ def analyse(
 
     if rsi is None:
         rsi = compute_rsi(daily_close)
+
+    if divergence is _DIVERGENCE_NOT_GIVEN:
+        divergence_stochastic_k = (
+            stochastic_k
+            if stochastic_k is not None
+            else stochastic_oscillator(daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"])["k"]
+        )
+        divergence = current_divergence(
+            daily_close,
+            macd_histogram=histogram,
+            stochastic=divergence_stochastic_k,
+            rsi=rsi,
+        )
 
     indicators = {
         "ema_13": _latest(ema_13),
@@ -480,6 +525,7 @@ def analyse(
         breakdown=breakdown,
         screens=screens,
         indicators=indicators,
+        divergence=divergence,
     )
 
 
@@ -635,6 +681,12 @@ def analyse_history(
     channel_upper_full = channel_bands_full["upper"]
     channel_lower_full = channel_bands_full["lower"]
     rsi_full = compute_rsi(daily_close)
+    # One swing-point pass in each direction over the full daily close series, shared by every
+    # bar's `confirmed_divergence_as_of` call below -- the precompute-and-slice counterpart to
+    # `ema_13_full`/etc above, for the same O(range_size x history_length) reason (see
+    # app.signals.divergence.DivergenceSwingCache's own docstring and this task's `decisions`
+    # entry).
+    divergence_swing_cache = build_divergence_swing_cache(daily_close, window=DEFAULT_SWING_WINDOW)
 
     weekly_ema_13_full = weekly_ema_26_full = weekly_histogram_full = None
     if len(weekly_ohlcv) >= 2 and "close" in weekly_ohlcv.columns:
@@ -681,6 +733,13 @@ def analyse_history(
                     channel_upper=channel_upper_full.iloc[: i + 1],
                     channel_lower=channel_lower_full.iloc[: i + 1],
                     rsi=rsi_full.iloc[: i + 1],
+                    divergence=confirmed_divergence_as_of(
+                        divergence_swing_cache,
+                        i,
+                        macd_histogram=histogram_full,
+                        stochastic=stochastic_k_full,
+                        rsi=rsi_full,
+                    ),
                     _daily_ohlcv_already_clean=True,
                     **weekly_kwargs,
                 ),

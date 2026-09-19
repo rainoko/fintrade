@@ -158,6 +158,7 @@ const baseAnalysis: AnalysisResponse = {
     trigger: { fired: false, reference: 'not_applicable' },
   },
   confidence_breakdown: [],
+  divergence: null,
   indicators: {
     ema_13: 226.4,
     ema_26: 221.7,

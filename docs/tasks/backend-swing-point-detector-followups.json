@@ -13,11 +13,11 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md §2's module-layout tree wasn't updated to list the new app/signals/swing_points.py module under signals/, the same recurring gap already flagged (still unresolved) as a non-blocking follow-up on the prior backend-support-resistance PR (#147) for support_resistance.py. Add both to the tree in the same pass.",
-      "done": false
+      "done": true
     },
     {
       "step": "Plateau/tie merging (app/signals/swing_points.py's _merge_plateau_runs) collapses a run of identical-value bars to a SwingPoint at the run's middle bar, which shifts the reported extreme's date away from wherever it actually first/last occurred within the run. Very unlikely to matter for continuous float price/indicator series (an exact tie across multiple consecutive bars is rare outside synthetic data), but the future backend-divergence-detection task implements Kerry Lovvorn's empirical '20-40 bars apart' spacing rule (docs/ideas.md, MACD-Histogram divergence idea) off these dates -- that task should explicitly confirm the middle-bar convention doesn't distort spacing measurement (or note why it doesn't matter in practice) rather than silently inheriting the assumption.",
-      "done": false
+      "done": true
     },
     {
       "step": "Reuse: the task's decisions entry evaluated two alternatives for avoiding duplication with app.signals.support_resistance._find_swing_points (generalizing that function to accept a DataFrame-or-Series, and a scipy.signal.argrelextrema-based rewrite) and rejected both, but didn't consider a third, narrower option -- extracting just the low-level 'is bar i a local extreme over a full non-NaN window' comparison as a small shared primitive that both modules' genuinely different post-processing (support_resistance's high/low-vs-close touch selection; swing_points's plateau merging) could each layer on top of. Would remove ~15 lines of duplicated core-loop logic between the two modules without forcing either caller into the other's shape. Worth considering next time support_resistance.py is touched.",

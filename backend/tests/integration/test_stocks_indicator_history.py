@@ -103,6 +103,33 @@ def _buy_weekly_ohlcv() -> pd.DataFrame:
     )
 
 
+def _divergence_daily_ohlcv() -> pd.DataFrame:
+    """Same fixture as tests/integration/test_stocks_analysis.py's `_divergence_daily_ohlcv`
+    (see its own docstring for how this was built/confirmed) -- a real bullish RSI divergence,
+    first low at position 15 (2026-01-16), second (lower, shallower-RSI) low at position 53
+    (2026-02-23), 38 bars apart."""
+    closes = [100.0 - i * 4 for i in range(16)]
+    for _i in range(1, 10):
+        closes.append(closes[-1] + 6.0)
+    value = closes[-1]
+    for i in range(30):
+        value = value - 7.0 if i % 2 == 0 else value + 2.0
+        closes.append(value)
+    while len(closes) < 70:
+        closes.append(closes[-1] + 3.0)
+    closes = closes[:70]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + 0.3 for c in closes],
+            "low": [c - 0.3 for c in closes],
+            "close": closes,
+            "volume": [1_000_000] * len(closes),
+        },
+        index=pd.date_range("2026-01-01", periods=len(closes), freq="D", name="date"),
+    )
+
+
 def _hold_daily_ohlcv(n: int = 30) -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -127,6 +154,43 @@ def _hold_weekly_ohlcv(n: int = 30) -> pd.DataFrame:
         },
         index=pd.date_range("2025-01-01", periods=n, freq="W", name="date"),
     )
+
+
+class TestDivergenceField:
+    """Integration coverage for each point's `divergence` field, including its no-look-ahead
+    contract: a divergence must not appear on a bar earlier than the one where its second
+    swing point is actually confirmable (see app.signals.divergence.confirmed_divergence_as_of
+    and this task's `decisions` entry)."""
+
+    def test_no_lookahead_then_confirmed_then_matches_analysis(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _divergence_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()}
+        )
+
+        history_response = _get_indicator_history(provider, range="max")
+        analysis_response = _get_analysis(provider)
+
+        assert history_response.status_code == 200
+        assert analysis_response.status_code == 200
+        points = history_response.json()["points"]
+        assert len(points) == 70
+
+        # Position 55 (2026-02-25) is one bar before the second swing low (position 53) is
+        # confirmable (needs `window` == 3 bars after it, i.e. position 56) -- must not yet
+        # report the divergence.
+        assert points[55]["date"] == "2026-02-25"
+        assert points[55]["divergence"] is None
+
+        # Position 56 (2026-02-26) is the first bar the second swing point is confirmed on --
+        # the divergence must appear starting exactly here.
+        assert points[56]["date"] == "2026-02-26"
+        assert points[56]["divergence"] is not None
+        assert points[56]["divergence"]["kind"] == "bullish"
+        assert points[56]["divergence"]["indicator"] == "rsi"
+        assert points[56]["divergence"]["second_extreme_date"] == "2026-02-23"
+
+        # The last point always matches GET /api/stocks/{ticker}/analysis for the same ticker.
+        assert points[-1]["divergence"] == analysis_response.json()["divergence"]
 
 
 class TestGetIndicatorHistory:
@@ -157,6 +221,7 @@ class TestGetIndicatorHistory:
             "signal",
             "confidence",
             "confidence_band",
+            "divergence",
         }
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
         # ~100-bar deviation-average warm-up window, so every point's bands are still null --

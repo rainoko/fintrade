@@ -26,12 +26,16 @@ backend/
       stochastic.py
       elder_ray.py
       autoenvelope.py
+      rsi.py
       _validation.py   # shared package-internal helpers (e.g. validate_period), no I/O
     signals/
       triple_screen.py   # Screen 1/2/3 evaluation
       impulse.py          # Impulse System gate
       confidence.py        # weighted scoring (Analyse.md §6)
       engine.py             # orchestrates the above into BUY/SELL/HOLD + %
+      swing_points.py        # shared fractal swing-high/swing-low detector (single series)
+      support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
+      divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
     portfolio/
       models.py        # Position, Account (Pydantic/SQLAlchemy)
       pricing.py         # shared mark-to-market price enrichment (EnrichedPosition)

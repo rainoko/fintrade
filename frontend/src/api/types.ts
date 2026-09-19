@@ -424,6 +424,8 @@ export interface components {
              * @description Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.
              */
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
+            /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
+            divergence: components["schemas"]["DivergenceOut"] | null;
             /** @description Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             screens: components["schemas"]["Screens"];
@@ -514,6 +516,73 @@ export interface components {
              * @description This component's fixed weight (0-1); all five weights sum to 1.0.
              */
             weight: number;
+        };
+        /** DivergenceOut */
+        DivergenceOut: {
+            /**
+             * Aborted
+             * @description 'Hound of the Baskervilles' (docs/ideas.md): whether price has, as of as_of, already ignored this divergence -- continued making new lows past second_extreme_price despite a bullish divergence, or new highs past it despite a bearish one -- which Elder treats as a strong continuation signal in the opposite direction (his one explicit stop-and-reverse case), not a failed signal to discard.
+             */
+            aborted: boolean;
+            /**
+             * Bars Apart
+             * @description Trading-day spacing between the two extremes. Always between 20 and 40 inclusive (Kerry Lovvorn's empirical spacing filter, docs/ideas.md) -- a closer-together or further-apart pair is never reported as a divergence at all.
+             */
+            bars_apart: number;
+            /**
+             * Beyond Reference Line
+             * @description Whether this divergence is at its textbook strongest for Stochastic/RSI: the first extreme beyond the oscillator's own overbought/oversold reference line (30/70) and the second back inside it. Informational only, never a requirement. Null for 'macd_histogram', where this concept doesn't apply.
+             */
+            beyond_reference_line: boolean | null;
+            /**
+             * Centerline Crossed
+             * @description Whether MACD-Histogram crossed its own zero centerline between the two extremes -- 'an absolute must for a true divergence' per the book. Always true when indicator is 'macd_histogram' (a non-crossing pair is never reported as a divergence at all, so this is never false here); null for 'stochastic'/'rsi', which have no such requirement.
+             */
+            centerline_crossed: boolean | null;
+            /**
+             * First Extreme Date
+             * Format: date
+             * @description Date of the earlier of the two compared price swing points.
+             */
+            first_extreme_date: string;
+            /**
+             * First Extreme Indicator Value
+             * @description indicator's own value at first_extreme_date -- not necessarily a local extreme of the indicator itself, just its reading on the day price made this swing point (docs/ideas.md's own phrasing: 'the indicator's value at the prior comparable swing extreme').
+             */
+            first_extreme_indicator_value: number;
+            /**
+             * First Extreme Price
+             * @description Price (close) at first_extreme_date.
+             */
+            first_extreme_price: number;
+            /**
+             * Indicator
+             * @description Which oscillator this divergence was detected against -- MACD-Histogram (the book's usual choice, and the only one of the three with a centerline-crossing requirement), Stochastic %K, or RSI.
+             * @enum {string}
+             */
+            indicator: "macd_histogram" | "stochastic" | "rsi";
+            /**
+             * Kind
+             * @description Which way the divergence points -- 'bullish' from two successive price swing LOWS (a potential buy setup), 'bearish' from two successive swing HIGHS (a potential sell setup). Elder ch. 15/23/26/27, docs/ideas.md.
+             * @enum {string}
+             */
+            kind: "bullish" | "bearish";
+            /**
+             * Second Extreme Date
+             * Format: date
+             * @description Date of the later of the two compared price swing points -- always the more recent, more extreme price swing (a new high for bearish, a new low for bullish) with a shallower indicator reading than first_extreme_indicator_value.
+             */
+            second_extreme_date: string;
+            /**
+             * Second Extreme Indicator Value
+             * @description indicator's own value at second_extreme_date.
+             */
+            second_extreme_indicator_value: number;
+            /**
+             * Second Extreme Price
+             * @description Price (close) at second_extreme_date.
+             */
+            second_extreme_price: number;
         };
         /** Equity */
         Equity: {
@@ -632,6 +701,8 @@ export interface components {
              * Format: date
              */
             date: string;
+            /** @description Same definition as AnalysisResponse.divergence, using only swing points confirmable from data available through this bar (no look-ahead) -- so this can differ from a later bar's divergence at the same underlying extreme dates once more history confirms a swing point AnalysisResponse.divergence. */
+            divergence?: components["schemas"]["DivergenceOut"] | null;
             /**
              * Ema 13
              * @description Same definition as AnalysisResponse.indicators.ema_13, for this bar.

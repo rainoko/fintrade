@@ -75,6 +75,7 @@ const analysisFixture: AnalysisResponse = {
     { component: 'elder_ray_confirmation', weight: 0.15, score: 0.5 },
     { component: 'volume_confirmation', weight: 0.1, score: 1.0 },
   ],
+  divergence: null,
   indicators: {
     ema_13: 226.4,
     ema_26: 221.7,
