@@ -3,7 +3,7 @@
   "title": "Mark bullish/bearish divergences on price and oscillator charts",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-divergence-detection"
   ],
@@ -69,5 +69,11 @@
       "decision": "Manually verified the whole feature against a real running backend + frontend (not just mocked component tests) before considering this done: started the backend with `FINTRADE_DATA_PROVIDER_MODE=fixture` (the same deterministic, no-network provider the e2e suite uses), confirmed AAPL's `/analysis` response has a real, non-null bearish MACD-Histogram divergence (`aborted: true`, i.e. a live Hound-of-the-Baskervilles case), then used a throwaway Playwright script to: (1) screenshot the price and oscillator charts showing the teal connecting line + circle markers labeled 'Bearish divergence', visually distinct from the BUY/SELL arrows; (2) open the legend's MetricHelp balloon and confirm its text names the real 2025-12-11/2026-01-16 dates, real prices/indicator values, the centerline-crossing rule, and the Hound-of-the-Baskervilles callout; (3) dispatch a native click event at the exact canvas pixel corresponding to the second extreme's own bar and confirm `AnchoredInfoBalloon` opens with the identical content, anchored near the click. All scratch scripts/servers were discarded afterward; no test-suite files depend on this manual pass.",
       "rationale": "Directly required by this task's dispatch instructions ('Do your own visual verification... at a range/ticker where a divergence is actually detected'). Also surfaced that Playwright's high-level `page.mouse.click()` doesn't reliably reach Lightweight Charts' internal canvas pointer-event listeners in this headless environment (a native `dispatchEvent` with explicit `pointerdown`/`mousedown`/`pointerup`/`mouseup`/`click` was needed instead) -- noted here only as a manual-verification-tooling quirk, not a product bug, since the actual click-handling logic (`clickedDivergenceExtreme`, the pageX/pageY extraction, `AnchoredInfoBalloon`'s open/close) is already directly covered by PriceChart.test.tsx/OscillatorChart.test.tsx's mocked-`chart.subscribeClick` tests, which invoke the exact same handler function the real chart calls."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-divergence-markers",
+    "pr_number": 158,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/158",
+    "pushed_at": "2026-09-19T17:16:45Z"
+  }
 }
