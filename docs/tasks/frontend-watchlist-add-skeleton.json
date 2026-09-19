@@ -40,5 +40,11 @@
       "rationale": "A real row for that ticker is already visible on screen the instant the (idempotent) POST is submitted, so there is nothing to placeholder and nothing to explicitly resolve -- checking `items.some(item => item.ticker === pendingTicker)` against the already-fetched list (not any newly introduced state) is sufficient and avoids ever rendering a duplicate/ghost row alongside the real one."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-watchlist-add-skeleton",
+    "pr_number": 132,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/132",
+    "pushed_at": "2026-09-19T01:41:47Z"
+  }
 }
