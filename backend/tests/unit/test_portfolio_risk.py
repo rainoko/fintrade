@@ -16,6 +16,7 @@ from app.portfolio.models import Account, Equity, Position
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
+    realized_losses_pct,
     total_open_risk_pct,
 )
 
@@ -316,3 +317,32 @@ class TestTotalOpenRiskPct:
 
         # lot_1: 10*2=20 -> 2.0%; lot_2: 5*10=50 -> 5.0%
         assert total_open_risk_pct(account, stops) == pytest.approx(7.0)
+
+
+class TestRealizedLossesPct:
+    """The other half of the book's actual 6% Rule formula (docs/Analyse.md §7, per
+    docs/ideas.md's ch. 51 cross-check) -- see the backend-trade-history-table task's
+    `decisions` entry for why this is a sibling function to total_open_risk_pct rather than a
+    single combined function."""
+
+    def test_expresses_dollar_loss_as_percentage_of_equity(self) -> None:
+        account = _account(total_equity=10_000.0, positions=[])
+
+        assert realized_losses_pct(account, 600.0) == pytest.approx(6.0)
+
+    def test_zero_realized_losses_is_zero_percent(self) -> None:
+        account = _account(total_equity=10_000.0, positions=[])
+
+        assert realized_losses_pct(account, 0.0) == pytest.approx(0.0)
+
+    def test_zero_equity_raises(self) -> None:
+        account = _account(total_equity=0.0, positions=[])
+
+        with pytest.raises(ValueError, match="equity"):
+            realized_losses_pct(account, 100.0)
+
+    def test_negative_equity_raises(self) -> None:
+        account = _account(total_equity=-500.0, positions=[])
+
+        with pytest.raises(ValueError, match="equity"):
+            realized_losses_pct(account, 100.0)

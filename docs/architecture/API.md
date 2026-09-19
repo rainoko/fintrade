@@ -174,6 +174,8 @@ Adding a ticker that's already held **merges** into the existing position rather
 
 Removes a position. `204 No Content` on success.
 
+Query params: `exit_reason` (optional, one of `target_hit` | `stop_hit` | `reached_value_zone` | `going_nowhere` | `starting_to_turn` | `couldnt_stand_the_pain` | `recognized_junk_trade_after_entry` | `unspecified` — Elder's own exit-reason taxonomy per Analyse.md §7/ideas.md's ch. 51 note, plus `unspecified` as this app's own default). Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date, realized P&L, exit_reason) for the trade-history/ledger this app previously had no model for at all, priced at today's latest close for this ticker (the same market-data lookup `current_price` uses elsewhere, not a caller-supplied price) — see the `backend-trade-history-table` task's `decisions`. If that price fetch fails, the position is still deleted but no `closed_trades` row is recorded (there's no exit price to compute a realized P&L from).
+
 ### `GET /api/portfolio/risk`
 
 Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
@@ -181,6 +183,7 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 ```json
 {
   "total_open_risk_pct": 5.4,
+  "realized_losses_this_month_pct": 0.0,
   "six_percent_rule_breached": false,
   "positions": [
     {
@@ -197,7 +200,9 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 
 `exit_flags` is a list of strings drawn from Analyse.md §7's existing-position exit conditions, e.g. `["stop_hit", "tide_flipped_bearish", "six_percent_rule_contributor"]` — empty if none apply.
 
-A position whose risk can't be computed at all (its current price couldn't be fetched, same degrade-gracefully rule as `GET /api/portfolio`; too little daily/weekly history; a weekly-history fetch failure) is silently excluded from `positions` and from `total_open_risk_pct`, rather than appearing with partial/null fields — every field on a `positions` entry is required (see the `api-portfolio-risk` task's `decisions` for the full rationale).
+`total_open_risk_pct` is the book's actual *two-part* 6% Rule total (Analyse.md §7, per `docs/ideas.md`'s ch. 51 cross-check — the book's own worked example sums "the sum of your losses for the current month" AND "the risks in open trades"): `realized_losses_this_month_pct` (this calendar month's realized losses from `closed_trades`, populated by `DELETE /api/portfolio/positions/{id}` — only losing trades count, a profitable month contributes 0) plus the sum of `position_risk_pct` across every open position with a known stop. The field keeps its original name despite now covering both halves (see the `backend-trade-history-table` task's `decisions`).
+
+A position whose risk can't be computed at all (its current price couldn't be fetched, same degrade-gracefully rule as `GET /api/portfolio`; too little daily/weekly history; a weekly-history fetch failure) is silently excluded from `positions` and from the open-risk half of `total_open_risk_pct`, rather than appearing with partial/null fields — every field on a `positions` entry is required (see the `api-portfolio-risk` task's `decisions` for the full rationale).
 
 ### `GET /api/watchlist`
 

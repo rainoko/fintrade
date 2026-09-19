@@ -23,6 +23,7 @@ describe('SellFlaggedPositionsCard', () => {
   it('shows a loading state, then an empty-state message when no positions are flagged', async () => {
     mockRisk({
       total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -51,6 +52,7 @@ describe('SellFlaggedPositionsCard', () => {
   it('lists only the positions with a non-empty exit_flags, with human-readable flag labels', async () => {
     mockRisk({
       total_open_risk_pct: 4.5,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {
@@ -92,6 +94,7 @@ describe('SellFlaggedPositionsCard', () => {
   it('falls back to a humanized label for an exit flag not in the known label map', async () => {
     mockRisk({
       total_open_risk_pct: 1.0,
+      realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
       positions: [
         {

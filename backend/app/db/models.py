@@ -41,6 +41,40 @@ class WatchlistItemORM(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class ClosedTradeORM(Base):
+    """A closed position -- one row per position closed via `DELETE
+    /api/portfolio/positions/{id}` (app/api/routers/portfolio.py), recording enough to compute
+    both halves of the book's actual 6% Rule (docs/Analyse.md §7, per docs/ideas.md's ch. 51
+    cross-check: "the sum of your losses for the current month AND the risks in open trades" --
+    see `app.portfolio.risk.realized_losses_pct`) and to feed the future backend-trade-grading
+    task's buy/sell/trade-grade formulas plus a trade-journal frontend page -- see the
+    backend-trade-history-table task's `decisions` entry for why these particular fields (and
+    not, say, a running per-ticker lot ledger) were chosen.
+
+    `exit_reason` is stored as a plain string (an `ExitReason` value, app/portfolio/models.py),
+    the same "no DB-level enum constraint" convention `OHLCVCacheORM.interval` above already
+    uses for its own closed string-enum-like column -- SQLite has no native enum type to
+    enforce it at the DB layer regardless, so validation lives at the Python layer (the
+    `ExitReason` enum itself) rather than being duplicated as a CHECK constraint here.
+
+    `id` is a synthetic id (like `PositionORM.id`), not `ticker`, since a ticker can be closed
+    and re-opened (and re-closed) many times over an account's lifetime -- each closure is its
+    own row.
+    """
+
+    __tablename__ = "closed_trades"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String, index=True)
+    quantity: Mapped[float] = mapped_column(Float)
+    entry_price: Mapped[float] = mapped_column(Float)
+    entry_date: Mapped[date] = mapped_column(Date)
+    exit_price: Mapped[float] = mapped_column(Float)
+    exit_date: Mapped[date] = mapped_column(Date, index=True)
+    realized_pnl: Mapped[float] = mapped_column(Float)
+    exit_reason: Mapped[str] = mapped_column(String)
+
+
 class OHLCVCacheORM(Base):
     """Cached market data, keyed by ticker + date + interval (docs/architecture/Backend.md §7)."""
 

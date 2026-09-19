@@ -1,9 +1,10 @@
 import math
 import uuid
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
@@ -18,13 +19,23 @@ from app.api.schemas import (
 )
 from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
-from app.db.models import AccountORM, PositionORM
+from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.portfolio.exits import evaluate_exit_flags
-from app.portfolio.models import Account
+from app.portfolio.models import Account, ExitReason
 from app.portfolio.models import Equity as DomainEquity
-from app.portfolio.pricing import EnrichedPosition, enrich_positions_with_price, positions_value
-from app.portfolio.risk import position_risk_pct, protective_stop, total_open_risk_pct
+from app.portfolio.pricing import (
+    EnrichedPosition,
+    enrich_positions_with_price,
+    latest_close,
+    positions_value,
+)
+from app.portfolio.risk import (
+    position_risk_pct,
+    protective_stop,
+    realized_losses_pct,
+    total_open_risk_pct,
+)
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
@@ -44,6 +55,46 @@ def _ordered_positions(db: Session) -> list[PositionORM]:
     neither relies on incidental SQLite row-return order -- see this task's `decisions`
     entry."""
     return db.query(PositionORM).order_by(PositionORM.entry_date, PositionORM.id).all()
+
+
+def _today() -> date:
+    """Naive UTC 'today', matching how other date/datetime "now" values in this codebase are
+    derived (`app.data.cache._utcnow`, `app.api.routers.watchlist._utcnow`) -- used for
+    `ClosedTradeORM.exit_date` (delete_position below) and as the "as of" date for the 6%
+    Rule's this-calendar-month realized-losses window (`_realized_losses_this_month_pct`)."""
+    return datetime.now(UTC).date()
+
+
+def _realized_losses_this_month_pct(db: Session, account: Account, as_of: date) -> float:
+    """This calendar month's realized losses from `closed_trades`, as a percentage of current
+    account equity -- the first half of the book's actual 6% Rule formula (docs/Analyse.md §7,
+    per docs/ideas.md's ch. 51 cross-check: "the sum of your losses for the current month AND
+    the risks in open trades"), which `app.portfolio.risk.total_open_risk_pct` alone never
+    implemented on its own (it only ever summed the second half, current open-position risk)
+    -- see the backend-trade-history-table task's `decisions` entry.
+
+    Only losing trades (`realized_pnl < 0`) count towards the sum; a profitable month
+    contributes 0, never a negative offset that would let this month's wins paper over a
+    still-live 6%-rule breach. `as_of` anchors both the "this calendar month" window (`exit_date
+    >= as_of`'s month start) and its upper bound (`exit_date <= as_of` -- a closed_trades row
+    can't be dated in the future in practice, but this keeps the query's own contract explicit
+    rather than relying on that never happening).
+
+    Degrades to 0.0 (rather than raising) when `account.equity.total` isn't positive, mirroring
+    `get_risk`'s existing `total_open_risk_pct` degrade-to-zero handling for the exact same
+    precondition failure.
+    """
+    month_start = as_of.replace(day=1)
+    rows = (
+        db.query(ClosedTradeORM)
+        .filter(ClosedTradeORM.exit_date >= month_start, ClosedTradeORM.exit_date <= as_of)
+        .all()
+    )
+    realized_losses = sum(-row.realized_pnl for row in rows if row.realized_pnl < 0)
+    try:
+        return realized_losses_pct(account, realized_losses)
+    except ValueError:
+        return 0.0
 
 
 def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> SignalResult | None:
@@ -69,7 +120,7 @@ def _compute_position_signal(e: EnrichedPosition, provider: DataProvider) -> Sig
     high/low, Wave/Trigger need the day's full range); handing it a bar with NaN open/high/low
     would feed garbage into those computations rather than degrade gracefully. But dropping the
     latest bar outright, on its own, isn't safe either: `e.daily_ohlcv` is only non-`None` here
-    because `app.portfolio.pricing._latest_close` already found a *valid close* on that exact
+    because `app.portfolio.pricing.latest_close` already found a *valid close* on that exact
     latest bar (its own check is close-only, permissive) and derived `e.position.current_price`
     from it -- so if that same latest bar fails this stricter filter, it must be because its
     open/high/low are NaN (the yfinance "not yet settled" shape `drop_malformed_daily_bars`'s
@@ -272,15 +323,58 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     "/positions/{position_id}",
     status_code=204,
     operation_id="delete_position",
-    summary="Remove a position",
+    summary="Remove a position, recording it as a closed trade",
     responses={404: {"model": ErrorDetail, "description": "Position not found"}},
 )
-def delete_position(position_id: str, db: Session = Depends(get_db)) -> None:
-    """Removes a position entirely. There is no partial-quantity reduction endpoint —
-    reducing a position means deleting and re-adding it with the new quantity."""
+def delete_position(
+    position_id: str,
+    exit_reason: ExitReason = Query(
+        default=ExitReason.UNSPECIFIED,
+        description="Why this position is being closed, from Elder's own taxonomy "
+        "(docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check). Defaults to 'unspecified' "
+        "-- not one of Elder's own tags -- when the caller doesn't supply one, since this "
+        "endpoint has no other way to know why the user is closing the position.",
+    ),
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> None:
+    """Removes a position entirely. There is no partial-quantity reduction endpoint --
+    reducing a position means deleting and re-adding it with the new quantity.
+
+    Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
+    realized P&L, exit_reason) -- the trade-history/ledger this app previously had no model
+    for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month component
+    of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading task's
+    buy/sell/trade-grade formulas plus a future trade-journal frontend page. `exit_price` is
+    today's latest close for this ticker, fetched the same way `current_price` is everywhere
+    else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
+    since this app already treats "current market price" as authoritative for mark-to-market
+    elsewhere rather than trusting a client-supplied number. `realized_pnl` is
+    `quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted
+    ticker, provider unavailable), the position is still deleted -- a data-provider outage
+    must never block removing a position -- but no `closed_trades` row is recorded, since
+    there's no way to compute a realized P&L without an exit price; see the
+    backend-trade-history-table task's `decisions` entry for the full rationale (including why
+    this endpoint doesn't accept a caller-supplied `exit_price` instead)."""
     row = db.get(PositionORM, position_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Position '{position_id}' not found")
+
+    exit_price, _ = latest_close(provider, row.ticker)
+    if exit_price is not None:
+        db.add(
+            ClosedTradeORM(
+                id=f"trade_{uuid.uuid4().hex[:12]}",
+                ticker=row.ticker,
+                quantity=row.quantity,
+                entry_price=row.avg_cost_basis,
+                entry_date=row.entry_date,
+                exit_price=exit_price,
+                exit_date=_today(),
+                realized_pnl=row.quantity * (exit_price - row.avg_cost_basis),
+                exit_reason=exit_reason.value,
+            )
+        )
 
     db.delete(row)
     db.commit()
@@ -301,9 +395,17 @@ def get_risk(
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
     independent of entry-signal logic by design.
 
-    A position is silently excluded from `positions` (and so from `total_open_risk_pct`,
-    which only sums positions with a known stop — see `app.portfolio.risk
-    .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
+    `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
+    docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
+    (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
+    /api/portfolio/positions/{id}` populates) plus current open-position risk (`app.portfolio
+    .risk.total_open_risk_pct`, summed over positions with a known stop) -- see the
+    backend-trade-history-table task's `decisions` entry for why the field keeps this name
+    despite now covering both halves.
+
+    A position is silently excluded from `positions` (and so from the open-risk half of
+    `total_open_risk_pct` -- see `app.portfolio.risk.total_open_risk_pct`) whenever its risk
+    can't be computed at all: its current price
     couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
     task's `decisions` entry), its daily history has fewer than 2 rows once any malformed
     bar is dropped (the minimum `evaluate_exit_flags` needs to test today's close against
@@ -318,9 +420,9 @@ def get_risk(
     position's history can't silently suppress an exit flag via a NaN comparison quietly
     evaluating False. Called here with `require_full_ohlc_on_latest_bar=False`, unlike GET
     /api/stocks/{ticker}/analysis's default-`True` call: the *latest* bar is dropped only if
-    its own `close` is NaN, matching `app.portfolio.pricing._latest_close`'s own close-only
+    its own `close` is NaN, matching `app.portfolio.pricing.latest_close`'s own close-only
     validity rule for that exact bar (which is what `position.current_price` was derived
-    from), rather than also requiring open/high/low there — a shape `_latest_close` doesn't
+    from), rather than also requiring open/high/low there — a shape `latest_close` doesn't
     guard against, and one this pipeline's own downstream reads (`evaluate_exit_flags` and
     everything it calls) never touch for the latest bar anyway. Using the stricter default here
     would silently drop a real latest bar whose close is valid but whose open/high/low haven't
@@ -377,13 +479,17 @@ def get_risk(
     # makes position_risk_pct -- called internally by total_open_risk_pct for every position
     # in `stops` -- raise ValueError, the same precondition failure the per-position loop
     # below already guards against for each position individually. Guard this call the same
-    # way: an unknown total open risk degrades to 0.0 (and so never breaches the 6% rule)
-    # rather than propagating as an unhandled 500, consistent with every other
+    # way: an unknown open-position risk degrades to 0.0 (and so never breaches the 6% rule on
+    # its own) rather than propagating as an unhandled 500, consistent with every other
     # can't-be-computed case this endpoint documents as a silent exclusion.
     try:
-        total_risk = total_open_risk_pct(account, stops)
+        open_risk = total_open_risk_pct(account, stops)
     except ValueError:
-        total_risk = 0.0
+        open_risk = 0.0
+    # _realized_losses_this_month_pct degrades to 0.0 itself on the same account.equity.total
+    # <= 0 precondition failure (see its own docstring), so no try/except is needed here.
+    realized_losses_this_month = _realized_losses_this_month_pct(db, account, _today())
+    total_risk = open_risk + realized_losses_this_month
     six_percent_rule_breached = total_risk > _SIX_PERCENT_RULE_THRESHOLD
 
     risk_positions: list[RiskPosition] = []
@@ -412,6 +518,7 @@ def get_risk(
 
     return RiskResponse(
         total_open_risk_pct=total_risk,
+        realized_losses_this_month_pct=realized_losses_this_month,
         six_percent_rule_breached=six_percent_rule_breached,
         positions=risk_positions,
     )

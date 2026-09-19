@@ -234,7 +234,22 @@ class RiskPosition(BaseModel):
 
 
 class RiskResponse(BaseModel):
-    total_open_risk_pct: float = Field(description="Sum of position_risk_pct across all positions (the 6% rule).")
+    total_open_risk_pct: float = Field(
+        description="The 6% rule total: sum of position_risk_pct across all open positions "
+        "plus realized_losses_this_month_pct below (docs/Analyse.md §7's own two-part formula "
+        "-- 'the sum of your losses for the current month AND the risks in open trades', per "
+        "docs/ideas.md's ch. 51 cross-check). Kept under this existing field name rather than "
+        "renamed, since it's the one this response has always compared against the 6% "
+        "threshold — see the backend-trade-history-table task's `decisions` entry."
+    )
+    realized_losses_this_month_pct: float = Field(
+        description="This calendar month's realized losses from closed_trades (only losing "
+        "trades count; a profitable month contributes 0, never a negative offset to open "
+        "risk), as a percentage of current account equity -- the component total_open_risk_pct "
+        "above was missing before this field existed, per the backend-trade-history-table "
+        "task. See DELETE /api/portfolio/positions/{id} for how a closed_trades row is "
+        "recorded."
+    )
     six_percent_rule_breached: bool
     positions: list[RiskPosition]
 

@@ -160,3 +160,30 @@ def total_open_risk_pct(account: Account, stops: dict[str, float]) -> float:
             continue
         total += position_risk_pct(position, stops[position.id], account)
     return total
+
+
+def realized_losses_pct(account: Account, realized_losses_this_month: float) -> float:
+    """`realized_losses_this_month` (a non-negative dollar sum of this calendar month's
+    closed-trade losses) as a percentage of current account equity -- the first half of the
+    book's *actual* 6% Rule formula (docs/Analyse.md §7; the book's own worked example --
+    cross-checked in docs/ideas.md's ch. 51 note -- sums "the sum of your losses for the
+    current month" AND "the risks in open trades". `total_open_risk_pct` above is the latter;
+    this function is the former).
+
+    Deliberately takes the already-summed dollar figure rather than a list of closed-trade
+    rows or a DB session: this module has no DB dependency anywhere else (``Account``/
+    ``Position`` are plain domain models, not ORM rows), and "this calendar month" requires a
+    DB query against ``ClosedTradeORM`` (app/db/models.py) filtered by ``exit_date`` -- that
+    query lives in the caller (``app.api.routers.portfolio._realized_losses_this_month_pct``)
+    instead of here, and the caller sums this function's result with
+    ``total_open_risk_pct``'s own -- see the backend-trade-history-table task's `decisions`
+    entry for why this is a sibling function rather than a single function that would need to
+    take on that DB dependency itself.
+
+    Raises:
+        ValueError: if `account.equity.total` isn't positive, mirroring
+            `position_risk_pct`/`total_open_risk_pct`'s identical precondition.
+    """
+    if account.equity.total <= 0:
+        raise ValueError("account.equity.total must be positive to compute a risk percentage")
+    return (realized_losses_this_month / account.equity.total) * 100

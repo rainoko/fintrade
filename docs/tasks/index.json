@@ -1013,8 +1013,8 @@
       "id": "backend-trade-history-table",
       "area": "backend/db",
       "skill": "add-api-endpoint",
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-history-table.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-history-table.json"
     },
     {
       "id": "backend-trade-grading",
@@ -1155,6 +1155,13 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-methodology-explainer.json"
+    },
+    {
+      "id": "backend-trade-history-table-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-history-table-followups.json"
     }
   ]
 }

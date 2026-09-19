@@ -85,9 +85,25 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a position
-         * @description Removes a position entirely. There is no partial-quantity reduction endpoint —
+         * Remove a position, recording it as a closed trade
+         * @description Removes a position entirely. There is no partial-quantity reduction endpoint --
          *     reducing a position means deleting and re-adding it with the new quantity.
+         *
+         *     Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
+         *     realized P&L, exit_reason) -- the trade-history/ledger this app previously had no model
+         *     for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month component
+         *     of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading task's
+         *     buy/sell/trade-grade formulas plus a future trade-journal frontend page. `exit_price` is
+         *     today's latest close for this ticker, fetched the same way `current_price` is everywhere
+         *     else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
+         *     since this app already treats "current market price" as authoritative for mark-to-market
+         *     elsewhere rather than trusting a client-supplied number. `realized_pnl` is
+         *     `quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted
+         *     ticker, provider unavailable), the position is still deleted -- a data-provider outage
+         *     must never block removing a position -- but no `closed_trades` row is recorded, since
+         *     there's no way to compute a realized P&L without an exit price; see the
+         *     backend-trade-history-table task's `decisions` entry for the full rationale (including why
+         *     this endpoint doesn't accept a caller-supplied `exit_price` instead).
          */
         delete: operations["delete_position"];
         options?: never;
@@ -109,9 +125,17 @@ export interface paths {
          *     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
          *     independent of entry-signal logic by design.
          *
-         *     A position is silently excluded from `positions` (and so from `total_open_risk_pct`,
-         *     which only sums positions with a known stop — see `app.portfolio.risk
-         *     .total_open_risk_pct`) whenever its risk can't be computed at all: its current price
+         *     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
+         *     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
+         *     (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
+         *     /api/portfolio/positions/{id}` populates) plus current open-position risk (`app.portfolio
+         *     .risk.total_open_risk_pct`, summed over positions with a known stop) -- see the
+         *     backend-trade-history-table task's `decisions` entry for why the field keeps this name
+         *     despite now covering both halves.
+         *
+         *     A position is silently excluded from `positions` (and so from the open-risk half of
+         *     `total_open_risk_pct` -- see `app.portfolio.risk.total_open_risk_pct`) whenever its risk
+         *     can't be computed at all: its current price
          *     couldn't be fetched (same degrade-gracefully rule as GET /api/portfolio — see this
          *     task's `decisions` entry), its daily history has fewer than 2 rows once any malformed
          *     bar is dropped (the minimum `evaluate_exit_flags` needs to test today's close against
@@ -126,9 +150,9 @@ export interface paths {
          *     position's history can't silently suppress an exit flag via a NaN comparison quietly
          *     evaluating False. Called here with `require_full_ohlc_on_latest_bar=False`, unlike GET
          *     /api/stocks/{ticker}/analysis's default-`True` call: the *latest* bar is dropped only if
-         *     its own `close` is NaN, matching `app.portfolio.pricing._latest_close`'s own close-only
+         *     its own `close` is NaN, matching `app.portfolio.pricing.latest_close`'s own close-only
          *     validity rule for that exact bar (which is what `position.current_price` was derived
-         *     from), rather than also requiring open/high/low there — a shape `_latest_close` doesn't
+         *     from), rather than also requiring open/high/low there — a shape `latest_close` doesn't
          *     guard against, and one this pipeline's own downstream reads (`evaluate_exit_flags` and
          *     everything it calls) never touch for the latest bar anyway. Using the stricter default here
          *     would silently drop a real latest bar whose close is valid but whose open/high/low haven't
@@ -416,6 +440,22 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /**
+         * ExitReason
+         * @description Why a position was closed, per Elder's own taxonomy (docs/ideas.md's ch. 51 cross-check;
+         *     docs/Analyse.md §7) -- recorded per row in ``ClosedTradeORM`` (app/db/models.py) so the
+         *     future ``backend-trade-grading`` task's buy/sell/trade-grade formulas and a trade-journal
+         *     frontend page have this to work with, in addition to this task's own use (the 6% Rule's
+         *     realized-losses-this-month component, ``app.portfolio.risk.realized_losses_pct``).
+         *
+         *     ``UNSPECIFIED`` is not one of Elder's own tags -- it's this app's own default for a trade
+         *     closed via ``DELETE /api/portfolio/positions/{id}`` without an explicit ``exit_reason``
+         *     query param, since that endpoint has no way to *know* why the user is closing the position
+         *     unless they say so (there's no target-price/stop-order concept tracked anywhere in this
+         *     app to infer it from) -- see the backend-trade-history-table task's `decisions` entry.
+         * @enum {string}
+         */
+        ExitReason: "target_hit" | "stop_hit" | "reached_value_zone" | "going_nowhere" | "starting_to_turn" | "couldnt_stand_the_pain" | "recognized_junk_trade_after_entry" | "unspecified";
         /** FalseBreakoutOut */
         FalseBreakoutOut: {
             /**
@@ -685,11 +725,16 @@ export interface components {
         RiskResponse: {
             /** Positions */
             positions: components["schemas"]["RiskPosition"][];
+            /**
+             * Realized Losses This Month Pct
+             * @description This calendar month's realized losses from closed_trades (only losing trades count; a profitable month contributes 0, never a negative offset to open risk), as a percentage of current account equity -- the component total_open_risk_pct above was missing before this field existed, per the backend-trade-history-table task. See DELETE /api/portfolio/positions/{id} for how a closed_trades row is recorded.
+             */
+            realized_losses_this_month_pct: number;
             /** Six Percent Rule Breached */
             six_percent_rule_breached: boolean;
             /**
              * Total Open Risk Pct
-             * @description Sum of position_risk_pct across all positions (the 6% rule).
+             * @description The 6% rule total: sum of position_risk_pct across all open positions plus realized_losses_this_month_pct below (docs/Analyse.md §7's own two-part formula -- 'the sum of your losses for the current month AND the risks in open trades', per docs/ideas.md's ch. 51 cross-check). Kept under this existing field name rather than renamed, since it's the one this response has always compared against the 6% threshold — see the backend-trade-history-table task's `decisions` entry.
              */
             total_open_risk_pct: number;
         };
@@ -959,7 +1004,10 @@ export interface operations {
     };
     delete_position: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Why this position is being closed, from Elder's own taxonomy (docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check). Defaults to 'unspecified' -- not one of Elder's own tags -- when the caller doesn't supply one, since this endpoint has no other way to know why the user is closing the position. */
+                exit_reason?: components["schemas"]["ExitReason"];
+            };
             header?: never;
             path: {
                 position_id: string;
