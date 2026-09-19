@@ -74,9 +74,13 @@ describe('metricHelpContent', () => {
       )
     })
 
-    it('explains a Neutral tide with a flat slope as genuinely ambiguous (no directional setup)', () => {
+    it('explains a Neutral tide with a flat slope by naming both possible causes (flat slope or too little weekly history), not asserting one', () => {
       const message = tideHelp.interpretValue('NEUTRAL', 'flat')
       expect(message).toMatch(/no directional Triple Screen setup/)
+      // 'flat' is also reported by evaluate_tide's <2-weekly-bar short-circuit,
+      // which never computes a slope at all -- see this task's `decisions`
+      // entry. Assert both candidate causes are named rather than just one.
+      expect(message).toMatch(/enough weekly price history/)
       expect(message).toMatch(/genuinely flat/)
     })
 

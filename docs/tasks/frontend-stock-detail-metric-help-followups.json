@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #127 review (frontend-stock-detail-metric-help)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-stock-detail-metric-help"],
   "references": [
     "docs/tasks/frontend-stock-detail-metric-help.json",
@@ -27,11 +27,11 @@
     },
     {
       "step": "[Found in PR #127 round-2 re-review] tideHelp.interpretValue's now-fixed 'genuinely flat' branch (metricHelpContent.ts, added to resolve the item above) is itself inaccurate for evaluate_tide's <2-weekly-bar short-circuit (backend/app/signals/triple_screen.py, `if len(weekly_ohlcv) < 2: return TideResult(trend=\"NEUTRAL\", weekly_macd_histogram_slope=\"flat\")`), which never computes a slope at all -- the message claims 'the weekly MACD-H slope is genuinely flat, so there's no clear direction to read' when in fact no reading was ever taken. Same class of two-distinct-causes conflation as the original blocking Trigger finding, but narrower (requires <2 weekly bars, unreachable by any current fixture ticker). Branch the message on bar count too (or otherwise distinguish 'flat reading' from 'no reading possible yet'), mirroring triggerHelp's own tideTrend-based branch.",
-      "done": false
+      "done": true
     },
     {
       "step": "[Found in PR #127 round-2 re-review] signalExplanation.ts's HOLD-explanation headline for a Neutral tide (the 'Why HOLD?' balloon from the merged frontend-signal-why-explanation PR #125, not touched by PR #127) unconditionally states 'the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree', the identical inaccuracy metricHelpContent.ts's tideHelp.interpretValue just had fixed in PR #127 -- left uncorrected in this second, adjacent call site on the same StockDetailPage. For a flat-slope Neutral ticker this now visibly contradicts the freshly-corrected tideHelp balloon right next to it. Apply the same flat-vs-disagree (and, per the item above, flat-vs-insufficient-history) branching here.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -40,7 +40,16 @@
       "recorded_by": "task-worker",
       "decision": "All three checklist items here were addressed directly on the parent task's needs_work fix-up pass (PR #127), rather than as a separate follow-up PR, since they landed in the same files already being touched for the blocking Trigger fix. See frontend-stock-detail-metric-help.json's own `decisions` array for the specifics of each fix.",
       "rationale": "Deferring these to a later, separate PR would have meant a second review pass over the same three files (MetricHelp.tsx, metricHelpContent.ts, and the three panel test files) for changes that were already low-risk and in scope while PR #127 was open for the blocking fix; bundling them avoided that duplicate review cost. Left this task's own state as `planned` (not moved to `done`) since a follow-up task's `done` state should be set by whoever re-reviews/QAs the resolution, consistent with how `review`/`test` fields elsewhere on the board are written by the reviewing agent rather than the implementing one."
+    },
+    {
+      "timestamp": "2026-09-19T00:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed both remaining checklist items by naming both candidate causes ('there isn't enough weekly price history yet to compute a slope, or the weekly MACD-H slope is genuinely flat') in the flat-slope Neutral-Tide message, rather than actually branching on weekly bar count as the checklist's primary suggestion phrased it -- confirmed via `backend/app/signals/triple_screen.py`'s `evaluate_tide` directly (0-bar, 1-bar, and a 30-identical-close-bar genuinely-flat-slope case all return the exact same `TideResult(trend='NEUTRAL', weekly_macd_histogram_slope='flat')`) that the two causes are indistinguishable from the API response alone: `TideScreen` (backend/app/api/schemas.py) exposes only `trend`/`weekly_macd_histogram_slope`, no weekly bar count, and neither `ScreensPanel.tsx`/`tideHelp.interpretValue` nor `signalExplanation.ts`'s `explainSignal` receive the raw weekly OHLCV or any other discriminating signal. Applied the identical fix to signalExplanation.ts's HOLD-headline-adjacent tide condition `detail` (the actual site of the 'disagree' text the checklist calls the 'headline' -- `explanation.headline` itself never said 'disagree'; the Neutral-tide `tide` condition's `detail`, rendered directly under the headline in the same balloon, is what did), branching on `screens.tide.weekly_macd_histogram_slope` the same way.",
+      "rationale": "The checklist's suggested fix (mirror triggerHelp's tideTrend-based branch) doesn't transfer directly: triggerHelp could disambiguate its own 'not_applicable' two-cause overlap because `tideTrend` is a *second, independently exposed* field it already receives that happens to pin down which cause applies. Tide's own NEUTRAL/'flat' overlap has no such second field -- both causes collapse to the identical `(trend, slope)` pair with nothing else in `TideScreen` to tell them apart, so 'branch on bar count' would require a new API field (out of scope for a frontend-only follow-up, and the checklist itself notes this case is 'unreachable by any current fixture ticker', i.e. too low-impact to justify a dedicated backend task the way the analogous Wave-lookback gap was -- api-stocks-analysis-wave-lookback). Naming both possibilities without asserting either fixes the actual inaccuracy (no longer claims a specific, possibly-wrong cause) using only data already available, at the cost of a slightly less specific message for this narrow edge case -- accepted as the right tradeoff over adding backend plumbing for a case no current ticker reaches."
     }
   ],
+  "git": {
+    "branch": "task/frontend-stock-detail-metric-help-followups"
+  },
   "questions": []
 }

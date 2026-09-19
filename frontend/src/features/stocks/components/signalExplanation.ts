@@ -92,13 +92,25 @@ export function explainSignal(
             : null
 
   if (direction === null) {
+    // `weekly_macd_histogram_slope === 'flat'` covers two distinct causes
+    // `evaluate_tide` (backend/app/signals/triple_screen.py) doesn't expose
+    // separately -- a genuinely flat weekly MACD-H slope, or its
+    // <2-weekly-bar short-circuit where no slope is computed at all.
+    // `TideScreen` doesn't expose a weekly bar count, so naming both
+    // possibilities (rather than asserting "genuinely flat") is the most
+    // this frontend can honestly say -- same reasoning as
+    // metricHelpContent.ts's tideHelp.interpretValue, mirrored here (see
+    // this task's `decisions` entry).
+    const weeklySlope = screens.tide.weekly_macd_histogram_slope
     const conditions: SignalConditionExplanation[] = [
       {
         key: 'tide',
         label: 'Tide direction (Screen 1)',
         met: false,
         detail:
-          'Tide is Neutral -- the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree, so Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).',
+          weeklySlope === 'flat'
+            ? 'Tide is Neutral -- there isn’t enough weekly price history yet to compute a MACD-Histogram slope, or the weekly slope is genuinely flat -- either way, Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).'
+            : 'Tide is Neutral -- the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree, so Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).',
       },
       {
         key: 'impulse',

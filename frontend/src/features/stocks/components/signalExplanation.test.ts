@@ -4,6 +4,7 @@ import { explainSignal } from './signalExplanation'
 
 function screens(overrides: Partial<{
   tideTrend: Screens['tide']['trend']
+  weeklySlope: Screens['tide']['weekly_macd_histogram_slope']
   impulse: Screens['impulse']
   waveState: string
   triggerFired: boolean
@@ -11,13 +12,14 @@ function screens(overrides: Partial<{
 }>): Screens {
   const {
     tideTrend = 'BULLISH',
+    weeklySlope = 'rising',
     impulse = 'GREEN',
     waveState = 'OVERSOLD_PULLBACK',
     triggerFired = true,
     triggerReference = 'close_above_prior_high',
   } = overrides
   return {
-    tide: { trend: tideTrend, weekly_macd_histogram_slope: 'rising' },
+    tide: { trend: tideTrend, weekly_macd_histogram_slope: weeklySlope },
     impulse,
     wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: waveState },
     trigger: { fired: triggerFired, reference: triggerReference },
@@ -68,18 +70,47 @@ describe('explainSignal', () => {
     expect(trigger.detail).toMatch(/close below prior low/i)
   })
 
-  it('explains a HOLD with a Neutral tide as not evaluating the other three screens', () => {
+  it('explains a HOLD with a Neutral tide (slope disagreeing with EMA13/26) as not evaluating the other three screens', () => {
     const result = explainSignal(
       'HOLD',
-      screens({ tideTrend: 'NEUTRAL', impulse: 'BLUE', waveState: 'NO_WAVE', triggerFired: false }),
+      screens({
+        tideTrend: 'NEUTRAL',
+        weeklySlope: 'rising',
+        impulse: 'BLUE',
+        waveState: 'NO_WAVE',
+        triggerFired: false,
+      }),
     )
 
     expect(result.headline).toMatch(/Tide is Neutral/)
     const [tide, impulse, wave, trigger] = result.conditions
     expect(tide.met).toBe(false)
+    expect(tide.detail).toMatch(/13\/26-week EMA relationship disagree/)
     expect(impulse.met).toBeNull()
     expect(wave.met).toBeNull()
     expect(trigger.met).toBeNull()
+  })
+
+  it('explains a HOLD with a Neutral tide and a flat weekly slope by naming both possible causes (flat slope or too little weekly history), not asserting one', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'NEUTRAL',
+        weeklySlope: 'flat',
+        impulse: 'BLUE',
+        waveState: 'NO_WAVE',
+        triggerFired: false,
+      }),
+    )
+
+    // 'flat' is also reported by evaluate_tide's <2-weekly-bar short-circuit
+    // (backend/app/signals/triple_screen.py), which never computes a slope
+    // at all -- see this task's `decisions` entry.
+    const tide = result.conditions.find((c) => c.key === 'tide')!
+    expect(tide.met).toBe(false)
+    expect(tide.detail).toMatch(/enough weekly price history/)
+    expect(tide.detail).toMatch(/genuinely flat/)
+    expect(tide.detail).not.toMatch(/relationship disagree/)
   })
 
   it('explains a HOLD with a directional tide missing exactly the Wave condition (definitively, by elimination)', () => {

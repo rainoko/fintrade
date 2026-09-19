@@ -124,9 +124,18 @@ export const tideHelp = {
     const trendLabel = humanizeSnakeCase(trend)
     const slopeLabel = humanizeSnakeCase(slope).toLowerCase()
     if (trend === 'NEUTRAL') {
+      // 'flat' is reported both when `evaluate_tide` (backend/app/signals/
+      // triple_screen.py) computes a genuinely flat weekly MACD-H slope, and
+      // -- via its <2-weekly-bar short-circuit -- when it never computes a
+      // slope at all (too little weekly history yet). `TideScreen` doesn't
+      // expose a weekly bar count, so this frontend can't tell those two
+      // apart from `trend`/`slope` alone; naming both possibilities instead
+      // of asserting "genuinely flat" avoids repeating the same
+      // conflation-of-distinct-causes bug this branch itself was added to
+      // fix (see this task's `decisions` entry).
       const cause =
         slope === 'flat'
-          ? 'the weekly MACD-H slope is genuinely flat, so there’s no clear direction to read'
+          ? 'there isn’t enough weekly price history yet to compute a slope, or the weekly MACD-H slope is genuinely flat -- either way, there’s no clear direction to read'
           : 'the weekly slope and EMA13/26 relationship disagree'
       return `Currently Neutral (weekly MACD-H slope ${slopeLabel}) -- ${cause}, so no directional Triple Screen setup is being evaluated for this ticker right now.`
     }
