@@ -3,7 +3,7 @@
   "title": "Expose the existing Autoenvelope (channel) computation via the API",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/autoenvelope.py",
@@ -16,23 +16,43 @@
   "checklist": [
     {
       "step": "Confirm autoenvelope()'s existing EMA(13)-based backbone is an acceptable stand-in for the book's own slower-EMA (e.g. 26-day) channel backbone, or decide to add a second, slower-EMA variant -- record as a decisions entry either way (don't silently assume one is fine).",
-      "done": false
+      "done": true
     },
     {
       "step": "Add upper/lower band fields to the analysis and indicator-history response schemas, sourced from the existing autoenvelope() call, no new computation.",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Confirm the exposed values for a portfolio position match what evaluate_exit_flags already computes internally for that same position/date, as a consistency check.",
-      "done": false
+      "done": true
     },
     {
       "step": "Document the exposure in docs/Analyse.md and docs/architecture/API.md.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Keep app.indicators.autoenvelope.autoenvelope()'s existing EMA(13) backbone as-is for this exposure -- do not add a second, slower-EMA (e.g. 26-day) channel variant.",
+      "rationale": "docs/Analyse.md \u00a74's own indicator table already pins this app's Autoenvelope/Channel row to 'EMA 13 \u00b1 avg % deviation' explicitly -- that's this project's own source-of-truth spec, not just a copy of Elder's book, and it was a deliberate choice already recorded on the indicator-autoenvelope task's own `decisions` entry (chosen for consistency with every other daily indicator in this app being EMA(13)-anchored, and because Analyse.md's phrasing doesn't call for a second EMA period). docs/ideas.md's ch. 41 note is correct that Elder's own book prefers a slower EMA (e.g. 26-day) for this specific technique, but this task is scoped as pure exposure -- 'no new math, reusing the existing, already-tested autoenvelope() function' -- and the checklist's own consistency-check item (confirm the exposed values match what evaluate_exit_flags computes internally) only holds cleanly if /analysis and /indicators expose the exact same band evaluate_exit_flags already tests against for the \u00a77 profit-taking exit rule; introducing a second EMA(26) variant here would leave that internal consumer and the newly-exposed API disagreeing on which channel is 'the' channel. Rejected alternative: add a second `channel_upper_26`/`channel_lower_26` (or similar) pair computed via `autoenvelope(close, ema_period=26)` alongside the existing EMA(13) pair -- rejected as new scope/new math this task explicitly excludes, and as duplicating a decision (EMA(13) vs EMA(26) for this indicator) Analyse.md's own table has already made; a future task can revisit this if Analyse.md's own spec changes, but that's a methodology decision, not something to bake into a pure API-exposure task."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Compute channel_upper/channel_lower inside app.signals.engine.analyse() (added to its indicators dict, alongside ema_13/ema_26/macd_histogram/bull_power/bear_power), not in the router layer -- with optional channel_upper/channel_lower Series passthrough parameters (mirroring the existing ema_13/ema_26/histogram/stochastic_k/force_index_2ema pattern) so analyse_history() can precompute autoenvelope() once over the full daily series and slice it per bar, instead of every one of up to thousands of per-bar analyse() calls independently re-deriving the ~O(n) rolling-deviation-average pass from scratch.",
+      "rationale": "Matches this module's existing precompute-and-slice performance pattern (see analyse_history()'s own docstring and docs/tasks/api-stocks-indicator-history-followups.json's `decisions`), which already treats EMA(13)/EMA(26)/MACD-Histogram/Stochastic/Force Index the same way for the identical reason (each is itself O(i) per call, causal/rolling-window, so recomputing over an i-bar-growing slice on every bar is O(range_size x history_length)). autoenvelope()'s rolling(window=100).mean() is the same shape of cost, so leaving it to be recomputed per bar in the naive way would reintroduce exactly the performance problem that prior task already fixed for every other indicator. Rejected alternative: compute the bands in app/api/routers/stocks.py's get_analysis/get_indicator_history handlers directly (calling autoenvelope() there instead of inside analyse()) -- rejected because get_indicator_history doesn't have access to per-bar EMA(13) slices without duplicating analyse_history()'s own precompute machinery, and because every other indicator in AnalysisResponse.indicators is already computed inside analyse() itself, so doing this one differently would be an inconsistent split between the domain (signals) layer and the API layer for no benefit."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Name the new fields channel_upper/channel_lower (flat, alongside the other Indicators/IndicatorHistoryPoint fields) rather than nesting them under a 'channel' object, and make both nullable (float | None), null whenever the Autoenvelope's ~100-bar deviation-average warm-up window isn't yet full.",
+      "rationale": "docs/Analyse.md and docs/architecture/API.md both already call this indicator 'Autoenvelope/channel band' / 'channel line' interchangeably -- 'channel_upper'/'channel_lower' reads naturally against that established vocabulary and against the existing flat-field shape of Indicators/IndicatorHistoryPoint (ema_13, macd_histogram, bull_power, ... -- no nested indicator objects exist in either schema today). Nullability follows the existing precedent set by stochastic_k/force_index_2ema on IndicatorHistoryPoint (both nullable for their own, much shorter warm-up windows) -- but channel_upper/channel_lower need a much longer one (100 bars vs up to 6), so AnalysisResponse.indicators.channel_upper/channel_lower are also nullable (unlike every other AnalysisResponse.indicators field, which is a non-Optional float) since a ticker with under ~100 trading days of history is a real, unremarkable case (not just a theoretical one), not something worth failing the whole request for. Rejected alternative: floor/fall back to a partial-window average (e.g. an expanding-window mean before the rolling window is full) instead of null -- rejected because that would silently produce a statistically meaningless band for a thin history, and because the indicator-autoenvelope task already made and recorded this exact same NaN-not-expanding-average choice for the underlying autoenvelope() function itself; exposing it as null through the API is just carrying that already-made decision through, not making a new one."
     }
   ]
 }

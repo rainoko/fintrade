@@ -22,6 +22,7 @@ each Screen 1/2/3 + Impulse combination explicitly" guidance:
    real SELL, including the "Wave showed" (not "shows") lookback case in both directions.
 """
 
+import dataclasses
 import math
 from unittest.mock import patch
 
@@ -41,13 +42,26 @@ from app.signals.triple_screen import TideResult, evaluate_tide
 
 def _nan_tolerant_equal(a: object, b: object) -> bool:
     """Like ``a == b``, except two ``float('nan')`` leaves anywhere inside a (possibly nested)
-    dict compare equal -- plain ``==``/dict-equality treats NaN as unequal to itself (IEEE 754),
-    which would make an otherwise-identical ``screens``/``indicators`` snapshot spuriously fail
-    a cross-check assertion whenever an indicator is still in its NaN warm-up window."""
+    dict/list/tuple/``SignalResult``/``(date, SignalResult)`` structure compare equal -- plain
+    ``==``/dict-equality treats NaN as unequal to itself (IEEE 754), which would make an
+    otherwise-identical ``screens``/``indicators`` (or a whole ``analyse_history`` result list,
+    since ``channel_upper``/``channel_lower`` are NaN for a long leading span of any fixture
+    shorter than the Autoenvelope channel's ~100-bar warm-up) spuriously fail a cross-check
+    assertion whenever an indicator is still in its NaN warm-up window."""
     if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
         return True
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(_nan_tolerant_equal(a[k], b[k]) for k in a)
+    if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b) and type(a) is type(b):
+        a_fields = {f.name: getattr(a, f.name) for f in dataclasses.fields(a)}
+        b_fields = {f.name: getattr(b, f.name) for f in dataclasses.fields(b)}
+        return _nan_tolerant_equal(a_fields, b_fields)
+    if (
+        isinstance(a, (list, tuple))
+        and isinstance(b, (list, tuple))
+        and len(a) == len(b)
+    ):
+        return all(_nan_tolerant_equal(x, y) for x, y in zip(a, b, strict=True))
     return a == b
 
 
@@ -555,8 +569,50 @@ class TestAnalyseCombinations:
             },
             "trigger": trigger,
         }
-        assert set(result.indicators) == {"ema_13", "ema_26", "macd_histogram", "bull_power", "bear_power"}
+        assert set(result.indicators) == {
+            "ema_13",
+            "ema_26",
+            "macd_histogram",
+            "bull_power",
+            "bear_power",
+            "channel_upper",
+            "channel_lower",
+        }
         assert all(isinstance(v, float) for v in result.indicators.values())
+
+    def test_channel_upper_and_lower_passthrough_are_independent(self) -> None:
+        """channel_upper/channel_lower, like every other precomputed-series parameter
+        analyse() accepts, are independent -- a caller may supply just one of the pair (only
+        `analyse_history` ever supplies both together in practice, but the contract doesn't
+        require that)."""
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+        given_upper = pd.Series([111.0] * len(daily_ohlcv))
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse(
+                "TEST", daily_ohlcv, weekly_ohlcv, channel_upper=given_upper
+            )
+
+        # The caller-supplied upper band is used verbatim...
+        assert result.indicators["channel_upper"] == 111.0
+        # ...while the omitted lower band is still computed internally (real autoenvelope()
+        # math on this short fixture NaNs out, since it's far shorter than the ~100-bar
+        # warm-up -- this only asserts it wasn't silently left at the caller's upper value).
+        assert math.isnan(result.indicators["channel_lower"])
+
+        # Mirror case: only the lower band supplied.
+        given_lower = pd.Series([99.0] * len(daily_ohlcv))
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse(
+                "TEST", daily_ohlcv, weekly_ohlcv, channel_lower=given_lower
+            )
+        assert math.isnan(result.indicators["channel_upper"])
+        assert result.indicators["channel_lower"] == 99.0
 
 
 class TestAnalyseEndToEnd:
@@ -673,8 +729,16 @@ class TestAnalyseEndToEnd:
         assert result.screens["trigger"] == expected.screens["trigger"]
         assert bool(result.screens["trigger"]["fired"]) is True
         assert result.screens == expected.screens
-        assert result.indicators == expected.indicators
-        assert not any(pd.isna(v) for v in result.indicators.values())
+        # NaN-tolerant: this fixture is far shorter than the Autoenvelope channel's ~100-bar
+        # deviation-average warm-up window, so channel_upper/channel_lower are NaN in both
+        # `result` and `expected` -- still equal to each other (the malformed bar changes
+        # neither), just not via plain `==` (NaN != NaN).
+        assert _nan_tolerant_equal(result.indicators, expected.indicators)
+        assert not any(
+            pd.isna(v)
+            for key, v in result.indicators.items()
+            if key not in ("channel_upper", "channel_lower")
+        )
         assert result.confidence == expected.confidence
 
     def test_end_to_end_sell_after_rally_and_trigger(self) -> None:
@@ -850,7 +914,9 @@ class TestAnalyseHistory:
         assert last_date == daily_ohlcv.index[-1]
         assert last_result.signal == expected.signal == "BUY"
         assert last_result.confidence == expected.confidence
-        assert last_result.indicators == expected.indicators
+        # NaN-tolerant -- see test_malformed_latest_bar_is_excluded_and_does_not_change_signal's
+        # comment: this fixture is shorter than the Autoenvelope channel's ~100-bar warm-up.
+        assert _nan_tolerant_equal(last_result.indicators, expected.indicators)
         assert last_result.screens == expected.screens
 
     def test_dates_are_oldest_first_and_one_per_bar(self) -> None:
@@ -911,7 +977,9 @@ class TestAnalyseHistory:
         )
 
         assert len(trimmed_history) == 3
-        assert trimmed_history == full_history[-3:]
+        # NaN-tolerant -- see _nan_tolerant_equal's docstring: this fixture is shorter than the
+        # Autoenvelope channel's ~100-bar warm-up, so channel_upper/channel_lower are NaN here.
+        assert _nan_tolerant_equal(trimmed_history, full_history[-3:])
 
     def test_negative_from_index_behaves_like_zero(self) -> None:
         daily_ohlcv = _dated_buy_daily_ohlcv()

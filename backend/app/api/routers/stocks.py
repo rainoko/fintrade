@@ -345,6 +345,8 @@ def get_indicator_history(
             bear_power=result.indicators["bear_power"],
             stochastic_k=result.screens["wave"]["stochastic_k"],
             force_index_2ema=result.screens["wave"]["force_index_2ema"],
+            channel_upper=result.indicators["channel_upper"],
+            channel_lower=result.indicators["channel_lower"],
             signal=result.signal,
             confidence=result.confidence,
             confidence_band=result.confidence_band,

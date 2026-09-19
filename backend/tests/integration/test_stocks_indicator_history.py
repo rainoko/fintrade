@@ -151,10 +151,16 @@ class TestGetIndicatorHistory:
             "bear_power",
             "stochastic_k",
             "force_index_2ema",
+            "channel_upper",
+            "channel_lower",
             "signal",
             "confidence",
             "confidence_band",
         }
+        # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
+        # ~100-bar deviation-average warm-up window, so every point's bands are still null --
+        # see test_channel_bands_populated_after_sufficient_warm_up for the populated case.
+        assert all(p["channel_upper"] is None and p["channel_lower"] is None for p in body["points"])
 
     def test_points_are_oldest_first(self) -> None:
         provider = _StubProvider(
@@ -195,6 +201,8 @@ class TestGetIndicatorHistory:
         assert last_point["bear_power"] == analysis["indicators"]["bear_power"]
         assert last_point["stochastic_k"] == analysis["screens"]["wave"]["stochastic_k"]
         assert last_point["force_index_2ema"] == analysis["screens"]["wave"]["force_index_2ema"]
+        assert last_point["channel_upper"] == analysis["indicators"]["channel_upper"]
+        assert last_point["channel_lower"] == analysis["indicators"]["channel_lower"]
 
     def test_hold_signal_has_zero_confidence(self) -> None:
         provider = _StubProvider(
@@ -250,16 +258,19 @@ class TestGetIndicatorHistory:
         assert full_response.json()["points"][-1] == trimmed_response.json()["points"][-1]
 
     def test_early_bars_have_null_stochastic_k_and_force_index(self) -> None:
-        """stochastic_k/force_index_2ema are the only two IndicatorHistoryPoint fields that
-        can legitimately be null -- the first k_period-1+smooth-1=6 bars have no full
-        Stochastic %K(5,3,3) warm-up window (app.indicators.stochastic.stochastic_oscillator's
-        own docstring), and the very first bar has no prior close for Force Index's raw
-        volume*close.diff() input (app.indicators.force_index.force_index's own docstring).
-        Every other bar is unaffected: EMA/MACD-Histogram/Bull/Bear Power never produce NaN
-        even on the first bar, since pandas' ewm seeds from the first observation instead of
-        requiring a full window. See this task's `decisions` entry for why the schema marks
-        only these two fields Optional rather than trimming warmed-up-insufficient points
-        out of the response entirely."""
+        """stochastic_k/force_index_2ema/channel_upper/channel_lower are the only
+        IndicatorHistoryPoint fields that can legitimately be null -- the first
+        k_period-1+smooth-1=6 bars have no full Stochastic %K(5,3,3) warm-up window
+        (app.indicators.stochastic.stochastic_oscillator's own docstring), the very first bar
+        has no prior close for Force Index's raw volume*close.diff() input
+        (app.indicators.force_index.force_index's own docstring), and channel_upper/
+        channel_lower need a full ~100-bar Autoenvelope deviation-average window (see
+        test_channel_bands_populated_after_sufficient_warm_up for that case specifically --
+        this fixture, at 30 bars, never reaches it). Every other bar is unaffected: EMA/MACD-
+        Histogram/Bull/Bear Power never produce NaN even on the first bar, since pandas' ewm
+        seeds from the first observation instead of requiring a full window. See this task's
+        `decisions` entry for why the schema marks only these fields Optional rather than
+        trimming warmed-up-insufficient points out of the response entirely."""
         provider = _StubProvider(
             daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()}
         )
@@ -272,6 +283,7 @@ class TestGetIndicatorHistory:
         assert all(point["stochastic_k"] is None for point in points[:6])
         assert all(point["stochastic_k"] is not None for point in points[6:])
         assert all(point["force_index_2ema"] is not None for point in points[1:])
+        assert all(point["channel_upper"] is None and point["channel_lower"] is None for point in points)
         # Every other field stays non-null across the whole warm-up window.
         for point in points:
             assert point["ema_13"] is not None
@@ -279,6 +291,36 @@ class TestGetIndicatorHistory:
             assert point["macd_histogram"] is not None
             assert point["bull_power"] is not None
             assert point["bear_power"] is not None
+
+    def test_channel_bands_populated_after_sufficient_warm_up(self) -> None:
+        """channel_upper/channel_lower need a full 100-bar Autoenvelope deviation-average
+        window (`app.indicators.autoenvelope.autoenvelope`'s default `deviation_lookback`) --
+        null for the first 99 bars (0-indexed 0..98), populated from bar 99 onward, mirroring
+        test_early_bars_have_null_stochastic_k_and_force_index's pattern for the other two
+        nullable fields but with the much longer warm-up this task's own `decisions` entry
+        documents."""
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv(n=120)}, weekly={"AAPL": _hold_weekly_ohlcv(n=30)}
+        )
+
+        response = _get_indicator_history(provider)
+
+        assert response.status_code == 200
+        points = response.json()["points"]
+        assert len(points) == 120
+        assert all(
+            point["channel_upper"] is None and point["channel_lower"] is None
+            for point in points[:99]
+        )
+        assert all(
+            point["channel_upper"] is not None and point["channel_lower"] is not None
+            for point in points[99:]
+        )
+        # This fixture's close is perfectly flat (100.0 every bar), so the % deviation from
+        # EMA(13) is exactly 0 once warmed up -- both bands collapse to the EMA itself, a
+        # direct sanity check on the band formula, not just null-vs-non-null shape.
+        for point in points[99:]:
+            assert point["channel_upper"] == point["channel_lower"] == point["ema_13"] == 100.0
 
     def test_invalid_range_returns_422(self) -> None:
         provider = _StubProvider(

@@ -77,6 +77,25 @@ class Indicators(BaseModel):
     macd_histogram: float
     bull_power: float = Field(description="Elder-Ray Bull Power = High - EMA(13).")
     bear_power: float = Field(description="Elder-Ray Bear Power = Low - EMA(13).")
+    channel_upper: float | None = Field(
+        default=None,
+        description="Upper Autoenvelope/channel band (docs/Analyse.md §4: 'EMA 13 ± avg % "
+        "deviation') -- `app.indicators.autoenvelope.autoenvelope`'s `mid * (1 + avg_pct)`, "
+        "where `mid` is this same response's `ema_13`. This is the exact band "
+        "`app.portfolio.exits.evaluate_exit_flags` already tests against internally for the "
+        "'price reaches the upper Autoenvelope band with Impulse turning Red' existing-"
+        "position exit rule (docs/Analyse.md §7), now exposed for any ticker rather than only "
+        "a held portfolio position. Null for the first ~100 trading days of a ticker's history "
+        "(the rolling deviation-average window isn't yet full) -- a much longer warm-up than "
+        "any other field here, so this is null far more often than "
+        "`ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which only need up to "
+        "26 bars.",
+    )
+    channel_lower: float | None = Field(
+        default=None,
+        description="Lower Autoenvelope/channel band, same definition/source/warm-up as "
+        "`channel_upper` mirrored to `mid * (1 - avg_pct)`.",
+    )
 
 
 class AnalysisResponse(BaseModel):
@@ -102,6 +121,8 @@ class IndicatorHistoryPoint(BaseModel):
     bear_power: float = Field(description="Elder-Ray Bear Power = Low - EMA(13), for this bar.")
     stochastic_k: float | None = Field(default=None, description="Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar. Null for a bar still inside the indicator's warm-up window (needs (k_period - 1) + (smooth - 1) prior bars -- 6 with the current defaults, k_period=5/smooth=3) -- unlike WaveScreen.stochastic_k on GET /api/stocks/{ticker}/analysis, which is always non-null since /analysis only ever reports the latest bar, by definition never still warming up.")
     force_index_2ema: float | None = Field(default=None, description="Force Index, 2-period EMA smoothing, same definition as WaveScreen.force_index_2ema, for this bar. Null for a bar still inside the indicator's warm-up window (needs ~2 prior bars) -- same warm-up-only caveat as stochastic_k above.")
+    channel_upper: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_upper, for this bar. Null for a bar still inside the Autoenvelope deviation-average's ~100-bar warm-up window -- a far longer warm-up than stochastic_k/force_index_2ema above, so this is null across a much larger leading span of a long `range` (e.g. `range=max`) than either of those.")
+    channel_lower: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_lower, for this bar. Null under the same condition as channel_upper.")
     signal: Signal = Field(description="BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.")
     confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")

@@ -24,6 +24,7 @@ import pytest
 
 from app.portfolio.exits import evaluate_exit_flags
 from app.portfolio.models import Account, Equity, Position
+from app.signals.engine import analyse
 from app.signals.triple_screen import TideResult
 
 
@@ -496,3 +497,46 @@ class TestSharedIndicatorComputation:
         assert exits_macd_spy.call_count == 1
         assert tide_macd_spy.call_count == 0
         assert tide_ema_spy.call_count == 0
+
+
+class TestChannelBandExposureConsistency:
+    """Regression coverage for the backend-channel-envelope-exposure task's checklist item:
+    `GET /api/stocks/{ticker}/analysis`'s (and `/indicators`' `app.signals.engine.analyse`-
+    sourced) `indicators.channel_upper`/`channel_lower` must be the exact same value
+    `evaluate_exit_flags` already tests against internally for its `profit_zone_impulse_red`
+    exit flag (docs/Analyse.md §7's 'price reaches the upper Autoenvelope band with Impulse
+    turning Red') -- not a second, independently-computed channel. Spies on
+    `app.portfolio.exits.autoenvelope` with `wraps=` (real math, not a stubbed return value) to
+    capture exactly what `evaluate_exit_flags` computed for this position/date, then asserts
+    `analyse()` -- called with the *same* daily/weekly OHLCV -- reports the identical
+    `channel_upper`/`channel_lower`.
+    """
+
+    def test_exposed_channel_bands_match_evaluate_exit_flags_internal_bands(self, mocker) -> None:
+        # >=100 daily bars so the Autoenvelope's default 100-bar deviation-average window is
+        # full at the latest bar (a shorter series would leave both bands NaN, trivially
+        # "matching" without actually exercising the shared computation this test targets).
+        daily_closes = [100.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)]
+        daily_lows = [c - 1.0 for c in daily_closes]
+        daily = _daily_ohlcv(daily_closes, daily_lows)
+        weekly = _weekly_ohlcv([100.0 + i * 0.5 for i in range(30)])
+        position = _position(current_price=daily_closes[-1])
+        account = _account(total_equity=1_000_000.0, positions=[position])
+
+        import app.portfolio.exits as exits_module
+
+        autoenvelope_spy = mocker.spy(exits_module, "autoenvelope")
+
+        evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
+
+        assert autoenvelope_spy.call_count == 1
+        internal_bands = autoenvelope_spy.spy_return
+        internal_upper = internal_bands["upper"].iloc[-1]
+        internal_lower = internal_bands["lower"].iloc[-1]
+        assert not pd.isna(internal_upper)
+        assert not pd.isna(internal_lower)
+
+        result = analyse("AAPL", daily, weekly)
+
+        assert result.indicators["channel_upper"] == internal_upper
+        assert result.indicators["channel_lower"] == internal_lower
