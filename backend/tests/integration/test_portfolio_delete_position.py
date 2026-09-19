@@ -13,7 +13,7 @@ real live-network-backed provider, violating docs/architecture/Testing.md's "no 
 live network call" rule. The `db_session` fixture still comes from conftest.py.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pandas as pd
@@ -27,6 +27,14 @@ from app.db.models import AccountORM, ClosedTradeORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason
+
+
+def _today() -> date:
+    """Matches `app.api.routers.portfolio._today()` exactly (UTC-derived, not local
+    `date.today()`) -- see this task's `decisions` entry for why: a test asserting against
+    local `date.today()` would intermittently disagree with the UTC-based production value
+    outside a UTC-local-timezone runner, even though dev container/CI both run in UTC today."""
+    return datetime.now(UTC).date()
 
 
 def _frame(closes: list[float]) -> pd.DataFrame:
@@ -165,7 +173,7 @@ class TestDeletePositionRecordsClosedTrade:
         assert trade.entry_price == pytest.approx(195.30)
         assert trade.entry_date == date(2026, 5, 14)
         assert trade.exit_price == pytest.approx(210.0)  # _StubProvider's latest AAPL close
-        assert trade.exit_date == date.today()
+        assert trade.exit_date == _today()
         assert trade.realized_pnl == pytest.approx(100 * (210.0 - 195.30))
         assert trade.exit_reason == ExitReason.UNSPECIFIED.value
 
@@ -252,7 +260,7 @@ class TestDeletePositionRealizedLossFeedsSixPercentRule:
 
         [trade] = db_session.query(ClosedTradeORM).all()
         assert trade.realized_pnl == pytest.approx(-7000.0)
-        assert trade.exit_date == date.today()
+        assert trade.exit_date == _today()
 
         risk_response = client.get("/api/portfolio/risk")
         assert risk_response.status_code == 200

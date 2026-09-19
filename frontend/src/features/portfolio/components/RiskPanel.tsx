@@ -8,6 +8,7 @@ import DataTable, {
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBreachBanner'
 import RiskPercent from '../../../components/common/RiskPercent/RiskPercent'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
@@ -16,6 +17,7 @@ import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency } from '../../../utils/format'
 import ExitFlagChips from './ExitFlagChips'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+import { totalRiskHelp } from './totalRiskHelp'
 
 export interface RiskPanelProps {
   /**
@@ -52,9 +54,11 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
 
   const {
     total_open_risk_pct,
+    realized_losses_this_month_pct,
     six_percent_rule_breached,
     positions: riskPositions,
   } = riskQuery.data
+  const riskHelp = totalRiskHelp(total_open_risk_pct, realized_losses_this_month_pct)
 
   // API.md: a position whose risk can't be computed at all (price fetch
   // failed, too little history, ...) is silently absent from `positions`
@@ -133,15 +137,27 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
         <RiskBreachBanner
           message={
             <>
-              6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
-              equity (limit 6%). Consider trimming or closing your highest-risk
-              position(s) first.
+              6% rule breached — total risk (open positions plus this month's realized
+              losses) is {total_open_risk_pct.toFixed(2)}% of equity (limit 6%). Consider
+              trimming or closing your highest-risk position(s) first, or addressing
+              already-realized losses if those are the larger contributor.
             </>
           }
         />
       )}
 
-      <StatCard label="Total Open Risk" value={`${total_open_risk_pct.toFixed(2)}%`} />
+      <StatCard
+        label={riskHelp.metricLabel}
+        value={`${total_open_risk_pct.toFixed(2)}%`}
+        corner={
+          <MetricHelp
+            metricLabel={riskHelp.metricLabel}
+            definition={riskHelp.definition}
+            elderContext={riskHelp.elderContext}
+            valueInterpretation={riskHelp.valueInterpretation}
+          />
+        }
+      />
 
       {missingTickers.length > 0 && (
         <Box

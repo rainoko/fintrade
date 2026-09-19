@@ -64,7 +64,7 @@ test.describe.serial('portfolio: view, add, and delete a position', () => {
   test('the added position shows up in the risk panel', async ({ page }) => {
     await page.goto('/portfolio')
 
-    await expect(page.getByText('Total Open Risk', { exact: true })).toBeVisible()
+    await expect(page.getByText('Total Risk (Open + Realized)', { exact: true })).toBeVisible()
 
     const riskTable = page.getByRole('table', { name: 'Portfolio risk' })
     const riskEmptyState = page.getByText('No risk data available.')

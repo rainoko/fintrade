@@ -77,7 +77,7 @@ describe('RiskPanel', () => {
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
     )
-    expect(screen.getByText('Total Open Risk')).toBeInTheDocument()
+    expect(screen.getByText('Total Risk (Open + Realized)')).toBeInTheDocument()
     expect(screen.getByText('3.20%')).toBeInTheDocument()
     // No 6%-rule banner and no missing-risk-data note.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

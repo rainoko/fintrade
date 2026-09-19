@@ -42,7 +42,7 @@ describe('PortfolioPage', () => {
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
     )
-    expect(screen.getByText('Total Open Risk')).toBeInTheDocument()
+    expect(screen.getByText('Total Risk (Open + Realized)')).toBeInTheDocument()
 
     await waitFor(() =>
       expect(screen.getByRole('table', { name: 'Trade journal' })).toBeInTheDocument(),
@@ -62,6 +62,7 @@ describe('PortfolioPage', () => {
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({
           total_open_risk_pct: 0,
+          realized_losses_this_month_pct: 0,
           six_percent_rule_breached: false,
           positions: [],
         }),

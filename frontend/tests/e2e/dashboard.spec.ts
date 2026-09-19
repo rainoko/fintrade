@@ -22,7 +22,7 @@ test('dashboard renders equity summary, risk summary, sell-flagged positions, an
   await expect(page.getByText('Total Equity', { exact: true })).toBeVisible()
 
   // RiskSummaryCard (GET /api/portfolio/risk) -- waits past its own LoadingState.
-  await expect(page.getByText('Total Open Risk', { exact: true })).toBeVisible()
+  await expect(page.getByText('Total Risk (Open + Realized)', { exact: true })).toBeVisible()
   await expect(
     page.getByText('Positions Breaching 2% Rule', { exact: true }),
   ).toBeVisible()

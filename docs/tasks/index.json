@@ -1230,7 +1230,7 @@
       "id": "backend-trade-history-table-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-trade-history-table-followups.json"
     },
     {
