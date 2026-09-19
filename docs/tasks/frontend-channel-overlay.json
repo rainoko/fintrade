@@ -3,7 +3,7 @@
   "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-channel-envelope-exposure"
   ],
@@ -69,5 +69,28 @@
     "pr_number": 151,
     "pr_url": "https://github.com/rainoko/fintrade/pull/151",
     "pushed_at": "2026-09-19T11:55:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T12:04:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/151",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the value-zone 'mask' AreaSeries (zoneBottomMaskSeries, opaque theme.palette.background.paper) is added to the same pane as, and after (i.e. on top of), the CandlestickSeries. Lightweight Charts draws later-added series above earlier ones on the same pane, so this mask doesn't just erase empty space below the value zone -- it also paints over and hides any candlestick wick/body that falls below the zone's bottom boundary. Verified visually with fixture data across TSLA (1M -- nearly all candle data hidden, including the most recent bar, which sits below EMA13), GOOGL (1M -- every candle wick dipping into the zone is cut off exactly at the top boundary), and MSFT (1M -- same clipping, less visible only because the zone is narrow there). This happens whenever price trades below the fast/slow EMA -- a routine occurrence (any pullback or downtrend), not an edge case -- and defeats the primary purpose of a price chart. Needs the render order/pane structure reworked (e.g. draw the zone/mask series before the candlesticks, or on a genuinely separate layer) and re-verified visually before this can be accepted.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 386
+      },
+      {
+        "summary": "Non-blocking, confirmed correct: the light-mode-only mask-color assumption (theme.palette.background.paper matching what's actually behind the transparent chart) checks out -- theme.ts hardcodes mode: 'light' with no toggle anywhere, and no Card/Paper wraps PriceChart between it and the page background.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking, confirmed accurate: channelHelp's claim that evaluate_exit_flags checks the exact same upper-Autoenvelope-band computation is correct (backend/app/portfolio/exits.py's 'profit_zone_impulse_red' flag uses autoenvelope(daily_close, mid=daily_ema_13)[\"upper\"], the same computation /indicators' channel_upper exposes); valueZoneHelp's more conservative scoping (no backend target/stop computed from the value zone yet) is also accurate -- no overclaiming in either.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 0
+      }
+    ],
+    "notes": "Full backend (639 passed, 99.89% coverage) and frontend (382 passed -- one PortfolioPage.test.tsx timeout confirmed flaky/pre-existing by re-running in isolation, coverage 99.73%/99.49% stmts/branches) suites pass well above the 90% gate; ruff/mypy/eslint/tsc all clean; no backend files touched so openapi.json correctly untouched; the persisted e2e suite (make e2e) passed 16/16 including stock-analysis specs that exercise PriceChart, which is exactly why the rendering bug wasn't caught there (no spec asserts on chart pixels). isFiniteNumber promotion from OscillatorChart.tsx is behavior-preserving (identical logic, existing tests pass unmodified). No new component files added, so no common/-vs-feature placement violation to flag. All 6 decisions entries are genuine judgment calls with rationale. Branch history double-checked per dispatcher's note: origin/main unaffected (still at 3d8691c), branch cleanly based on it."
   }
 }
