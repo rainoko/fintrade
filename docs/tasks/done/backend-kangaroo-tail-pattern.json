@@ -3,7 +3,7 @@
   "title": "Kangaroo Tail candlestick pattern detector",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -70,5 +70,33 @@
     "pr_number": 162,
     "pr_url": "https://github.com/rainoko/fintrade/pull/162",
     "pushed_at": "2026-09-19T19:27:55Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T19:34:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/162",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "backend/app/signals/kangaroo_tail.py verified: 10-day lookback / 2.5x range multiplier / 50% retracement thresholds are reasonable, textually-grounded readings of the book's 'roughly 2-3x' (2.5 is the literal midpoint) with no arbitrary unjustified numbers; the confirming-next-bar check is a genuine hard gate (a shape-matching candidate whose confirming bar fails either the normal-range or direction-continuation check returns None, never a confirmed=False record); suggested_stop=(high+low)/2 matches Elder's 'halfway through the tail, not tip or base' guidance exactly, and is specifically justified by the body-retracement requirement already constraining open/close to the opposite half of the range. No look-ahead bias in the analyse_history precompute path: build_kangaroo_tail_cache/kangaroo_tail_confirmed_as_of filters by confirming-bar positional index <= the current bar, verified directly by a dedicated test (test_engine.py's test_kangaroo_tail_appears_only_from_its_confirming_bar_onward_no_look_ahead) proving the tail is invisible to every bar before its own confirming bar. The BIIB/FDO fixture-substitution claim (decisions entry 4) is accurate -- grepped docs/ideas.md and docs/Analyse.md myself and confirmed no numeric OHLC transcription of either example exists; the synthetic-fixture substitution is documented plainly in the test class's own docstring, mirroring the backend-divergence-detection precedent. The tail_date (not date) field rename is a sound fix for a real, independently-reproduced PydanticUserError (confirmed by reproducing the exact collision in a standalone script: a field literally named `date` followed by a second date-typed field raises 'field name clashing with a type annotation' in this codebase's Pydantic v2/no-future-annotations style).",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": null
+      },
+      {
+        "summary": "Full suites pass: backend 740 passed, 99.92% coverage (kangaroo_tail.py itself 100%); frontend 492 passed (one PortfolioPage.test.tsx timeout on the first full-suite run was confirmed a pre-existing flake unrelated to this PR -- passes standalone and on a clean re-run of the full suite), ~99.7% coverage. ruff, mypy, eslint, and tsc all clean. Regenerated backend/openapi.json and frontend/src/api/types.ts myself from the checked-out branch and diffed against the committed versions -- both are byte-identical, confirming the snapshots are genuinely in sync, not stale. docs/Analyse.md row 13 and docs/architecture/{API,Backend}.md are updated consistently with the implementation. No frontend UI component consumes kangaroo_tail yet (this task is detection+exposure only, matching its sibling tasks' scope; a separate frontend-kangaroo-tail-markers task already exists on the board for the UI) -- confirmed via grep that no non-test frontend file references it, so per step 9/9a this PR has no UI surface: browser walkthrough and the e2e suite were both skipped, explicitly, rather than silently omitted.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (code-review, medium effort): app.signals.kangaroo_tail.build_kangaroo_tail_cache's get_loc(tail.confirmed_date) lacks the isinstance(position, int) guard against a non-unique index that the identical pattern in app.signals.divergence has -- currently unreachable (this app's daily-bar indices are always unique, same premise divergence.py's own guard relies on) but an inconsistency with established sibling-module defensive style. Filed as a follow-up.",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": 332
+      },
+      {
+        "summary": "Non-blocking (code-review, medium effort): the code comment for the new-high/new-low outside-bar tie-break ('\"up\" takes priority in that degenerate tie... See this task's decisions entry') cites a decisions entry that does not actually exist -- none of the 5 recorded decisions discuss this tie-break, and there is no test exercising the case where a bar is simultaneously a new high AND a new low beyond the lookback window. Filed as a follow-up to either record the decision properly or correct the comment, plus add a regression test.",
+        "file": "backend/app/signals/kangaroo_tail.py",
+        "line": 200
+      }
+    ],
+    "notes": "Accepted. All blocking checks pass: tests/coverage, lint/type-check, openapi.json + frontend types genuinely regenerated and in sync, no look-ahead bias (verified with a dedicated test), methodology thresholds are reasonable and well-justified interpretations of the book, confirming-bar hard gate and suggested_stop formula both verified correct, BIIB/FDO substitution claim verified accurate via grep, tail_date Pydantic-collision fix verified reproducible. Two non-blocking findings from code-review filed as docs/tasks/backend-kangaroo-tail-pattern-followups.json. No frontend UI surface in this PR -- browser walkthrough/e2e skipped explicitly per steps 9/9a."
   }
 }
