@@ -929,8 +929,8 @@
       "id": "backend-indicator-rsi",
       "area": "backend/indicators",
       "skill": "add-indicator",
-      "state": "testing",
-      "path": "docs/tasks/backend-indicator-rsi.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-rsi.json"
     },
     {
       "id": "backend-indicator-obv-ad",

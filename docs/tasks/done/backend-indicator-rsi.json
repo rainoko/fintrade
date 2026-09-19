@@ -3,7 +3,7 @@
   "title": "Add Relative Strength Index (RSI)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/indicators/stochastic.py",
@@ -64,5 +64,12 @@
     "pr_number": 155,
     "pr_url": "https://github.com/rainoko/fintrade/pull/155",
     "pushed_at": "2026-09-19T15:00:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T15:06:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/155",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: checked out PR #155, ran backend (pytest --cov=app --cov-fail-under=90: 667 passed, 99.90% coverage, rsi.py 100%) and frontend (vitest run --coverage: 414 passed, all files >=90%) suites, both matching the PR's own claims exactly. Static analysis clean on both sides (ruff, mypy, eslint, tsc -b --noEmit). Regenerated backend/openapi.json and frontend/src/api/types.ts locally and diffed byte-for-byte against the committed snapshots -- both genuinely in sync, not stale. Hand-verified the RSI formula (RS = avg net up-close / avg net down-close over 9-day window, RSI = 100 - 100/(1+RS)) against test_rsi.py's idx-9 reference value by calculator: gains sum 5/9, losses sum 4/9, RS=1.25, RSI=55.5556 -- matches. Confirmed the RSI=100 (inf-division, no branch needed) and RSI=50 (explicit 0/0 override) edge-case conventions are mathematically sound, not arbitrary. Confirmed the simple/arithmetic-averaging decision doesn't contradict anything else in the codebase: grepped every indicator module -- ema.py/macd.py/force_index.py use .ewm() (intentional, documented), stochastic.py explicitly uses .rolling().mean() with a docstring noting 'not ewm' -- RSI's choice matches the Stochastic precedent and the book's own literal formula wording. Confirmed the top-level indicators.rsi placement (not nested in screens.wave) is reasonable and precedented (mirrors channel_upper/channel_lower's exact passthrough-parameter shape in analyse()/analyse_history()). Confirmed via diff (not just the PR description) that this PR touches no Screen 1/2/3, Impulse, confidence-scoring, or portfolio-risk logic -- the 'computation + exposure only' claim is honest. No UI surface (backend-only change, only frontend file touched is the generated api/types.ts) -- browser walkthrough and e2e suite explicitly skipped as not applicable. Ran code-review skill (effort medium) against the PR diff as a second, independent pass -- it corroborated: no bugs found, no shadowing issues, warm-up/NaN propagation verified empirically. Also ran verify-elder-signal and architecture-review checklists manually -- no methodology or structural violations (module placement, thin routers, pure indicator function, no new dependency). Checked the 'decide the default window' checklist item against decisions -- present with rationale, along with 3 other well-reasoned decisions entries. docs/Analyse.md and docs/architecture/API.md updated consistently, no stale '7 indicator values' references left behind. python3 scripts/validate_tasks.py: no board violations. No blocking or non-blocking findings -- no follow-up task created."
   }
 }
