@@ -944,7 +944,7 @@ export interface components {
             position_risk_pct: number;
             /**
              * Protective Stop
-             * @description Recent swing low minus a volatility buffer (SafeZone concept, docs/Analyse.md §7).
+             * @description Recent swing low minus 2x a volatility buffer (SafeZone concept, docs/Analyse.md §7).
              */
             protective_stop: number;
             /** Ticker */

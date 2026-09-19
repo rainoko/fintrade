@@ -1237,8 +1237,8 @@
       "id": "backend-safezone-stop-coefficient-fix-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-safezone-stop-coefficient-fix-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-safezone-stop-coefficient-fix-followups.json"
     }
   ]
 }

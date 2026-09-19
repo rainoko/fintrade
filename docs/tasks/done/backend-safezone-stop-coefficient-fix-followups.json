@@ -1,0 +1,70 @@
+{
+  "id": "backend-safezone-stop-coefficient-fix-followups",
+  "title": "SafeZone coefficient fix — non-blocking review follow-up from PR #160",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-safezone-stop-coefficient-fix"],
+  "references": [
+    "docs/tasks/backend-safezone-stop-coefficient-fix.json#review",
+    "https://github.com/rainoko/fintrade/pull/160"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #160 (backend-safezone-stop-coefficient-fix), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/Analyse.md §7's \"Stop-loss placement (SafeZone concept)\" description (\"recent swing low minus a volatility buffer (average size of downside penetrations of a short EMA over the last N days)\") still describes the pre-fix, unmultiplied formula -- it doesn't mention the >=2x coefficient this PR added, even though CLAUDE.md names Analyse.md as the source of truth for what the app computes. Precedent (portfolio-risk-rules' own decisions entry) already leaves the window/EMA-period specifics out of Analyse.md in favor of code comments + decisions, so this may be an intentional continuation of that pattern rather than an oversight -- but the coefficient is part of the formula's shape (not just a tunable parameter) and its absence from Analyse.md is exactly the kind of ambiguity that let the original bug go unnoticed, so it's worth an explicit decision on whether Analyse.md §7 should state the coefficient going forward.",
+      "done": true
+    },
+    {
+      "step": "backend/app/api/schemas.py:274's RiskPosition.protective_stop field description (\"Recent swing low minus a volatility buffer (SafeZone concept, docs/Analyse.md §7).\") likewise doesn't mention the coefficient now baked into the formula. No schema/route signature changed so backend/openapi.json regeneration isn't required by CLAUDE.md's API documentation standard, but the description text is now less accurate than it could be for API consumers -- worth a small wording update (and re-running scripts/export_openapi.py once it's touched).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T19:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Updated docs/Analyse.md §7's SafeZone stop-loss description to state the >=2x coefficient explicitly (\"recent swing low minus 2x (or more) a volatility buffer\", with Elder's own 'placing your stop any closer would be self-defeating' quote and a pointer to backend-safezone-stop-coefficient-fix's decisions for why 2x specifically). Also updated backend/app/api/schemas.py:286's RiskPosition.protective_stop field description to \"Recent swing low minus 2x a volatility buffer\", regenerated backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (yarn generate:api-types) since a Field description change is part of the OpenAPI schema output per CLAUDE.md's API documentation standard, even though no field name/type/shape changed.",
+      "rationale": "Resolves the explicit ambiguity flagged in this task's first checklist item: whether Analyse.md §7 should state the coefficient going forward. Chose to state it (rather than continue the portfolio-risk-rules precedent of omitting tunable parameters) because the coefficient is part of the formula's *shape*, not a tunable knob like the window length or EMA period -- pr-reviewer's own review of PR #160 noted its absence from Analyse.md is 'exactly the kind of ambiguity that let the original bug go unnoticed,' and Analyse.md is the app's documented source of truth for what it computes (CLAUDE.md). Kept the window-days/EMA-period specifics out of Analyse.md as before (still just 'a short EMA over the last N days'), consistent with the existing precedent for parameters that genuinely are tunable/deferred-to-code-comments; only the coefficient, which the book itself frames as a floor below which the stop is 'self-defeating,' gets called out by value. Rejected: leaving Analyse.md unchanged and treating this as an intentional continuation of the omission precedent (the task's own framing already leans toward this being worth fixing, and a source-of-truth doc that silently omits the fix's whole point is a worse outcome than a doc that's slightly more specific than its own precedent); documenting the coefficient only in code/tests without touching Analyse.md (would leave the same silent-doc-drift risk that let the original bug go unreviewed against its own methodology doc)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-safezone-stop-coefficient-fix-followups",
+    "pr_number": 163,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/163",
+    "pushed_at": "2026-09-19T19:43:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T19:47:42Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/163",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified the updated docs/Analyse.md §7 wording (\"recent swing low minus 2× (or more) a volatility buffer ... this app uses the book's stated minimum of 2×\") and backend/app/api/schemas.py's RiskPosition.protective_stop description (\"Recent swing low minus 2x a volatility buffer\") directly against backend/app/portfolio/risk.py's actual code: _SAFEZONE_COEFFICIENT = 2.0 and `return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)` match exactly -- not just trusted the PR's own description.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 140
+      },
+      {
+        "summary": "Re-ran `python scripts/export_openapi.py` from backend/ against the checked-out branch and diffed the result against the committed backend/openapi.json -- byte-identical, confirming the snapshot is genuinely regenerated and in sync, not hand-edited. Diffed backend/openapi.json and frontend/src/api/types.ts against the prior commit and confirmed the only change in both is the protective_stop description string -- no field/type/shape change, consistent with the PR's own claim.",
+        "file": "backend/openapi.json",
+        "line": null
+      },
+      {
+        "summary": "Checked the PR's claimed precedent (\"portfolio-risk-rules' own decisions entry already leaves the window/EMA-period specifics out of Analyse.md\") against docs/tasks/done/portfolio-risk-rules.json's actual decisions array -- accurate: that task's first decisions entry does record a 10-day window and EMA(13) period as implementation choices not stated in Analyse.md §7, so the new decision's framing (coefficient is part of the formula's shape, not a tunable parameter like window/EMA period, hence treated differently) is a genuine, non-fabricated distinction rather than a misremembered citation.",
+        "file": "docs/tasks/backend-safezone-stop-coefficient-fix-followups.json",
+        "line": 27
+      },
+      {
+        "summary": "Full backend suite (backend/.venv/bin/pytest --cov=app --cov-report=term-missing): 740 passed, 99.92% overall coverage, risk.py and schemas.py both 100%. ruff check app/ and mypy both clean. Frontend: yarn tsc -b --noEmit and yarn lint both clean; yarn vitest run --coverage: one run hit a pre-existing PortfolioPage.test.tsx timeout flake under coverage-instrumentation load (passes in isolation and on a clean re-run: 492/492 passed, 99.68%+ coverage) -- this exact flake is already independently confirmed pre-existing/tracked (backend-indicator-seasons-followups) per PR #160's own review notes, not a new regression from this PR's doc-only diff. code-review skill (medium effort, run independently): no findings. scripts/validate_tasks.py: no violations across all 176 task files.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Purely a documentation/schema-description accuracy fix (PR #160's two tracked non-blocking findings) -- no functional code, route, or schema shape changed. No API route/schema signature changed (only a Field description string), so the openapi.json/types.ts regeneration was a courtesy per CLAUDE.md's standard (description text is part of the OpenAPI output) rather than a required-for-shape-change regeneration, and both are verified byte-correct. No new module/dependency/layer, so architecture-review was not needed. No frontend component touched (step 7a n/a) and no UI-facing surface at all -- no page/route/component changed, only doc prose and a schema description string with no runtime UI consumer, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) were explicitly skipped as genuinely not applicable rather than silently omitted. The task's one 'decide X'-shaped checklist item (whether Analyse.md §7 should state the coefficient) has a corresponding decisions entry recording the choice and rejected alternatives, satisfying CLAUDE.md's decision-memory requirement. No non-blocking findings this pass -- nothing new added to this task or a further followups task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T19:50:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing: 740 passed, 99.92% overall coverage, risk.py and schemas.py both 100% -- matches pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD): only schemas.py, openapi.json, docs/Analyse.md, frontend/src/api/types.ts, the task-file move, and index.json's mirror changed -- confirmed description-text only (no field/type/shape change) by regenerating openapi.json myself and diffing byte-identical against the committed copy. Hand-checked the new Analyse.md/schemas.py wording ('2x (or more)' / 'minus 2x a volatility buffer') directly against backend/app/portfolio/risk.py:33,140 (_SAFEZONE_COEFFICIENT = 2.0; swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)) -- matches exactly."
+  }
+}
