@@ -8,7 +8,7 @@ additionally needs the get_data_provider override.
 
 Fixture math (protective stop, distance-to-stop, risk percentages) is hand-derived the same
 way tests/unit/test_portfolio_risk.py's TestProtectiveStop reference-value test is: the
-5-quiet-day-then-one-more-day daily series and its 98.465306 stop are reused verbatim from
+5-quiet-day-then-one-more-day daily series and its 97.930612 stop are reused verbatim from
 there, then combined with chosen quantity/cash/price to land in a specific rule-breach
 bracket. Individual exit flag conditions (stop_hit, tide_flipped_bearish, etc.) already have
 exhaustive hand-computed coverage in tests/unit/test_portfolio_exits.py; these integration
@@ -38,7 +38,7 @@ from app.portfolio.risk import protective_stop
 # stop unless a test specifically wants stop_hit).
 _QUIET_CLOSES = [100.0, 102.0, 101.0, 103.0, 104.0, 110.0]
 _QUIET_LOWS = [99.0, 100.0, 99.0, 101.0, 102.0, 109.0]
-_QUIET_STOP = 98.46530612244898  # protective_stop() of the first 5 rows (today excluded)
+_QUIET_STOP = 97.93061224489796  # protective_stop() of the first 5 rows (today excluded)
 _QUIET_DISTANCE = _QUIET_CLOSES[-1] - _QUIET_STOP
 
 _UPTREND_CLOSES = [100.0 + i * 0.2 for i in range(16)]
@@ -173,7 +173,7 @@ class TestGetRisk:
         assert position["protective_stop"] == pytest.approx(stop)
 
     def test_oversized_position_breaches_two_percent_rule_only(self, db_session: Session) -> None:
-        # Single position: quantity/cash chosen so this position's own risk (~3.46%) clears
+        # Single position: quantity/cash chosen so this position's own risk (~3.62%) clears
         # the 2% rule but the portfolio (which only holds this one position, so
         # total_open_risk_pct == this position's own risk) stays under the 6% rule.
         db_session.add(AccountORM(id=1, cash=6_700.0))
@@ -202,7 +202,7 @@ class TestGetRisk:
         assert body["six_percent_rule_breached"] is False
 
     def test_multiple_positions_breach_six_percent_rule(self, db_session: Session) -> None:
-        # Two positions, no cash: each one's own risk (~5.24%) is individually under 6% but
+        # Two positions, no cash: each one's own risk (~5.49%) is individually under 6% but
         # they combine to a portfolio-wide total_open_risk_pct well past the 6% rule, so both
         # positions carry 'six_percent_rule_contributor'.
         db_session.add(AccountORM(id=1, cash=0.0))
@@ -455,8 +455,8 @@ class TestGetRisk:
         test even with `drop_malformed_daily_bars` never called at all. Inserted after the 2nd
         row instead (still well inside the 10-day window), it genuinely perturbs every later
         EMA(13) value computed on the undropped frame (hand-verified: `protective_stop`
-        evaluates to 98.4624584717608 on the undropped frame vs. the reference
-        98.46530612244898 below, a difference far outside `pytest.approx`'s default
+        evaluates to 97.9249169435216 on the undropped frame vs. the reference
+        97.93061224489796 below, a difference far outside `pytest.approx`'s default
         tolerance), so this test now fails without the fix and passes with it."""
         db_session.add(AccountORM(id=1, cash=6_700.0))
         db_session.add(

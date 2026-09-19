@@ -1020,7 +1020,7 @@
       "id": "backend-safezone-stop-coefficient-fix",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-safezone-stop-coefficient-fix.json"
     },
     {

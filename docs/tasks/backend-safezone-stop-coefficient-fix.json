@@ -3,7 +3,7 @@
   "title": "Fix protective_stop()'s missing SafeZone multiplier coefficient",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -14,23 +14,37 @@
   "checklist": [
     {
       "step": "Decide the coefficient value (book says 2 or greater; this app is long-only today so the short-specific 3x figure may not currently apply -- record whether/how to future-proof for a later short-position feature) and add it to the formula.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide whether to keep _VOLATILITY_EMA_PERIOD at 13 (existing app convention) or change it to the book's 22, and record the rationale either way.",
-      "done": false
+      "done": true
     },
     {
       "step": "Update protective_stop()'s docstring to state the exact formula and coefficient being used, since it currently claims 'SafeZone concept' without stating the coefficient explicitly.",
-      "done": false
+      "done": true
     },
     {
       "step": "Update/add unit tests confirming the new, wider stop distance; check for any existing test that hardcodes the old (unmultiplied) expected stop value and needs updating.",
-      "done": false
+      "done": true
     },
     {
       "step": "Check downstream consumers (app/portfolio/exits.py, the /api/portfolio/risk route) for any behavior that assumed the old, tighter stop distance.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T18:29:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `_SAFEZONE_COEFFICIENT = 2.0` and changed `protective_stop()`'s formula from `swing_low - volatility_buffer` to `swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)`. Used the book's minimum (2.0), not a higher multiple (his worked examples go up to 3x for shorts, and traders can go wider still). The book's short-side minimum (3.0) is documented in a code comment next to the constant, with an explicit note that a future short-position feature should introduce its own `_SAFEZONE_SHORT_COEFFICIENT = 3.0` rather than reusing this one -- not implemented now since this app is long-only today and there's no short-position code path to wire it into yet.",
+      "rationale": "docs/Analyse.md §7 and docs/ideas.md's ch. 54 cross-check both confirm the book's SafeZone formula requires this multiplier ('placing your stop any closer would be self-defeating') and the pre-fix code omitted it entirely -- a genuine correctness bug against the function's own cited methodology, not a stylistic gap. 2.0 (the floor) was chosen over a wider constant (e.g. 2.5 or 3.0) because docs/Analyse.md doesn't specify a value beyond the SafeZone concept itself, and a wider coefficient is explicitly a risk-tolerance dial the book leaves to the individual trader's judgment (his own examples range 2-3x) rather than something this app's own methodology doc pins down -- using the book's stated floor is the least speculative choice that still fixes the actual bug (a stop strictly inside the noise band). Rejected: hardcoding 3.0 for all positions (over-widens every long stop, which the book doesn't ask for -- 3.0 is specifically the *short*-side minimum); making the coefficient user-configurable (no UI/settings surface exists anywhere in this app for a risk-parameter dial like this, and docs/Analyse.md doesn't call for one -- out of scope for a bug-fix task)."
+    },
+    {
+      "timestamp": "2026-09-19T18:29:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Kept `_VOLATILITY_EMA_PERIOD` at 13 rather than changing it to the book's 22-day EMA.",
+      "rationale": "13 is already this app's standard fast-EMA period, shared across Impulse, Elder-Ray, and Autoenvelope (docs/Analyse.md §4), and `protective_stop`'s EMA(13) is already deliberately shared (via the `short_ema` parameter) with `app.portfolio.exits.evaluate_exit_flags`'s own EMA(13) pass for autoenvelope/Impulse -- switching this one call site to a 22-day EMA would mean either introducing a second, SafeZone-only EMA period with its own separate warm-up/plumbing (duplicating work `evaluate_exit_flags` already shares), or diverging protective_stop's downside-penetration EMA from the EMA the rest of the app treats as 'the' short EMA. This is a re-affirmation of the identical choice already recorded in the `portfolio-risk-rules` task's own `decisions` entry, made explicit again here since this task's own description flagged it as worth a fresh, explicit decision rather than assuming the prior one still stood unexamined. Rejected: switching to 22 (matches the book exactly, but breaks EMA sharing with evaluate_exit_flags and introduces a second EMA period into a module that currently has exactly one); making the period itself a per-caller parameter (no caller currently needs anything other than 13, and doing so would be speculative scope creep for a bug-fix task focused on the missing coefficient)."
     }
   ]
 }
