@@ -3,7 +3,7 @@
   "title": "Fix protective_stop()'s missing SafeZone multiplier coefficient",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -52,5 +52,43 @@
     "pr_number": 160,
     "pr_url": "https://github.com/rainoko/fintrade/pull/160",
     "pushed_at": "2026-09-19T18:30:24Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T18:38:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/160",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified the formula and test math myself: swing_low - (2.0 * volatility_buffer), coefficient applied to the raw average downside penetration before subtracting, matching Elder ch. 54 ('placing your stop any closer would be self-defeating') as cross-checked in docs/ideas.md:134. Reference test: swing_low=99, raw buffer=0.534694 -> old stop 98.465306, new stop 99-(2*0.534694)=97.930612 -- a genuine, meaningfully wider stop, not a no-op.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 147
+      },
+      {
+        "summary": "Verified downstream-consumer claims directly (not just trusted the task-worker's characterization): app/portfolio/exits.py's flag tests mock protective_stop entirely except TestEvaluateExitFlagsEndToEnd's 3 real-computation tests, which I hand-checked don't sit near a boundary the widened stop could flip -- stop_hit's gap-down scenario clears both the old (98) and new (97) stop by a wide margin, the two-percent-rule-without-stop-hit scenario's close (100) stays comfortably above the new (97) stop, and the quiet-uptrend no-stop-hit scenario is only made safer by a wider (lower) stop. position_risk_pct's distance_to_stop = current_price - stop increases (not decreases) as the stop widens, so the two updated integration-test risk percentages (~3.62%, ~5.49%, both up from the pre-fix ~3.46%/~5.24%) move in the mathematically correct direction and don't approach a rule threshold by coincidence. GET /api/portfolio/risk (app/api/routers/portfolio.py) has no hardcoded stop-distance assumption, just consumes protective_stop()'s return value.",
+        "file": "backend/app/portfolio/exits.py",
+        "line": null
+      },
+      {
+        "summary": "Confirmed the _VOLATILITY_EMA_PERIOD=13-vs-22 re-affirmation claim against the actual portfolio-risk-rules task (docs/tasks/done/portfolio-risk-rules.json): its own decisions entry does independently justify EMA(13) over the book's 22 for coherence with Impulse/Elder-Ray/Autoenvelope, so this task's 're-affirming' framing is accurate, not a fabricated citation.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 8
+      },
+      {
+        "summary": "Checked every other done/planned task referencing protective_stop/SafeZone for a hardcoded assumption of the old unmultiplied formula (portfolio-risk-rules-followups, portfolio-exit-rules and its followups chain, backend-profit-target) -- none hardcode a specific stop numeric value or assume the pre-fix magnitude; backend-profit-target (planned, not yet implemented) computes its reward:risk ratio dynamically off whatever protective_stop() returns at implementation time, so it isn't affected.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: docs/Analyse.md §7's SafeZone description still reads as the pre-fix, unmultiplied formula (no mention of the >=2x coefficient) even though CLAUDE.md names Analyse.md as the source of truth for what the app computes -- the verify-elder-signal skill's own guidance is to update Analyse.md in the same change when the doc goes stale relative to a deliberate code change. There's real precedent for leaving formula specifics (window days, EMA period) out of Analyse.md per the original portfolio-risk-rules decision, so this may be a deliberate continuation of that pattern rather than an oversight, but it's worth an explicit decision either way. Tracked as backend-safezone-stop-coefficient-fix-followups.",
+        "file": "docs/Analyse.md",
+        "line": 182
+      },
+      {
+        "summary": "Non-blocking: backend/app/api/schemas.py:274's RiskPosition.protective_stop field description likewise doesn't mention the coefficient. No schema/route signature changed so openapi.json regeneration isn't required by CLAUDE.md's standard, but the description is now less accurate for API consumers. Tracked as backend-safezone-stop-coefficient-fix-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 274
+      }
+    ],
+    "notes": "Full backend suite: 713 passed, 99.91% overall coverage, risk.py 100% line/branch. ruff check app/ and mypy both clean (backend-only diff; frontend untouched, last known state clean modulo one pre-existing, already-tracked flake below). Frontend vitest --coverage: 472/473 passed, one PortfolioPage.test.tsx timeout under coverage-instrumentation load that passes both in isolation and with a bumped --testTimeout=20000 (all 473 pass, 99%+ coverage across the board) -- this exact flake is already tracked in backend-indicator-seasons-followups from a prior PR review, confirmed as pre-existing and unrelated to this backend-only diff, not a new finding. code-review skill (medium effort) against the diff: no findings. e2e-test skill (make e2e): all 16 specs passed, including the portfolio risk-panel spec exercising the new formula through a real browser against a real backend, plus the dashboard 'no console errors' spec -- no MCP browser tool was available in this session's toolset, so this persisted suite plus direct curl smoke checks against a running GET /api/portfolio/risk substituted for the interactive walkthrough step; no UI regression observed. No API route/schema signature changed, so no openapi.json regeneration was required, and none was made. No architecture-review needed (no new module/dependency/layer). No frontend components touched (step 7a n/a). Two non-blocking documentation-accuracy findings tracked as backend-safezone-stop-coefficient-fix-followups."
   }
 }
