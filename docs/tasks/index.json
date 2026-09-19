@@ -978,8 +978,15 @@
       "id": "backend-support-resistance-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-support-resistance-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-support-resistance-followups.json"
+    },
+    {
+      "id": "backend-support-resistance-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-support-resistance-followups-followups.json"
     },
     {
       "id": "backend-kangaroo-tail-pattern",

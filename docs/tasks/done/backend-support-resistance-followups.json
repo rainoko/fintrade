@@ -3,7 +3,7 @@
   "title": "Support/resistance zones — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-support-resistance"],
   "references": [
     "docs/tasks/done/backend-support-resistance.json#review",
@@ -43,5 +43,23 @@
     "pr_number": 164,
     "pr_url": "https://github.com/rainoko/fintrade/pull/164",
     "pushed_at": "2026-09-19T19:56:37Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T20:02:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/164",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Efficiency refactor (checklist item 1) is provably equivalent to the old pipeline: the sort key (strength_score, touch_count, last_touch_date) never depends on the deferred _scan_breaks_and_false_breakouts/_dollar_volume work, confirmed independently both by re-reading the code and via a standalone synthetic simulation of 40 multi-strength-score candidates showing old-pipeline vs new-pipeline order/truncation are identical. However, the only in-repo test that exercises the max_zones cap (test_max_zones_caps_the_returned_list) truncates a list of a single qualifying candidate with max_zones=1 -- it never exercises reordering across multiple distinct-strength-score candidates, so it would not actually catch a ranking-order regression in this refactor. Non-blocking (independently verified correct by this review) but tracked as a follow-up so the equivalence claim gets real in-repo regression coverage rather than relying on reviewer-external reasoning.",
+        "file": "backend/tests/unit/signals/test_support_resistance.py",
+        "line": 70
+      },
+      {
+        "summary": "Chain-drift finding (checklist item 3): reviewed the new docstring and TestClusterTouchesChainDrift regression test independently rather than deferring to the task-worker's decision. The 'keep as documented limitation' call is correct: docs/Analyse.md's row 9 description states the 1% tolerance governs each merge decision, not a hard cap on a cluster's total span, and gives no numeric guarantee about end-to-end zone width -- so there is no methodology violation. upper/lower remain genuine touch-price extremes (never fabricated), and the regression test's arithmetic is correct (100.9 is +0.90% of 100.0; 101.45 is +0.995% of the running mean 100.45, both within the 1% tolerance, producing a 1.45% total span as asserted). Accepted as-is.",
+        "file": "backend/app/signals/support_resistance.py",
+        "line": 178
+      }
+    ],
+    "notes": "Verified independently rather than trusting the PR's own claims: backend full suite 741 passed, app/signals/support_resistance.py 100% line+branch coverage, overall backend coverage 99.92% (gate 90%) -- re-ran myself, not just read the PR description. ruff check app/ and mypy both clean. No frontend/openapi.json changes in this PR (pure internal backend refactor + docstring/test additions), and openapi.json is correctly untouched since no route/schema signature changed. docs/architecture/Backend.md already lists support_resistance.py (satisfied by a prior commit on this branch, confirmed present). Both checklist items phrased as judgment calls have corresponding `decisions` entries with rationale -- no undocumented decision gap. code-review skill (medium effort) found zero correctness/reuse/simplification/efficiency issues. Browser walkthrough performed (this PR affects an existing endpoint -- GET /api/stocks/{ticker}/analysis -- with a live frontend consumer, so step 9 applies): started backend (fixture data provider) + frontend dev servers, drove a real headless Chromium through the AAPL stock-analysis page plus an unknown-ticker edge case; support/resistance zones render on the price chart in sensible, correctly-sorted order, zero console errors, zero failed network requests. Also ran the persisted e2e suite (make e2e): all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed. One non-blocking finding (see comments) filed as a new follow-up task backend-support-resistance-followups-followups since none existed yet for this task id."
   }
 }
