@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { WatchlistItemOut } from '../../../api/watchlist'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import { useAddWatchlistItem } from '../hooks/useAddWatchlistItem'
 import WatchlistTable, { type WatchlistTableProps } from './WatchlistTable'
 
 function renderWatchlistTable(items: WatchlistTableProps['items']) {
@@ -13,6 +14,24 @@ function renderWatchlistTable(items: WatchlistTableProps['items']) {
     <MemoryRouter>
       <WatchlistTable items={items} />
     </MemoryRouter>,
+  )
+}
+
+/**
+ * Drives WatchlistTable's skeleton-row rendering directly off a real
+ * useAddWatchlistItem mutation (the same shared mutation-cache entry
+ * WatchlistPage's real AddTickerForm+WatchlistTable pairing would produce),
+ * without needing AddTickerForm/the input field at all -- a plain trigger
+ * button calling `.mutate` is enough to exercise WatchlistTable's own
+ * pending-ticker-derivation and per-column skeleton branches in isolation.
+ */
+function TriggerAddHarness({ items, ticker }: { items: WatchlistItemOut[]; ticker: string }) {
+  const addWatchlistItem = useAddWatchlistItem()
+  return (
+    <MemoryRouter>
+      <button onClick={() => addWatchlistItem.mutate({ ticker })}>trigger-add</button>
+      <WatchlistTable items={items} />
+    </MemoryRouter>
   )
 }
 
@@ -174,5 +193,99 @@ describe('WatchlistTable', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Not found')).toBeInTheDocument()
     expect(screen.getByText('AAPL is not on the watchlist.')).toBeInTheDocument()
+  })
+
+  it('renders an animated skeleton placeholder row for a ticker currently being added, then the real row once it appears in items', async () => {
+    let resolvePost: (value: WatchlistItemOut) => void = () => {}
+    server.use(
+      http.post('/api/watchlist', async () => {
+        const created = await new Promise<WatchlistItemOut>((resolve) => {
+          resolvePost = resolve
+        })
+        return HttpResponse.json(created, { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(
+      <TriggerAddHarness items={items} ticker="TSLA" />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'trigger-add' }))
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId('watchlist-skeleton').length).toBeGreaterThan(0),
+    )
+    const table = screen.getByRole('table', { name: 'Watchlist' })
+    // The skeleton row's own action column has no Remove button (nothing to
+    // remove yet), and its ticker cell is a Skeleton, not TSLA text/a link.
+    expect(within(table).queryByRole('link', { name: 'TSLA' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove TSLA' })).not.toBeInTheDocument()
+
+    resolvePost({
+      ticker: 'TSLA',
+      added_at: '2026-09-19T00:00:00Z',
+      signal: null,
+      confidence: null,
+      confidence_band: null,
+    })
+    // The mutation settles, but `items` (this harness's own static prop)
+    // never actually gains TSLA -- exactly like WatchlistTable's real usage
+    // under WatchlistPage, where the pending-ticker signal disappears (its
+    // mutation is no longer 'pending') independently of whether a rerender
+    // carries fresh `items`. Re-rendering with TSLA now included in `items`
+    // is what a real refetch would supply.
+    await waitFor(() =>
+      expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument(),
+    )
+    rerender(
+      <TriggerAddHarness
+        items={[
+          ...items,
+          {
+            ticker: 'TSLA',
+            added_at: '2026-09-19T00:00:00Z',
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
+        ]}
+        ticker="TSLA"
+      />,
+    )
+    expect(within(table).getByText('TSLA')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove TSLA' })).toBeInTheDocument()
+  })
+
+  it('does not render a skeleton row for a pending add whose ticker is already present in items (idempotent no-op)', async () => {
+    let resolvePost: (value: WatchlistItemOut) => void = () => {}
+    server.use(
+      http.post('/api/watchlist', async () => {
+        const created = await new Promise<WatchlistItemOut>((resolve) => {
+          resolvePost = resolve
+        })
+        return HttpResponse.json(created, { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<TriggerAddHarness items={items} ticker="AAPL" />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger-add' }))
+
+    // Give the pending mutation a chance to be observed -- there is
+    // deliberately no skeleton to wait for, since AAPL's real row is
+    // already in `items`.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'trigger-add' })).toBeInTheDocument())
+    expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument()
+    const table = screen.getByRole('table', { name: 'Watchlist' })
+    expect(within(table).getAllByText('AAPL')).toHaveLength(1)
+
+    resolvePost({
+      ticker: 'AAPL',
+      added_at: '2026-09-10T09:15:00Z',
+      signal: 'BUY',
+      confidence: 72,
+      confidence_band: 'High',
+    })
+    await waitFor(() => expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument())
   })
 })

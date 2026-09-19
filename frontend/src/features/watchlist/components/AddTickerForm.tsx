@@ -13,6 +13,14 @@ import { useAddWatchlistItem } from '../hooks/useAddWatchlistItem'
  * on a duplicate add (API.md) with no merge outcome worth summarizing the
  * way a portfolio-position quantity/cost-basis merge is — has nothing extra
  * to confirm before returning to the list. See this task's `decisions` entry.
+ *
+ * The submit button's `loading` state now spans the *entire* add flow, not
+ * just the POST — useAddWatchlistItem's own `onSuccess` awaits the
+ * invalidated watchlist refetch, so `isPending` (and this button) stays true
+ * until the new ticker's signal has actually been (re)computed. During that
+ * same window, WatchlistTable independently renders an animated skeleton
+ * placeholder row for the ticker being added (frontend-watchlist-add-skeleton)
+ * — see that component and useAddWatchlistItem's doc comments.
  */
 export default function AddTickerForm() {
   const [value, setValue] = useState('')
