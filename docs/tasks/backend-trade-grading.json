@@ -3,7 +3,7 @@
   "title": "A-trade grading (buy grade / sell grade / trade grade) for closed trades",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-trade-history-table",
     "backend-channel-envelope-exposure"
@@ -62,5 +62,11 @@
       "decision": "No frontend client function (frontend/src/api/portfolio.ts) or MSW mock handler was added for GET /api/portfolio/closed-trades in this PR -- only backend/openapi.json and the regenerated frontend/src/api/types.ts changed on the frontend side.",
       "rationale": "docs/tasks/frontend-trade-journal.json already exists as a separate, already-planned task (depends_on: [backend-trade-history-table, backend-trade-grading], skill add-frontend-feature) whose entire scope is building the actual UI consumer of this endpoint, including its own MetricHelp-explained grade display, placement decision, and tests -- adding an unused client function/mock here now would be dead code with no consumer until that task lands, and duplicate/preempt a placement and data-shape decision that task's own skill (add-frontend-feature) is meant to make deliberately. Matches the identical, already-accepted precedent set by backend-channel-envelope-exposure (PR #146), whose review explicitly confirmed 'no UI-facing surface in this PR... no existing frontend code reads the new fields yet' was correct scoping, not an omission."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-grading",
+    "pr_number": 149,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/149",
+    "pushed_at": "2026-09-19T11:01:50Z"
+  }
 }
