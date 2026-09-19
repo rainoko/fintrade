@@ -34,7 +34,16 @@ const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const removeSeriesMock = vi.fn()
 const fitContentMock = vi.fn()
-const addSeriesMock = vi.fn(() => ({ setData: setDataMock }))
+// `setSeriesOrder` (frontend-channel-overlay, post-review fix) is called
+// only on the candlestick series, to reorder it above the value-zone
+// fill/mask series it's mixed in with on the same pane — see
+// PriceChart.tsx's own doc comment at the call site for why. Every mock
+// series returned by `addSeriesMock` gets one (matching the real
+// `ISeriesApi`, where every series type has it), tracked through this one
+// shared spy since the component only ever calls it on the single
+// candlestick series it holds a ref to.
+const setSeriesOrderMock = vi.fn()
+const addSeriesMock = vi.fn(() => ({ setData: setDataMock, setSeriesOrder: setSeriesOrderMock }))
 const setMarkersMock = vi.fn()
 const detachMarkersMock = vi.fn()
 const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
@@ -164,6 +173,7 @@ describe('PriceChart', () => {
     removeSeriesMock.mockClear()
     fitContentMock.mockClear()
     addSeriesMock.mockClear()
+    setSeriesOrderMock.mockClear()
     createChartMock.mockClear()
     setMarkersMock.mockClear()
     detachMarkersMock.mockClear()
@@ -754,6 +764,25 @@ describe('PriceChart', () => {
 
       // Latest indicator point (09-02): ema_13 226.4, ema_26 221.7.
       expect(screen.getByText(/221\.70-226\.40/)).toBeInTheDocument()
+    })
+
+    it('reorders the candlestick series above the value-zone fill/mask series so neither ever occludes a candle (PR #151 regression)', async () => {
+      // Regression test for the blocking pr-reviewer finding on PR #151:
+      // Lightweight Charts draws later-added series above earlier ones on
+      // the same pane, and the two value-zone `AreaSeries` (one an opaque
+      // `theme.palette.background.paper` mask) used to be added *after* the
+      // candlestick series, painting over any candle that dipped below the
+      // zone. The fix calls `series.setSeriesOrder(2)` on the candlestick
+      // series once both zone series exist, so it always renders on top of
+      // them regardless of add order.
+      mockHistory(twoBars)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      expect(setSeriesOrderMock).toHaveBeenCalledTimes(1)
+      expect(setSeriesOrderMock).toHaveBeenCalledWith(2)
     })
 
     it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {

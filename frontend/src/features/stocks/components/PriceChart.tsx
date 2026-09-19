@@ -353,25 +353,36 @@ export default function PriceChart({
       sell: theme.palette.signal.sell,
     })
 
-    // Value-zone shading, added *before* the EMA/channel line series below
-    // so those lines render crisply on top of it (Lightweight Charts draws
-    // later-added series above earlier ones, on the same pane). Two
-    // `AreaSeries` in a "fill, then mask" pair, since Lightweight Charts has
-    // no native "fill the region between two arbitrary line series"
-    // primitive (only fill-from-a-line-to-the-bottom-of-the-pane, or a
-    // custom series plugin -- overkill for this): `zoneTopSeries` paints a
-    // translucent fill from `valueZoneTop` (the pointwise-higher of
-    // EMA13/EMA26 at each bar) down to the bottom of the visible range,
-    // then `zoneBottomSeries` -- added after, so on top -- repaints
-    // everything from `valueZoneBottom` down in the *chart's own opaque
-    // background color*, erasing the portion below the lower EMA and
-    // leaving only the true "value zone" between the two visibly shaded.
-    // This depends on the chart's `layout.background` actually being opaque
-    // white (`theme.palette.background.paper`, matching `createBaseChart`'s
+    // Value-zone shading: two `AreaSeries` in a "fill, then mask" pair,
+    // since Lightweight Charts has no native "fill the region between two
+    // arbitrary line series" primitive (only fill-from-a-line-to-the-
+    // bottom-of-the-pane, or a custom series plugin -- overkill for this):
+    // `zoneTopSeries` paints a translucent fill from `valueZoneTop` (the
+    // pointwise-higher of EMA13/EMA26 at each bar) down to the bottom of the
+    // visible range, then `zoneBottomMaskSeries` repaints everything from
+    // `valueZoneBottom` down in the *chart's own opaque background color*,
+    // erasing the portion below the lower EMA and leaving only the true
+    // "value zone" between the two visibly shaded. This depends on the
+    // chart's `layout.background` actually being opaque white
+    // (`theme.palette.background.paper`, matching `createBaseChart`'s
     // transparent layer showing this page's plain white background through
     // it) -- see this task's `decisions` entry for why that assumption is
     // safe today (this app has no dark-mode/alternate-theme support at all)
     // but would need revisiting if one were ever added.
+    //
+    // Bug fixed post-review (PR #151): Lightweight Charts draws later-added
+    // series above earlier ones on the same pane, and both zone series used
+    // to be added *after* the candlestick series (created in the effect
+    // above). That put the opaque `zoneBottomMaskSeries` on top of the
+    // candlesticks, painting over (hiding) any wick/body that fell below the
+    // zone's bottom boundary -- routine whenever price trades below the
+    // fast/slow EMA (any pullback or downtrend), not an edge case. Fixed by
+    // explicitly reordering `series` (the candlestick series) to sit right
+    // above the two zone series via `setSeriesOrder` once they're both
+    // added, below (not by relying on creation order alone, which is what
+    // caused the bug): candlesticks are always drawn after -- i.e. on top
+    // of -- the zone fill/mask, regardless of how many overlay series exist
+    // or the order this effect happens to add them in.
     const zoneTopSeries = chart.addSeries(AreaSeries, {
       topColor: `${theme.palette.info.main}33`,
       bottomColor: `${theme.palette.info.main}33`,
@@ -392,6 +403,12 @@ export default function PriceChart({
       crosshairMarkerVisible: false,
     })
     zoneBottomMaskSeries.setData(valueZoneBottom)
+
+    // Move the candlestick series to sit directly above the two zone series
+    // in this pane's render order (index 2, right after `zoneTopSeries` at 0
+    // and `zoneBottomMaskSeries` at 1) so it always paints on top of the
+    // zone fill/mask -- see the block comment above.
+    series.setSeriesOrder(2)
 
     const ema13Series = chart.addSeries(LineSeries, {
       color: theme.palette.primary.main,
