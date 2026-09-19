@@ -20,6 +20,9 @@ declare module '@mui/material/styles' {
       main: string
       background: string
     }
+    divergence: {
+      main: string
+    }
   }
 
   interface PaletteOptions {
@@ -31,6 +34,9 @@ declare module '@mui/material/styles' {
     riskBreach?: {
       main: string
       background: string
+    }
+    divergence?: {
+      main: string
     }
   }
 }
@@ -60,6 +66,17 @@ export const theme = createTheme({
     riskBreach: {
       main: '#d32f2f',
       background: '#fdecea',
+    },
+    // Divergence markers/connecting line (PriceChart.tsx/OscillatorChart.tsx,
+    // frontend-divergence-markers) -- one color for both bullish and
+    // bearish divergences (distinguished by marker text/shape instead, see
+    // that task's `decisions` entry), deliberately distinct from every
+    // other color already in use on those charts: `signal.buy`/`signal.sell`
+    // (the BUY/SELL transition markers this must read as visually different
+    // from -- the whole point of this task), `warning.main` (false
+    // breakouts), and `info.main` (the channel/value-zone overlay).
+    divergence: {
+      main: '#00897b',
     },
   },
   typography: {

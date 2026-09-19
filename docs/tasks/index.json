@@ -1111,7 +1111,7 @@
       "id": "frontend-divergence-markers",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-divergence-markers.json"
     },
     {

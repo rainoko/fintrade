@@ -1,8 +1,12 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IndicatorHistoryResponse } from '../../../api/stocks'
+import type {
+  AnalysisResponse,
+  DivergenceOut,
+  IndicatorHistoryResponse,
+} from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import OscillatorChart from './OscillatorChart'
@@ -24,14 +28,28 @@ const addSeriesMock = vi.fn(
     createPriceLine: (options: unknown) => createPriceLineMock(paneIndex, options),
   }),
 )
+const setMarkersMock = vi.fn()
+const detachMarkersMock = vi.fn()
+const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
+  setMarkersMock(markers)
+  return { setMarkers: setMarkersMock, markers: () => markers, detach: detachMarkersMock }
+})
+// Divergence-marker click-to-explain (frontend-divergence-markers): see
+// `PriceChart.test.tsx`'s own identical mock/comment for why
+// `subscribeClick` is captured rather than actually simulated via a real
+// pointer event.
+const subscribeClickMock = vi.fn()
 const createChartMock = vi.fn(() => ({
   addSeries: addSeriesMock,
   timeScale: () => ({ fitContent: fitContentMock }),
+  subscribeClick: (handler: unknown) => subscribeClickMock(handler),
   remove: removeMock,
 }))
 
 vi.mock('lightweight-charts', () => ({
   createChart: () => createChartMock(),
+  createSeriesMarkers: (series: unknown, markers: unknown) =>
+    createSeriesMarkersMock(series, markers),
   LineSeries: 'LineSeries-definition',
   HistogramSeries: 'HistogramSeries-definition',
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
@@ -41,6 +59,70 @@ function mockIndicators(response: IndicatorHistoryResponse) {
   server.use(
     http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)),
   )
+}
+
+// A minimal-but-complete `AnalysisResponse` (same convention as
+// `PriceChart.test.tsx`'s own `baseAnalysis`) so tests can control just
+// `divergence` without needing every other field's real shape.
+const baseAnalysis: AnalysisResponse = {
+  ticker: 'AAPL',
+  as_of: '2026-09-02',
+  signal: 'HOLD',
+  confidence: 50,
+  confidence_band: 'Medium',
+  screens: {
+    tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+    impulse: 'BLUE',
+    wave: {
+      stochastic_k: 50,
+      force_index_2ema: 0,
+      state: 'NONE',
+      showed_pullback_in_lookback: false,
+      showed_rally_in_lookback: false,
+    },
+    trigger: { fired: false, reference: 'not_applicable' },
+  },
+  confidence_breakdown: [],
+  divergence: null,
+  indicators: {
+    ema_13: 226.4,
+    ema_26: 221.7,
+    macd_histogram: 1.82,
+    bull_power: 3.1,
+    bear_power: -1.4,
+  },
+  support_resistance_zones: [],
+}
+
+function mockAnalysis(divergence: DivergenceOut | null) {
+  server.use(
+    http.get('/api/stocks/:ticker/analysis', () =>
+      HttpResponse.json({ ...baseAnalysis, divergence }),
+    ),
+  )
+}
+
+// A hand-built bearish Stochastic divergence fixture (frontend-divergence-
+// markers): two price swing highs 25 trading days apart, the second
+// shallower on Stochastic %K than the first (72.0 vs 68.0), first extreme
+// beyond the 70 overbought reference line (its textbook-strongest form) --
+// deliberately a *different* indicator than `PriceChart.test.tsx`'s own
+// `bullishDivergence` (MACD-Histogram) so these tests also exercise pane
+// routing (Stochastic/RSI share pane 0, distinct from MACD-Histogram's
+// pane 2 -- `divergencePaneIndex`).
+const bearishDivergence: DivergenceOut = {
+  indicator: 'stochastic',
+  kind: 'bearish',
+  first_extreme_date: '2026-08-03',
+  first_extreme_price: 240.0,
+  first_extreme_indicator_value: 72.0,
+  second_extreme_date: '2026-09-02',
+  second_extreme_price: 245.0,
+  second_extreme_indicator_value: 68.0,
+  bars_apart: 25,
+  centerline_crossed: null,
+  beyond_reference_line: true,
+  aborted: false,
 }
 
 const indicatorPoints: IndicatorHistoryResponse = {
@@ -127,6 +209,10 @@ describe('OscillatorChart', () => {
     addSeriesMock.mockClear()
     createChartMock.mockClear()
     createPriceLineMock.mockClear()
+    setMarkersMock.mockClear()
+    detachMarkersMock.mockClear()
+    createSeriesMarkersMock.mockClear()
+    subscribeClickMock.mockClear()
   })
 
   it('shows a loading state, then renders Stochastic/RSI/Force Index/MACD Histogram, Stochastic+RSI sharing one pane', async () => {
@@ -421,5 +507,160 @@ describe('OscillatorChart', () => {
     await user.click(screen.getByRole('button', { name: 'RSI (9) help' }))
 
     expect(screen.getByText(/unavailable for this ticker/)).toBeInTheDocument()
+  })
+
+  describe('divergence overlay (frontend-divergence-markers)', () => {
+    it('draws a connecting line + circle markers on the correct pane (Stochastic/RSI share pane 0) between the two compared indicator readings', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+      )
+
+      // The connecting line's own `addSeries` call is the 5th (after
+      // Stochastic/RSI/Force Index/MACD Histogram), on pane 0 (Stochastic's
+      // own pane -- `bearishDivergence.indicator === 'stochastic'`), plotting
+      // the indicator's own value at each extreme date, not price.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(5))
+      expect(addSeriesMock.mock.calls[4][2]).toBe(0)
+      const divergenceLineData = setDataMock.mock.calls.find(
+        ([, data]) =>
+          Array.isArray(data) &&
+          (data as { time: string }[])[0]?.time === '2026-08-03',
+      )?.[1] as { time: string; value: number }[]
+      expect(divergenceLineData).toEqual([
+        { time: '2026-08-03', value: 72.0 },
+        { time: '2026-09-02', value: 68.0 },
+      ])
+
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeDefined()
+      const markers = divergenceMarkersCall?.[1] as { text: string }[]
+      expect(markers.every((marker) => marker.text === 'Bearish divergence')).toBe(true)
+    })
+
+    it('draws the connecting line on the MACD-Histogram pane (pane 2) when that is the divergence indicator', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis({ ...bearishDivergence, indicator: 'macd_histogram', kind: 'bullish' })
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(5))
+      expect(addSeriesMock.mock.calls[4][2]).toBe(2)
+    })
+
+    it('draws nothing and shows no legend when there is no currently-qualifying divergence', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis(null)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+      )
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(4))
+      expect(screen.queryByRole('button', { name: 'Divergence help' })).not.toBeInTheDocument()
+    })
+
+    it('shows the Divergence legend naming the actual two dates/values compared for this ticker', async () => {
+      const user = userEvent.setup()
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(screen.getByText('Divergence')).toBeInTheDocument())
+
+      await user.click(screen.getByRole('button', { name: 'Divergence help' }))
+
+      expect(screen.getByText(/Bearish Stochastic %K divergence/)).toBeInTheDocument()
+      expect(screen.getByText(/2026-08-03/)).toBeInTheDocument()
+      expect(screen.getByText(/2026-09-02/)).toBeInTheDocument()
+      expect(screen.getByText(/72\.00/)).toBeInTheDocument()
+      expect(screen.getByText(/68\.00/)).toBeInTheDocument()
+    })
+
+    it('opens a balloon explaining the divergence when a divergence marker on the correct pane is clicked', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+
+      // Wrong pane: matches the extreme date but not the pane this
+      // divergence's own indicator lives on -- must not open.
+      handleClick({
+        time: '2026-09-02',
+        paneIndex: 2,
+        sourceEvent: { pageX: 10, pageY: 10 },
+        seriesData: new Map(),
+      })
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+
+      handleClick({
+        time: '2026-09-02',
+        paneIndex: 0,
+        sourceEvent: { pageX: 10, pageY: 10 },
+        seriesData: new Map(),
+      })
+      expect(await screen.findByLabelText('Divergence details')).toBeInTheDocument()
+      expect(
+        within(screen.getByLabelText('Divergence details')).getByText(
+          /Bearish Stochastic %K divergence/,
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('does not open the balloon when the click event carries no page coordinates', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+
+      handleClick({
+        time: '2026-09-02',
+        paneIndex: 0,
+        sourceEvent: {},
+        seriesData: new Map(),
+      })
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
+    it('closes the divergence balloon on Escape', async () => {
+      const user = userEvent.setup()
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalled())
+      const handleClick = subscribeClickMock.mock.calls[0][0] as (param: unknown) => void
+      handleClick({
+        time: '2026-09-02',
+        paneIndex: 0,
+        sourceEvent: { pageX: 10, pageY: 10 },
+        seriesData: new Map(),
+      })
+      expect(await screen.findByLabelText('Divergence details')).toBeInTheDocument()
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
   })
 })

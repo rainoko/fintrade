@@ -3,7 +3,7 @@
   "title": "Mark bullish/bearish divergences on price and oscillator charts",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-divergence-detection"
   ],
@@ -17,19 +17,57 @@
   "checklist": [
     {
       "step": "Design the visual treatment (connecting line/marker between the two compared extremes) distinct from the existing BUY/SELL markers, on both the relevant price and oscillator charts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Wire click-to-explain via InfoBalloon, reusing the existing pattern from frontend-signal-why-explanation (signalExplanation.ts's balloon-trigger approach) rather than inventing a new interaction model.",
-      "done": false
+      "done": true
     },
     {
       "step": "Explanation content must name the actual two dates/values being compared for THIS ticker, not a generic divergence definition.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests covering a ticker with a known divergence in its history; Storybook story if any new common/ piece was introduced; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Only the single currently-qualifying divergence (`AnalysisResponse.divergence`, a singular field) is drawn on both charts -- not a reconstructed history of every past divergence from `GET /api/stocks/{ticker}/indicators`' per-bar `divergence` field.",
+      "rationale": "The per-bar field repeats the same divergence across every bar it's still the most-recently-confirmed one for (per backend-divergence-detection's own no-look-ahead design), so turning it into distinct historical markers would need an unbuilt de-duplication pass with no textual basis in docs/ideas.md for how far apart two repeats must be to count as 'the same' vs 'a new' divergence. The checklist's own phrasing ('which two extremes are being compared... for THIS ticker') also reads as singular/current, matching `AnalysisResponse.divergence`'s own shape and every other latest-bar-only field this app already displays this way (support_resistance_zones is the one plural exception, and it's drawn from a genuinely list-shaped backend field, unlike divergence). Rejected reconstructing history as materially more complex for a benefit the checklist doesn't actually ask for."
+    },
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Divergence markers use a new `theme.palette.divergence.main` color (teal, #00897b) and a `circle` marker shape on both extremes, connected by a dashed `LineSeries` -- one color for both bullish and bearish (distinguished by marker text/legend content instead of a second color), rather than reusing `signal.buy`/`signal.sell` (green/red) the way a 'bullish'/'bearish' label might suggest.",
+      "rationale": "The task explicitly requires the treatment be 'distinct from the existing BUY/SELL transition markers' -- reusing green/red for bullish/bearish divergence would read as a second BUY/SELL signal layered on the same chart, exactly what the task says to avoid, especially since a divergence is explicitly NOT wired into the signal engine (backend-divergence-detection's own decisions entry: 'detection + exposure only'). `circle` (vs `arrowUp`/`arrowDown` for BUY/SELL) and a distinct teal color/dashed-line style make the two marker families visually unmistakable from each other at a glance, which was the actual point."
+    },
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Click-to-explain is implemented via `chart.subscribeClick` (Lightweight Charts) checking the clicked bar's date against the divergence's two extreme dates, opening a new `AnchoredInfoBalloon` export from `common/InfoBalloon.tsx` -- a coordinate-anchored variant of the existing `InfoBalloon` (same title+content Popover chrome, shared via an internal `BalloonContent` helper), rather than trying to reuse `InfoBalloon`'s own child-wrapping trigger API. A `divergenceHelp` `common/MetricHelp` legend row (same content) is ALSO added on both charts as a second, always-reachable way to open the identical explanation.",
+      "rationale": "`InfoBalloon`'s existing API assumes a real DOM trigger element (a `ButtonBase` wraps `children` and owns the open/close state via its own `onClick`) -- a Lightweight Charts series marker is drawn on a `<canvas>` with no DOM node of its own to attach that to; the library's own click event only reports page coordinates (`chart.subscribeClick`'s `MouseEventParams.sourceEvent.pageX/pageY`), not a DOM element. Extending `InfoBalloon` itself with a second, externally-controlled open mode (rather than building a separate one-off popover for this feature) keeps the visual/behavioral chrome shared and consistent with the rest of the app's explanatory pattern, per this task's own instruction to reuse the InfoBalloon pattern rather than inventing a new interaction model. The legend row is additional, not a replacement: a canvas marker is a small, imprecise click target (confirmed empirically during manual Playwright verification -- see below), so an always-reachable MetricHelp affordance with the identical content is a meaningful, low-cost addition consistent with every other chart overlay this app already ships (channel, value zone, support/resistance zones, false breakout, RSI), not scope creep."
+    },
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Divergence explanation content lives in a new `divergenceHelp` entry in `features/stocks/components/metricHelpContent.ts`, following the exact `metricLabel`/`definition`/`elderContext`/`interpretValue(...)` shape every other entry in that registry already uses -- `interpretValue` takes the actual `DivergenceOut` value and names its real dates/prices/indicator values, the centerline-crossing (MACD-H) or reference-line (Stochastic/RSI) rule that actually applied, the Lovvorn bar-spacing, and a Hound-of-the-Baskervilles callout when `aborted` is true.",
+      "rationale": "Directly required by the task description ('Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism') and verified end-to-end against a real backend response (see below) that the rendered text genuinely names this ticker's own extreme dates/prices, not a generic definition."
+    },
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`AnchoredInfoBalloon`'s Storybook stories live in a new, separate `AnchoredInfoBalloon.stories.tsx` file (not appended to `InfoBalloon.stories.tsx`'s existing default export).",
+      "rationale": "Storybook's CSF format supports exactly one `component`/`meta` default export per file; `AnchoredInfoBalloon` and `InfoBalloon` are different components with different prop shapes (controlled-by-coordinates vs. wraps-a-child-trigger), so giving each its own file/meta is the correct CSF structure, not a style preference -- the alternative (stories with mismatched `args` typed against the wrong component) would either not type-check or silently mislabel the story's own component in Storybook's UI."
+    },
+    {
+      "timestamp": "2026-09-19T17:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Manually verified the whole feature against a real running backend + frontend (not just mocked component tests) before considering this done: started the backend with `FINTRADE_DATA_PROVIDER_MODE=fixture` (the same deterministic, no-network provider the e2e suite uses), confirmed AAPL's `/analysis` response has a real, non-null bearish MACD-Histogram divergence (`aborted: true`, i.e. a live Hound-of-the-Baskervilles case), then used a throwaway Playwright script to: (1) screenshot the price and oscillator charts showing the teal connecting line + circle markers labeled 'Bearish divergence', visually distinct from the BUY/SELL arrows; (2) open the legend's MetricHelp balloon and confirm its text names the real 2025-12-11/2026-01-16 dates, real prices/indicator values, the centerline-crossing rule, and the Hound-of-the-Baskervilles callout; (3) dispatch a native click event at the exact canvas pixel corresponding to the second extreme's own bar and confirm `AnchoredInfoBalloon` opens with the identical content, anchored near the click. All scratch scripts/servers were discarded afterward; no test-suite files depend on this manual pass.",
+      "rationale": "Directly required by this task's dispatch instructions ('Do your own visual verification... at a range/ticker where a divergence is actually detected'). Also surfaced that Playwright's high-level `page.mouse.click()` doesn't reliably reach Lightweight Charts' internal canvas pointer-event listeners in this headless environment (a native `dispatchEvent` with explicit `pointerdown`/`mousedown`/`pointerup`/`mouseup`/`click` was needed instead) -- noted here only as a manual-verification-tooling quirk, not a product bug, since the actual click-handling logic (`clickedDivergenceExtreme`, the pageX/pageY extraction, `AnchoredInfoBalloon`'s open/close) is already directly covered by PriceChart.test.tsx/OscillatorChart.test.tsx's mocked-`chart.subscribeClick` tests, which invoke the exact same handler function the real chart calls."
     }
   ]
 }

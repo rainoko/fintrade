@@ -1,4 +1,4 @@
-import type { FalseBreakoutOut, SupportResistanceZone } from '../../../api/stocks'
+import type { DivergenceOut, FalseBreakoutOut, SupportResistanceZone } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
@@ -517,5 +517,49 @@ export const falseBreakoutHelp = {
     const roleLabel = mostRecent.role === 'support' ? 'support' : 'resistance'
     const directionLabel = breakout.direction === 'up' ? 'broke above' : 'broke below'
     return `Most recent: the ${roleLabel} zone ${mostRecent.lower.toFixed(2)}-${mostRecent.upper.toFixed(2)} ${directionLabel} it on ${breakout.breakout_date}, then closed back inside by ${breakout.reentry_date} -- suggested stop near ${breakout.extreme_price.toFixed(2)}, the failed move's own extreme.`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Divergence overlay (PriceChart.tsx/OscillatorChart.tsx,
+// frontend-divergence-markers)
+// ---------------------------------------------------------------------------
+
+const DIVERGENCE_INDICATOR_LABEL: Record<DivergenceOut['indicator'], string> = {
+  macd_histogram: 'MACD-Histogram',
+  stochastic: 'Stochastic %K',
+  rsi: 'RSI',
+}
+
+export const divergenceHelp = {
+  metricLabel: 'Divergence',
+  definition:
+    'Price makes a new extreme (a lower low, or a higher high) that an oscillator does NOT confirm with a matching new extreme of its own -- a sign the move driving price is losing the momentum behind it, even though price itself hasn’t turned yet.',
+  elderContext:
+    'Elder calls divergences "some of the most powerful signals in technical analysis" (docs/ideas.md). A bullish divergence (two successive price swing LOWS, the second with a shallower oscillator reading) is a potential buy setup; a bearish divergence (two successive swing HIGHS) is a potential sell setup. For MACD-Histogram, the oscillator must cross back through its own zero centerline between the two extremes -- "an absolute must for a true divergence" per the book, checked as a hard requirement here, not just a strength cue. Stochastic/RSI have no centerline requirement, but read strongest when the first extreme sits beyond the oscillator’s own 30/70 oversold/overbought reference line and the second is back inside it. Also implements Kerry Lovvorn’s empirical refinement: the two extremes must be 20-40 trading days apart, and the second no more than half the height/depth of the first -- a closer/further-apart or deeper-than-half pair is never reported as a divergence at all. If price later ignores a formed divergence (a new low past the bullish divergence’s own second extreme, or a new high past the bearish one’s), Elder treats that ("Hound of the Baskervilles") as a strong continuation signal in the *opposite* direction, not a failed signal to discard -- his one explicit stop-and-reverse case.',
+  interpretValue(divergence: DivergenceOut | null): string {
+    if (!divergence) {
+      return 'No currently qualifying divergence detected for this ticker.'
+    }
+    const indicatorLabel = DIVERGENCE_INDICATOR_LABEL[divergence.indicator]
+    const kindLabel = divergence.kind === 'bullish' ? 'Bullish' : 'Bearish'
+    const swingLabel = divergence.kind === 'bullish' ? 'swing lows' : 'swing highs'
+    const implication =
+      divergence.kind === 'bullish'
+        ? 'a potential buy setup -- selling momentum is fading even as price makes a new low'
+        : 'a potential sell setup -- buying momentum is fading even as price makes a new high'
+    const first = `${divergence.first_extreme_date} (price ${divergence.first_extreme_price.toFixed(2)}, ${indicatorLabel} ${divergence.first_extreme_indicator_value.toFixed(2)})`
+    const second = `${divergence.second_extreme_date} (price ${divergence.second_extreme_price.toFixed(2)}, ${indicatorLabel} ${divergence.second_extreme_indicator_value.toFixed(2)})`
+    const validityClause =
+      divergence.indicator === 'macd_histogram'
+        ? `${indicatorLabel} crossed back through its own zero centerline between the two dates, the required confirmation for a true MACD-Histogram divergence.`
+        : divergence.beyond_reference_line
+          ? `The first extreme’s ${indicatorLabel} reading was beyond the 30/70 reference line and the second was back inside it -- this divergence’s textbook-strongest form.`
+          : `${indicatorLabel} has no centerline requirement, but this pair didn’t reach beyond the 30/70 reference line on the first extreme -- still a qualifying divergence, just not its strongest form.`
+    const spacingClause = `The two extremes are ${divergence.bars_apart} trading days apart (Kerry Lovvorn’s empirical 20-40-day window).`
+    const abortedClause = divergence.aborted
+      ? ` "Hound of the Baskervilles": price has since closed beyond the second extreme’s own level in the opposite direction of what this divergence implied -- Elder reads this as a strong continuation signal the other way, not a failed divergence to ignore.`
+      : ''
+    return `${kindLabel} ${indicatorLabel} divergence, comparing two successive price ${swingLabel}: ${first} vs ${second}. ${validityClause} ${spacingClause} Implies ${implication}.${abortedClause}`
   },
 }
