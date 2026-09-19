@@ -915,8 +915,8 @@
       "id": "backend-indicator-history-tide-exposure",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-indicator-history-tide-exposure.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-history-tide-exposure.json"
     },
     {
       "id": "backend-indicator-atr-adx",

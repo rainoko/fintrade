@@ -3,7 +3,7 @@
   "title": "Expose Tide (Screen 1) trend per historical bar in GET /api/stocks/{ticker}/indicators",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -48,5 +48,12 @@
     "pr_number": 168,
     "pr_url": "https://github.com/rainoko/fintrade/pull/168",
     "pushed_at": "2026-09-19T21:42:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T21:45:51Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/168",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure plumbing: adds `tide: TideScreen` to `IndicatorHistoryPoint`, sourced from analyse_history()'s already-computed per-bar screens[\"tide\"]; no app/signals/ logic touched. Backend: 743 tests pass, 99.92% coverage. Frontend: 511 tests pass, 99.7%/98.89% stmt/branch coverage (one PortfolioPage test timed out under parallel-worker contention on first run, unrelated to this PR's scope -- passed in isolation and on a clean full rerun). ruff/mypy/eslint/tsc all clean. code-review skill: zero findings. verify-elder-signal: no divergence -- evaluate_tide/_weekly_through_bar_date/analyse_history entirely unmodified by this diff; Tide output remains exactly BULLISH|BEARISH|NEUTRAL per docs/Analyse.md §2. Architecture/API contract: backend/openapi.json and frontend/src/api/types.ts both regenerated from the checked-out branch with zero diff against the committed snapshots; docs/architecture/API.md updated consistently. No new frontend component (only test-fixture updates for the now-required field), so no browser walkthrough/e2e run needed -- explicitly not applicable, no UI surface in this PR. Decision-memory cross-check: the one 'decide X' checklist item has a corresponding decisions entry with rationale. No blocking or non-blocking findings; no followups task created."
   }
 }
