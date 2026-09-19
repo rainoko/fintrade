@@ -183,6 +183,51 @@ describe('StockDetailPage', () => {
     expect(screen.getByText('BLUE')).toBeInTheDocument()
   })
 
+  it('wires indicators.season from the analysis response through to the Indicator Season badge', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/analysis', ({ params }) =>
+        HttpResponse.json({
+          ticker: String(params.ticker).toUpperCase(),
+          as_of: '2026-09-11',
+          signal: 'BUY',
+          confidence: 72,
+          confidence_band: 'High',
+          screens: {
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+            impulse: 'GREEN',
+            wave: {
+              stochastic_k: 24.3,
+              force_index_2ema: -18234.5,
+              state: 'OVERSOLD_PULLBACK',
+              showed_pullback_in_lookback: true,
+              showed_rally_in_lookback: false,
+            },
+            trigger: { fired: true, reference: 'close_above_prior_high' },
+          },
+          confidence_breakdown: [
+            { component: 'tide_alignment', weight: 0.3, score: 1.0 },
+          ],
+          indicators: {
+            ema_13: 226.4,
+            ema_26: 220.1,
+            macd_histogram: 1.2,
+            bull_power: 3.4,
+            bear_power: -1.1,
+            season: 'Spring',
+          },
+        }),
+      ),
+    )
+
+    renderStockDetail('AAPL')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+    expect(screen.getByText('Indicator Season')).toBeInTheDocument()
+    expect(screen.getByTestId('season-badge')).toHaveTextContent('Spring')
+  })
+
   it('shows a 404 error for an unknown ticker', async () => {
     renderStockDetail('UNKNOWN')
 

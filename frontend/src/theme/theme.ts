@@ -23,6 +23,12 @@ declare module '@mui/material/styles' {
     divergence: {
       main: string
     }
+    season: {
+      spring: string
+      summer: string
+      autumn: string
+      winter: string
+    }
   }
 
   interface PaletteOptions {
@@ -37,6 +43,12 @@ declare module '@mui/material/styles' {
     }
     divergence?: {
       main: string
+    }
+    season?: {
+      spring: string
+      summer: string
+      autumn: string
+      winter: string
     }
   }
 }
@@ -77,6 +89,20 @@ export const theme = createTheme({
     // breakouts), and `info.main` (the channel/value-zone overlay).
     divergence: {
       main: '#00897b',
+    },
+    // Indicator Seasons (docs/Analyse.md row 12, Elder ch. 32) -- deliberately
+    // its own four-color set, distinct from `signal.buy`/`signal.sell`/
+    // `signal.hold`: a season badge (common/SeasonBadge) is purely
+    // informational (frontend-indicator-seasons-badge), so reusing the
+    // BUY/SELL/HOLD colors would make it visually misreadable as a second,
+    // conflicting signal on the same page. Loosely seasonal (green sprout /
+    // gold sun / amber-brown leaf / pale blue frost) rather than
+    // finance-conventional, since that's the whole visual point here.
+    season: {
+      spring: '#43a047',
+      summer: '#f9a825',
+      autumn: '#b8622e',
+      winter: '#5e92c7',
     },
   },
   typography: {

@@ -26,4 +26,18 @@ describe('theme', () => {
     expect(theme.palette.divergence.main).not.toBe(theme.palette.signal.buy)
     expect(theme.palette.divergence.main).not.toBe(theme.palette.signal.sell)
   })
+
+  it('defines four distinct Indicator Season colors, none of which reuse a BUY/SELL/HOLD signal color (frontend-indicator-seasons-badge)', () => {
+    const { spring, summer, autumn, winter } = theme.palette.season
+    const seasonColors = [spring, summer, autumn, winter]
+    seasonColors.forEach((color) => expect(color).toMatch(/^#/))
+    expect(new Set(seasonColors).size).toBe(4)
+
+    const { buy, sell, hold } = theme.palette.signal
+    seasonColors.forEach((color) => {
+      expect(color).not.toBe(buy)
+      expect(color).not.toBe(sell)
+      expect(color).not.toBe(hold)
+    })
+  })
 })

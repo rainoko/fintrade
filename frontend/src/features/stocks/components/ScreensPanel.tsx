@@ -6,13 +6,30 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import type { ReactNode } from 'react'
-import type { Screens } from '../../../api/stocks'
+import type { Indicators, Screens } from '../../../api/stocks'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
+import SeasonBadge from '../../../components/common/SeasonBadge/SeasonBadge'
 import { formatNullableNumber, humanizeSnakeCase } from '../../../utils/format'
-import { impulseHelp, tideHelp, triggerHelp, waveHelp } from './metricHelpContent'
+import {
+  impulseHelp,
+  seasonHelp,
+  tideHelp,
+  triggerHelp,
+  waveHelp,
+} from './metricHelpContent'
 
 export interface ScreensPanelProps {
   screens: Screens
+  /**
+   * `indicators.season` from the same `GET /api/stocks/{ticker}/analysis`
+   * response -- not part of `screens` itself (it's derived from the daily
+   * MACD-Histogram, exposed on `Indicators`, docs/architecture/API.md), but
+   * shown alongside the four screens here since it reads the same
+   * MACD-Histogram slope Impulse already uses, just against its centerline
+   * instead of EMA(13)'s own slope. Optional/nullable so this component
+   * doesn't force every caller (e.g. a future test/story) to supply it.
+   */
+  season?: Indicators['season']
 }
 
 interface LabeledValueProps {
@@ -75,8 +92,16 @@ function ScreenSection({ title, help, children }: ScreenSectionProps) {
  * screen is, its Elder methodology basis, and an interpretation of this
  * ticker's current reading (`metricHelpContent.ts`,
  * frontend-stock-detail-metric-help).
+ *
+ * A fifth card follows the four `ScreenSection`s for `season` (Indicator
+ * Seasons, docs/Analyse.md row 12) when supplied -- deliberately NOT built
+ * from `ScreenSection` itself (frontend-indicator-seasons-badge): a dashed
+ * border, an explicit "Informational" caption, and `common/SeasonBadge`
+ * (its own outlined/iconed chip style, never `common/SignalBadge`'s filled
+ * buy/sell/hold styling) all keep it visually unmistakable as *not* a fifth
+ * Triple Screen result feeding the signal, unlike the four cards before it.
  */
-export default function ScreensPanel({ screens }: ScreensPanelProps) {
+export default function ScreensPanel({ screens, season }: ScreensPanelProps) {
   const theme = useTheme()
   const { tide, impulse, wave, trigger } = screens
 
@@ -200,6 +225,35 @@ export default function ScreensPanel({ screens }: ScreensPanelProps) {
           {humanizeSnakeCase(trigger.reference)}
         </LabeledValue>
       </ScreenSection>
+
+      {season && (
+        <Card
+          variant="outlined"
+          sx={{ flex: '1 1 220px', borderStyle: 'dashed', borderColor: 'divider' }}
+        >
+          <CardContent>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+            >
+              <Stack spacing={0}>
+                <Typography variant="subtitle2">Indicator Season</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Informational -- not a signal
+                </Typography>
+              </Stack>
+              <MetricHelp
+                metricLabel={seasonHelp.metricLabel}
+                definition={seasonHelp.definition}
+                elderContext={seasonHelp.elderContext}
+                valueInterpretation={seasonHelp.interpretValue(season)}
+              />
+            </Stack>
+            <SeasonBadge season={season} />
+          </CardContent>
+        </Card>
+      )}
     </Stack>
   )
 }

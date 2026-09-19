@@ -65,7 +65,10 @@ export default function StockDetailPage() {
             screens={analysisQuery.data.screens}
           />
 
-          <ScreensPanel screens={analysisQuery.data.screens} />
+          <ScreensPanel
+            screens={analysisQuery.data.screens}
+            season={analysisQuery.data.indicators.season}
+          />
 
           <IndicatorsPanel indicators={analysisQuery.data.indicators} />
 

@@ -1,4 +1,8 @@
-import type { DivergenceOut, FalseBreakoutOut, SupportResistanceZone } from '../../../api/stocks'
+import type {
+  DivergenceOut,
+  FalseBreakoutOut,
+  SupportResistanceZone,
+} from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
@@ -227,6 +231,31 @@ export const triggerHelp = {
       return 'Not fired -- there isn’t enough daily price history yet to compare today’s close against a prior high/low.'
     }
     return `Not fired yet -- reference: ${humanizeSnakeCase(reference)}.`
+  },
+}
+
+export const seasonHelp = {
+  metricLabel: 'Indicator Season',
+  definition:
+    'A four-way Spring/Summer/Autumn/Winter classification of the daily MACD-Histogram’s current state: its bar-over-bar slope (rising/falling) combined with its position relative to its own zero centerline (docs/Analyse.md row 12, Elder ch. 32 "Time"). Purely informational -- unlike Tide/Impulse/Wave/Trigger above, it is not read by the BUY/SELL/HOLD signal or the confidence score at all.',
+  elderContext:
+    'Spring = rising and below centerline, Summer = rising and above, Autumn = falling and above, Winter = falling and below. Elder’s own point in applying "seasons" to an indicator isn’t just the taxonomy -- it’s that Spring and Autumn are the best risk/reward entries precisely because they’re the hardest to act on emotionally: in Spring, "memories of the downtrend are still fresh," so most traders stay sidelined or keep shorting even as the indicator has already turned up; Summer and Winter feel comfortable to trade because the crowd has caught on by then, which is exactly why they’re worse value -- you’re buying (Summer) or selling (Winter) after the move, alongside everyone else, not ahead of it. The Impulse System’s Green/Red/Blue (above) answers a different question -- what’s allowed right now -- while this reads the oscillator’s maturity within its current swing.',
+  interpretValue(
+    season: 'Spring' | 'Summer' | 'Autumn' | 'Winter' | null | undefined,
+  ): string {
+    if (!season) {
+      return 'Currently unavailable for this ticker -- fewer than 2 daily bars are available yet to compute a slope from.'
+    }
+    if (season === 'Spring') {
+      return 'Currently Spring -- MACD-Histogram is rising but still below its own zero centerline. Elder’s own read: this is the best risk/reward entry for a long, but also the hardest to take emotionally, since it still looks and feels like the downtrend that just ended.'
+    }
+    if (season === 'Autumn') {
+      return 'Currently Autumn -- MACD-Histogram is falling but still above its own zero centerline. Elder’s own read: this is the best risk/reward entry for a short, but also the hardest to take emotionally, since it still looks and feels like the uptrend that just ended.'
+    }
+    if (season === 'Summer') {
+      return 'Currently Summer -- MACD-Histogram is rising and above its own zero centerline: a crowd-recognized uptrend. Feels comfortable to buy here, which is exactly why Elder rates it a worse-value entry than Spring -- the easy gains already happened.'
+    }
+    return 'Currently Winter -- MACD-Histogram is falling and below its own zero centerline: a crowd-recognized downtrend. Feels comfortable to sell/short here, which is exactly why Elder rates it a worse-value entry than Autumn -- the easy gains already happened.'
   },
 }
 

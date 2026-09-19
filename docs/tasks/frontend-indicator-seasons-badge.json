@@ -3,7 +3,7 @@
   "title": "Display the \"market season\" (Spring/Summer/Autumn/Winter) label",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-indicator-seasons"
   ],
@@ -15,15 +15,41 @@
   "checklist": [
     {
       "step": "Design and implement the season badge, visually distinct from the actual BUY/SELL/HOLD signal so it's unmistakably informational, not another signal.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp content explaining the season concept and, specifically, why Spring/Autumn are framed as the best entries despite feeling wrong.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new domain-agnostic `components/common/SeasonBadge` (outlined Chip + season icon + its own `theme.palette.season.*` four-color set) rather than reusing/extending `common/SignalBadge` or inlining a Chip directly in ScreensPanel.",
+      "rationale": "SignalBadge takes only a BUY/SELL/HOLD string and is filled in the same signal.buy/sell/hold colors used everywhere else on the page as 'this is the trading signal' -- reusing it (or its colors) for the season would directly contradict the checklist's 'visually distinct... unmistakably informational' requirement. A new common/ component passes Frontend.md §3's placement test the same way SignalBadge does: it takes only a plain Season string union, no domain knowledge of how the season was derived, so it belongs in common/ with its own colocated test + Storybook story rather than as a features/stocks/-local one-off."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired the badge into `ScreensPanel` (via a new optional `season` prop, sourced from `analysis.indicators.season` at the `StockDetailPage` call site) as a fifth, visually-distinct card after Tide/Impulse/Wave/Trigger, rather than into `IndicatorsPanel` where the `season` field technically lives on the `Indicators` API type.",
+      "rationale": "`IndicatorsPanel`'s StatCard grid renders each value as a plain formatted string inside a `Typography variant=\"h5\"` (a `<p>`) -- a Chip badge doesn't fit that slot without repeating the exact <div>-inside-<p> invalid-nesting bug ScreensPanel's own LabeledValue was previously fixed for (see its comment). Conceptually, season is also a slope+centerline read of the same MACD-Histogram Impulse already uses, closer in spirit to the four Triple Screen results than to the plain numeric indicator values in IndicatorsPanel -- and the task description itself names ScreensPanel as the example placement. The card is deliberately NOT built from ScreensPanel's own `ScreenSection` helper (dashed border, 'Informational -- not a signal' caption, SeasonBadge instead of a screen Chip) so it can't be mistaken for a fifth screen feeding the signal."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `theme.palette.season` four-color group (spring/summer/autumn/winter) rather than reusing `theme.palette.signal.*` or hard-coded hex values inline in SeasonBadge.",
+      "rationale": "Follows the existing precedent `riskBreach`/`divergence` already set in theme.ts: each is its own palette entry specifically because it must never be visually confusable with `signal.buy`/`signal.sell`/`signal.hold`. Guarded with a theme.test.ts assertion (four distinct colors, none equal to a signal color) matching the existing divergence/riskBreach guard tests."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge",
+    "pr_number": null,
+    "pr_url": null,
+    "pushed_at": null
+  }
 }
