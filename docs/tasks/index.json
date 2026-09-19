@@ -910,6 +910,237 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-watchlist-add-skeleton-followups.json"
+    },
+    {
+      "id": "backend-indicator-history-tide-exposure",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-history-tide-exposure.json"
+    },
+    {
+      "id": "backend-indicator-atr-adx",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-atr-adx.json"
+    },
+    {
+      "id": "backend-indicator-rsi",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-rsi.json"
+    },
+    {
+      "id": "backend-indicator-obv-ad",
+      "area": "backend/indicators",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-obv-ad.json"
+    },
+    {
+      "id": "backend-swing-point-detector",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-swing-point-detector.json"
+    },
+    {
+      "id": "backend-divergence-detection",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-divergence-detection.json"
+    },
+    {
+      "id": "backend-support-resistance",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-support-resistance.json"
+    },
+    {
+      "id": "backend-kangaroo-tail-pattern",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-kangaroo-tail-pattern.json"
+    },
+    {
+      "id": "backend-indicator-seasons",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-seasons.json"
+    },
+    {
+      "id": "backend-channel-envelope-exposure",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-channel-envelope-exposure.json"
+    },
+    {
+      "id": "backend-profit-target",
+      "area": "backend/signals",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target.json"
+    },
+    {
+      "id": "backend-safezone-stop-coefficient-fix",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-safezone-stop-coefficient-fix.json"
+    },
+    {
+      "id": "backend-trade-history-table",
+      "area": "backend/db",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-history-table.json"
+    },
+    {
+      "id": "backend-trade-grading",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-grading.json"
+    },
+    {
+      "id": "backend-market-data-extra-fields",
+      "area": "backend/data",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-market-data-extra-fields.json"
+    },
+    {
+      "id": "backend-watchlist-breadth-proxy",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-watchlist-breadth-proxy.json"
+    },
+    {
+      "id": "backend-weekly-impulse-screen1",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-weekly-impulse-screen1.json"
+    },
+    {
+      "id": "backend-force-index-refinements",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-force-index-refinements.json"
+    },
+    {
+      "id": "backend-ibkr-data-provider",
+      "area": "backend/data",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-data-provider.json"
+    },
+    {
+      "id": "frontend-tide-region-chart-shading",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-tide-region-chart-shading.json"
+    },
+    {
+      "id": "frontend-trend-strength-chart",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trend-strength-chart.json"
+    },
+    {
+      "id": "frontend-rsi-oscillator-chart",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-rsi-oscillator-chart.json"
+    },
+    {
+      "id": "frontend-volume-indicators-chart",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-volume-indicators-chart.json"
+    },
+    {
+      "id": "frontend-divergence-markers",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-divergence-markers.json"
+    },
+    {
+      "id": "frontend-support-resistance-overlay",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-support-resistance-overlay.json"
+    },
+    {
+      "id": "frontend-kangaroo-tail-markers",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-kangaroo-tail-markers.json"
+    },
+    {
+      "id": "frontend-indicator-seasons-badge",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-indicator-seasons-badge.json"
+    },
+    {
+      "id": "frontend-channel-overlay",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-channel-overlay.json"
+    },
+    {
+      "id": "frontend-profit-target-display",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-profit-target-display.json"
+    },
+    {
+      "id": "frontend-trade-journal",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-journal.json"
+    },
+    {
+      "id": "frontend-fundamental-data-panel",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-fundamental-data-panel.json"
+    },
+    {
+      "id": "frontend-breadth-widget",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-breadth-widget.json"
+    },
+    {
+      "id": "frontend-methodology-explainer",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-methodology-explainer.json"
     }
   ]
 }

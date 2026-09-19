@@ -1,0 +1,32 @@
+{
+  "id": "backend-indicator-obv-ad",
+  "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/indicators/force_index.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Two volume-based indicators from Elder ch. 29, missing entirely (grep confirms). OBV: running total, add the day's volume if close > prior close, subtract if close < prior close, unchanged if flat. A/D: `(Close - Open) / (High - Low) * Volume`, cumulative running total -- more finely calibrated than OBV since it credits volume proportional to where the close landed within the day's range, not the whole day's volume to whichever side 'won'. Both are cumulative series whose absolute level is meaningless (depends on start date) -- only their pattern of highs/lows and divergence against price matters, same as every other oscillator in this app. This task is computation + exposure only -- divergence detection against these two (also mentioned in docs/ideas.md) depends on backend-swing-point-detector and is out of scope here.",
+  "checklist": [
+    {
+      "step": "Implement obv() and accumulation_distribution() in backend/app/indicators/, following existing module conventions.",
+      "done": false
+    },
+    {
+      "step": "Hand-computed reference-value tests for both (small OHLCV series, values worked out by hand).",
+      "done": false
+    },
+    {
+      "step": "Expose both as new cumulative series in the indicator-history endpoint (they're not meaningful as a single latest-bar value the way oscillators like Stochastic are -- decide the response shape and record as a decisions entry).",
+      "done": false
+    },
+    {
+      "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts; document in docs/Analyse.md.",
+      "done": false
+    }
+  ]
+}

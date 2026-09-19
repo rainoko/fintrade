@@ -1,0 +1,44 @@
+{
+  "id": "backend-divergence-detection",
+  "title": "MACD-Histogram / Stochastic / RSI divergence detection (bullish & bearish)",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [
+    "backend-swing-point-detector"
+  ],
+  "references": [
+    "backend/app/indicators/macd.py",
+    "backend/app/indicators/stochastic.py",
+    "backend/app/signals/triple_screen.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Confirmed via grep: zero divergence logic anywhere in this codebase, despite Elder repeatedly calling it one of his strongest signal types. Exact algorithm captured in docs/ideas.md from the primary source (ch. 23/26/27): MACD-Histogram divergence requires the indicator to cross its own centerline between the two compared extremes ('an absolute must for a true divergence' per the book -- no crossover, no divergence); Stochastic/RSI divergence is simpler, no centerline-crossing requirement, just a direct second-vs-first extreme comparison, strongest when the first extreme is beyond the oscillator's own overbought/oversold reference line and the second is back inside it. Also implement Kerry Lovvorn's empirical refinement (most tradable divergences have their two extremes 20-40 bars apart, closer to 20 is better, and the second extreme should be no more than half the height/depth of the first) as configurable filters, and the 'Hound of the Baskervilles' signal (a formed divergence that price then ignores is itself a strong continuation signal in the opposite direction -- the one case Elder uses a stop-and-reverse). Expose divergence state (none/bullish/bearish, which indicator, extreme dates) as a new field on the analysis response; wiring it into confidence scoring or _determine_signal is a separate, later decision -- out of scope for this task, which is detection + exposure only.",
+  "checklist": [
+    {
+      "step": "Implement bullish/bearish divergence detection for MACD-Histogram (centerline-crossing required) using backend-swing-point-detector.",
+      "done": false
+    },
+    {
+      "step": "Implement the same for Stochastic and RSI (no centerline-crossing requirement, simpler comparison) -- reuse the same swing-point utility.",
+      "done": false
+    },
+    {
+      "step": "Implement Kerry Lovvorn's 20-40-bar-spacing and half-depth filters as named, documented, and independently testable checks (not hardcoded inline).",
+      "done": false
+    },
+    {
+      "step": "Implement the 'Hound of the Baskervilles' continuation-signal detection (a formed divergence price subsequently ignores).",
+      "done": false
+    },
+    {
+      "step": "Hand-verifiable reference tests reproducing the exact chart examples described in docs/ideas.md (the DJIA 2007-2009 bullish/bearish divergence examples) as closely as fixture data allows.",
+      "done": false
+    },
+    {
+      "step": "Expose divergence state on GET /api/stocks/{ticker}/analysis and the indicator-history endpoint; regenerate openapi.json and frontend types; document in docs/Analyse.md.",
+      "done": false
+    }
+  ]
+}

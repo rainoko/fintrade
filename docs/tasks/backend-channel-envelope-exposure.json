@@ -1,0 +1,38 @@
+{
+  "id": "backend-channel-envelope-exposure",
+  "title": "Expose the existing Autoenvelope (channel) computation via the API",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/indicators/autoenvelope.py",
+    "backend/app/portfolio/exits.py",
+    "backend/app/api/schemas.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "IMPORTANT finding: this is NOT a new indicator. `backend/app/indicators/autoenvelope.py` already implements exactly the 'symmetric % channel' concept from Elder ch. 22/41 (EMA(13) +/- rolling average % deviation), fully tested, and already used internally by `app/portfolio/exits.py`'s `evaluate_exit_flags` (the 'price reaches the upper Autoenvelope band with Impulse turning Red' existing-position exit rule from docs/Analyse.md \u00a77). But it's never exposed via any API schema and never drawn on any chart -- confirmed via grep, zero references outside app/portfolio/risk.py, app/signals/impulse.py, app/portfolio/exits.py, app/signals/engine.py. This task is pure exposure: add upper/lower band fields to GET /api/stocks/{ticker}/analysis and the indicator-history endpoint, reusing the existing, already-tested autoenvelope() function -- no new math. This unblocks the frontend channel-overlay task, the profit-target task, and the A-trade-grading task, all of which need channel bounds and currently have no way to get them for an arbitrary ticker (today it's portfolio-position-only, internal).",
+  "checklist": [
+    {
+      "step": "Confirm autoenvelope()'s existing EMA(13)-based backbone is an acceptable stand-in for the book's own slower-EMA (e.g. 26-day) channel backbone, or decide to add a second, slower-EMA variant -- record as a decisions entry either way (don't silently assume one is fine).",
+      "done": false
+    },
+    {
+      "step": "Add upper/lower band fields to the analysis and indicator-history response schemas, sourced from the existing autoenvelope() call, no new computation.",
+      "done": false
+    },
+    {
+      "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.",
+      "done": false
+    },
+    {
+      "step": "Confirm the exposed values for a portfolio position match what evaluate_exit_flags already computes internally for that same position/date, as a consistency check.",
+      "done": false
+    },
+    {
+      "step": "Document the exposure in docs/Analyse.md and docs/architecture/API.md.",
+      "done": false
+    }
+  ]
+}

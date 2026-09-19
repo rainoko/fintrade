@@ -1,0 +1,34 @@
+{
+  "id": "frontend-profit-target-display",
+  "title": "Display the suggested profit target and reward:risk ratio",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-profit-target"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/SignalSummary.tsx",
+    "frontend/src/features/portfolio/components",
+    "docs/ideas.md"
+  ],
+  "description": "Display the new profit target + reward:risk ratio (backend-profit-target) alongside the existing signal and protective stop, on both the stock detail page and open positions in the portfolio view. Visually flag (not just numerically show) any signal whose reward:risk ratio fails the 2:1 sanity rule, since Elder treats this as close to a hard no-trade rule ('it seldom pays to risk a dollar to make a dollar'). Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the target/reward:risk display, integrated near the existing signal/stop display rather than as a disconnected new section.",
+      "done": false
+    },
+    {
+      "step": "Implement a clear visual treatment for a reward:risk ratio that fails the 2:1 rule (not just a plain number that looks the same as a passing one).",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content explaining how the target was derived (channel/value-zone vs. nearest support/resistance, whichever applies) for THIS specific signal, and the 2:1 rule's rationale.",
+      "done": false
+    },
+    {
+      "step": "Tests covering both the portfolio and stock-detail placements; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

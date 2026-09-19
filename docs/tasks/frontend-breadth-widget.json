@@ -1,0 +1,29 @@
+{
+  "id": "frontend-breadth-widget",
+  "title": "Watchlist \"personal breadth\" indicator widget",
+  "area": "frontend/pages/watchlist",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-watchlist-breadth-proxy"
+  ],
+  "references": [
+    "frontend/src/features/watchlist/components",
+    "docs/ideas.md"
+  ],
+  "description": "Surface the new personal-breadth proxy (backend-watchlist-breadth-proxy) as a small widget on the watchlist page (e.g. '9 of 15 watchlist tickers are currently BULLISH') -- explicitly framed as a lightweight stand-in for true market breadth (NH-NL etc.), not the real thing, since it only reflects the user's own tracked tickers rather than the whole market. Be honest about this distinction in the explanation content rather than letting it read as more authoritative than it is.",
+  "checklist": [
+    {
+      "step": "Design and implement the breadth widget on the watchlist page.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp/inline content explicitly framing this as a personal-watchlist proxy, not true market breadth, with a one-line explanation of why (no broad-universe data source, per docs/ideas.md).",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

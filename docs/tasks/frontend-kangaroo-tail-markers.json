@@ -1,0 +1,33 @@
+{
+  "id": "frontend-kangaroo-tail-markers",
+  "title": "Mark Kangaroo Tail patterns on the price chart",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-kangaroo-tail-pattern"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Mark detected Kangaroo Tails (backend-kangaroo-tail-pattern) directly on the price chart at the tall bar itself, distinct from every other marker type already present. Since this is a candlestick pattern most users won't recognize by name, the explanation needs to actually show what makes the bar unusual (its range vs. the recent average), not just assert 'this is a Kangaroo Tail.' Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design a distinct marker for Kangaroo Tail bars (direction-aware: bearish vs. bullish reversal), placed at the tail bar itself.",
+      "done": false
+    },
+    {
+      "step": "Implement on PriceChart.tsx.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp/InfoBalloon content explaining the pattern concretely (this bar's range vs. the recent average, why the close snapping back to the open matters, the suggested halfway-through-the-tail stop) using this ticker's own actual numbers, not a generic definition.",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

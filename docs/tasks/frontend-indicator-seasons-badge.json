@@ -1,0 +1,29 @@
+{
+  "id": "frontend-indicator-seasons-badge",
+  "title": "Display the \"market season\" (Spring/Summer/Autumn/Winter) label",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-indicator-seasons"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/ScreensPanel.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Small, low-risk addition: display the new Indicator Season classification (backend-indicator-seasons) as a labeled badge (e.g. alongside the existing ScreensPanel content), purely informational -- explicitly not wired into the signal itself. The explanation should carry Elder's own insight, not just define the term: Spring/Autumn are the emotionally hardest, best-risk-reward entries precisely because the crowd hasn't caught on yet. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design and implement the season badge, visually distinct from the actual BUY/SELL/HOLD signal so it's unmistakably informational, not another signal.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content explaining the season concept and, specifically, why Spring/Autumn are framed as the best entries despite feeling wrong.",
+      "done": false
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}

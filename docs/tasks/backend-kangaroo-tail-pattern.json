@@ -1,0 +1,36 @@
+{
+  "id": "backend-kangaroo-tail-pattern",
+  "title": "Kangaroo Tail candlestick pattern detector",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/signals/triple_screen.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "A 3-bar reversal pattern from Elder ch. 20 ('fingers'), completely separate from anything in this codebase (no candlestick-pattern detection exists at all). Definition, purely from OHLC: a single bar whose range is roughly 2-3x the recent average bar range, protruding from a tight recent range, where the close ends up back near the open (not at the extreme) -- flanked by two bars of normal height. An upward-pointing tail (new high, closes back down) = bearish reversal; a downward-pointing tail (new low, closes back up) = bullish reversal. Stop placement is explicit in the source: halfway through the tail, not at its tip (too wide) or base (too tight) -- expose this as a suggested reference level alongside the flag, not just a boolean.",
+  "checklist": [
+    {
+      "step": "Decide and record the exact 'average bar range' baseline (lookback window, and the multiplier threshold for what counts as a tail -- book says roughly 2-3x, pick and justify a specific number).",
+      "done": false
+    },
+    {
+      "step": "Implement detection for both directions (upward/downward tail) plus the confirming-next-bar check.",
+      "done": false
+    },
+    {
+      "step": "Implement the halfway-through-the-tail suggested stop reference.",
+      "done": false
+    },
+    {
+      "step": "Tests reproducing the book's own worked examples (BIIB upward tail, FDO downward tail) as closely as fixture data allows.",
+      "done": false
+    },
+    {
+      "step": "Expose as a flag (+ direction + suggested stop reference) on the analysis/indicator-history responses; regenerate openapi.json/frontend types; document in docs/Analyse.md.",
+      "done": false
+    }
+  ]
+}
