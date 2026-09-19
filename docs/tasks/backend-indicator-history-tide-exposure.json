@@ -3,7 +3,7 @@
   "title": "Expose Tide (Screen 1) trend per historical bar in GET /api/stocks/{ticker}/indicators",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",

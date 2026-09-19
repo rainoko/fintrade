@@ -915,7 +915,7 @@
       "id": "backend-indicator-history-tide-exposure",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-indicator-history-tide-exposure.json"
     },
     {
