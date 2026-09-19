@@ -3,7 +3,7 @@
   "title": "Draw support/resistance zones and false-breakout markers on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-support-resistance"
   ],
@@ -15,19 +15,69 @@
   "checklist": [
     {
       "step": "Design the zone rendering (horizontal bands, visual weight by strength score) and false-breakout marker treatment.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement on PriceChart.tsx, ensuring zones that flip role after breaking are visually distinguishable from ones that haven't.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp/InfoBalloon content explaining what a zone represents, how its strength is scored, and what a false breakout means and why the suggested stop sits at the failed move's own extreme.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Render each support/resistance zone as a single `BaselineSeries` (Lightweight Charts) -- a flat line at `zone.upper` spanning the whole visible bar range, with `baseValue: { type: 'price', price: zone.lower }` -- rather than reusing frontend-channel-overlay's two-`AreaSeries` fill/mask technique.",
+      "rationale": "`AreaSeries` only fills from its line down to the *bottom of the pane* (not to a fixed price), which is exactly why the value-zone overlay needed a second, opaque masking series to erase the portion below its lower bound -- and that opaque mask is precisely what PR #151 had to fix a real occlusion bug for. `BaselineSeries` instead fills only between its plotted line and its fixed `baseValue` price, so a single series renders a self-contained, precisely-bounded band with no opaque erasure step at all -- there is no masking series to get the paint order of wrong in the first place, which is a stronger structural guard against reintroducing the PR #151 bug than just remembering to call `setSeriesOrder` correctly on a two-series mask pair. Verified visually via a throwaway Playwright screenshot (see this task's PR description) against a ticker/range where price wicks clearly pass above/below a zone -- candlesticks render fully un-occluded. Rejected alternative: reusing the exact two-`AreaSeries` mask pattern per zone (up to 6 zones x 2 series = 12 extra series) -- rejected both for the occlusion-risk reason above and because it would roughly double the series count for no benefit over a single bounded `BaselineSeries` per zone."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced the hardcoded `series.setSeriesOrder(2)` call (frontend-channel-overlay's PR #151 fix) with a new shared helper, `bringSeriesToFront(chart, series)` in `utils/chart.ts`, which computes `chart.panes()[0].getSeries().length - 1` dynamically and moves the candlestick series there. Both the value-zone effect and this task's new zone-bands effect call it after adding their own fill series to the pane.",
+      "rationale": "This task adds a SECOND effect (support/resistance zone bands) that independently adds its own fill series to the same pane the value-zone effect (frontend-channel-overlay) already fills. The original fix's hardcoded `setSeriesOrder(2)` was only ever correct because exactly one effect added fill series to the pane at the time -- with two independent, independently re-running effects now both doing so, whichever effect ran/re-ran last would overwrite the candlestick series' order with a now-stale absolute index, silently reintroducing the exact occlusion bug PR #151 fixed for whichever fill series the *other* effect had added. Recomputing the target index from the pane's actual current series count at the moment each effect finishes adding its own series is self-healing regardless of add/run order between the two effects -- confirmed with a rewritten regression test (PriceChart.test.tsx) that asserts against the dynamically-computed final count rather than a hardcoded literal, and with the same Playwright visual check referenced above. Rejected alternative: keep two separate hardcoded indices, one per effect, each computed by hand from 'how many series exist by the time this effect runs' -- rejected as exactly the kind of manual bookkeeping that broke once a second effect was added, and fragile to any future third overlay effect."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Cap the number of zones actually drawn on the chart at 6 (`MAX_DISPLAYED_ZONES`, PriceChart.tsx), even though `support_resistance_zones` can return up to 15 -- zones are already sorted strongest-first by the backend, so this is a simple `.slice(0, 6)`.",
+      "rationale": "The backend's own 15-zone cap (backend-support-resistance's decisions) solves a payload-size problem, not a chart-legibility one -- 15 translucent horizontal bands stacked on this chart's 320px-tall pane would be unreadable clutter, especially layered on top of the existing EMA/channel/value-zone overlay. A handful of the strongest zones is what a trader would actually look for at a glance; this mirrors the same 'a handful of major/intermediate zones, not every minor blip' reasoning the backend task's own decisions entry already uses to justify ITS cap, just applied a second time at the rendering layer for a different (visual, not payload) reason. Rejected alternatives: (a) show all returned zones -- rejected as unreadable given the pane height and the other overlays already on this same chart; (b) a smaller cap (e.g. 3) -- rejected as potentially hiding a real zone ranked 4th-6th by strength that's still clearly meaningful."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Zone fill color: `theme.palette.signal.buy` for a support-role zone, `theme.palette.signal.sell` for resistance -- reusing the existing BUY/SELL semantic palette rather than introducing a new color. Fill opacity (a hex alpha suffix) scales linearly with `strength_score` between a low (~7%) and high (~29%) bound. A zone whose `broken` flag is true (role has flipped) is drawn with a dashed border instead of solid.",
+      "rationale": "Support (a floor, where buying interest previously won) and resistance (a ceiling, where selling interest previously won) map naturally onto this app's existing green/red BUY/SELL semantic colors, which are already used elsewhere on this exact chart (the BUY/SELL signal-transition arrows) -- reusing rather than inventing a third color pairing keeps the chart's color vocabulary small and consistent. `role` already reflects the zone's *current* (post-flip) role per its own API doc comment, so coloring by `role` directly (not by some separately-tracked 'original' role) is correct without extra logic. The opacity range was chosen narrow enough that even the strongest zone's fill stays clearly translucent -- a fully opaque fill would undermine the whole point of shading a *band* behind candlesticks rather than drawing a solid rectangle over them, and would look like an occlusion bug even though `bringSeriesToFront` (see above) already guarantees the candlestick itself still paints on top. Dashed-vs-solid for broken is this task's own answer to its checklist's explicit 'zones that flip role after breaking are visually distinguishable' requirement -- chosen over a third color (which would need to avoid colliding with the support/resistance green/red pairing and the false-breakout warning color both) or an icon/badge (more visual clutter on an already busy chart legend). Rejected alternative: a fixed opacity regardless of strength_score (simpler) -- rejected since the task explicitly asks for 'visual weight reflecting strength'."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "A zone's most recent `false_breakout` gets: (1) a `createSeriesMarkers` marker at `reentry_date`, positioned `aboveBar`/`belowBar` and shaped as the REVERSAL direction (an 'up' false breakout -- price broke above and failed -- gets a downward `arrowDown` aboveBar, and vice versa for 'down'); (2) a dashed `series.createPriceLine` at `extreme_price` labeled 'False-breakout stop'. Both are omitted (not erroring) when `reentry_date` falls outside the currently visible bar range (`finiteBars[0].date`..`finiteBars[last].date`).",
+      "rationale": "Elder explicitly frames a false breakout as a *reversal* setup, not a continuation of the failed move -- shaping the marker as the direction price is now expected to move (opposite the failed breakout's own direction) makes that reading immediate at a glance, rather than requiring the viewer to mentally invert the breakout's own stated `direction` field. A dashed price line at `extreme_price` directly visualizes the book's own explicit, numeric stop-placement rule ('place a stop near this extreme, not further out') as a concrete level on the chart, not just prose in a MetricHelp balloon -- the same 'show the actual number, not just describe it' bar this app's `channelHelp`/`valueZoneHelp` interpretValue functions already hold themselves to. Windowing by the current bar range (rather than unconditionally plotting the marker) avoids handing Lightweight Charts a marker `time` outside its own time-scale domain (undefined behavior for a marker plugin, unlike a `createPriceLine`, which is time-independent and always safe to add) -- confirmed both via a dedicated test and the Playwright visual check. Rejected alternative: always show the price line/marker regardless of the selected range/window -- rejected as both a potential rendering hazard for the marker specifically, and confusing for a user looking at e.g. a 1-month window to see a marker seemingly floating with no nearby time reference."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "`PriceChart.tsx` fetches `support_resistance_zones` via its own internal `useStockAnalysis(ticker)` call (self-contained, matching how it already independently fetches `/history` and `/indicators`) rather than accepting zones as a prop threaded down from `StockDetailPage`. To prevent a real extra network request this introduces (see rationale), `useStockAnalysis` now sets an explicit `staleTime: 60_000`.",
+      "rationale": "PriceChart already owns all of its OTHER data fetching internally (`useStockHistory`, `useIndicatorHistory`) rather than taking any of it as props -- adding a `supportResistanceZones` prop here would be a one-off exception to that established pattern, and would force every existing/future `<PriceChart ticker=... />` call site (its own extensive test suite included) to either pass the prop or accept an implicit optional-and-often-missing one. TanStack Query already dedupes identical concurrent queries for free (the exact mechanism `useIndicatorHistory`'s existing PriceChart/OscillatorChart sibling pair relies on), so a second internal `useStockAnalysis(ticker)` call was expected to be free. It is NOT quite free here though: `StockDetailPage` only mounts `StockCharts`/`PriceChart` once its OWN `analysisQuery.data` has already resolved (a sequential, not concurrent, mount -- unlike the `useIndicatorHistory` sibling pair, which both mount at the same time), so with TanStack Query's default `staleTime: 0`, PriceChart's later-mounting observer for the identical query key would trigger its own redundant background refetch. This surfaced as a real, reproducible test failure (`StockDetailPage.test.tsx`'s own dedup-guarantee test) under the test suite's bare `QueryClient` (no default `staleTime` override, unlike the real app's `main.tsx`, which already sets `staleTime: 60_000` globally and would never have shown this in production). Rather than treat that as a test-only artifact to paper over, `staleTime: 60_000` was added directly to `useStockAnalysis` itself (matching `main.tsx`'s own existing app-wide value and its own stated 'market data doesn't change second-to-second' rationale) so the no-redundant-fetch guarantee holds unconditionally -- under any QueryClient config, not just the production one. Rejected alternatives: (a) thread zones down as a prop through `StockCharts` -> `PriceChart` -- rejected as described above (breaks the established self-contained-fetch pattern, and would require rewriting/extending most of `PriceChart.test.tsx`'s existing call sites); (b) leave `useStockAnalysis` with the default `staleTime: 0` and just accept/update the test's assertion to expect 2 requests -- rejected because the redundant fetch is a real, if usually invisible (masked by prod's 60s default), behavior this app's own established dedup convention (documented in that exact test's comments) says shouldn't happen, not merely a test-environment quirk to explain away; (c) set `staleTime` globally on the shared test `QueryClient` instead -- rejected as a broader, less-targeted change than scoping it to the one hook whose usage pattern actually needs it."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Support/resistance zone bands (and their false-breakout markers/price lines) render regardless of the Daily/Weekly interval toggle -- NOT gated behind `overlayEnabled` the way the EMA13/EMA26/channel/value-zone/BUY-SELL overlay is.",
+      "rationale": "`overlayEnabled` exists specifically because `/indicators` only computes DAILY-cadence values, so plotting it against weekly candlesticks would misalign a daily series against weekly bars (an existing, documented decision from frontend-chart-signal-overlay). Support/resistance zones are fundamentally different: they're constant horizontal PRICE levels (`upper`/`lower`), not a time-indexed series with its own cadence -- a price level of e.g. '115-120 resistance' is exactly as meaningful whether the candlesticks beside it are daily or weekly bars, so there's no analogous misalignment risk to guard against. Verified with a dedicated test (`renders zone bands regardless of interval...`) confirming the zone band still renders after toggling to Weekly while the EMA/channel/value-zone overlay correctly disappears."
+    },
+    {
+      "timestamp": "2026-09-19T12:57:13Z",
+      "recorded_by": "task-worker",
+      "decision": "Two separate `common/MetricHelp` legend entries -- `supportResistanceZoneHelp` ('Support/Resistance Zones': what a zone is, how strength is scored, the nearest zone to the latest close) and `falseBreakoutHelp` ('False Breakout': what a false breakout means, why the stop sits at the failed move's own extreme, the most recent episode found) -- rather than one combined entry.",
+      "rationale": "Mirrors the exact precedent frontend-channel-overlay already established for this same legend row (`channelHelp` + `valueZoneHelp` as two separate entries rather than one combined 'channel and value zone' explanation), for the same reason: a zone's strength scoring and a false breakout's stop-placement rule are two genuinely distinct concepts a user might want explained independently, each grounded in its own specific part of Elder ch. 18, and cramming both into one balloon's `definition`/`elderContext`/`valueInterpretation` would make the single most-relevant current-value reading (nearest zone vs. most recent false breakout) ambiguous about which concept it's interpreting."
     }
   ]
 }

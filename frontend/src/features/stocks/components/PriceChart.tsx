@@ -6,11 +6,13 @@ import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
 import {
   AreaSeries,
+  BaselineSeries,
   CandlestickSeries,
   createSeriesMarkers,
   LineSeries,
   LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type SeriesMarker,
   type Time,
@@ -20,15 +22,22 @@ import type {
   HistoryInterval,
   HistoryResponse,
   IndicatorHistoryPoint,
+  SupportResistanceZone,
 } from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
+import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
-import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { channelHelp, valueZoneHelp } from './metricHelpContent'
+import { bringSeriesToFront, createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import {
+  channelHelp,
+  falseBreakoutHelp,
+  supportResistanceZoneHelp,
+  valueZoneHelp,
+} from './metricHelpContent'
 
 export interface PriceChartProps {
   ticker: string
@@ -174,7 +183,148 @@ function buildOverlayData(
     }
     previousSignal = point.signal
   }
-  return { ema13, ema26, channelUpper, channelLower, valueZoneTop, valueZoneBottom, markers }
+  return {
+    ema13,
+    ema26,
+    channelUpper,
+    channelLower,
+    valueZoneTop,
+    valueZoneBottom,
+    markers,
+  }
+}
+
+// Support/resistance zone display (frontend-support-resistance-overlay):
+// `AnalysisResponse.support_resistance_zones` is already capped to the 15
+// strongest zones by `strength_score` on the backend (see the field's own
+// doc comment in api/types.ts), but even 15 translucent horizontal bands
+// stacked on this chart's 320px-tall pane would be unreadable clutter -- a
+// handful of the very strongest is what a trader would actually look for at
+// a glance. Zones arrive already sorted strongest-first, so capping here is
+// just `.slice(0, MAX_DISPLAYED_ZONES)`. Decision (this task's `decisions`
+// entry): a second, frontend-side cap distinct from the backend's own API-
+// payload cap, since the two caps solve different problems (payload size vs.
+// on-screen legibility).
+const MAX_DISPLAYED_ZONES = 6
+
+// Fill opacity (alpha, as a hex byte) for a zone's shaded band, scaled by
+// its `strength_score` (0-100) -- this is how "visual weight reflecting
+// strength" (this task's own description) is implemented: a weak/minor zone
+// barely tints the chart, a major/long-lived one reads as clearly more
+// prominent. The range is deliberately narrow enough that even the
+// strongest zone's fill stays translucent -- candlesticks are always
+// repainted on top of it (see `bringSeriesToFront` below), but a fully
+// opaque fill would still make the tinting itself look like it's occluding
+// the candle underneath, defeating the point of shading a *band* rather
+// than drawing a solid rectangle.
+const ZONE_MIN_FILL_ALPHA = 0x12 // ~7%
+const ZONE_MAX_FILL_ALPHA = 0x4a // ~29%
+
+function zoneFillAlphaHex(strengthScore: number): string {
+  const clamped = Math.min(100, Math.max(0, strengthScore))
+  const alpha = Math.round(
+    ZONE_MIN_FILL_ALPHA + ((ZONE_MAX_FILL_ALPHA - ZONE_MIN_FILL_ALPHA) * clamped) / 100,
+  )
+  return alpha.toString(16).padStart(2, '0')
+}
+
+interface ZoneRenderData {
+  zone: SupportResistanceZone
+  /** Two points spanning the whole visible bar range at a constant `upper`
+   * value -- the flat line a `BaselineSeries` plots, with `zone.lower` as
+   * its `baseValue`. Unlike `AreaSeries` (which only fills from its line
+   * down to the *bottom of the pane* -- see the value-zone comment below),
+   * `BaselineSeries` fills only between its plotted line and its fixed
+   * `baseValue` price, so a single series renders a self-contained,
+   * precisely-bounded band with no opaque masking series needed at all --
+   * see this task's `decisions` entry for why this was chosen over
+   * reusing the value-zone's two-`AreaSeries` fill/mask technique. */
+  data: { time: Time; value: number }[]
+  fillColor: string
+  lineColor: string
+  lineStyle: LineStyle
+}
+
+/**
+ * Projects up to `MAX_DISPLAYED_ZONES` support/resistance zones (already
+ * sorted strongest-first by the backend) into the `BaselineSeries` render
+ * data this component plots. A zone's shading always spans the *whole*
+ * currently-visible bar range (`firstTime`..`lastTime`), not just the span
+ * between its own `first_touch_date`/`last_touch_date` -- a support/
+ * resistance level is still a live reference price today regardless of when
+ * it originally formed, the standard technical-analysis convention for
+ * drawing a horizontal S/R line across a whole chart.
+ *
+ * Color is support (`colors.support`) vs. resistance (`colors.resistance`)
+ * by the zone's *current* `role` -- which already reflects a role flip after
+ * a confirmed break (see `SupportResistanceZone.role`'s own doc comment) --
+ * so a flipped zone is colored by what it means *now*, not what it meant
+ * when it first formed. A flipped (`broken: true`) zone is additionally
+ * drawn dashed rather than solid, the visual distinction this task's own
+ * checklist calls for between a zone that's flipped role and one that
+ * hasn't.
+ */
+function buildZoneRenderData(
+  zones: readonly SupportResistanceZone[],
+  firstTime: Time,
+  lastTime: Time,
+  colors: { support: string; resistance: string },
+): ZoneRenderData[] {
+  return zones.slice(0, MAX_DISPLAYED_ZONES).map((zone) => {
+    const baseColor = zone.role === 'support' ? colors.support : colors.resistance
+    return {
+      zone,
+      data: [
+        { time: firstTime, value: zone.upper },
+        { time: lastTime, value: zone.upper },
+      ],
+      fillColor: `${baseColor}${zoneFillAlphaHex(zone.strength_score)}`,
+      lineColor: baseColor,
+      lineStyle: zone.broken ? LineStyle.Dashed : LineStyle.Solid,
+    }
+  })
+}
+
+/**
+ * One marker per displayed zone's most recent false-breakout episode (Elder
+ * ch. 18: "a specific, high-value trade setup", not noise -- see
+ * `falseBreakoutHelp` in metricHelpContent.ts) whose `reentry_date` falls
+ * within the currently visible bar range (`firstDate`..`lastDate`) --
+ * omitted, not erroring, when it falls outside the current range/window
+ * selection, since the zone's own shaded band still renders regardless (see
+ * `buildZoneRenderData` above); only this specific historical marker is
+ * windowed to what Lightweight Charts can actually plot a point at.
+ *
+ * Positioned/shaped on the side the failed move actually reached: `aboveBar`
+ * with a downward arrow for an `'up'` false breakout (price broke above,
+ * failed, and is now expected to reverse back down), the mirror image for
+ * `'down'` -- the arrow direction is the *reversal* a false breakout
+ * signals, not the direction of the failed move itself.
+ */
+function buildFalseBreakoutMarkers(
+  zones: readonly SupportResistanceZone[],
+  firstDate: string,
+  lastDate: string,
+  color: string,
+): SeriesMarker<Time>[] {
+  const markers: SeriesMarker<Time>[] = []
+  for (const zone of zones.slice(0, MAX_DISPLAYED_ZONES)) {
+    const breakout = zone.false_breakout
+    if (!breakout) {
+      continue
+    }
+    if (breakout.reentry_date < firstDate || breakout.reentry_date > lastDate) {
+      continue
+    }
+    markers.push({
+      time: breakout.reentry_date as Time,
+      position: breakout.direction === 'up' ? 'aboveBar' : 'belowBar',
+      shape: breakout.direction === 'up' ? 'arrowDown' : 'arrowUp',
+      color,
+      text: 'False breakout',
+    })
+  }
+  return markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
 }
 
 /**
@@ -209,6 +359,27 @@ function buildOverlayData(
  * A `common/MetricHelp` affordance next to the range/interval controls
  * explains both (`channelHelp`/`valueZoneHelp`, `metricHelpContent.ts`),
  * following this app's established explanatory pattern.
+ *
+ * Also draws `GET /api/stocks/{ticker}/analysis`'s `support_resistance_zones`
+ * (via its own `useStockAnalysis(ticker)` call, deduped by TanStack Query
+ * against `StockDetailPage`'s own use of the same query key — same
+ * self-contained-per-chart-component pattern `useIndicatorHistory` already
+ * uses between this component and `OscillatorChart`) as horizontal shaded
+ * `BaselineSeries` bands, one per zone, colored support/resistance and
+ * weighted (fill opacity) by `strength_score` (frontend-support-resistance-
+ * overlay) — see `buildZoneRenderData`'s own doc comment for why a
+ * `BaselineSeries` (bounded fill between its line and a fixed `baseValue`)
+ * was chosen over reusing the value-zone's two-`AreaSeries` mask technique,
+ * and this task's `decisions` entry for the display cap and color/dash
+ * choices. Independent of the EMA/channel/marker overlay above (not gated on
+ * `overlayEnabled`/daily-only — a price level is interval-agnostic, unlike a
+ * daily-cadence EMA series). A zone's most recent false-breakout episode
+ * (Elder ch. 18, "a specific, high-value trade setup") gets its own marker
+ * plus a dashed `createPriceLine` at the failed move's own extreme — the
+ * book's explicit stop-placement reference. `supportResistanceZoneHelp`/
+ * `falseBreakoutHelp` (`metricHelpContent.ts`) explain both via the same
+ * `common/MetricHelp` legend-row pattern as the channel/value-zone pair
+ * above.
  *
  * Still owns its own range/interval `ToggleButtonGroup` controls and local
  * `useState` for them (unchanged from before), but now also reports every
@@ -254,6 +425,14 @@ export default function PriceChart({
     { range },
     { enabled: overlayEnabled },
   )
+
+  // Support/resistance zones (frontend-support-resistance-overlay): a
+  // separate query from `/analysis`, deduped by TanStack Query against
+  // `StockDetailPage`'s own `useStockAnalysis(ticker)` call for the same
+  // ticker (same query key, same cache entry). Not gated on
+  // `overlayEnabled` — see this component's own doc comment above for why
+  // zones render regardless of daily/weekly interval.
+  const analysisQuery = useStockAnalysis(ticker)
 
   // Create the chart once a container is mounted and there are bars to
   // plot, and tear it down whenever the underlying data changes (a new
@@ -377,12 +556,12 @@ export default function PriceChart({
     // candlesticks, painting over (hiding) any wick/body that fell below the
     // zone's bottom boundary -- routine whenever price trades below the
     // fast/slow EMA (any pullback or downtrend), not an edge case. Fixed by
-    // explicitly reordering `series` (the candlestick series) to sit right
-    // above the two zone series via `setSeriesOrder` once they're both
-    // added, below (not by relying on creation order alone, which is what
-    // caused the bug): candlesticks are always drawn after -- i.e. on top
-    // of -- the zone fill/mask, regardless of how many overlay series exist
-    // or the order this effect happens to add them in.
+    // explicitly reordering `series` (the candlestick series) via
+    // `bringSeriesToFront` once these two zone series are both added, below
+    // (not by relying on creation order alone, which is what caused the
+    // bug): candlesticks are always drawn after -- i.e. on top of -- the
+    // zone fill/mask, regardless of how many overlay series exist or the
+    // order this effect happens to add them in.
     const zoneTopSeries = chart.addSeries(AreaSeries, {
       topColor: `${theme.palette.info.main}33`,
       bottomColor: `${theme.palette.info.main}33`,
@@ -404,11 +583,13 @@ export default function PriceChart({
     })
     zoneBottomMaskSeries.setData(valueZoneBottom)
 
-    // Move the candlestick series to sit directly above the two zone series
-    // in this pane's render order (index 2, right after `zoneTopSeries` at 0
-    // and `zoneBottomMaskSeries` at 1) so it always paints on top of the
-    // zone fill/mask -- see the block comment above.
-    series.setSeriesOrder(2)
+    // Move the candlestick series to the very end of this pane's render-
+    // order stack (dynamically -- see `bringSeriesToFront`'s own doc
+    // comment) so it always paints on top of the zone fill/mask, and of any
+    // other fill series another effect on this same pane may have added
+    // (the support/resistance zone bands below) -- see the block comment
+    // above.
+    bringSeriesToFront(chart, series)
 
     const ema13Series = chart.addSeries(LineSeries, {
       color: theme.palette.primary.main,
@@ -472,6 +653,136 @@ export default function PriceChart({
     }
   }, [historyQuery.data, indicatorsQuery.data, overlayEnabled, theme])
 
+  // Support/resistance zones (frontend-support-resistance-overlay): adds
+  // the horizontal `BaselineSeries` bands, false-breakout markers, and
+  // false-breakout stop price lines onto the *existing* chart/candlestick
+  // series, same "add onto the existing chart" pattern as the signal-
+  // overlay effect above. Deliberately a SEPARATE effect (not folded into
+  // the one above) since its own gating differs: it depends on
+  // `analysisQuery.data`, not `indicatorsQuery.data`, and it is NOT gated
+  // on `overlayEnabled` (daily-only) -- a support/resistance price level
+  // applies regardless of which interval the candlesticks themselves are
+  // plotted at, unlike the EMA/channel overlay above (see this component's
+  // own doc comment).
+  useEffect(() => {
+    const chart = chartRef.current
+    const series = seriesRef.current
+    const data = historyQuery.data
+    if (!chart || !series || !data) {
+      return
+    }
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    if (finiteBars.length === 0) {
+      return
+    }
+    const zones = analysisQuery.data?.support_resistance_zones ?? []
+    if (zones.length === 0) {
+      return
+    }
+
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    const zoneRenderData = buildZoneRenderData(
+      zones,
+      firstDate as Time,
+      lastDate as Time,
+      {
+        support: theme.palette.signal.buy,
+        resistance: theme.palette.signal.sell,
+      },
+    )
+
+    const zoneSeriesList = zoneRenderData.map(
+      ({ zone, data: bandData, fillColor, lineColor, lineStyle }) => {
+        // `BaselineSeries` fills only between its plotted line (`upper`,
+        // constant across `bandData`) and its fixed `baseValue` price
+        // (`zone.lower`) -- see `ZoneRenderData`'s own doc comment for why
+        // this needs no opaque masking series the way the value-zone shading
+        // above does. `bottomFillColor*`/`bottomLineColor` (the colors used
+        // if the line ever dipped *below* `baseValue`) are irrelevant here --
+        // `zone.upper > zone.lower` always (the backend never emits a
+        // zero/negative-height zone), so only the "top" fill/line ever
+        // renders -- but they're still set (matching the same translucent
+        // color) rather than left at the library's own green/red defaults,
+        // in case that invariant is ever violated by a future backend change.
+        const zoneSeries = chart.addSeries(BaselineSeries, {
+          baseValue: { type: 'price', price: zone.lower },
+          topFillColor1: fillColor,
+          topFillColor2: fillColor,
+          bottomFillColor1: fillColor,
+          bottomFillColor2: fillColor,
+          topLineColor: lineColor,
+          bottomLineColor: lineColor,
+          lineWidth: 1,
+          lineStyle,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          title: `${zone.role === 'support' ? 'Support' : 'Resistance'} zone`,
+        })
+        zoneSeries.setData(bandData)
+        return zoneSeries
+      },
+    )
+
+    const falseBreakoutMarkers = buildFalseBreakoutMarkers(
+      zones,
+      firstDate,
+      lastDate,
+      theme.palette.warning.main,
+    )
+    const falseBreakoutMarkersPlugin =
+      falseBreakoutMarkers.length > 0
+        ? createSeriesMarkers(series, falseBreakoutMarkers)
+        : null
+
+    // A dashed horizontal price line at each windowed false breakout's own
+    // `extreme_price` -- Elder's explicit stop-placement reference ("place
+    // a stop near this extreme, not further out"). Only for zones whose
+    // false breakout also has a marker (same `firstDate`/`lastDate`
+    // windowing) so a price line never appears for an episode with no
+    // corresponding visible marker.
+    const falseBreakoutPriceLines: IPriceLine[] = []
+    for (const { zone } of zoneRenderData) {
+      const breakout = zone.false_breakout
+      if (
+        breakout == null ||
+        breakout.reentry_date < firstDate ||
+        breakout.reentry_date > lastDate
+      ) {
+        continue
+      }
+      falseBreakoutPriceLines.push(
+        series.createPriceLine({
+          price: breakout.extreme_price,
+          color: theme.palette.warning.main,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'False-breakout stop',
+        }),
+      )
+    }
+
+    // Keep the candlestick series painting on top of every fill series in
+    // this pane -- both these zone bands and the value-zone AreaSeries pair
+    // from the effect above, whichever effect happens to run/re-run last
+    // (see `bringSeriesToFront`'s own doc comment for why a dynamic call is
+    // required once two independent effects both add fill series here).
+    bringSeriesToFront(chart, series)
+
+    return () => {
+      // See the signal-overlay effect's own cleanup guard above: skip if
+      // the candlestick effect already disposed this chart/series.
+      if (chartRef.current !== chart || seriesRef.current !== series) {
+        return
+      }
+      zoneSeriesList.forEach((zoneSeries) => chart.removeSeries(zoneSeries))
+      falseBreakoutPriceLines.forEach((priceLine) => series.removePriceLine(priceLine))
+      falseBreakoutMarkersPlugin?.detach()
+    }
+  }, [historyQuery.data, analysisQuery.data, theme])
+
   function handleRangeChange(_event: ReactMouseEvent<HTMLElement>, value: string | null) {
     if (value !== null) {
       setRange(value)
@@ -507,6 +818,13 @@ export default function PriceChart({
   // every other `metricHelpContent.ts` entry).
   const latestClose = bars.at(-1)?.close
   const latestIndicatorPoint = indicatorsQuery.data?.points.at(-1)
+
+  // Support/resistance zones for the legend below -- same source
+  // (`analysisQuery.data`) and display cap (`MAX_DISPLAYED_ZONES`) the
+  // chart-drawing effect above uses, so the legend's "showing N of M" count
+  // always matches what's actually plotted.
+  const zones = analysisQuery.data?.support_resistance_zones ?? []
+  const displayedZoneCount = Math.min(zones.length, MAX_DISPLAYED_ZONES)
 
   return (
     <Stack spacing={2}>
@@ -594,6 +912,64 @@ export default function PriceChart({
           </Stack>
         </Stack>
       )}
+
+      {/*
+        Support/resistance zone legend + MetricHelp affordances (frontend-
+        support-resistance-overlay). Gated on the chart itself having bars
+        and at least one zone to show -- unlike the channel/value-zone
+        legend above, NOT on `showOverlaySection`/`overlayEnabled`, since
+        zones come from `/analysis` (interval-agnostic), not `/indicators`.
+      */}
+      {historyQuery.isSuccess &&
+        hasBars &&
+        analysisQuery.isSuccess &&
+        zones.length > 0 && (
+          <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 14,
+                  height: 14,
+                  bgcolor: `${theme.palette.signal.sell}33`,
+                  border: '1px solid',
+                  borderColor: 'signal.sell',
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Support/Resistance Zones
+              </Typography>
+              <MetricHelp
+                metricLabel={supportResistanceZoneHelp.metricLabel}
+                definition={supportResistanceZoneHelp.definition}
+                elderContext={supportResistanceZoneHelp.elderContext}
+                valueInterpretation={supportResistanceZoneHelp.interpretValue(
+                  zones,
+                  displayedZoneCount,
+                  latestClose,
+                )}
+              />
+            </Stack>
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{
+                  width: 14,
+                  height: 0,
+                  borderTop: '2px dashed',
+                  borderColor: 'warning.main',
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                False Breakout
+              </Typography>
+              <MetricHelp
+                metricLabel={falseBreakoutHelp.metricLabel}
+                definition={falseBreakoutHelp.definition}
+                elderContext={falseBreakoutHelp.elderContext}
+                valueInterpretation={falseBreakoutHelp.interpretValue(zones)}
+              />
+            </Stack>
+          </Stack>
+        )}
 
       {historyQuery.isLoading && (
         <LoadingState message={`Loading price history for ${ticker}...`} />

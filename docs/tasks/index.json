@@ -1104,7 +1104,7 @@
       "id": "frontend-support-resistance-overlay",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-support-resistance-overlay.json"
     },
     {

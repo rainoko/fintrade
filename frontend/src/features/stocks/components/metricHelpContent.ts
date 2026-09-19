@@ -1,3 +1,4 @@
+import type { FalseBreakoutOut, SupportResistanceZone } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
@@ -379,14 +380,97 @@ export const valueZoneHelp = {
     'The shaded zone between the fast (13-period) and slow (26-period) EMA -- Elder names this the "value zone" (ch. 41): the area a price that has pulled away from it is expected to return to.',
   elderContext:
     'This exact EMA13/EMA26 pair already drives the Tide (Screen 1), the Impulse System gate, and the Elder-Ray baseline elsewhere on this page (docs/Analyse.md §2-4) -- also plotted as the two solid trend lines on this same chart. Elder calls the zone between them a good swing-trade profit target ("the value zone on a weekly chart presents a good target," ch. 38/53) -- this app doesn’t yet compute an explicit target price from it (a separate, still-open task), so today this shading is informational, not a live target or stop input.',
-  interpretValue(ema13: number | null | undefined, ema26: number | null | undefined): string {
+  interpretValue(
+    ema13: number | null | undefined,
+    ema26: number | null | undefined,
+  ): string {
     if (!isKnown(ema13) || !isKnown(ema26)) {
       return 'Currently unavailable for this ticker.'
     }
     const lower = Math.min(ema13, ema26)
     const upper = Math.max(ema13, ema26)
     const reading =
-      ema13 > ema26 ? 'an uptrend reading' : ema13 < ema26 ? 'a downtrend reading' : 'a flat reading'
+      ema13 > ema26
+        ? 'an uptrend reading'
+        : ema13 < ema26
+          ? 'a downtrend reading'
+          : 'a flat reading'
     return `Currently ${lower.toFixed(2)}-${upper.toFixed(2)} (EMA13 ${ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'} EMA26 -- ${reading}).`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Support/resistance zone overlay (PriceChart.tsx, frontend-support-
+// resistance-overlay)
+// ---------------------------------------------------------------------------
+
+/** Distance (in price units) from `price` to the nearest edge of `zone` --
+ * `0` when `price` sits inside `[lower, upper]`. Used to find the zone
+ * closest to the ticker's latest close for `supportResistanceZoneHelp`'s
+ * current-value interpretation. */
+function distanceToZone(price: number, zone: SupportResistanceZone): number {
+  if (price >= zone.lower && price <= zone.upper) {
+    return 0
+  }
+  return Math.min(Math.abs(price - zone.lower), Math.abs(price - zone.upper))
+}
+
+export const supportResistanceZoneHelp = {
+  metricLabel: 'Support/Resistance Zones',
+  definition:
+    'Horizontal price bands where this ticker has repeatedly stalled -- built from the closing prices of clustered swing highs/lows, not the single most extreme wick that happened to touch the level once (Elder ch. 18).',
+  elderContext:
+    'Strength is scored from how long the zone has persisted (length: ~2 weeks minor, ~2 months intermediate, ~2 years major) and how wide it is as a percentage of price (height: ~1%/~3%/>=7%) -- shaded more strongly here the higher that score, so a major, long-lived zone reads as more visually prominent than a weak, recent one. A zone whose role has flipped after a confirmed break (dashed border here) keeps existing with its role inverted -- old resistance becomes new support, and vice versa -- rather than being discarded (docs/Analyse.md §4 row 9). Up to 6 of the strongest zones are shown here, out of up to 15 this app detects per ticker.',
+  interpretValue(
+    zones: readonly SupportResistanceZone[],
+    displayedCount: number,
+    latestClose: number | null | undefined,
+  ): string {
+    if (zones.length === 0) {
+      return 'No support/resistance zones detected yet for this ticker -- needs at least 2 clustered swing-point touches spanning 14+ days.'
+    }
+    const shown = `Showing ${displayedCount} of ${zones.length} detected zone${zones.length === 1 ? '' : 's'} (strongest first).`
+    if (!isKnown(latestClose)) {
+      return shown
+    }
+    const nearest = zones.reduce((closest, zone) =>
+      distanceToZone(latestClose, zone) < distanceToZone(latestClose, closest)
+        ? zone
+        : closest,
+    )
+    const roleLabel = nearest.role === 'support' ? 'Support' : 'Resistance'
+    const flipped = nearest.broken ? ', role flipped after a confirmed break' : ''
+    return `${shown} Nearest to the latest close (${latestClose.toFixed(2)}): ${roleLabel} ${nearest.lower.toFixed(2)}-${nearest.upper.toFixed(2)} (${humanizeSnakeCase(nearest.height_category)} height, ${humanizeSnakeCase(nearest.length_category)} length${flipped}).`
+  },
+}
+
+interface ZoneWithFalseBreakout extends SupportResistanceZone {
+  false_breakout: FalseBreakoutOut
+}
+
+function hasFalseBreakout(zone: SupportResistanceZone): zone is ZoneWithFalseBreakout {
+  return zone.false_breakout != null
+}
+
+export const falseBreakoutHelp = {
+  metricLabel: 'False Breakout',
+  definition:
+    'A specific reversal setup, not just noise: price closes beyond a support/resistance zone, then closes back inside it within about two trading weeks.',
+  elderContext:
+    'Elder ch. 18 calls a false breakout "a specific, high-value trade setup" -- the market tested a level, failed to hold beyond it, and is now more likely to reverse. The book\'s explicit stop-placement rule is to place a stop near the failed move\'s own extreme (the highest high reached for a failed break up, the lowest low for a failed break down) -- not further out, since that extreme is exactly how far the market proved it could reach before reversing. Marked on the chart with a distinct marker at the close that confirmed the reversal, plus a dashed price line at that extreme.',
+  interpretValue(zones: readonly SupportResistanceZone[]): string {
+    const withBreakout = zones.filter(hasFalseBreakout)
+    if (withBreakout.length === 0) {
+      return 'No false breakouts detected among these zones right now.'
+    }
+    const mostRecent = withBreakout.reduce((latest, zone) =>
+      zone.false_breakout.reentry_date > latest.false_breakout.reentry_date
+        ? zone
+        : latest,
+    )
+    const { false_breakout: breakout } = mostRecent
+    const roleLabel = mostRecent.role === 'support' ? 'support' : 'resistance'
+    const directionLabel = breakout.direction === 'up' ? 'broke above' : 'broke below'
+    return `Most recent: the ${roleLabel} zone ${mostRecent.lower.toFixed(2)}-${mostRecent.upper.toFixed(2)} ${directionLabel} it on ${breakout.breakout_date}, then closed back inside by ${breakout.reentry_date} -- suggested stop near ${breakout.extreme_price.toFixed(2)}, the failed move's own extreme.`
   },
 }

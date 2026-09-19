@@ -24,13 +24,19 @@ vi.mock('lightweight-charts', () => ({
     addSeries: () => ({
       setData: () => {},
       createPriceLine: () => ({}),
+      removePriceLine: () => {},
       // `setSeriesOrder` (frontend-channel-overlay, post-review fix): called
       // on PriceChart's candlestick series to keep it rendering above the
-      // value-zone fill/mask series — see PriceChart.test.tsx's own mock for
-      // the fuller explanation.
+      // value-zone fill/mask and support/resistance zone band series — see
+      // PriceChart.test.tsx's own mock for the fuller explanation.
       setSeriesOrder: () => {},
     }),
     removeSeries: () => {},
+    // `bringSeriesToFront` (utils/chart.ts, frontend-support-resistance-
+    // overlay) reads `panes()[0].getSeries().length` — this file doesn't
+    // assert on series ordering, so an empty stub is enough to keep it from
+    // throwing.
+    panes: () => [{ getSeries: () => [] }],
     timeScale: () => ({ fitContent: () => {} }),
     remove: () => {},
   }),
@@ -39,6 +45,7 @@ vi.mock('lightweight-charts', () => ({
   LineSeries: 'LineSeries-definition',
   HistogramSeries: 'HistogramSeries-definition',
   AreaSeries: 'AreaSeries-definition',
+  BaselineSeries: 'BaselineSeries-definition',
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2, LargeDashed: 3, SparseDotted: 4 },
 }))
 
