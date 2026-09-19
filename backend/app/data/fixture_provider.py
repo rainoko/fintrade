@@ -81,8 +81,34 @@ class FixtureDataProvider(DataProvider):
     date.
     """
 
+    def __init__(self) -> None:
+        # Instance-level memoization of `_series` (keyed by upper-cased ticker), added per
+        # docs/tasks/frontend-e2e-tests-followups-followups.json: a single request commonly
+        # calls both `get_daily_ohlcv` and `get_weekly_ohlcv` for the same ticker (see e.g.
+        # app/api/routers/stocks.py's `get_analysis`/`get_history` and
+        # app/api/routers/watchlist.py's `_signal_for`), and `get_weekly_ohlcv` itself now
+        # calls through `get_daily_ohlcv` rather than `_series` directly -- without this
+        # cache, both calls re-ran the full `_NUM_DAILY_BARS`-iteration RNG loop from
+        # scratch. Deliberately an instance-level `dict`, not `functools.lru_cache` on the
+        # method: `get_data_provider` (app/api/dependencies.py) constructs a fresh
+        # `FixtureDataProvider()` per request, so a plain instance attribute already scopes
+        # the cache correctly (shared within one request's two calls, discarded with the
+        # instance at the end of it) without `lru_cache`'s downside here -- decorating an
+        # instance method with `lru_cache` keys each entry on `(self, ticker)` and keeps a
+        # strong reference to `self` for the *class's* cache lifetime, not the instance's,
+        # which would leak one cache entry per ticker per request for as long as the process
+        # runs. No invalidation policy is needed beyond "lives as long as the instance": the
+        # series is a pure, deterministic function of `ticker` alone (see class docstring),
+        # so there's no notion of a cached value going stale.
+        self._daily_cache: dict[str, pd.DataFrame] = {}
+
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
-        return self._series(ticker)
+        key = ticker.upper()
+        cached = self._daily_cache.get(key)
+        if cached is None:
+            cached = self._series(ticker)
+            self._daily_cache[key] = cached
+        return cached
 
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
         daily = self.get_daily_ohlcv(ticker)
