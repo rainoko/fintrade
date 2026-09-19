@@ -3,7 +3,7 @@
   "title": "e2e-test skill wiring — non-blocking review follow-up",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["skill-e2e-testing"],
   "references": [
     "docs/tasks/skill-e2e-testing.json#review",
@@ -30,5 +30,12 @@
     "pr_number": 135,
     "pr_url": "https://github.com/rainoko/fintrade/pull/135",
     "pushed_at": "2026-09-19T02:21:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:24:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/135",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs/task-board-only change (no application code). Verified pr-reviewer.md step 9a ('review-blocking', unconditional) and the new task-qa-reviewer.md step 5a ('a blocker gap, full stop', unconditional) are now genuinely consistent, not just superficially similar -- both apply the same unconditional treatment to a non-flake failing e2e spec. Checked the mapping against task-qa-reviewer's own step 6 severity definitions (blocker = 'breaks the feature or contradicts Analyse.md/API.md'; major = 'works but missing required coverage/error-handling/tests'): a non-flake e2e failure, per the e2e-test skill's own step 4 definition ('the app's actual behavior changed and a spec's assertion is now correct-and-failing'), is the running app actually broken, which fits blocker's definition rather than major's -- so the flat-blocker mapping is a reasonable, well-reasoned choice, and the decisions entry recorded on this task documents the rejected alternative (a conditional escalation rule) and why. Backend pytest (99.86% cov, 573 passed), frontend vitest (99.69% stmts), ruff, mypy, eslint, tsc, and scripts/validate_tasks.py (125 tasks, no violations) all clean; a code-review pass found no correctness/reuse issues. No UI surface in this PR (agent instruction files + task JSON only) -- browser walkthrough and e2e-test skill run explicitly skipped for that reason. No checklist item phrased 'decide X' lacking a decisions entry. No stale pr_decision to clear. No non-blocking findings to track as a follow-up."
   }
 }
