@@ -125,6 +125,40 @@ describe('WatchlistTable', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('disables the row Remove button while its removal is pending, preventing a double-click race', async () => {
+    // Delays the DELETE response so the pending window is observable -- without this the
+    // mutation settles before the second click assertion below could ever run.
+    let resolveDelete: () => void = () => {}
+    server.use(
+      http.delete('/api/watchlist/:ticker', async () => {
+        await new Promise<void>((resolve) => {
+          resolveDelete = resolve
+        })
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWatchlistTable(items)
+
+    await user.click(screen.getByRole('button', { name: 'Remove AAPL' }))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+
+    // The confirm dialog has closed, but the DELETE is still in flight (deliberately held
+    // open above) -- the row's own Remove icon button must be disabled for exactly this
+    // window, otherwise a fast second click reopens the confirm dialog and fires a second
+    // DELETE for the same ticker before the first has been reflected in a refetch.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Remove AAPL' })).toBeDisabled(),
+    )
+    // A row unrelated to the in-flight removal stays interactive.
+    expect(screen.getByRole('button', { name: 'Remove MSFT' })).not.toBeDisabled()
+
+    resolveDelete()
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Remove AAPL' })).not.toBeDisabled(),
+    )
+  })
+
   it('surfaces a 404 ApiError via common/ErrorState when the ticker is no longer watched', async () => {
     server.use(
       http.delete('/api/watchlist/:ticker', () =>
