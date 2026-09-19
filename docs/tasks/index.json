@@ -607,8 +607,8 @@
       "id": "dev-makefile-followups-followups-followups",
       "area": "infra",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/dev-makefile-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/dev-makefile-followups-followups-followups.json"
     },
     {
       "id": "frontend-e2e-tests",
