@@ -978,7 +978,7 @@
       "id": "backend-channel-envelope-exposure",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-channel-envelope-exposure.json"
     },
     {

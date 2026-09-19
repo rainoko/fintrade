@@ -3,7 +3,7 @@
   "title": "Expose the existing Autoenvelope (channel) computation via the API",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/autoenvelope.py",
@@ -54,5 +54,11 @@
       "decision": "Name the new fields channel_upper/channel_lower (flat, alongside the other Indicators/IndicatorHistoryPoint fields) rather than nesting them under a 'channel' object, and make both nullable (float | None), null whenever the Autoenvelope's ~100-bar deviation-average warm-up window isn't yet full.",
       "rationale": "docs/Analyse.md and docs/architecture/API.md both already call this indicator 'Autoenvelope/channel band' / 'channel line' interchangeably -- 'channel_upper'/'channel_lower' reads naturally against that established vocabulary and against the existing flat-field shape of Indicators/IndicatorHistoryPoint (ema_13, macd_histogram, bull_power, ... -- no nested indicator objects exist in either schema today). Nullability follows the existing precedent set by stochastic_k/force_index_2ema on IndicatorHistoryPoint (both nullable for their own, much shorter warm-up windows) -- but channel_upper/channel_lower need a much longer one (100 bars vs up to 6), so AnalysisResponse.indicators.channel_upper/channel_lower are also nullable (unlike every other AnalysisResponse.indicators field, which is a non-Optional float) since a ticker with under ~100 trading days of history is a real, unremarkable case (not just a theoretical one), not something worth failing the whole request for. Rejected alternative: floor/fall back to a partial-window average (e.g. an expanding-window mean before the rolling window is full) instead of null -- rejected because that would silently produce a statistically meaningless band for a thin history, and because the indicator-autoenvelope task already made and recorded this exact same NaN-not-expanding-average choice for the underlying autoenvelope() function itself; exposing it as null through the API is just carrying that already-made decision through, not making a new one."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-channel-envelope-exposure",
+    "pr_number": 146,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/146",
+    "pushed_at": "2026-09-19T09:37:27Z"
+  }
 }
