@@ -140,6 +140,7 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
     points: [
       {
         date: '2026-09-01',
+        tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
         ema_13: 225.1,
         ema_26: 220.4,
         macd_histogram: 1.2,
@@ -153,6 +154,10 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
       },
       {
         date: '2026-09-02',
+        // Matches analysisFixture.screens.tide above -- this is the point that mirrors
+        // GET /api/stocks/{ticker}/analysis's own latest-bar snapshot (see this file's other
+        // fixtures' shared-latest-bar convention).
+        tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
         ema_13: 226.4,
         ema_26: 221.7,
         macd_histogram: 1.82,

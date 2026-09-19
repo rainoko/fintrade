@@ -192,6 +192,7 @@ class AnalysisResponse(BaseModel):
 
 class IndicatorHistoryPoint(BaseModel):
     date: date
+    tide: TideScreen = Field(description="Same definition/shape as AnalysisResponse.screens.tide, for this bar -- Screen 1 (Tide) recomputed from only the weekly data as-of this bar's own calendar week (see IndicatorHistoryResponse.points' own description), never held fixed at today's value. Never null: like AnalysisResponse.screens.tide, too little weekly history to compute a slope at all still resolves to a concrete NEUTRAL/'flat' result rather than an absent one (app.signals.triple_screen.evaluate_tide's own docstring).")
     ema_13: float = Field(description="Same definition as AnalysisResponse.indicators.ema_13, for this bar.")
     ema_26: float = Field(description="Same definition as AnalysisResponse.indicators.ema_26, for this bar.")
     macd_histogram: float = Field(description="Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.")

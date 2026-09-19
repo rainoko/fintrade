@@ -3,7 +3,7 @@
   "title": "Expose Tide (Screen 1) trend per historical bar in GET /api/stocks/{ticker}/indicators",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -16,23 +16,31 @@
   "checklist": [
     {
       "step": "Decide the exact field shape (flat `tide_trend: 'BULLISH'|'BEARISH'|'NEUTRAL'` vs a nested `tide` object matching the /analysis response's own screens.tide shape) and record as a decisions entry -- prefer consistency with the existing /analysis schema unless there's a good reason not to.",
-      "done": false
+      "done": true
     },
     {
       "step": "Add the field to IndicatorHistoryPoint in backend/app/api/schemas.py, sourced from analyse_history()'s existing per-bar result.",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Unit test covering a ticker whose historical Tide trend actually changes across the returned range (not a fixture that's constant BULLISH throughout, which wouldn't catch a wiring bug).",
-      "done": false
+      "done": true
     },
     {
       "step": "Confirm the last point in the response still matches GET /api/stocks/{ticker}/analysis's own screens.tide.trend for the same ticker/date, per this endpoint's existing documented invariant.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a nested `tide: TideScreen` object to `IndicatorHistoryPoint` (reusing the exact same `TideScreen` model -- `trend` + `weekly_macd_histogram_slope` -- that `AnalysisResponse.screens.tide` already uses), sourced per-bar from `result.screens[\"tide\"]` via the same `cast(TideScreen, ...)`-for-mypy-only pattern `get_analysis` already uses for `screens=cast(Screens, result.screens)`/`indicators=cast(Indicators, result.indicators)`. The field is never null (unlike stochastic_k/channel_upper/rsi/season): `evaluate_tide` always returns a concrete trend ('NEUTRAL'/'flat' rather than an absent value) even with insufficient weekly history, so there's no warm-up-null case to model here.",
+      "rationale": "Rejected the flat `tide_trend: 'BULLISH'|'BEARISH'|'NEUTRAL'` alternative from the checklist: it would drop `weekly_macd_histogram_slope`, which the /analysis response's own screens.tide already exposes alongside trend specifically so a client can distinguish a genuinely-flat slope from a slope that was overridden to NEUTRAL by a disagreeing EMA relationship (see evaluate_tide's own docstring) -- the chart-shading consumer this task exists for may well want that same distinction for a tooltip/legend, and there's no cost to keeping it since analyse_history() already computes and carries weekly_macd_histogram_slope through unchanged. Nesting under `tide` (rather than flattening both fields with a `tide_` prefix) directly reuses the existing `TideScreen` Pydantic model instead of duplicating its two fields, keeping the two endpoints' schemas byte-for-byte consistent for this screen and matching the task's own stated preference for schema consistency with /analysis absent a good reason not to."
     }
   ]
 }

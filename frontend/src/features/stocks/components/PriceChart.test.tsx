@@ -245,6 +245,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
   points: [
     {
       date: '2026-09-01',
+      tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
       ema_13: 225.1,
       ema_26: 220.4,
       macd_histogram: 1.2,
@@ -260,6 +261,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
     },
     {
       date: '2026-09-02',
+      tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
       ema_13: 226.4,
       ema_26: 221.7,
       macd_histogram: 1.82,

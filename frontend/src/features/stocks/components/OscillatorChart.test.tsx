@@ -131,6 +131,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
   points: [
     {
       date: '2026-09-01',
+      tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
       ema_13: 225.1,
       ema_26: 220.4,
       macd_histogram: 1.2,
@@ -145,6 +146,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
     },
     {
       date: '2026-09-02',
+      tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
       ema_13: 226.4,
       ema_26: 221.7,
       macd_histogram: -1.82,
@@ -177,6 +179,7 @@ const indicatorPointsSpanningDivergence: IndicatorHistoryResponse = {
   points: [
     {
       date: '2026-08-01',
+      tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
       ema_13: 212.0,
       ema_26: 208.0,
       macd_histogram: 0.5,

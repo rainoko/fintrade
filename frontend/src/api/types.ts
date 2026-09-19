@@ -748,6 +748,8 @@ export interface components {
              * @description Stochastic %K (5,3,3), same definition as WaveScreen.stochastic_k, for this bar. Null for a bar still inside the indicator's warm-up window (needs (k_period - 1) + (smooth - 1) prior bars -- 6 with the current defaults, k_period=5/smooth=3) -- unlike WaveScreen.stochastic_k on GET /api/stocks/{ticker}/analysis, which is always non-null since /analysis only ever reports the latest bar, by definition never still warming up.
              */
             stochastic_k?: number | null;
+            /** @description Same definition/shape as AnalysisResponse.screens.tide, for this bar -- Screen 1 (Tide) recomputed from only the weekly data as-of this bar's own calendar week (see IndicatorHistoryResponse.points' own description), never held fixed at today's value. Never null: like AnalysisResponse.screens.tide, too little weekly history to compute a slope at all still resolves to a concrete NEUTRAL/'flat' result rather than an absent one (app.signals.triple_screen.evaluate_tide's own docstring). */
+            tide: components["schemas"]["TideScreen"];
         };
         /** IndicatorHistoryResponse */
         IndicatorHistoryResponse: {
