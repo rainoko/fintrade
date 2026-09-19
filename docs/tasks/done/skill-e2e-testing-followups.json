@@ -1,0 +1,46 @@
+{
+  "id": "skill-e2e-testing-followups",
+  "title": "e2e-test skill wiring — non-blocking review follow-up",
+  "area": "tooling",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["skill-e2e-testing"],
+  "references": [
+    "docs/tasks/skill-e2e-testing.json#review",
+    "https://github.com/rainoko/fintrade/pull/105"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #105 (skill-e2e-testing), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`.claude/agents/pr-reviewer.md`'s new step 9a says a non-flake failing e2e spec is \"review-blocking\", while `.claude/agents/task-qa-reviewer.md`'s new step 5a says the same underlying signal is \"at least a `major` gap\" (task-qa-reviewer's severity scale is blocker/major/minor, and 5a doesn't say which of those a failing e2e spec collapses to when it's more severe than baseline `major` — e.g. one that contradicts Analyse.md/API.md would otherwise qualify as `blocker` per step 6's own definition). Not a defect introduced by this PR specifically (the two agents already phrase other shared checks slightly differently elsewhere), but worth reconciling explicitly so a task-qa-reviewer run doesn't under-rank a failure that pr-reviewer would treat as an outright block.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T02:20:23Z",
+      "recorded_by": "task-worker",
+      "decision": "Changed `.claude/agents/task-qa-reviewer.md` step 5a so a non-flake failing e2e spec always maps to severity `blocker` in task-qa-reviewer's blocker/major/minor scale, rather than \"at least `major`\" with an undefined escalation condition.",
+      "rationale": "Step 6's own scale defines `blocker` as breaking the feature or contradicting Analyse.md/API.md, and `major` as 'works but missing required coverage/error-handling/tests'. A non-flake e2e failure (per the e2e-test skill's own flake-vs-regression guidance in its step 4: 'the app's actual behavior changed and a spec's assertion is now correct-and-failing') is by definition the app actually being broken in a real browser+backend run, not merely under-tested — so it fits `blocker`'s definition, not `major`'s, in every case, not just some. Considered instead defining an explicit escalation condition (e.g. 'major, escalating to blocker if the failing spec covers a golden path or contradicts Analyse.md/API.md') to preserve a `major` floor, but rejected it: nearly every persisted e2e spec covers a golden path by design (per the e2e-test skill, the suite is exactly the golden-path specs for dashboard/navigation/portfolio/stock-analysis), so the 'escalates' branch would fire almost universally anyway, making a conditional rule more complex than a flat one for no practical difference. A flat `blocker` also removes the ambiguity the task flagged and matches `pr-reviewer` step 9a's unconditional 'review-blocking' treatment of the identical signal, so a task-qa-reviewer run and a pr-reviewer run never disagree on how severe the same failing spec is."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/skill-e2e-testing-followups",
+    "pr_number": 135,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/135",
+    "pushed_at": "2026-09-19T02:21:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:24:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/135",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Docs/task-board-only change (no application code). Verified pr-reviewer.md step 9a ('review-blocking', unconditional) and the new task-qa-reviewer.md step 5a ('a blocker gap, full stop', unconditional) are now genuinely consistent, not just superficially similar -- both apply the same unconditional treatment to a non-flake failing e2e spec. Checked the mapping against task-qa-reviewer's own step 6 severity definitions (blocker = 'breaks the feature or contradicts Analyse.md/API.md'; major = 'works but missing required coverage/error-handling/tests'): a non-flake e2e failure, per the e2e-test skill's own step 4 definition ('the app's actual behavior changed and a spec's assertion is now correct-and-failing'), is the running app actually broken, which fits blocker's definition rather than major's -- so the flat-blocker mapping is a reasonable, well-reasoned choice, and the decisions entry recorded on this task documents the rejected alternative (a conditional escalation rule) and why. Backend pytest (99.86% cov, 573 passed), frontend vitest (99.69% stmts), ruff, mypy, eslint, tsc, and scripts/validate_tasks.py (125 tasks, no violations) all clean; a code-review pass found no correctness/reuse issues. No UI surface in this PR (agent instruction files + task JSON only) -- browser walkthrough and e2e-test skill run explicitly skipped for that reason. No checklist item phrased 'decide X' lacking a decisions entry. No stale pr_decision to clear. No non-blocking findings to track as a follow-up."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T02:26:34Z",
+    "verdict": "merge",
+    "notes": "Independently re-read pr-reviewer.md step 9a and task-qa-reviewer.md step 5a/6 myself: 5a now reads a blocker gap full stop unconditionally, matching 9a's unconditional review-blocking treatment, and both are consistent with step 6's own blocker definition (breaks the feature or contradicts Analyse.md/API.md) given the e2e-test skill's step 4/5 definition of a non-flake failure as a confirmed real regression. Re-ran backend pytest myself: 573 passed, 99.86% coverage, matching the review's reported numbers. Re-ran scripts/validate_tasks.py myself: 125 tasks validated, no violations, matching the review. Confirmed no human PR comments/reviews exist on #135 beyond the automation account's own accept."
+  }
+}
