@@ -3,7 +3,7 @@
   "title": "\"Indicator Seasons\" classification (Spring/Summer/Autumn/Winter) for MACD-Histogram",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/macd.py",
@@ -55,5 +55,11 @@
       "decision": "classify_season returns None (mapped to a nullable `season` field) only when fewer than 2 histogram points are available (or either of the last two is NaN) -- not for any other 'thin data' condition.",
       "rationale": "A slope needs at least two points to exist at all -- this is the minimum-possible warm-up (shorter than rsi's 9-day window or the Autoenvelope channel's ~100-bar window), so nullability follows the same established 'not enough history yet -> null, not a fabricated value' convention those two already use in the Indicators/IndicatorHistoryPoint schemas, just triggered by a much shorter and rarer condition (effectively only the very first daily bar of any real history)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-indicator-seasons",
+    "pr_number": 159,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/159",
+    "pushed_at": "2026-09-19T18:12:38Z"
+  }
 }
