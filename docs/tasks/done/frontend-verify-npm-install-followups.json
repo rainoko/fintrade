@@ -1,0 +1,67 @@
+{
+  "id": "frontend-verify-npm-install-followups",
+  "title": "Non-blocking follow-ups from PR #115 review (frontend-verify-npm-install)",
+  "area": "frontend/tooling",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-verify-npm-install"],
+  "references": [
+    "docs/tasks/done/frontend-verify-npm-install.json",
+    "https://github.com/rainoko/fintrade/pull/115"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #115 (frontend-verify-npm-install), which fixed the openapi-typescript/typescript npm peer conflict with a scoped `overrides` entry. Neither finding blocks the accept; both are tracked here so they aren't lost once PR #115's comments disappear on merge.",
+  "checklist": [
+    {
+      "step": "Add a short note near frontend/package.json's `overrides` entry (or in docs/architecture/Frontend.md's dependency table, next to the existing openapi-typescript row) explaining why the `openapi-typescript.typescript -> $typescript` override exists -- JSON has no comments, and the full rationale currently lives only in docs/tasks/done/frontend-verify-npm-install.json's decisions array, which a future contributor bumping openapi-typescript or typescript has no discoverable pointer to from the code itself.",
+      "done": true
+    },
+    {
+      "step": "Tighten the frontend-verify-npm-install task's decision-entry wording (or add a superseding decisions entry) that claims openapi-typescript 'genuinely works correctly against typescript@6.0.3 at runtime' -- that conclusion was verified via byte-identical regenerated output for the current backend/openapi.json schema only, which has no oneOf/allOf/readOnly/webhooks. pr-reviewer additionally traced openapi-typescript's compiled runtime dist and confirmed it genuinely require('typescript')s and calls real TS compiler-API surface (ts.createSourceFile, ts.factory.createNodeArray, ts.createPrinter().printFile) -- not a type-only, build-time-only relationship as the source's `import type ts from \"typescript\"` might suggest. Consider a one-time smoke test against a synthetic schema exercising oneOf/allOf/readOnly to fully close the verification gap, or at minimum rephrase the decision to scope the claim to what was actually exercised.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the `resolutions` entry's rationale in docs/architecture/Frontend.md's Key Dependencies section (§6), directly below the dependency table, rather than as a JSON comment-workaround inside frontend/package.json itself (e.g. a `//` or `_comment` pseudo-key). The new paragraph explains: the underlying npm ERESOLVE conflict and upstream tracking issue, the `$typescript` back-reference mechanism, that it was translated from npm's `overrides` to Yarn's `resolutions` syntax during migrate-yarn2, a pointer to migrate-yarn2-followups' open question about whether this specific entry still does anything under Yarn's peer-only resolution semantics, and a pointer to this task's own decisions for the fuller verification record.",
+      "rationale": "package.json is strict JSON with no comment syntax, and a `_comment`-style pseudo-key inside `resolutions` risks npm/Yarn misinterpreting it as a real resolution target (or a linter/schema flagging it) for no real discoverability gain over documenting it in the architecture doc most contributors already read when touching dependencies (§6 is literally titled Key Dependencies and already has the openapi-typescript row right above). Frontend.md is also the natural place to note the migrate-yarn2-era translation and the still-open no-op question, which a package.json comment couldn't cross-reference as naturally."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closed the verification gap with an actual one-time smoke test rather than only rephrasing the original claim: built a synthetic OpenAPI 3.1 schema exercising `oneOf` (a discriminated-union-shaped schema, `WidgetKind`), `allOf` (`Widget` composing a base + extension schema), `readOnly` properties (`BaseEntity.id`/`createdAt`), and a top-level `webhooks` object (`widgetUpdated`) -- none of which appear in backend/openapi.json. Ran the repo's installed `openapi-typescript@7.13.0` binary (frontend/node_modules/.bin/openapi-typescript) against it: generation succeeded with no errors, `oneOf` produced a TS union (`|`), `allOf` produced a TS intersection (`&`) of the composed schemas, `readOnly` produced `readonly` modifiers, and `webhooks` produced a separate `webhooks` interface alongside `paths` -- all semantically correct, not silently dropped or garbled. Then ran `tsc --strict --noEmit` (the project's own `typescript@6.0.3` binary) against the generated output: zero errors. This genuinely broadens the verified claim to cover the constructs the original PR #115 verification didn't exercise, so scoped the original decision-entry's wording down via this superseding entry rather than deleting/editing docs/tasks/done/frontend-verify-npm-install.json's text -- editing a done, merged task's decisions array after the fact would erase the accurate record of what was actually verified at that time (byte-identical regen against the real schema only). The corrected, now fully-scoped claim: openapi-typescript 7.13.0 generates semantically correct, `tsc --strict`-clean TypeScript under typescript@6.0.3 for both backend/openapi.json's actual feature footprint (verified via byte-identical regen, frontend-verify-npm-install) and the oneOf/allOf/readOnly/webhooks constructs it doesn't currently exercise (verified via this synthetic-schema smoke test) -- not just \"genuinely works correctly at runtime\" as an unscoped, exhaustive-sounding claim.",
+      "rationale": "Rejected doing nothing but rephrasing: a scoped-down claim alone leaves the actual behavior under those constructs unknown, and the synthetic schema was cheap to write and run (one ad hoc JSON fixture, two CLI invocations, no new permanent dependency or CI step) for real evidence instead of just weaker wording. Rejected committing the synthetic schema/generated output as a permanent fixture or vitest test: openapi-typescript is a dev-time codegen tool invoked manually against the committed backend/openapi.json snapshot, not exercised by the app's own runtime code path or the 90% coverage gate (CLAUDE.md's Testing standard governs app code, not tooling scripts), and backend/openapi.json is already regenerated-and-diffed on every real schema change per the API documentation standard -- a standing synthetic-schema test would be permanent maintenance burden for a construct-coverage question this one-time check (recorded here, reproducible from this decision's description) already answers. Rejected editing frontend-verify-npm-install's existing decision text directly: it accurately describes what was verified at the time it was written (byte-identical regen against the real schema, nothing more) and rewriting it after the fact would make a done, merged task's record read as if broader verification had already happened then, which it hadn't."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-verify-npm-install-followups",
+    "pr_number": 137,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/137",
+    "pushed_at": "2026-09-19T02:45:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:50:27Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/137",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "docs/architecture/Frontend.md §6's new resolutions paragraph states as unconditional fact that the $typescript back-reference \"forces\" openapi-typescript to resolve typescript against the root version, then in the same sentence-group hedges that whether it \"still does anything under Yarn's resolution semantics\" is an open question. Independently reproduced during this review: `yarn install` still emits `YN0060: typescript ... doesn't satisfy what openapi-typescript ... requests (^5.0.0)` even with the resolutions entry in place, consistent with migrate-yarn2-followups' own tracked \"likely a no-op\" finding. Non-blocking wording precision issue; filed as a checklist item on frontend-verify-npm-install-followups-followups.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      },
+      {
+        "summary": "The same paragraph's closing sentence points only to frontend-verify-npm-install-followups's decisions for \"the full verification record\", but the fresh-install-clean and byte-for-byte-identical regeneration evidence it also cites actually lives in the original (done) frontend-verify-npm-install task's decisions (PR #115), not this task's. Non-blocking cross-reference precision issue; filed as a checklist item on frontend-verify-npm-install-followups-followups.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      }
+    ],
+    "notes": "Docs-only PR (no application code touched): adds a paragraph to docs/architecture/Frontend.md §6 documenting the openapi-typescript/typescript -> $typescript resolutions entry, and records a superseding decisions entry broadening the runtime-verification claim via a one-time synthetic-schema smoke test. Verified independently rather than only trusting the claims: confirmed frontend/package.json's actual resolutions entry, typescript, and openapi-typescript versions match the doc exactly; confirmed openapi-typescript@7.13.0's published peerDependencies still pin ^5.x against the installed package; traced the npm overrides -> Yarn resolutions translation through git history (PR #115 b700c0f, migrate-yarn2 ac3c6e3) and confirmed the migrate-yarn2-followups open-question pointer is accurate; independently reproduced a lightweight version of the smoke test (a synthetic OpenAPI 3.1 schema exercising oneOf/allOf/readOnly, run through the repo's installed openapi-typescript@7.13.0, then tsc --strict --noEmit under the repo's installed typescript@6.0.3) -- both clean, matching the claimed results (oneOf -> TS union, allOf -> TS intersection, readOnly -> readonly modifiers). Also re-ran generate:api-types and confirmed src/api/types.ts is still byte-for-byte identical to the committed file, and confirmed yarn install completes with exit 0 despite the YN0060 peer warning (matching the doc's \"peer warning (Yarn)\" framing, not a hard failure). Full backend+frontend test suite and coverage: backend 578 passed, 99.87% coverage (term-missing, --cov-fail-under=90); frontend 49 files/344 tests passed, 99.69%/99.44%/100%/99.69% (statements/branches/functions/lines) -- both well above the 90% gate, no regression. Static analysis: backend ruff and mypy clean; frontend eslint and tsc -b --noEmit clean. No API route/schema touched (openapi.json snapshot check N/A). No frontend component added/changed (§7a placement check N/A). No new module/dependency/layer added (architecture-review not separately loaded; manually verified structural/doc-placement claims instead). No UI surface in this PR (docs + task-board JSON only) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both explicitly skipped, not silently omitted. Checklist cross-check: neither checklist item is phrased as \"decide X\"; both are marked done and each has a corresponding decisions entry recording what was done and why, satisfying CLAUDE.md's decision-memory rule. code-review skill (medium effort) found 2 non-blocking documentation-accuracy findings (contradictory \"forces\" wording vs. the tracked Yarn no-op open question; an imprecise decisions-array cross-reference) -- both independently confirmed valid, neither is a correctness bug/coverage regression/methodology-architecture violation/stale OpenAPI snapshot/missing decision record, so neither blocks. Filed both as checklist items on a new frontend-verify-npm-install-followups-followups task rather than only leaving them as PR comments."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T02:54:06Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself (backend: 578 passed, 99.87% coverage; frontend: 49 files/344 tests passed, 99.69%/99.44%/100%/99.69%) -- both match review exactly. Confirmed frontend/package.json's resolutions entry (\"openapi-typescript/typescript\": \"$typescript\") matches Frontend.md's new text verbatim, and independently reproduced the synthetic-schema smoke test myself (a fresh oneOf/allOf/readOnly OpenAPI 3.1 fixture run through the repo's installed openapi-typescript@7.13.0, then tsc --strict --noEmit under the repo's installed typescript@6.0.3): generation was clean and semantically correct (readonly modifiers, & intersection, | union) and tsc exited 0. Skimmed the full diff (Frontend.md + task board JSON only, no app code); the two non-blocking findings pr-reviewer filed (contradictory \"forces\" wording, imprecise cross-reference) are both correctly reflected in review.comments and mirrored onto frontend-verify-npm-install-followups-followups' checklist, and index.json's state/path mirror the docs/tasks/done/ move correctly. Accept holds."
+  }
+}
