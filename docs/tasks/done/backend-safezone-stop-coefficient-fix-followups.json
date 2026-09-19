@@ -3,7 +3,7 @@
   "title": "SafeZone coefficient fix — non-blocking review follow-up from PR #160",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-safezone-stop-coefficient-fix"],
   "references": [
     "docs/tasks/backend-safezone-stop-coefficient-fix.json#review",
@@ -33,5 +33,33 @@
     "pr_number": 163,
     "pr_url": "https://github.com/rainoko/fintrade/pull/163",
     "pushed_at": "2026-09-19T19:43:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T19:47:42Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/163",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified the updated docs/Analyse.md §7 wording (\"recent swing low minus 2× (or more) a volatility buffer ... this app uses the book's stated minimum of 2×\") and backend/app/api/schemas.py's RiskPosition.protective_stop description (\"Recent swing low minus 2x a volatility buffer\") directly against backend/app/portfolio/risk.py's actual code: _SAFEZONE_COEFFICIENT = 2.0 and `return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)` match exactly -- not just trusted the PR's own description.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 140
+      },
+      {
+        "summary": "Re-ran `python scripts/export_openapi.py` from backend/ against the checked-out branch and diffed the result against the committed backend/openapi.json -- byte-identical, confirming the snapshot is genuinely regenerated and in sync, not hand-edited. Diffed backend/openapi.json and frontend/src/api/types.ts against the prior commit and confirmed the only change in both is the protective_stop description string -- no field/type/shape change, consistent with the PR's own claim.",
+        "file": "backend/openapi.json",
+        "line": null
+      },
+      {
+        "summary": "Checked the PR's claimed precedent (\"portfolio-risk-rules' own decisions entry already leaves the window/EMA-period specifics out of Analyse.md\") against docs/tasks/done/portfolio-risk-rules.json's actual decisions array -- accurate: that task's first decisions entry does record a 10-day window and EMA(13) period as implementation choices not stated in Analyse.md §7, so the new decision's framing (coefficient is part of the formula's shape, not a tunable parameter like window/EMA period, hence treated differently) is a genuine, non-fabricated distinction rather than a misremembered citation.",
+        "file": "docs/tasks/backend-safezone-stop-coefficient-fix-followups.json",
+        "line": 27
+      },
+      {
+        "summary": "Full backend suite (backend/.venv/bin/pytest --cov=app --cov-report=term-missing): 740 passed, 99.92% overall coverage, risk.py and schemas.py both 100%. ruff check app/ and mypy both clean. Frontend: yarn tsc -b --noEmit and yarn lint both clean; yarn vitest run --coverage: one run hit a pre-existing PortfolioPage.test.tsx timeout flake under coverage-instrumentation load (passes in isolation and on a clean re-run: 492/492 passed, 99.68%+ coverage) -- this exact flake is already independently confirmed pre-existing/tracked (backend-indicator-seasons-followups) per PR #160's own review notes, not a new regression from this PR's doc-only diff. code-review skill (medium effort, run independently): no findings. scripts/validate_tasks.py: no violations across all 176 task files.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Purely a documentation/schema-description accuracy fix (PR #160's two tracked non-blocking findings) -- no functional code, route, or schema shape changed. No API route/schema signature changed (only a Field description string), so the openapi.json/types.ts regeneration was a courtesy per CLAUDE.md's standard (description text is part of the OpenAPI output) rather than a required-for-shape-change regeneration, and both are verified byte-correct. No new module/dependency/layer, so architecture-review was not needed. No frontend component touched (step 7a n/a) and no UI-facing surface at all -- no page/route/component changed, only doc prose and a schema description string with no runtime UI consumer, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) were explicitly skipped as genuinely not applicable rather than silently omitted. The task's one 'decide X'-shaped checklist item (whether Analyse.md §7 should state the coefficient) has a corresponding decisions entry recording the choice and rejected alternatives, satisfying CLAUDE.md's decision-memory requirement. No non-blocking findings this pass -- nothing new added to this task or a further followups task."
   }
 }
