@@ -1,0 +1,26 @@
+{
+  "id": "frontend-verify-npm-install-followups-followups",
+  "title": "Non-blocking follow-ups from PR #137 review (frontend-verify-npm-install-followups)",
+  "area": "frontend/tooling",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-verify-npm-install-followups"],
+  "references": [
+    "docs/tasks/done/frontend-verify-npm-install-followups.json",
+    "https://github.com/rainoko/fintrade/pull/137",
+    "docs/tasks/migrate-yarn2-followups.json"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #137 (frontend-verify-npm-install-followups), which added a paragraph to docs/architecture/Frontend.md §6 documenting the openapi-typescript/typescript -> $typescript resolutions entry and ran a synthetic-schema smoke test broadening the runtime-verification claim. Neither finding blocks the accept (both are wording/cross-reference precision issues in documentation, not correctness bugs); both are tracked here so they aren't lost once PR #137's comments disappear on merge.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Frontend.md §6's new resolutions paragraph states as unconditional fact that the `$typescript` back-reference \"forces\" openapi-typescript to resolve typescript against the root version, then in the same sentence-group hedges that whether the entry \"still does anything under Yarn's resolution semantics\" is an open question -- the two claims sit in tension. docs/tasks/migrate-yarn2-followups.json's own still-open checklist item records that under Yarn, typescript is only a peerDependency of openapi-typescript (not a real dependency edge), so `resolutions` -- which only rewrites real edges -- is 'likely a no-op', and that peer resolution 'already converges on a single top-level typescript@6.0.3 without it' per migrate-yarn2's own verification. Independently reproduced during this review: `yarn install` still emits `YN0060: typescript ... doesn't satisfy what openapi-typescript ... requests (^5.0.0)` even with the resolutions entry in place, consistent with the entry not actually suppressing/redirecting anything under Yarn's peer-only semantics. Tighten the paragraph's wording so it doesn't assert 'forces' as settled fact when the entry's actual effect under Yarn is an open, tracked question -- e.g. scope the 'forces' language to the original npm `overrides` mechanism (PR #115) and describe the current Yarn `resolutions` translation more conditionally.",
+      "done": false
+    },
+    {
+      "step": "The same paragraph's closing sentence bundles three verification claims (fresh install is clean; generate:api-types regenerates byte-for-byte identical output; the synthetic oneOf/allOf/readOnly/webhooks smoke test is clean) and then points only to `frontend-verify-npm-install-followups`'s decisions for 'the full verification record'. The fresh-install-clean and byte-for-byte-identical evidence actually lives in the original (done) `frontend-verify-npm-install` task's decisions (PR #115), not the followups task's -- a reader following the given pointer for that part of the claim won't find it there. Either point to both tasks' decisions, or split the sentence so each claim's evidence is attributed to the task that actually recorded it.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

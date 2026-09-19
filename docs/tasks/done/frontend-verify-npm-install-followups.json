@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #115 review (frontend-verify-npm-install)",
   "area": "frontend/tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-verify-npm-install"],
   "references": [
     "docs/tasks/done/frontend-verify-npm-install.json",
@@ -40,5 +40,23 @@
     "pr_number": 137,
     "pr_url": "https://github.com/rainoko/fintrade/pull/137",
     "pushed_at": "2026-09-19T02:45:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T02:50:27Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/137",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "docs/architecture/Frontend.md §6's new resolutions paragraph states as unconditional fact that the $typescript back-reference \"forces\" openapi-typescript to resolve typescript against the root version, then in the same sentence-group hedges that whether it \"still does anything under Yarn's resolution semantics\" is an open question. Independently reproduced during this review: `yarn install` still emits `YN0060: typescript ... doesn't satisfy what openapi-typescript ... requests (^5.0.0)` even with the resolutions entry in place, consistent with migrate-yarn2-followups' own tracked \"likely a no-op\" finding. Non-blocking wording precision issue; filed as a checklist item on frontend-verify-npm-install-followups-followups.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      },
+      {
+        "summary": "The same paragraph's closing sentence points only to frontend-verify-npm-install-followups's decisions for \"the full verification record\", but the fresh-install-clean and byte-for-byte-identical regeneration evidence it also cites actually lives in the original (done) frontend-verify-npm-install task's decisions (PR #115), not this task's. Non-blocking cross-reference precision issue; filed as a checklist item on frontend-verify-npm-install-followups-followups.",
+        "file": "docs/architecture/Frontend.md",
+        "line": 150
+      }
+    ],
+    "notes": "Docs-only PR (no application code touched): adds a paragraph to docs/architecture/Frontend.md §6 documenting the openapi-typescript/typescript -> $typescript resolutions entry, and records a superseding decisions entry broadening the runtime-verification claim via a one-time synthetic-schema smoke test. Verified independently rather than only trusting the claims: confirmed frontend/package.json's actual resolutions entry, typescript, and openapi-typescript versions match the doc exactly; confirmed openapi-typescript@7.13.0's published peerDependencies still pin ^5.x against the installed package; traced the npm overrides -> Yarn resolutions translation through git history (PR #115 b700c0f, migrate-yarn2 ac3c6e3) and confirmed the migrate-yarn2-followups open-question pointer is accurate; independently reproduced a lightweight version of the smoke test (a synthetic OpenAPI 3.1 schema exercising oneOf/allOf/readOnly, run through the repo's installed openapi-typescript@7.13.0, then tsc --strict --noEmit under the repo's installed typescript@6.0.3) -- both clean, matching the claimed results (oneOf -> TS union, allOf -> TS intersection, readOnly -> readonly modifiers). Also re-ran generate:api-types and confirmed src/api/types.ts is still byte-for-byte identical to the committed file, and confirmed yarn install completes with exit 0 despite the YN0060 peer warning (matching the doc's \"peer warning (Yarn)\" framing, not a hard failure). Full backend+frontend test suite and coverage: backend 578 passed, 99.87% coverage (term-missing, --cov-fail-under=90); frontend 49 files/344 tests passed, 99.69%/99.44%/100%/99.69% (statements/branches/functions/lines) -- both well above the 90% gate, no regression. Static analysis: backend ruff and mypy clean; frontend eslint and tsc -b --noEmit clean. No API route/schema touched (openapi.json snapshot check N/A). No frontend component added/changed (§7a placement check N/A). No new module/dependency/layer added (architecture-review not separately loaded; manually verified structural/doc-placement claims instead). No UI surface in this PR (docs + task-board JSON only) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both explicitly skipped, not silently omitted. Checklist cross-check: neither checklist item is phrased as \"decide X\"; both are marked done and each has a corresponding decisions entry recording what was done and why, satisfying CLAUDE.md's decision-memory rule. code-review skill (medium effort) found 2 non-blocking documentation-accuracy findings (contradictory \"forces\" wording vs. the tracked Yarn no-op open question; an imprecise decisions-array cross-reference) -- both independently confirmed valid, neither is a correctness bug/coverage regression/methodology-architecture violation/stale OpenAPI snapshot/missing decision record, so neither blocks. Filed both as checklist items on a new frontend-verify-npm-install-followups-followups task rather than only leaving them as PR comments."
   }
 }
