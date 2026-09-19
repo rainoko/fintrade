@@ -20,6 +20,7 @@ export type IndicatorHistoryPoint = components['schemas']['IndicatorHistoryPoint
 export type SupportResistanceZone = components['schemas']['SupportResistanceZone']
 export type FalseBreakoutOut = components['schemas']['FalseBreakoutOut']
 export type DivergenceOut = components['schemas']['DivergenceOut']
+export type KangarooTailOut = components['schemas']['KangarooTailOut']
 
 export interface GetStockHistoryParams {
   /**

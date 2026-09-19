@@ -7,6 +7,7 @@ import type {
   DivergenceOut,
   HistoryResponse,
   IndicatorHistoryResponse,
+  KangarooTailOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
@@ -327,6 +328,37 @@ const barsSpanningDivergence: HistoryResponse = {
   bars: [
     { date: '2026-08-03', open: 212.0, high: 213.0, low: 209.8, close: 210.5, volume: 40123000 },
     { date: '2026-08-31', open: 207.0, high: 208.0, low: 204.6, close: 205.2, volume: 42456000 },
+    ...twoBars.bars,
+  ],
+}
+
+// A plausible, hand-computed bearish (upward-pointing) Kangaroo Tail
+// fixture (frontend-kangaroo-tail-markers): suggested_stop is the bar's own
+// high-low midpoint, (233.0 + 220.66) / 2 = 226.83, matching the backend's
+// own `suggested_stop` formula (see the backend-kangaroo-tail-pattern
+// task's decisions) -- not asserting anything about how the backend itself
+// would compute it, just a schema-valid fixture with internally-consistent
+// numbers.
+const upwardKangarooTail: KangarooTailOut = {
+  direction: 'up',
+  tail_date: '2026-08-15',
+  confirmed_date: '2026-08-16',
+  high: 233.0,
+  low: 220.66,
+  range_multiple: 2.8,
+  suggested_stop: 226.83,
+}
+
+// Bars spanning `upwardKangarooTail`'s own `tail_date` (2026-08-15) --
+// same "windowing needs bars covering the fixture's own date" rationale as
+// `barsSpanningDivergence` above. The 2026-08-15 bar's own open/close
+// (228.0/222.5) is what `kangarooTailHelp.interpretValue`'s legend reads
+// via `PriceChart.tsx`'s `kangarooTailBar` lookup.
+const barsSpanningKangarooTail: HistoryResponse = {
+  ticker: 'AAPL',
+  interval: 'daily',
+  bars: [
+    { date: '2026-08-15', open: 228.0, high: 233.0, low: 220.66, close: 222.5, volume: 40000000 },
     ...twoBars.bars,
   ],
 }
@@ -1759,6 +1791,190 @@ describe('PriceChart', () => {
       expect(
         screen.getByText(/isn’t drawn on the chart right now/),
       ).toBeInTheDocument()
+    })
+  })
+
+  describe('kangaroo tail overlay (frontend-kangaroo-tail-markers)', () => {
+    it('draws a square marker at the tail bar itself plus a dashed suggested-stop price line, distinct from every other marker type', async () => {
+      mockHistory(barsSpanningKangarooTail)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+
+      // Distinct `square` shape -- BUY/SELL use `arrowUp`/`arrowDown`,
+      // divergence uses `circle`, false breakouts use `arrowDown`/`arrowUp`.
+      const kangarooTailMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'square'),
+      )
+      expect(kangarooTailMarkersCall).toBeDefined()
+      const markers = kangarooTailMarkersCall?.[1] as {
+        time: string
+        position: string
+        shape: string
+        text: string
+      }[]
+      expect(markers).toEqual([
+        {
+          time: '2026-08-15',
+          position: 'aboveBar',
+          shape: 'square',
+          color: expect.any(String),
+          text: 'Kangaroo Tail (bearish)',
+        },
+      ])
+
+      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      expect(createPriceLineMock).toHaveBeenCalledWith(
+        expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
+      )
+    })
+
+    it('positions a downward (bullish) tail marker belowBar', async () => {
+      mockHistory(barsSpanningKangarooTail)
+      mockAnalysis([], {
+        kangaroo_tail: { ...upwardKangarooTail, direction: 'down' },
+      })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+
+      const kangarooTailMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).every((marker) => marker.shape === 'square'),
+      )
+      const markers = kangarooTailMarkersCall?.[1] as {
+        position: string
+        text: string
+      }[]
+      expect(markers).toEqual([
+        expect.objectContaining({ position: 'belowBar', text: 'Kangaroo Tail (bullish)' }),
+      ])
+    })
+
+    it('draws nothing when there is no currently confirmed Kangaroo Tail', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([], { kangaroo_tail: null })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalled())
+
+      expect(
+        screen.queryByRole('button', { name: 'Kangaroo Tail help' }),
+      ).not.toBeInTheDocument()
+      const kangarooTailMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).some((marker) => marker.shape === 'square'),
+      )
+      expect(kangarooTailMarkersCall).toBeUndefined()
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+    })
+
+    it("shows the Kangaroo Tail legend with MetricHelp content using this tail's own actual numbers (range vs. average, open/close vs. the extreme, suggested stop)", async () => {
+      const user = userEvent.setup()
+      mockHistory(barsSpanningKangarooTail)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(screen.getByText('Kangaroo Tail')).toBeInTheDocument())
+
+      await user.click(screen.getByRole('button', { name: 'Kangaroo Tail help' }))
+
+      expect(screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/)).toBeInTheDocument()
+      // The bar's own range (233.00 - 220.66 = 12.34) vs. the ~4.41 recent
+      // average implied by range_multiple 2.8.
+      expect(screen.getByText(/12.34/)).toBeInTheDocument()
+      expect(screen.getByText(/~4.41 average range/)).toBeInTheDocument()
+      // Open/close from the actual OHLCV bar found by date, not from
+      // KangarooTailOut itself (which only exposes high/low).
+      expect(screen.getByText(/228.00/)).toBeInTheDocument()
+      expect(screen.getByText(/222.50/)).toBeInTheDocument()
+      expect(screen.getByText(/Suggested stop: 226.83/)).toBeInTheDocument()
+    })
+
+    it('removes the previous marker/price line and adds new ones when the tail changes', async () => {
+      mockHistory(barsSpanningKangarooTail)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
+
+      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      expect(createPriceLineMock).toHaveBeenCalledWith(
+        expect.objectContaining({ price: 226.83, title: 'Kangaroo Tail stop' }),
+      )
+
+      const otherTail: KangarooTailOut = {
+        ...upwardKangarooTail,
+        direction: 'down',
+        suggested_stop: 224.5,
+      }
+      mockAnalysis([], { kangaroo_tail: otherTail })
+      await queryClient.invalidateQueries({ queryKey: stocksKeys.analysis('AAPL') })
+
+      await waitFor(() =>
+        expect(createPriceLineMock).toHaveBeenCalledWith(
+          expect.objectContaining({ price: 224.5, title: 'Kangaroo Tail stop' }),
+        ),
+      )
+      // The candlestick chart itself was never recreated for an
+      // analysis-only refetch...
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+      // ...but the stale marker plugin/price line were torn down before the
+      // new ones were added.
+      expect(detachMarkersMock).toHaveBeenCalled()
+      expect(removePriceLineMock).toHaveBeenCalled()
+    })
+
+    it('does not draw the marker/price line when the tail date falls outside the currently visible bar range', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalled())
+
+      const kangarooTailMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).some((marker) => marker.shape === 'square'),
+      )
+      expect(kangarooTailMarkersCall).toBeUndefined()
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+    })
+
+    it('still shows the Kangaroo Tail legend (noting it is not in the current range) when the tail date falls outside the currently visible bar range', async () => {
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([], { kangaroo_tail: upwardKangarooTail })
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(screen.getByText(/Kangaroo Tail/)).toBeInTheDocument())
+      expect(screen.getByText('Kangaroo Tail (not in current range)')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Kangaroo Tail help' }))
+
+      expect(screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/)).toBeInTheDocument()
+      expect(screen.getByText(/isn't marked on the chart right now/)).toBeInTheDocument()
     })
   })
 })

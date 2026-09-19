@@ -1,6 +1,8 @@
 import type {
   DivergenceOut,
   FalseBreakoutOut,
+  HistoryResponse,
+  KangarooTailOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
@@ -612,5 +614,66 @@ export const divergenceHelp = {
       ? ''
       : ` This divergence isn’t drawn on the chart right now -- its own dates (${divergence.first_extreme_date} to ${divergence.second_extreme_date}) fall outside the currently selected range. Switch to a wider range (e.g. 1Y or Max) to see it plotted.`
     return `${kindLabel} ${indicatorLabel} divergence, comparing two successive price ${swingLabel}: ${first} vs ${second}. ${validityClause} ${spacingClause} Implies ${implication}.${abortedClause}${rangeClause}`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Kangaroo Tail overlay (PriceChart.tsx, frontend-kangaroo-tail-markers)
+// ---------------------------------------------------------------------------
+
+export const kangarooTailHelp = {
+  metricLabel: 'Kangaroo Tail',
+  definition:
+    'A 3-bar reversal pattern (Elder ch. 20, "fingers"): a single bar whose range is roughly 2.5x the recent average, protruding from a tight recent range, where the close ends up back near the open -- not at the tip the bar spiked to -- flanked by two bars of normal height.',
+  elderContext:
+    'An upward-pointing tail (a new high, closing back down) is a bearish reversal signal; a downward-pointing tail (a new low, closing back up) is bullish. Elder\'s explicit stop-placement rule is halfway through the tail -- not at its tip (too wide) or its base (too tight). This app requires the very next bar to confirm the reversal (closing beyond the tail\'s own close, in the implied direction) before ever reporting a tail at all -- an unconfirmed shape-only candidate is never shown (docs/Analyse.md row 13).',
+  /**
+   * `tailBar` -- the tail bar's own `open`/`close`, looked up by
+   * `tail.tail_date` from the currently-fetched `/history` bars (`bars` in
+   * `PriceChart.tsx`), since `KangarooTailOut` itself only exposes
+   * `high`/`low` (the backend detection algorithm never needed open/close
+   * -- see the `backend-kangaroo-tail-pattern` task's `decisions`), but this
+   * task's own explanation requirement ("why the close snapping back to the
+   * open matters... using this ticker's own actual numbers") needs both.
+   * `undefined` whenever the tail bar's date isn't covered by the currently
+   * selected range/interval (a genuinely different situation from
+   * `inVisibleRange` below -- `tailBar` can be missing even when the tail
+   * IS in range, on a first render before `/history` resolves) -- degrades
+   * to describing the pattern from `high`/`low`/`range_multiple`/
+   * `suggested_stop` alone rather than omitting the explanation entirely.
+   *
+   * `inVisibleRange` -- same convention as `divergenceHelp.interpretValue`'s
+   * own parameter: whether `tail.tail_date` falls within the chart's
+   * currently selected/visible bar range (see `isKangarooTailInRange`,
+   * `PriceChart.tsx`). Defaults to `true` so callers that don't care about
+   * range-windowing (this file's own tests) don't need to think about it.
+   */
+  interpretValue(
+    tail: KangarooTailOut | null,
+    tailBar: HistoryResponse['bars'][number] | undefined,
+    inVisibleRange = true,
+  ): string {
+    if (!tail) {
+      return 'No currently confirmed Kangaroo Tail pattern detected for this ticker.'
+    }
+    const directionLabel =
+      tail.direction === 'up' ? 'Bearish (upward-pointing)' : 'Bullish (downward-pointing)'
+    const barRange = tail.high - tail.low
+    const avgRange = tail.range_multiple > 0 ? barRange / tail.range_multiple : barRange
+    const rangeClause = `On ${tail.tail_date}, this bar's own range was ${barRange.toFixed(2)} (high ${tail.high.toFixed(2)}, low ${tail.low.toFixed(2)}) -- ${tail.range_multiple.toFixed(1)}x the ~${avgRange.toFixed(2)} average range of the preceding 10 trading days, well beyond the 2.5x this pattern requires.`
+    const oppositeExtremeLabel = tail.direction === 'up' ? 'low' : 'high'
+    const spikeExtremeLabel = tail.direction === 'up' ? 'high' : 'low'
+    const bodyClause =
+      tailBar != null
+        ? ` Its open (${tailBar.open.toFixed(2)}) and close (${tailBar.close.toFixed(2)}) both snapped back into the half of that range nearest the ${oppositeExtremeLabel} -- not the new ${spikeExtremeLabel} the bar actually spiked to -- which is exactly what separates a Kangaroo Tail from an ordinary big trend day.`
+        : ''
+    const confirmClause = ` Confirmed on ${tail.confirmed_date}, when the very next bar's own close continued ${tail.direction === 'up' ? 'below' : 'above'} this bar's close -- the hard confirmation gate this pattern requires before it's ever reported at all.`
+    const tip = tail.direction === 'up' ? tail.high : tail.low
+    const base = tail.direction === 'up' ? tail.low : tail.high
+    const stopClause = ` Suggested stop: ${tail.suggested_stop.toFixed(2)} -- halfway through the tail (this bar's own high-low midpoint), not at the tip (${tip.toFixed(2)}, too wide) or the base (${base.toFixed(2)}, too tight).`
+    const rangeVisibilityClause = inVisibleRange
+      ? ''
+      : ` This tail isn't marked on the chart right now -- ${tail.tail_date} falls outside the currently selected range. Switch to a wider range (e.g. 1Y or Max) to see it plotted.`
+    return `${directionLabel} Kangaroo Tail. ${rangeClause}${bodyClause}${confirmClause}${stopClause}${rangeVisibilityClause}`
   },
 }

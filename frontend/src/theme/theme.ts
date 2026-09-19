@@ -29,6 +29,9 @@ declare module '@mui/material/styles' {
       autumn: string
       winter: string
     }
+    kangarooTail: {
+      main: string
+    }
   }
 
   interface PaletteOptions {
@@ -49,6 +52,9 @@ declare module '@mui/material/styles' {
       summer: string
       autumn: string
       winter: string
+    }
+    kangarooTail?: {
+      main: string
     }
   }
 }
@@ -103,6 +109,17 @@ export const theme = createTheme({
       summer: '#f9a825',
       autumn: '#b8622e',
       winter: '#5e92c7',
+    },
+    // Kangaroo Tail markers (PriceChart.tsx, frontend-kangaroo-tail-markers)
+    // -- deliberately its own color, distinct from every other marker/line
+    // already on this chart: `signal.buy`/`signal.sell` (BUY/SELL
+    // transitions), `divergence.main` (teal, divergence), `warning.main`
+    // (amber, false breakouts), and `info.main` (channel/value-zone). A
+    // magenta hue reads as unambiguously different from all of those at a
+    // glance -- the whole point of this task's "distinct from every other
+    // marker type already present" requirement.
+    kangarooTail: {
+      main: '#ad1457',
     },
   },
   typography: {

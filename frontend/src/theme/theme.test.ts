@@ -40,4 +40,14 @@ describe('theme', () => {
       expect(color).not.toBe(hold)
     })
   })
+
+  it('defines a Kangaroo Tail marker color distinct from every other marker/line color already used on PriceChart (frontend-kangaroo-tail-markers)', () => {
+    const { main } = theme.palette.kangarooTail
+    expect(main).toMatch(/^#/)
+    expect(main).not.toBe(theme.palette.signal.buy)
+    expect(main).not.toBe(theme.palette.signal.sell)
+    expect(main).not.toBe(theme.palette.divergence.main)
+    expect(main).not.toBe(theme.palette.warning.main)
+    expect(main).not.toBe(theme.palette.info.main)
+  })
 })

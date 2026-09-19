@@ -3,7 +3,7 @@
   "title": "Mark Kangaroo Tail patterns on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-kangaroo-tail-pattern"
   ],
@@ -15,19 +15,57 @@
   "checklist": [
     {
       "step": "Design a distinct marker for Kangaroo Tail bars (direction-aware: bearish vs. bullish reversal), placed at the tail bar itself.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement on PriceChart.tsx.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp/InfoBalloon content explaining the pattern concretely (this bar's range vs. the recent average, why the close snapping back to the open matters, the suggested halfway-through-the-tail stop) using this ticker's own actual numbers, not a generic definition.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T20:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Marker: a `square` shape (the one `SeriesMarkerShape` this chart doesn't already use for BUY/SELL `arrowUp`/`arrowDown`, divergence `circle`, or false-breakout `arrowDown`/`arrowUp`), in a new dedicated `theme.palette.kangarooTail.main` magenta (`#ad1457`), positioned `aboveBar` for an `'up'` (bearish) tail and `belowBar` for a `'down'` (bullish) one -- i.e. on the side the tail bar itself physically points toward (its own new high/low), not the side of the implied reversal the way `buildFalseBreakoutMarkers`'s arrow does. Also draws a dashed `createPriceLine` at `suggested_stop` labeled 'Kangaroo Tail stop', same treatment as the false-breakout stop line.",
+      "rationale": "The task calls for a marker 'distinct from every other marker type already present' -- `square` is the only shape not already claimed, and a brand-new palette color (rather than reusing `warning.main`/`divergence.main`/`info.main`, all already meaningfully attached to a different overlay on this same chart) keeps the visual vocabulary unambiguous, verified with a dedicated `theme.test.ts` case asserting the new color differs from every one of those. Positioning at the tail's own physical side (rather than mirroring false breakout's 'mark the reversal side' convention) reads more naturally here: the marker sits directly at/above the pattern itself (the unusual bar), not at a separate later confirmation point the way a false breakout's marker sits at its own `reentry_date`, which is a genuinely different bar than the breakout itself. Rejected alternatives: reusing `circle` with a different color (rejected -- shape reuse would read as 'another divergence-like thing' at a glance, undermining the distinctness requirement); a custom SVG/plugin-based marker (rejected as unjustified complexity when the library's own 4-shape enum has an unclaimed option)."
+    },
+    {
+      "timestamp": "2026-09-19T20:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Windowed to the currently visible bar range via a new `isKangarooTailInRange(tail, firstDate, lastDate)` (single-date check, `tail.tail_date >= firstDate && tail.tail_date <= lastDate`) -- both the marker and the `suggested_stop` price line are omitted entirely (not drawn at all, not drawn-but-clipped) whenever the tail's own date falls outside the current range/interval selection, exactly mirroring `isDivergenceInRange`'s established pattern (PR #152/#158) for the same axis-distortion-avoidance reason.",
+      "rationale": "This session's own explicit instruction (and this batch's repeated PR #152/#158 history) flags this exact failure class -- an unwindowed time-anchored overlay stretches Lightweight Charts' time scale to cover a far-away point, squashing the real candlestick content. Unlike a 2-point divergence line, a single-bar marker/price-line has no 'partially in range' state to reason about -- one date is either in the visible window or it isn't -- so the check is simpler than `isDivergenceInRange`'s two-extremes-both-required test, but the same 'omit the whole overlay for this render, not just clip it' response applies. The price line is included in the same windowing gate (not drawn unconditionally the way `series.createPriceLine` calls elsewhere on this chart sometimes are) because an out-of-range price line would still render at its own price level with no corresponding visible bar to anchor it to, which reads as orphaned/confusing rather than simply absent."
+    },
+    {
+      "timestamp": "2026-09-19T20:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The tail bar's own `open`/`close` (needed for the 'why the close snapping back to the open matters' explanation, per this task's own description) are looked up from the currently-fetched `/history` bars by matching `tail.tail_date` against each bar's `date` (`kangarooTailBar` in `PriceChart.tsx`), rather than requesting a backend schema change to add `open`/`close` fields to `KangarooTailOut`. `kangarooTailHelp.interpretValue` (`metricHelpContent.ts`) accepts this looked-up bar as an optional parameter and degrades gracefully (describing the pattern from `high`/`low`/`range_multiple`/`suggested_stop` alone, omitting the open/close sentence) when it's `undefined` -- which happens whenever the tail's date isn't covered by the currently selected range/interval, a genuinely different condition from `isKangarooTailInRange` (the bar can be missing on a first render before `/history` resolves even when the tail IS in range).",
+      "rationale": "`KangarooTailOut` (per the `backend-kangaroo-tail-pattern` task's own decisions) deliberately exposes only what its *detection* algorithm needed (`high`/`low`, not `open`/`close` -- the shape-matching test only ever reads range/retracement-from-extreme, computed from high/low plus the body-position check documented there) -- reopening that schema for a field the backend detection logic itself never needed would be scope creep onto an already-reviewed, merged task, and the exact same `open`/`close` values are already available for free from `/history`, a query this component already makes. The graceful degradation (rather than requiring `tailBar` and hiding the whole explanation when it's missing) means the legend/balloon still explains something concrete (the range-vs-average comparison, the stop) even when a user is looking at a shorter preset that happens not to include the tail bar's own row in the currently-fetched `/history` response, rather than going silent. Rejected alternative: request a `KangarooTailOut.open`/`.close` addition as a blocking prerequisite on the already-`done`/merged backend task -- rejected as unnecessary backend churn for data this component can derive itself from an endpoint it already calls."
+    },
+    {
+      "timestamp": "2026-09-19T20:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The Kangaroo Tail legend row stays visible (naming the real, current tail) even when `kangarooTailInVisibleRange` is `false`, with `kangarooTailHelp.interpretValue`'s own out-of-range clause explaining why nothing is currently drawn -- the same convention `divergenceHelp`'s legend already uses, not the support/resistance zone legend's 'hide the row entirely once nothing survives the relevance filter' convention.",
+      "rationale": "Matches this task's own closest sibling precedent exactly: like a divergence, a confirmed Kangaroo Tail is a single, real, currently-qualifying pattern for this ticker whose out-of-range-ness is a temporary range-selection artifact, not a permanent exclusion the way a zone failing `isZoneRelevant`'s price-distance filter is (that zone was excluded because it's judged not relevant to the current price at all, a standing fact about the zone, not the range). Hiding the Kangaroo Tail legend row entirely at e.g. the 1M preset would read as 'no tail detected for this ticker' rather than the true 'a tail exists, just not in this window', which is worse information for a user than a dimmed row with an explicit note."
+    },
+    {
+      "timestamp": "2026-09-19T20:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No click-to-explain `AnchoredInfoBalloon` was added for the Kangaroo Tail marker itself (unlike divergence's marker-click balloon) -- the legend row's own `MetricHelp` affordance is the only way to open the explanation.",
+      "rationale": "The task's own checklist only requires 'MetricHelp/InfoBalloon content ... using this ticker's own actual numbers', which the legend's `MetricHelp` already fully satisfies (same content, same numbers, reachable in one click) -- divergence's additional marker-click path exists because a divergence is drawn as two separate markers plus a connecting line spanning a wide date range, where clicking directly on either extreme is a meaningfully different, more precise interaction than the legend row for a user already looking at that part of the chart; a Kangaroo Tail is a single marker at a single bar, so the legend's own help icon is already exactly as close to the marker as a second click-affordance would be, making a second interaction path redundant complexity rather than added value. Rejected alternative: add `chart.subscribeClick`/`AnchoredInfoBalloon` wiring mirroring divergence's -- rejected as unjustified surface-area growth (a second click-handling effect, a second balloon-anchor state variable) for no real gain in discoverability over the existing legend-only pattern support/resistance zones and false breakouts already use successfully."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-kangaroo-tail-markers",
+    "pr_number": null,
+    "pr_url": null,
+    "pushed_at": null
+  }
 }
