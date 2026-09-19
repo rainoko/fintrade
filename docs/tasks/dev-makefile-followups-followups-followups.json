@@ -24,5 +24,11 @@
       "rationale": "The task explicitly calls for a visible correction, not a silent overwrite, matching the precedent already set by the 2026-09-19 correction of the 'reflects whichever sub-target failed' overstatement in the same decisions[1] entry. Editing the earlier correction's own wording in place would erase the record of what it originally said and why it needed fixing, which is exactly what the decision-memory rule (CLAUDE.md, 'Decision memory') and this task's own instructions are guarding against. The new correction clarifies that `wait -n $$bpid $$fpid` returns on either sub-make exiting for any reason (including a clean 0-exit), not only on a failure -- verified empirically via an equivalent scratch Makefile reproducing the same `wait -n` semantics described in the PR #139 review finding. No code change was needed: `make dev`'s actual runtime behavior was never claimed to be different anywhere except in this one sentence's phrasing, so this is purely a task-board wording fix."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/dev-makefile-followups-followups-followups",
+    "pr_number": 140,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/140",
+    "pushed_at": "2026-09-19T03:21:33Z"
+  }
 }
