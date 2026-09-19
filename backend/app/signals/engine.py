@@ -255,7 +255,11 @@ def analyse(
        of each recomputing its own copy (see this task's `decisions` entry).
     3. Screen 2 (Wave) -- ``evaluate_wave(daily_ohlcv, tide)``, today's bar, plus a lookback
        over the last few bars for the "shows/showed" case (see ``_wave_lookback``, which
-       computes both in a single pass).
+       computes both in a single pass). ``screens["wave"]`` exposes the lookback booleans
+       themselves as ``showed_pullback_in_lookback``/``showed_rally_in_lookback`` (null when
+       ``tide == "NEUTRAL"``, real booleans otherwise) alongside today's own ``state`` -- see
+       the ``screens`` dict construction below and docs/tasks/api-stocks-analysis-wave-lookback
+       .json's `decisions` entry.
     4. Screen 3 (Trigger) -- ``evaluate_trigger(daily_ohlcv, tide)``, today's bar.
 
     then combines them into BUY/SELL/HOLD (``_determine_signal``) and, for a fresh BUY/SELL
@@ -367,7 +371,28 @@ def analyse(
             "weekly_macd_histogram_slope": tide_result.weekly_macd_histogram_slope,
         },
         "impulse": impulse,
-        "wave": wave,
+        "wave": {
+            **wave,
+            # `_wave_lookback`'s own booleans, plumbed straight through rather than
+            # recomputed (it already computes both internally to feed `_determine_signal`
+            # above) -- see docs/tasks/api-stocks-analysis-wave-lookback.json's `decisions`
+            # entry for why these are exposed at all (so a client explaining a signal, e.g.
+            # frontend-signal-why-explanation's SignalExplanation, can distinguish "the Wave
+            # condition was met on an earlier day within the lookback window" from "it was
+            # never met" -- both otherwise look identical via `state` alone) and for the
+            # null-only-when-Neutral-tide shape chosen here: when `tide == "NEUTRAL"`,
+            # `_wave_lookback` always returns `(False, False)` for both booleans since
+            # neither is ever evaluated (Wave is read against a tide direction that doesn't
+            # exist), so `False` there would misleadingly read as "checked, and it didn't
+            # happen" rather than "not applicable, tide is Neutral". For a directional tide,
+            # both fields are real (non-null) booleans -- including the direction that's
+            # structurally always `False` for that tide (e.g. `showed_rally_in_lookback`
+            # when tide is BULLISH) -- since that `False` is itself meaningful (matches
+            # `_wave_lookback`'s own always-False-for-the-unreachable-direction contract),
+            # not just a placeholder.
+            "showed_pullback_in_lookback": None if tide == "NEUTRAL" else wave_showed_pullback,
+            "showed_rally_in_lookback": None if tide == "NEUTRAL" else wave_showed_rally,
+        },
         "trigger": trigger,
     }
 

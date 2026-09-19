@@ -41,7 +41,7 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
   "screens": {
     "tide": { "trend": "BULLISH", "weekly_macd_histogram_slope": "rising" },
     "impulse": "GREEN",
-    "wave": { "stochastic_k": 24.3, "force_index_2ema": -18234.5, "state": "OVERSOLD_PULLBACK" },
+    "wave": { "stochastic_k": 24.3, "force_index_2ema": -18234.5, "state": "OVERSOLD_PULLBACK", "showed_pullback_in_lookback": true, "showed_rally_in_lookback": false },
     "trigger": { "fired": true, "reference": "close_above_prior_high" }
   },
   "confidence_breakdown": [
@@ -62,6 +62,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 ```
 
 `signal` ∈ `BUY | SELL | HOLD`. `confidence` is an integer 0–100. `confidence_band` ∈ `Low | Medium | High` per Analyse.md §6.
+
+`screens.wave.state` reflects only *today's* bar. `_determine_signal` (Analyse.md §5) actually gates a fresh BUY/SELL on whether the qualifying state appeared on *any* of the last 5 trading days ("Wave shows/showed..."), not just today — `showed_pullback_in_lookback`/`showed_rally_in_lookback` expose that lookback result directly, so a client can tell "the condition was met on an earlier day within the window" apart from "it was never met at all", which `state` alone can't distinguish. Both are `null` when `screens.tide.trend` is `NEUTRAL` (Wave is never evaluated against a direction in that case); otherwise both are real booleans, including the direction that's structurally always `false` for the current tide.
 
 ### `GET /api/stocks/{ticker}/indicators`
 

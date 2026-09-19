@@ -58,7 +58,13 @@ const analysisFixture: AnalysisResponse = {
   screens: {
     tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
     impulse: 'GREEN',
-    wave: { stochastic_k: 24.3, force_index_2ema: -18234.5, state: 'OVERSOLD_PULLBACK' },
+    wave: {
+      stochastic_k: 24.3,
+      force_index_2ema: -18234.5,
+      state: 'OVERSOLD_PULLBACK',
+      showed_pullback_in_lookback: true,
+      showed_rally_in_lookback: false,
+    },
     trigger: { fired: true, reference: 'close_above_prior_high' },
   },
   confidence_breakdown: [

@@ -820,8 +820,32 @@
             "title": "Force Index 2Ema",
             "type": "number"
           },
+          "showed_pullback_in_lookback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether Screen 2 showed OVERSOLD_PULLBACK on any of the last 5 trading days (today inclusive), not just today -- docs/Analyse.md \u00a75's 'Wave shows/showed oversold pullback' language, and the exact condition `_determine_signal` (backend/app/signals/engine.py) gates a fresh BUY on (see `_wave_lookback`'s own docstring). A BUY can therefore occur even when `state` above isn't OVERSOLD_PULLBACK today, if it was on an earlier day within the window -- this field is what lets a client (e.g. a signal explanation) distinguish that case from the condition never having been met at all. Null when `screens.tide.trend` is NEUTRAL, since Wave is evaluated against a tide direction that doesn't exist in that case -- neither this nor showed_rally_in_lookback is ever reachable, so `False` would misleadingly read as 'checked, and it didn't happen' rather than 'not applicable'.",
+            "title": "Showed Pullback In Lookback"
+          },
+          "showed_rally_in_lookback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same as showed_pullback_in_lookback, mirrored for OVERBOUGHT_RALLY / the SELL side (what `_determine_signal` gates a fresh SELL on). Exactly one of these two fields is ever the 'reachable' one for a given non-Neutral tide (BULLISH -> only showed_pullback_in_lookback can be true; BEARISH -> only showed_rally_in_lookback can be true) -- the other is `False`, not null, since that's itself a real (if structurally guaranteed) fact about this tide, not a not-applicable case.",
+            "title": "Showed Rally In Lookback"
+          },
           "state": {
-            "description": "Human-readable wave state, e.g. 'OVERSOLD_PULLBACK' \u2014 evaluated against the tide direction, not in isolation (docs/Analyse.md \u00a72).",
+            "description": "Human-readable wave state, e.g. 'OVERSOLD_PULLBACK' \u2014 evaluated against the tide direction, not in isolation (docs/Analyse.md \u00a72). Reflects only TODAY's bar -- see showed_pullback_in_lookback/showed_rally_in_lookback below for whether the qualifying state appeared on an earlier day within the signal's own lookback window.",
             "title": "State",
             "type": "string"
           },
@@ -834,7 +858,9 @@
         "required": [
           "stochastic_k",
           "force_index_2ema",
-          "state"
+          "state",
+          "showed_pullback_in_lookback",
+          "showed_rally_in_lookback"
         ],
         "title": "WaveScreen",
         "type": "object"
