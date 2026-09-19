@@ -156,6 +156,100 @@ def _hold_weekly_ohlcv(n: int = 30) -> pd.DataFrame:
     )
 
 
+def _tide_transition_daily_ohlcv(n: int = 210) -> pd.DataFrame:
+    """Flat daily closes (tide/signal computation doesn't depend on daily price action here --
+    only `_tide_transition_weekly_ohlcv` below matters for the Tide transitions this fixture
+    exists to exercise) spanning enough calendar days for `_weekly_through_bar_date` to walk
+    through every stage of that weekly fixture's own BEARISH -> NEUTRAL -> BULLISH progression
+    as `bar_date` advances."""
+    return pd.DataFrame(
+        {
+            "open": [100.0] * n,
+            "high": [101.0] * n,
+            "low": [99.0] * n,
+            "close": [100.0] * n,
+            "volume": [1_000_000] * n,
+        },
+        index=pd.date_range("2024-01-01", periods=n, freq="D", name="date"),
+    )
+
+
+def _tide_transition_weekly_ohlcv() -> pd.DataFrame:
+    """30 weekly bars: 12 weeks of a steep decline (200 -> 112), then 18 weeks of a steep
+    5%/week rally -- deliberately crosses through BEARISH, NEUTRAL, and BULLISH Tide (Screen 1)
+    as more weeks accumulate, confirmed via a standalone `evaluate_tide` sweep over growing
+    prefixes of this same series. Exists so `TestTideField` below actually exercises the
+    tide-wiring rather than a fixture whose Tide happens to stay constant throughout (which
+    wouldn't catch a bug where `IndicatorHistoryPoint.tide` was wired to the wrong bar, or held
+    fixed at the latest value, since either bug would be invisible against a constant series)."""
+    declining = [200 - i * 8 for i in range(12)]
+    rising = [declining[-1] * (1.05**i) for i in range(1, 30)]
+    closes = (declining + rising)[:30]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": 1_000_000,
+        },
+        index=pd.date_range("2024-01-05", periods=len(closes), freq="W-FRI", name="date"),
+    )
+
+
+class TestTideField:
+    """Covers `IndicatorHistoryPoint.tide`, added by this task -- Screen 1 recomputed per bar
+    from only the weekly data as-of that bar's own calendar week (`_weekly_through_bar_date`),
+    exercised here with a fixture whose Tide genuinely changes across the range (see
+    `_tide_transition_weekly_ohlcv`'s own docstring for why that matters)."""
+
+    def test_tide_trend_changes_across_history(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _tide_transition_daily_ohlcv()},
+            weekly={"AAPL": _tide_transition_weekly_ohlcv()},
+        )
+
+        response = _get_indicator_history(provider, range="max")
+
+        assert response.status_code == 200
+        points = response.json()["points"]
+        by_date = {point["date"]: point["tide"] for point in points}
+
+        # Too little weekly history yet (fewer than 2 weekly bars visible as-of this early
+        # daily bar's own week) -- NEUTRAL/flat, per evaluate_tide's own documented fallback.
+        assert by_date["2024-01-01"] == {"trend": "NEUTRAL", "weekly_macd_histogram_slope": "flat"}
+        # Enough of the declining weekly run is visible by here for a clear BEARISH read.
+        assert by_date["2024-01-08"]["trend"] == "BEARISH"
+        assert by_date["2024-01-08"]["weekly_macd_histogram_slope"] == "falling"
+        # Partway into the rally, slope/EMA relationship briefly disagree -- NEUTRAL again.
+        assert by_date["2024-03-25"]["trend"] == "NEUTRAL"
+        # Once enough of the rally has accumulated, a clear BULLISH read.
+        assert by_date["2024-06-10"]["trend"] == "BULLISH"
+        assert by_date["2024-06-10"]["weekly_macd_histogram_slope"] == "rising"
+
+        # Confirms this isn't a fixture that happens to be constant -- the wiring is genuinely
+        # per-bar, not held fixed at the latest (or first) value.
+        distinct_trends = {point["tide"]["trend"] for point in points}
+        assert distinct_trends == {"NEUTRAL", "BEARISH", "BULLISH"}
+
+    def test_last_point_tide_matches_analysis_endpoint(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _tide_transition_daily_ohlcv()},
+            weekly={"AAPL": _tide_transition_weekly_ohlcv()},
+        )
+
+        history_response = _get_indicator_history(provider, range="max")
+        analysis_response = _get_analysis(provider)
+
+        assert history_response.status_code == analysis_response.status_code == 200
+        last_point = history_response.json()["points"][-1]
+        analysis = analysis_response.json()
+
+        assert last_point["date"] == analysis["as_of"]
+        assert last_point["tide"] == analysis["screens"]["tide"]
+        assert last_point["tide"]["trend"] == "BULLISH"
+
+
 class TestDivergenceField:
     """Integration coverage for each point's `divergence` field, including its no-look-ahead
     contract: a divergence must not appear on a bar earlier than the one where its second
@@ -208,6 +302,7 @@ class TestGetIndicatorHistory:
         point = body["points"][0]
         assert set(point) == {
             "date",
+            "tide",
             "ema_13",
             "ema_26",
             "macd_histogram",
@@ -225,6 +320,7 @@ class TestGetIndicatorHistory:
             "divergence",
             "kangaroo_tail",
         }
+        assert set(point["tide"]) == {"trend", "weekly_macd_histogram_slope"}
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
         # ~100-bar deviation-average warm-up window, so every point's bands are still null --
         # see test_channel_bands_populated_after_sufficient_warm_up for the populated case.
@@ -259,6 +355,7 @@ class TestGetIndicatorHistory:
         analysis = analysis_response.json()
 
         assert last_point["date"] == analysis["as_of"]
+        assert last_point["tide"] == analysis["screens"]["tide"]
         assert last_point["signal"] == analysis["signal"] == "BUY"
         assert last_point["confidence"] == analysis["confidence"]
         assert last_point["confidence_band"] == analysis["confidence_band"]

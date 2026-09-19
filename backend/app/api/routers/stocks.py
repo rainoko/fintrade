@@ -18,6 +18,7 @@ from app.api.schemas import (
     OHLCVBar,
     Screens,
     SupportResistanceZone,
+    TideScreen,
 )
 from app.data.base import DataProvider
 from app.data.exceptions import (
@@ -429,6 +430,11 @@ def get_indicator_history(
     points = [
         IndicatorHistoryPoint(
             date=bar_date.date(),
+            # Same cast-only-for-mypy pattern as `get_analysis`'s `screens=cast(Screens, ...)`
+            # above -- `result.screens["tide"]` is always built by `analyse()`/`analyse_history()`
+            # to match `TideScreen`'s shape exactly (`trend` + `weekly_macd_histogram_slope`);
+            # Pydantic validates it at construction time regardless. See this task's `decisions`.
+            tide=cast(TideScreen, result.screens["tide"]),
             ema_13=result.indicators["ema_13"],
             ema_26=result.indicators["ema_26"],
             macd_histogram=result.indicators["macd_histogram"],

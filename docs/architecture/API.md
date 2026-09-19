@@ -135,6 +135,7 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
   "points": [
     {
       "date": "2026-09-11",
+      "tide": { "trend": "BULLISH", "weekly_macd_histogram_slope": "rising" },
       "ema_13": 226.4,
       "ema_26": 221.7,
       "macd_histogram": 1.82,
@@ -157,6 +158,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 ```
 
 `points` is oldest-first, one entry per daily bar in the requested range, produced by re-running the signal engine (`app.signals.engine.analyse`) once per bar using only that bar's own history — including Screen 1 (Tide), which is recomputed from only the weekly bars as-of that day's own calendar week (`app.signals.engine._weekly_through_bar_date`), not held fixed at today's value — so `signal`/`confidence`/Tide all genuinely vary day to day, not just the underlying daily indicators, with no look-ahead. The last entry always matches `GET /api/stocks/{ticker}/analysis` for the same ticker at the same date: for the most recent daily bar, "the weekly bars as-of that bar's calendar week" naturally reduces to the full weekly series `/analysis` itself uses — see the `api-stocks-indicator-history` task's `decisions` for the full rationale (including why an earlier, simpler `<= bar_date` truncation attempt would have broken that "last entry matches `/analysis`" guarantee, given how the underlying weekly-resample date labeling works).
+
+`tide` is the same `{ trend, weekly_macd_histogram_slope }` shape as `/analysis`'s `screens.tide` above, for this bar — never `null`: `app.signals.triple_screen.evaluate_tide` always resolves to a concrete `NEUTRAL`/`flat` result rather than an absent one even with too little weekly history to compute a slope at all, so there's no warm-up-null case here unlike `stochastic_k`/`channel_upper`/`rsi`/`season` below. Added so a client can shade a price chart's background by Screen 1 regime over time (`docs/ideas.md`'s Tide-region chart-shading idea) — see the `backend-indicator-history-tide-exposure` task's `decisions`.
 
 `stochastic_k` and `force_index_2ema` are nullable: a bar still inside that indicator's own warm-up window (Stochastic %K(5,3,3) needs `(k_period - 1) + (smooth - 1)` prior bars — 6 with the current defaults; Force Index's raw `volume * close.diff()` input is undefined for the range's very first bar, which has no prior close) reports `null` for that field only, while every other field on the same point (including `ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which are EMA-seeded and never produce `NaN`) stays populated. This only affects early bars of a long-enough range (e.g. `range=max`); unlike `/analysis`, which always reports the latest bar and is therefore never still warming up.
 
