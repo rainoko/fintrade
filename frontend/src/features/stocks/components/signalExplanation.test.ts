@@ -373,4 +373,83 @@ describe('explainSignal', () => {
     expect(result.headline).toMatch(/Impulse gate/)
     expect(result.headline).toMatch(/Trigger fired \(Screen 3\)/)
   })
+
+  it('explains a HOLD blocked only by Trigger on the SELL side, with Wave definitively having shown the qualifying state within its lookback (no longer ambiguous)', () => {
+    // Mirrors the BULLISH-side "blocked only by Trigger" case above, but
+    // exercises the showed_rally_in_lookback arm of explainSignal's
+    // isBuySide ternary instead of showed_pullback_in_lookback.
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BEARISH',
+        impulse: 'RED',
+        waveState: 'NO_WAVE',
+        showedRallyInLookback: true,
+        triggerFired: false,
+        triggerReference: 'close_below_prior_low',
+      }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(impulse.met).toBe(true)
+    expect(trigger.met).toBe(false)
+    // The lookback boolean is read directly -- Wave definitively showed the
+    // qualifying overbought rally on an earlier day, even though today's own
+    // reading (NO_WAVE) doesn't show it, and even though Trigger is what's
+    // actually blocking a fresh SELL right now.
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/within the last 5 trading days/)
+    expect(result.headline).toMatch(/missing: Trigger fired \(Screen 3\)\.$/)
+  })
+
+  it('explains a HOLD blocked by both Wave and Trigger on the SELL side when Wave never showed the qualifying rally in its lookback either', () => {
+    // Mirrors the BULLISH-side "blocked by both Wave and Trigger" case
+    // above, on the showed_rally_in_lookback arm instead.
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BEARISH',
+        impulse: 'RED',
+        waveState: 'NO_WAVE',
+        showedRallyInLookback: false,
+        triggerFired: false,
+        triggerReference: 'close_below_prior_low',
+      }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(impulse.met).toBe(true)
+    expect(trigger.met).toBe(false)
+    expect(wave.met).toBe(false)
+    expect(wave.detail).toMatch(/has not shown a qualifying overbought rally/)
+    expect(result.headline).toMatch(
+      /missing: Wave pullback\/rally \(Screen 2\), Trigger fired \(Screen 3\)\.$/,
+    )
+  })
+
+  it('explains a HOLD blocked only by the Impulse gate on the SELL side, with Trigger fired and Wave definitively having shown the qualifying rally (no longer ambiguous)', () => {
+    // Mirrors the BULLISH-side "blocked only by the Impulse gate" case
+    // above, on the showed_rally_in_lookback arm instead.
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BEARISH',
+        impulse: 'GREEN',
+        waveState: 'NO_WAVE',
+        showedRallyInLookback: true,
+        triggerFired: true,
+        triggerReference: 'close_below_prior_low',
+      }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(impulse.met).toBe(false)
+    expect(trigger.met).toBe(true)
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/within the last 5 trading days/)
+    expect(result.headline).toMatch(/missing: Impulse gate\.$/)
+  })
 })

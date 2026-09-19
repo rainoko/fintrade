@@ -1,0 +1,48 @@
+{
+  "id": "frontend-signal-wave-lookback-explanation-followups",
+  "title": "Non-blocking follow-up from PR #143 review (frontend-signal-wave-lookback-explanation)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-signal-wave-lookback-explanation"],
+  "references": [
+    "docs/tasks/frontend-signal-wave-lookback-explanation.json",
+    "https://github.com/rainoko/fintrade/pull/143",
+    "frontend/src/features/stocks/components/signalExplanation.ts",
+    "frontend/src/features/stocks/components/signalExplanation.test.ts"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #143 (frontend-signal-wave-lookback-explanation), recorded here so it isn't lost once that PR merges. Doesn't affect correctness -- the implementation itself was verified by hand against backend/app/signals/engine.py (`_determine_signal`/`_wave_lookback`) and via a live browser walkthrough of ADBE (Tide BEARISH, `showed_rally_in_lookback: false`), which rendered correctly -- this is a test-completeness gap only.",
+  "checklist": [
+    {
+      "step": "signalExplanation.test.ts's new 'previously-ambiguous HOLD, now definitive' test cases (the ones that override `showedPullbackInLookback` explicitly and assert `wave.met`/`wave.detail`) all use `tideTrend: 'BULLISH'` -- exercising `explainSignal`'s `isBuySide ? screens.wave.showed_pullback_in_lookback : screens.wave.showed_rally_in_lookback` ternary only on the `showed_pullback_in_lookback` (BUY/BULLISH) side with explicit assertions. The existing BEARISH-tide test cases (e.g. 'explains a HOLD blocked by the Impulse gate on the SELL side') either don't reach this branch (Wave already matches today) or don't assert on `wave.met`/`wave.detail` at all. Branch coverage is numerically 100% only because the fixture builder's own defaults (`showedRallyInLookback = tideTrend === 'BEARISH'`) happen to exercise both ternary arms incidentally, not because any assertion would catch a regression that swapped `showed_pullback_in_lookback`/`showed_rally_in_lookback` on the SELL side (e.g. reading the wrong field when `isBuySide` is false). Add at least one explicit BEARISH-tide test mirroring the existing BULLISH-tide 'Wave definitively showed/didn't show the qualifying state within its lookback' cases, asserting `wave.met`/`wave.detail` directly against an explicit `showedRallyInLookback` override.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-signal-wave-lookback-explanation-followups",
+    "pr_number": 144,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/144",
+    "pushed_at": "2026-09-19T04:25:56Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T04:25:56Z",
+      "recorded_by": "task-worker",
+      "decision": "Added three explicit BEARISH-tide test cases to signalExplanation.test.ts, mirroring three of the existing BULLISH-tide 'Wave definitively showed/didn't show the qualifying state within its lookback' cases (blocked only by Trigger with Wave met via lookback; blocked by both Wave and Trigger with Wave not met; blocked only by the Impulse gate with Wave met via lookback), each with an explicit `showedRallyInLookback` override and direct `wave.met`/`wave.detail` assertions.",
+      "rationale": "The checklist item asked for 'at least one' mirroring test, but the underlying gap was that the SELL/showed_rally_in_lookback arm of the isBuySide ternary had zero explicit assertions across the whole suite. Adding three (rather than just one) covers both the true and false outcomes of that arm, plus one combined with a blocking Impulse gate, giving the SELL side the same assertion density the BUY side already has rather than leaving an asymmetric single data point. Did not add a fourth mirroring 'blocked by both Impulse and Wave' BEARISH case, since the existing 'explains a HOLD blocked by both the Impulse gate and Wave, with Trigger fired' BULLISH test's counterpart risk is already covered by the two new tests that combine Wave-met-false and Wave-met-true with other blockers; adding it too was judged marginal for a non-blocking test-completeness follow-up."
+    }
+  ],
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-19T04:30:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/144",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Test-only follow-up, no production code touched. Verified the three new BEARISH-tide test cases (signalExplanation.test.ts lines 377, 406, 432) genuinely exercise the showed_rally_in_lookback arm of explainSignal's isBuySide ternary (signalExplanation.ts:206-209) with explicit overrides and direct wave.met/wave.detail assertions -- traced each against the implementation by hand and confirmed the pre-existing BEARISH test they close the gap on (line 357, 'blocked by the Impulse gate on the SELL side') indeed never asserted wave.met/wave.detail, matching the task's stated gap. Ran: backend pytest --cov (578 passed, 99.87% coverage, unaffected by this PR), frontend yarn vitest run --coverage (all passing, 99.69%/99.44%/100%/99.68% stmt/branch/fn/line, matching the PR's own reported numbers), backend ruff+mypy (clean), frontend eslint+tsc -b (clean), scripts/validate_tasks.py (no violations). Ran the code-review skill against the diff: no findings. No UI or API surface changed (test file + task-board bookkeeping only), so the browser walkthrough (review step 9) and persisted e2e suite (step 9a) are explicitly skipped as inapplicable -- there is nothing a user could click through in this diff. No new component/module/dependency/layer, so architecture-review and the frontend component-placement check don't apply. Area is frontend/pages/stocks (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. The checklist item wasn't phrased as 'decide X', but the task's own decisions entry appropriately documents the judgment call made (3 mirroring tests instead of the minimum 1, and why a 4th combined case was left out) -- no gap there. No blocking or non-blocking findings; no follow-up task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T04:33:19Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend yarn vitest run --coverage: 349/349 tests passing, 49/49 files, coverage 99.69%/99.44%/100%/99.68% stmt/branch/fn/line -- matches pr-reviewer's reported numbers exactly. Also ran tsc -b and eslint (both clean). Skimmed the full diff (git diff origin/main...HEAD): only signalExplanation.test.ts plus task-board bookkeeping changed. Hand-traced all three new BEARISH-tide cases against signalExplanation.ts:206-209/219-240/255 -- confirmed tideTrend: 'BEARISH' drives isBuySide=false so the fixture's explicit showedRallyInLookback overrides feed screens.wave.showed_rally_in_lookback (not the pullback field), and each expected wave.met/wave.detail/headline value matches the implementation's actual branches (the 'within the last 5 trading days' and 'has not shown a qualifying overbought rally' detail strings, and the HOLD headline's missing-labels join) -- these genuinely exercise the SELL-side arm rather than duplicating the BULLISH assertions. index.json/done-path bookkeeping is consistent (state and path moved together). Accept holds."
+  }
+}
