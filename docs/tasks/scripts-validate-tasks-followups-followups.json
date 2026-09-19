@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #114 review (scripts-validate-tasks-followups)",
   "area": "tooling",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["scripts-validate-tasks-followups"],
   "references": [
     "docs/tasks/done/scripts-validate-tasks-followups.json#review",
@@ -25,5 +25,11 @@
       "alternatives_considered": "Considered removing the timestamp field entirely per the checklist item's fallback option ('or removing it if the exact real time can't be reconstructed'); rejected since the exact real time *could* be reconstructed unambiguously via git log, so correcting it is strictly more useful than removing it."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/scripts-validate-tasks-followups-followups",
+    "pr_number": 130,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/130",
+    "pushed_at": "2026-09-19T01:08:51Z"
+  }
 }
