@@ -1,8 +1,10 @@
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Skeleton from '@mui/material/Skeleton'
+import { useMutationState } from '@tanstack/react-query'
 import { useState } from 'react'
-import type { WatchlistItemOut } from '../../../api/watchlist'
+import type { WatchlistItemIn, WatchlistItemOut } from '../../../api/watchlist'
 import ConfidenceGauge from '../../../components/common/ConfidenceGauge/ConfidenceGauge'
 import ConfirmDialog from '../../../components/common/ConfirmDialog/ConfirmDialog'
 import DataTable, {
@@ -12,11 +14,27 @@ import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatDate } from '../../../utils/format'
+import { watchlistKeys } from '../hooks/queryKeys'
 import { useRemoveWatchlistItem } from '../hooks/useRemoveWatchlistItem'
 
 export interface WatchlistTableProps {
   items: WatchlistItemOut[]
 }
+
+/**
+ * A synthetic row rendered in place of the real `WatchlistItemOut` while a
+ * just-submitted `POST /api/watchlist` add for `ticker` is still in flight
+ * (POST itself, then the invalidated GET refetch that actually recomputes
+ * its signal — see useAddWatchlistItem's own doc comment). Every column's
+ * `render` below swaps in an animated MUI `Skeleton` for this row instead of
+ * its (nonexistent) real data. Used directly inline here rather than
+ * promoted to its own `components/common/` component — there's exactly one
+ * usage site and no shared behavior to abstract beyond "render MUI's own
+ * `Skeleton`, sized per column" (unlike SignalBadge/ConfidenceGauge, which
+ * encapsulate real domain-specific coloring/formatting rules); see this
+ * task's `decisions` entry.
+ */
+type WatchlistRow = WatchlistItemOut & { isPendingSkeleton?: boolean }
 
 /**
  * Watchlist table: each watched ticker plus its current signal, using the
@@ -39,23 +57,77 @@ export interface WatchlistTableProps {
  * double-click before the invalidated query refetches reopens the confirm
  * dialog and fires a second DELETE for an already-removed ticker, surfacing
  * a confusing false "Not found" error (frontend-watchlist-page-followups).
+ *
+ * Also renders a `WatchlistRow` skeleton placeholder for a ticker currently
+ * being added (frontend-watchlist-add-skeleton): the pending ticker is read
+ * directly off useAddWatchlistItem's shared mutation-cache entry via
+ * `useMutationState` (keyed by `watchlistKeys.add`) rather than passed down
+ * as a prop from AddTickerForm, which owns that mutation but is WatchlistTable's
+ * *sibling* under WatchlistPage, not its parent — see this task's `decisions`
+ * for why that was chosen over lifting the mutation to a common ancestor and
+ * prop-drilling it to both. The skeleton row appears as soon as `mutate()` is
+ * called (POST submit) and persists through both the POST and the GET
+ * refetch it triggers, because that hook's own `onSuccess` awaits the
+ * invalidated refetch — it disappears the instant either the mutation errors
+ * (excluded by the `status: 'pending'` filter below, nothing further to
+ * clean up since no skeleton row is itself a source of truth) or the
+ * refetch completes and the ticker's real row is present in `items`. A
+ * pending add for a ticker *already* in `items` (API.md's idempotent no-op
+ * case) never gets a skeleton row in the first place — its real row is
+ * already visible, so there is nothing to placeholder.
  */
 export default function WatchlistTable({ items }: WatchlistTableProps) {
   const [pendingRemove, setPendingRemove] = useState<WatchlistItemOut | null>(null)
   const removeWatchlistItem = useRemoveWatchlistItem()
 
-  const columns: DataTableColumn<WatchlistItemOut>[] = [
+  const pendingAddTickers = useMutationState({
+    filters: { mutationKey: watchlistKeys.add, status: 'pending' },
+    select: (mutation) => (mutation.state.variables as WatchlistItemIn | undefined)?.ticker,
+  })
+  // Only one add mutation is ever in flight at a time in practice (its own
+  // submit button is disabled/loading for the full duration, see
+  // useAddWatchlistItem), but `.at(-1)` (most recently dispatched) is the
+  // correct choice regardless, matching the "latest" convention
+  // useMutationState's own docs use for reading a keyed mutation's state.
+  const pendingTicker = pendingAddTickers.at(-1)
+
+  let rows: WatchlistRow[] = items
+  if (pendingTicker !== undefined && !items.some((item) => item.ticker === pendingTicker)) {
+    rows = [
+      ...items,
+      {
+        ticker: pendingTicker,
+        added_at: '',
+        signal: null,
+        confidence: null,
+        confidence_band: null,
+        isPendingSkeleton: true,
+      },
+    ]
+  }
+
+  const columns: DataTableColumn<WatchlistRow>[] = [
     {
       key: 'ticker',
       header: 'Ticker',
       sortable: true,
-      render: (row) => <TickerLink ticker={row.ticker} />,
+      render: (row) =>
+        row.isPendingSkeleton ? (
+          <Skeleton data-testid="watchlist-skeleton" variant="text" width={64} />
+        ) : (
+          <TickerLink ticker={row.ticker} />
+        ),
     },
     {
       key: 'added_at',
       header: 'Added',
       sortable: true,
-      render: (row) => formatDate(row.added_at),
+      render: (row) =>
+        row.isPendingSkeleton ? (
+          <Skeleton data-testid="watchlist-skeleton" variant="text" width={80} />
+        ) : (
+          formatDate(row.added_at)
+        ),
     },
     {
       key: 'signal',
@@ -66,13 +138,22 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
       // in one check, since neither case is ever meaningfully distinct here
       // (API.md documents them as the same "signal couldn't be computed"
       // outcome, always alongside a null confidence/confidence_band too).
-      render: (row) => (row.signal == null ? '—' : <SignalBadge signal={row.signal} />),
+      render: (row) =>
+        row.isPendingSkeleton ? (
+          <Skeleton data-testid="watchlist-skeleton" variant="rounded" width={56} height={24} />
+        ) : row.signal == null ? (
+          '—'
+        ) : (
+          <SignalBadge signal={row.signal} />
+        ),
     },
     {
       key: 'confidence',
       header: 'Confidence',
       render: (row) =>
-        row.confidence == null ? (
+        row.isPendingSkeleton ? (
+          <Skeleton data-testid="watchlist-skeleton" variant="rounded" width={96} height={24} />
+        ) : row.confidence == null ? (
           '—'
         ) : (
           <ConfidenceGauge
@@ -90,18 +171,19 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
       key: 'confidence_band',
       header: '',
       align: 'right',
-      render: (row) => (
-        <IconButton
-          aria-label={`Remove ${row.ticker}`}
-          size="small"
-          disabled={
-            removeWatchlistItem.isPending && removeWatchlistItem.variables === row.ticker
-          }
-          onClick={() => setPendingRemove(row)}
-        >
-          <DeleteOutlineIcon fontSize="small" />
-        </IconButton>
-      ),
+      render: (row) =>
+        row.isPendingSkeleton ? null : (
+          <IconButton
+            aria-label={`Remove ${row.ticker}`}
+            size="small"
+            disabled={
+              removeWatchlistItem.isPending && removeWatchlistItem.variables === row.ticker
+            }
+            onClick={() => setPendingRemove(row)}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        ),
     },
   ]
 
@@ -123,7 +205,7 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
       )}
       <DataTable
         columns={columns}
-        rows={items}
+        rows={rows}
         getRowKey={(row) => row.ticker}
         emptyMessage="Your watchlist is empty. Add a ticker to get started."
         ariaLabel="Watchlist"
