@@ -3,7 +3,7 @@
   "title": "Frontend e2e fixture provider — non-blocking review follow-up",
   "area": "frontend/testing",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-e2e-tests-followups"],
   "references": [
     "docs/tasks/frontend-e2e-tests-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "backend/app/data/fixture_provider.py's get_weekly_ohlcv (line 88) was changed in PR #104 to call self.get_daily_ohlcv(ticker) instead of self._series(ticker), per PR #103's follow-up finding asking it to 'resample get_daily_ohlcv's own output instead of independently recomputing the series'. Verified this produces byte-identical output (confirmed with FixtureDataProvider().get_weekly_ohlcv('AAPL') vs a manual daily.resample('W-FRI') on get_daily_ohlcv's own output -- .equals() is True), so it's not a correctness issue. But it does NOT actually achieve the stated performance goal: get_daily_ohlcv itself has no memoization/caching (it's `return self._series(ticker)`, recomputed fresh on every call), so self.get_daily_ohlcv(ticker) inside get_weekly_ohlcv still re-runs the full ~420-iteration RNG loop from scratch every time, exactly as self._series(ticker) did before. The motivating scenario the original PR #103 follow-up finding cited -- a request needing both daily and weekly data for the same ticker (app/api/routers/stocks.py's GET .../analysis and GET .../history handlers, and app/api/routers/watchlist.py, all call both provider.get_daily_ohlcv(ticker) and provider.get_weekly_ohlcv(ticker) separately on the same provider instance) -- still runs the RNG loop twice, unchanged by this fix, since there's no shared/cached frame between the two separate calls. The fix only changed the internal call from self._series(ticker) to self.get_daily_ohlcv(ticker), which is functionally identical in cost (confirmed by timing: 200x get_daily_ohlcv ~1.2s vs 200x get_weekly_ohlcv ~1.83s, consistent with get_weekly_ohlcv running the loop once per call, same as before -- no doubling was ever happening *within* a single get_weekly_ohlcv call, so this change didn't remove one). If this fixture-only, e2e-suite-only performance genuinely needs addressing, get_daily_ohlcv/_series would need real memoization (e.g. functools.lru_cache keyed by ticker, or an instance-level dict) so a get_weekly_ohlcv call can reuse a get_daily_ohlcv call already made earlier in the same request -- not just call through the public method, which still recomputes from scratch. Given this only affects the no-network e2e fixture (never the live app, never the pytest suite), the cost is low (sub-millisecond per extra call) -- low priority, but the fix as landed doesn't do what its own commit message and the task checklist entry it closed claim it does.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added memoization to FixtureDataProvider.get_daily_ohlcv as a per-instance dict cache (self._daily_cache, keyed by upper-cased ticker) rather than functools.lru_cache on the method, and left get_weekly_ohlcv unchanged (it already calls self.get_daily_ohlcv per PR #104, so it now benefits from the cache for free).",
+      "rationale": "app.api.dependencies.get_data_provider constructs a fresh FixtureDataProvider() per request, so a plain instance attribute already scopes the cache exactly right: shared across get_daily_ohlcv/get_weekly_ohlcv calls within one request, and discarded with the instance at the end of it. functools.lru_cache decorating an instance method keys each cache entry on (self, ticker) but the cache dict itself lives on the *function* (i.e. the class), not the instance -- it would keep a strong reference to every FixtureDataProvider instance ever constructed for as long as the process runs (only ever an issue for a long-lived process serving many e2e requests, but a real one), and would need an explicit maxsize/eviction policy to bound that. No cache-invalidation/TTL logic is needed either way: get_daily_ohlcv's output is a pure, deterministic function of ticker alone (seeded RNG keyed off the ticker name, per the class docstring), so a cached value never goes stale -- verified safe against aliasing too, since no caller in app/api/routers/{stocks,watchlist,portfolio}.py or app/signals/*.py mutates a provider-returned OHLCV frame in place (grepped for inplace=True / column-assignment on a provider frame; found none), and _trim_to_range's 'max' branch already returns the exact same object reference as the live providers do today, so sharing one cached object across both calls doesn't introduce a new aliasing risk beyond what already existed."
+    }
+  ],
   "questions": []
 }

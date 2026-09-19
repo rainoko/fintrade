@@ -72,6 +72,59 @@ class TestKnownTickers:
         assert frame["close"].iloc[-1] < frame["close"].iloc[0]
 
 
+class TestMemoization:
+    """docs/tasks/frontend-e2e-tests-followups-followups.json: get_daily_ohlcv must not
+    recompute an already-generated ticker's series within the same provider instance."""
+
+    def test_second_call_on_same_instance_returns_the_cached_object(self) -> None:
+        provider = FixtureDataProvider()
+
+        first = provider.get_daily_ohlcv("AAPL")
+        second = provider.get_daily_ohlcv("AAPL")
+
+        assert first is second
+
+    def test_second_call_on_same_instance_does_not_recompute(self, mocker) -> None:
+        provider = FixtureDataProvider()
+        spy = mocker.spy(FixtureDataProvider, "_series")
+
+        provider.get_daily_ohlcv("AAPL")
+        provider.get_daily_ohlcv("AAPL")
+
+        spy.assert_called_once()
+
+    def test_weekly_ohlcv_reuses_an_already_cached_daily_call(self, mocker) -> None:
+        """get_weekly_ohlcv calls through get_daily_ohlcv (see its own docstring/PR #104) --
+        confirm that reuses the cache rather than regenerating the series a second time."""
+        provider = FixtureDataProvider()
+        spy = mocker.spy(FixtureDataProvider, "_series")
+
+        provider.get_daily_ohlcv("AAPL")
+        provider.get_weekly_ohlcv("AAPL")
+
+        spy.assert_called_once()
+
+    def test_cache_is_case_insensitive(self, mocker) -> None:
+        provider = FixtureDataProvider()
+        spy = mocker.spy(FixtureDataProvider, "_series")
+
+        provider.get_daily_ohlcv("aapl")
+        provider.get_daily_ohlcv("AAPL")
+
+        spy.assert_called_once()
+
+    def test_cache_is_not_shared_across_instances(self) -> None:
+        first_instance = FixtureDataProvider().get_daily_ohlcv("AAPL")
+        second_instance = FixtureDataProvider().get_daily_ohlcv("AAPL")
+
+        # Still deterministic/equal in value (per test_repeated_calls_are_deterministic
+        # above), but each request gets its own fresh FixtureDataProvider() (see
+        # app.api.dependencies.get_data_provider), so the cache must not outlive it as a
+        # shared object identity.
+        assert first_instance is not second_instance
+        pd.testing.assert_frame_equal(first_instance, second_instance)
+
+
 class TestUnknownTicker:
     def test_daily_ohlcv_raises_ticker_not_found(self) -> None:
         with pytest.raises(TickerNotFoundError):
