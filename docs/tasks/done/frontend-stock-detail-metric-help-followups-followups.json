@@ -70,5 +70,10 @@
     ],
     "notes": "No blocking findings; no new non-blocking findings from this pass either, so nothing filed to a further follow-up task. Full review: tests+coverage, static analysis, code-review skill (medium effort, no bugs found), architecture-review (placement conforms to Frontend.md §3's utils/common/features test), and a live browser walkthrough of both balloons across the flat and disagree branches, plus the persisted e2e suite."
   },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T01:04:39Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: backend pytest 573 passed, 99.86% coverage; frontend vitest 336 passed, 99.69%/99.42% statements/branches -- both match pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD): confirmed metricHelpContent.ts and signalExplanation.ts both genuinely `import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'` (not just similar text; repo-wide grep found no other hardcoded copy), and hand-traced metricHelpContent.ts's conditional: `slopeClause` is only blanked when `slope === 'flat'`, so the disagree branch (`slope !== 'flat'`, e.g. 'rising'/'falling') keeps the `(weekly MACD-H slope ...)` parenthetical unchanged. tsc --noEmit and eslint on the three changed files both clean. Accept holds up."
+  },
   "questions": []
 }
