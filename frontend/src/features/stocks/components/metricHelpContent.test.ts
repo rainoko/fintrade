@@ -668,6 +668,44 @@ describe('metricHelpContent', () => {
         excludedWithBreakout.false_breakout!.extreme_price.toFixed(2),
       )
     })
+
+    it('omits the out-of-range clause when inVisibleRange is true (or omitted, the default)', () => {
+      const zone = buildZone({
+        false_breakout: {
+          direction: 'up',
+          breakout_date: '2026-08-20',
+          reentry_date: '2026-09-02',
+          extreme_price: 238.5,
+        },
+      })
+      expect(falseBreakoutHelp.interpretValue([zone])).not.toContain(
+        "isn't marked on the chart right now",
+      )
+      expect(falseBreakoutHelp.interpretValue([zone], true)).not.toContain(
+        "isn't marked on the chart right now",
+      )
+    })
+
+    it('appends an out-of-range clause naming the reentry_date when inVisibleRange is false, mirroring divergenceHelp/kangarooTailHelp', () => {
+      const zone = buildZone({
+        role: 'resistance',
+        upper: 236.9,
+        lower: 233.4,
+        false_breakout: {
+          direction: 'up',
+          breakout_date: '2025-01-01',
+          reentry_date: '2025-01-15',
+          extreme_price: 238.5,
+        },
+      })
+      const message = falseBreakoutHelp.interpretValue([zone], false)
+      // Still names the real episode in full...
+      expect(message).toContain('resistance zone 233.40-236.90 broke above it on 2025-01-01')
+      expect(message).toContain('238.50')
+      // ...plus the out-of-range explanation.
+      expect(message).toContain("isn't marked on the chart right now")
+      expect(message).toContain('2025-01-15')
+    })
   })
 
   describe('divergenceHelp.interpretValue', () => {

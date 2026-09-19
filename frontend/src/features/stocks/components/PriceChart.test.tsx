@@ -1208,6 +1208,79 @@ describe('PriceChart', () => {
       expect(createPriceLineMock).not.toHaveBeenCalled()
     })
 
+    it("still shows the False Breakout legend (noting it is not in the current range) and caveats the MetricHelp text when the most recent breakout's reentry_date falls outside the currently visible bar range (followup fix, checklist item 1)", async () => {
+      // Regression test for this task's checklist item 1: before this fix,
+      // falseBreakoutHelp.interpretValue's "Most recent" reading was
+      // windowed only by `displayedZones`, not by the currently visible
+      // date range the marker/price-line above are both windowed by -- so
+      // it could describe a specific breakout (exact dates + stop price)
+      // whose marker/price-line wasn't actually on screen, with no caveat.
+      const user = userEvent.setup()
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          role: 'resistance',
+          upper: 236.9,
+          lower: 233.4,
+          false_breakout: {
+            direction: 'up',
+            breakout_date: '2025-01-01',
+            reentry_date: '2025-01-15',
+            extreme_price: 238.5,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText(/False Breakout/)).toBeInTheDocument(),
+      )
+      // The legend row stays visible (same posture as the divergence/
+      // Kangaroo Tail legends) but is labeled as out of range...
+      expect(
+        screen.getByText('False Breakout (not in current range)'),
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'False Breakout help' }))
+
+      // ...and the MetricHelp text still names the real episode in full...
+      expect(
+        screen.getByText(/resistance zone 233\.40-236\.90 broke above it on 2025-01-01/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/238\.50/)).toBeInTheDocument()
+      // ...plus the out-of-range caveat, matching the divergence/Kangaroo
+      // Tail precedent's own wording convention.
+      expect(
+        screen.getByText(/isn't marked on the chart right now/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/2025-01-15/)).toBeInTheDocument()
+    })
+
+    it('shows the False Breakout legend with no out-of-range caveat when the most recent breakout is actually drawn on the chart', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          false_breakout: {
+            direction: 'up',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 238.5,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText(/False Breakout/)).toBeInTheDocument(),
+      )
+      expect(screen.getByText('False Breakout')).toBeInTheDocument()
+      expect(
+        screen.queryByText('False Breakout (not in current range)'),
+      ).not.toBeInTheDocument()
+    })
+
     it('renders zone bands regardless of interval, unlike the daily-only EMA/signal overlay', async () => {
       server.use(
         http.get('/api/stocks/:ticker/history', ({ request }) => {
@@ -1370,6 +1443,43 @@ describe('PriceChart', () => {
       expect(baselineCalls).toHaveLength(1)
       expect(setDataMock).not.toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ value: 2350.0 })]),
+      )
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 236.9 },
+        { time: '2026-09-02', value: 236.9 },
+      ])
+    })
+
+    it("excludes a zone within the 50% price-ratio window but well outside the currently-visible bars' own price span (followup fix, checklist item 2: bounded axis distortion on a narrow-range view)", async () => {
+      // Regression test for this task's checklist item 2: `twoBars`' own
+      // visible high/low span is 3.3 (226.8-230.1), a ~1.4%-of-price sliver
+      // -- exactly the "narrow-range view" pr-reviewer's retry-round-1
+      // stress test reproduced axis distortion against. A zone ~40% above
+      // the 229.7 latest close (320-325) sits well inside the old 50%
+      // price-ratio-only window (114.85-344.55), but is now excluded by the
+      // added visible-span-based window (floored at 10% of price, expanded
+      // 2x either way -- see `ZONE_RELEVANCE_VISIBLE_SPAN_MULTIPLE`'s own
+      // comment in PriceChart.tsx), so it can no longer stretch the y-axis
+      // on this narrow a view.
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ upper: 325.0, lower: 320.0, strength_score: 100 }),
+        buildZone({ upper: 236.9, lower: 233.4, strength_score: 10 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Only the 1 zone actually near the visible bars' own price span
+      // reaches setData -- candlestick + value-zone (2) + EMA13/EMA26 (2) +
+      // channel (2) + 1 zone band = 8 (not 9).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      expect(baselineCalls).toHaveLength(1)
+      expect(setDataMock).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ value: 325.0 })]),
       )
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-09-01', value: 236.9 },
