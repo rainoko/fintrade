@@ -34,5 +34,11 @@
       "alternatives_considered": "folding the full signalExplanation.ts rewrite into this task"
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/api-stocks-analysis-wave-lookback",
+    "pr_number": 142,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/142",
+    "pushed_at": "2026-09-19T03:54:34Z"
+  }
 }
