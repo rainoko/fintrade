@@ -3,6 +3,7 @@ from typing import Literal
 
 import pandas as pd
 
+from app.indicators.autoenvelope import autoenvelope
 from app.indicators.elder_ray import bear_power as elder_bear_power
 from app.indicators.elder_ray import bull_power as elder_bull_power
 from app.indicators.ema import ema
@@ -242,6 +243,8 @@ def analyse(
     weekly_ema_13: pd.Series | None = None,
     weekly_ema_26: pd.Series | None = None,
     weekly_histogram: pd.Series | None = None,
+    channel_upper: pd.Series | None = None,
+    channel_lower: pd.Series | None = None,
     _daily_ohlcv_already_clean: bool = False,
 ) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
@@ -273,7 +276,8 @@ def analyse(
 
     The returned ``SignalResult`` also carries ``screens`` (the ``docs/architecture/API.md``
     ``screens.{tide,impulse,wave,trigger}`` shape) and ``indicators`` (its
-    ``indicators.{ema_13,ema_26,macd_histogram,bull_power,bear_power}`` shape) -- both always
+    ``indicators.{ema_13,ema_26,macd_histogram,bull_power,bear_power,channel_upper,
+    channel_lower}`` shape) -- both always
     populated regardless of ``signal``, since they're informational context for the API
     response, not signal-gated -- so a caller (the not-yet-implemented api-stocks-analysis
     task) can map this one result directly onto ``AnalysisResponse`` without recomputing
@@ -317,6 +321,23 @@ def analyse(
     every bar's ``evaluate_tide`` call re-deriving the weekly EMA(13)/EMA(26)/MACD-Histogram
     from scratch over its own truncated ``weekly_ohlcv`` window.
 
+    ``channel_upper``/``channel_lower``, if given, are the already-computed
+    ``autoenvelope(daily_ohlcv['close'], mid=ema_13)['upper']``/``['lower']`` (the Autoenvelope/
+    channel bands, docs/Analyse.md §4: "EMA 13 ± avg % deviation") instead of this function
+    computing them itself -- same passthrough contract as ``ema_13``/etc above (index-aligned
+    with ``daily_ohlcv`` post-``drop_malformed_daily_bars``), letting ``analyse_history`` share
+    one ``autoenvelope`` pass (itself O(n) via a rolling-window average, not O(1)) across every
+    bar instead of each of up to thousands of calls independently re-deriving it. When omitted,
+    this function computes them itself the same way ``app.portfolio.exits.evaluate_exit_flags``
+    already does internally for the "price reaches the upper Autoenvelope band with Impulse
+    turning Red" exit rule (docs/Analyse.md §7) -- sharing that same ``ema_13`` as the band's
+    ``mid`` rather than letting ``autoenvelope`` recompute its own EMA(13) pass, exactly
+    mirroring how ``evaluate_impulse``/the Elder-Ray calls above already share it. See this
+    task's `decisions` entry (docs/tasks/backend-channel-envelope-exposure.json) for why
+    EMA(13) (this app's existing ``autoenvelope`` default, matching Analyse.md's own "EMA 13"
+    spec for this indicator) is used here rather than the book's own slower-EMA channel
+    variant.
+
     ``_daily_ohlcv_already_clean`` is a private, ``analyse_history``-only optimization escape
     hatch -- not part of this function's public contract -- that skips the
     ``drop_malformed_daily_bars`` call above entirely when the caller can *prove* (not just
@@ -358,12 +379,21 @@ def analyse(
     bull_power_series = elder_bull_power(daily_ohlcv["high"], ema_13)
     bear_power_series = elder_bear_power(daily_ohlcv["low"], ema_13)
 
+    if channel_upper is None or channel_lower is None:
+        channel_bands = autoenvelope(daily_close, mid=ema_13)
+        if channel_upper is None:
+            channel_upper = channel_bands["upper"]
+        if channel_lower is None:
+            channel_lower = channel_bands["lower"]
+
     indicators = {
         "ema_13": _latest(ema_13),
         "ema_26": _latest(ema_26),
         "macd_histogram": _latest(histogram),
         "bull_power": _latest(bull_power_series),
         "bear_power": _latest(bear_power_series),
+        "channel_upper": _latest(channel_upper),
+        "channel_lower": _latest(channel_lower),
     }
     screens = {
         "tide": {
@@ -528,28 +558,29 @@ def analyse_history(
 
     Performance: naively calling ``analyse()`` once per bar on an ``i``-bar-growing slice of
     ``daily_ohlcv`` would make every one of its EMA(13)/EMA(26)/MACD-Histogram/Stochastic/Force
-    Index computations -- each themselves O(i) -- recompute from scratch each time, an
-    O(range_size x history_length) total cost that's a real multi-second-plus latency risk for
+    Index/Autoenvelope computations -- each themselves O(i) -- recompute from scratch each time,
+    an O(range_size x history_length) total cost that's a real multi-second-plus latency risk for
     ``range=max`` on a ticker with years of daily history (see this task's `decisions` entry,
-    docs/tasks/api-stocks-indicator-history-followups.json). All five of those daily indicator
+    docs/tasks/api-stocks-indicator-history-followups.json). All six of those daily indicator
     series -- plus, on the weekly side, Screen 1 (Tide)'s own EMA(13)/EMA(26)/MACD-Histogram --
     are causal/rolling-window (a value at index *t* depends only on data up to *t*), so this
     function instead computes each of them exactly once over the full (cleaned) ``daily_ohlcv``/
     ``weekly_ohlcv`` and passes ``analyse()`` a same-truncated *slice* of each precomputed series
     per bar (via ``analyse()``'s own ``ema_13``/``ema_26``/``histogram``/``stochastic_k``/
-    ``force_index_2ema``/``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` parameters --
-    see its docstring) -- a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead
-    of letting ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/
-    ``evaluate_tide``) rederive them from each bar's own truncated ``daily_ohlcv``/
-    ``weekly_ohlcv`` window. This turns the dominant cost of the O(range_size x history_length)
-    total into O(history_length), not the *entire* cost -- ``elder_bull_power``/
-    ``elder_bear_power`` (a vectorized High/Low - EMA(13) subtraction) are *not* among the
-    series precomputed here, since ``analyse()`` computes them itself from its own truncated
-    ``daily_ohlcv``/``ema_13`` slice every call; along with the already-acknowledged per-bar
-    volume-rolling-average (the confidence-scoring branch) and ``_weekly_through_bar_date``
-    boolean-mask costs, this leaves a residual O(i)-per-bar term, so the function's true
-    worst-case asymptotic complexity remains O(range_size x history_length) -- just with a much
-    smaller constant, since the five/eight precomputed series above were the dominant terms.
+    ``force_index_2ema``/``channel_upper``/``channel_lower``/``weekly_ema_13``/
+    ``weekly_ema_26``/``weekly_histogram`` parameters -- see its docstring) -- a cheap
+    positional ``.iloc[:k]`` slice, not a recomputation -- instead of letting ``analyse()``
+    (and, transitively, ``_wave_lookback``/``evaluate_wave``/``evaluate_tide``) rederive them
+    from each bar's own truncated ``daily_ohlcv``/``weekly_ohlcv`` window. This turns the
+    dominant cost of the O(range_size x history_length) total into O(history_length), not the
+    *entire* cost -- ``elder_bull_power``/``elder_bear_power`` (a vectorized High/Low - EMA(13)
+    subtraction) are *not* among the series precomputed here, since ``analyse()`` computes them
+    itself from its own truncated ``daily_ohlcv``/``ema_13`` slice every call; along with the
+    already-acknowledged per-bar volume-rolling-average (the confidence-scoring branch) and
+    ``_weekly_through_bar_date`` boolean-mask costs, this leaves a residual O(i)-per-bar term, so
+    the function's true worst-case asymptotic complexity remains O(range_size x history_length)
+    -- just with a much smaller constant, since the six/nine precomputed series above were the
+    dominant terms.
     Confirmed empirically this residual cost doesn't matter in practice for realistic history
     lengths (a synthetic worst-case benchmark engineered to hit the Wave screen's oversold/
     Force-Index-spike path as often as possible still showed clean linear, not quadratic,
@@ -585,6 +616,9 @@ def analyse_history(
         daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"]
     )["k"]
     force_index_2ema_full = force_index(daily_ohlcv["close"], daily_ohlcv["volume"], ema_period=2)
+    channel_bands_full = autoenvelope(daily_close, mid=ema_13_full)
+    channel_upper_full = channel_bands_full["upper"]
+    channel_lower_full = channel_bands_full["lower"]
 
     weekly_ema_13_full = weekly_ema_26_full = weekly_histogram_full = None
     if len(weekly_ohlcv) >= 2 and "close" in weekly_ohlcv.columns:
@@ -628,6 +662,8 @@ def analyse_history(
                     histogram=histogram_full.iloc[: i + 1],
                     stochastic_k=stochastic_k_full.iloc[: i + 1],
                     force_index_2ema=force_index_2ema_full.iloc[: i + 1],
+                    channel_upper=channel_upper_full.iloc[: i + 1],
+                    channel_lower=channel_lower_full.iloc[: i + 1],
                     _daily_ohlcv_already_clean=True,
                     **weekly_kwargs,
                 ),

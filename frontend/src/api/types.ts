@@ -441,6 +441,16 @@ export interface components {
              */
             bull_power: number;
             /**
+             * Channel Lower
+             * @description Same definition as AnalysisResponse.indicators.channel_lower, for this bar. Null under the same condition as channel_upper.
+             */
+            channel_lower?: number | null;
+            /**
+             * Channel Upper
+             * @description Same definition as AnalysisResponse.indicators.channel_upper, for this bar. Null for a bar still inside the Autoenvelope deviation-average's ~100-bar warm-up window -- a far longer warm-up than stochastic_k/force_index_2ema above, so this is null across a much larger leading span of a long `range` (e.g. `range=max`) than either of those.
+             */
+            channel_upper?: number | null;
+            /**
              * Confidence
              * @description Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.
              */
@@ -510,6 +520,16 @@ export interface components {
              * @description Elder-Ray Bull Power = High - EMA(13).
              */
             bull_power: number;
+            /**
+             * Channel Lower
+             * @description Lower Autoenvelope/channel band, same definition/source/warm-up as `channel_upper` mirrored to `mid * (1 - avg_pct)`.
+             */
+            channel_lower?: number | null;
+            /**
+             * Channel Upper
+             * @description Upper Autoenvelope/channel band (docs/Analyse.md §4: 'EMA 13 ± avg % deviation') -- `app.indicators.autoenvelope.autoenvelope`'s `mid * (1 + avg_pct)`, where `mid` is this same response's `ema_13`. This is the exact band `app.portfolio.exits.evaluate_exit_flags` already tests against internally for the 'price reaches the upper Autoenvelope band with Impulse turning Red' existing-position exit rule (docs/Analyse.md §7), now exposed for any ticker rather than only a held portfolio position. Null for the first ~100 trading days of a ticker's history (the rolling deviation-average window isn't yet full) -- a much longer warm-up than any other field here, so this is null far more often than `ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which only need up to 26 bars.
+             */
+            channel_upper?: number | null;
             /** Ema 13 */
             ema_13: number;
             /** Ema 26 */

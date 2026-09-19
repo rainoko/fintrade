@@ -56,7 +56,9 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
     "ema_26": 221.7,
     "macd_histogram": 1.82,
     "bull_power": 3.1,
-    "bear_power": -1.4
+    "bear_power": -1.4,
+    "channel_upper": 236.9,
+    "channel_lower": 215.9
   }
 }
 ```
@@ -64,6 +66,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 `signal` ∈ `BUY | SELL | HOLD`. `confidence` is an integer 0–100. `confidence_band` ∈ `Low | Medium | High` per Analyse.md §6.
 
 `screens.wave.state` reflects only *today's* bar. `_determine_signal` (Analyse.md §5) actually gates a fresh BUY/SELL on whether the qualifying state appeared on *any* of the last 5 trading days ("Wave shows/showed..."), not just today — `showed_pullback_in_lookback`/`showed_rally_in_lookback` expose that lookback result directly, so a client can tell "the condition was met on an earlier day within the window" apart from "it was never met at all", which `state` alone can't distinguish. Both are `null` when `screens.tide.trend` is `NEUTRAL` (Wave is never evaluated against a direction in that case); otherwise both are real booleans, including the direction that's structurally always `false` for the current tide.
+
+`indicators.channel_upper`/`channel_lower` are the Autoenvelope/Channel band (Analyse.md §4: "EMA 13 ± avg % deviation") — `app.indicators.autoenvelope.autoenvelope`'s `mid * (1 ± avg_pct)`, where `mid` equals this same response's `ema_13`. This is the exact band `app.portfolio.exits.evaluate_exit_flags` already tests internally for the "price reaches the upper Autoenvelope band with Impulse turning Red" existing-position exit rule (Analyse.md §7), now exposed for any ticker rather than only a held portfolio position — see the `backend-channel-envelope-exposure` task's `decisions` for why this reuses the app's existing EMA(13)-backed channel rather than adding a second, slower-EMA variant. Both are `null` for the first ~100 trading days of a ticker's history, since the rolling deviation-average window (100 bars by default) isn't yet full — a much longer warm-up than any other `indicators` field, which only need up to 26 bars.
 
 ### `GET /api/stocks/{ticker}/indicators`
 
@@ -84,6 +88,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
       "bear_power": -1.4,
       "stochastic_k": 24.3,
       "force_index_2ema": -18234.5,
+      "channel_upper": 236.9,
+      "channel_lower": 215.9,
       "signal": "BUY",
       "confidence": 72,
       "confidence_band": "High"
@@ -95,6 +101,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 `points` is oldest-first, one entry per daily bar in the requested range, produced by re-running the signal engine (`app.signals.engine.analyse`) once per bar using only that bar's own history — including Screen 1 (Tide), which is recomputed from only the weekly bars as-of that day's own calendar week (`app.signals.engine._weekly_through_bar_date`), not held fixed at today's value — so `signal`/`confidence`/Tide all genuinely vary day to day, not just the underlying daily indicators, with no look-ahead. The last entry always matches `GET /api/stocks/{ticker}/analysis` for the same ticker at the same date: for the most recent daily bar, "the weekly bars as-of that bar's calendar week" naturally reduces to the full weekly series `/analysis` itself uses — see the `api-stocks-indicator-history` task's `decisions` for the full rationale (including why an earlier, simpler `<= bar_date` truncation attempt would have broken that "last entry matches `/analysis`" guarantee, given how the underlying weekly-resample date labeling works).
 
 `stochastic_k` and `force_index_2ema` are nullable: a bar still inside that indicator's own warm-up window (Stochastic %K(5,3,3) needs `(k_period - 1) + (smooth - 1)` prior bars — 6 with the current defaults; Force Index's raw `volume * close.diff()` input is undefined for the range's very first bar, which has no prior close) reports `null` for that field only, while every other field on the same point (including `ema_13`/`ema_26`/`macd_histogram`/`bull_power`/`bear_power`, which are EMA-seeded and never produce `NaN`) stays populated. This only affects early bars of a long-enough range (e.g. `range=max`); unlike `/analysis`, which always reports the latest bar and is therefore never still warming up.
+
+`channel_upper`/`channel_lower` are likewise nullable, same definition/source as `/analysis`'s `indicators.channel_upper`/`channel_lower` above (per-bar, not held fixed) — but null for a much longer leading span than `stochastic_k`/`force_index_2ema`: the Autoenvelope deviation-average needs a full ~100-bar trailing window, so both bands stay null for roughly the first 100 bars of any long-enough `range` (e.g. `range=max`) before becoming real numbers for every bar after that.
 
 Latency scales linearly with the number of daily bars in the ticker's *full* available history (not just the requested `range`), since `app.signals.engine.analyse_history` always needs the complete series for correct indicator warm-up even when `range` trims the response — see its own docstring for the precompute-and-slice design that makes this O(history_length) rather than the O(range_size × history_length) an earlier implementation had. Measured at roughly 1ms/bar (a `range=max` request against a synthetic ~11,500-bar series — about as long as AAPL's real daily history back to 1980 — completes in ~10s end to end), so a request against a ticker with decades of daily history is a multi-second, not sub-second, response; a ticker with a few years of history responds in well under a second.
 

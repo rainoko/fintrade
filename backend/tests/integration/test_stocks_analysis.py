@@ -191,7 +191,14 @@ class TestGetAnalysis:
             "macd_histogram",
             "bull_power",
             "bear_power",
+            "channel_upper",
+            "channel_lower",
         }
+        # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's ~100-bar
+        # deviation-average warm-up window, so both bands are still null here -- see
+        # test_channel_bands_populated_with_sufficient_history for the populated case.
+        assert body["indicators"]["channel_upper"] is None
+        assert body["indicators"]["channel_lower"] is None
 
     def test_malformed_latest_daily_bar_is_excluded_not_nulled(self) -> None:
         """Regression test for the real, observed yfinance condition this task fixes: the
@@ -228,9 +235,44 @@ class TestGetAnalysis:
         # as_of reflects the last real bar, not the malformed (later-dated) one.
         assert body["as_of"] == clean_daily.index[-1].date().isoformat()
         for field, value in body["indicators"].items():
+            # channel_upper/channel_lower are the one legitimately-nullable pair here (the
+            # Autoenvelope channel's ~100-bar warm-up, not related to the malformed bar this
+            # test targets) -- `clean_daily` alone is far shorter than that window.
+            if field in ("channel_upper", "channel_lower"):
+                assert value is None
+                continue
             assert isinstance(value, (int, float)), f"indicators.{field} was {value!r}, not a number"
         assert body["screens"]["wave"]["stochastic_k"] is not None
         assert body["screens"]["wave"]["force_index_2ema"] is not None
+
+    def test_channel_bands_populated_with_sufficient_history(self) -> None:
+        """channel_upper/channel_lower need a full 100-bar Autoenvelope deviation-average
+        window (`app.indicators.autoenvelope.autoenvelope`'s default `deviation_lookback`) --
+        this fixture is long enough (120 daily bars) for that window to be full at the latest
+        bar, so both bands should be real numbers, with upper strictly above lower (a
+        symmetric non-degenerate envelope around ema_13)."""
+        daily = pd.DataFrame(
+            {
+                "open": [100.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)],
+                "high": [101.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)],
+                "low": [99.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)],
+                "close": [100.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)],
+                "volume": [1_000_000] * 120,
+            },
+            index=pd.date_range("2026-01-01", periods=120, freq="D", name="date"),
+        )
+        weekly = _hold_weekly_ohlcv()
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        channel_upper = body["indicators"]["channel_upper"]
+        channel_lower = body["indicators"]["channel_lower"]
+        assert channel_upper is not None
+        assert channel_lower is not None
+        assert channel_upper > channel_lower
 
     def test_sell_signal_response_shape(self) -> None:
         provider = _StubProvider(
