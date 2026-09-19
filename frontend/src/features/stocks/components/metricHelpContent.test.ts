@@ -13,6 +13,7 @@ import {
   impulseHelp,
   macdHistogramHelp,
   rsiHelp,
+  seasonHelp,
   signalHelp,
   supportResistanceZoneHelp,
   tideHelp,
@@ -204,6 +205,41 @@ describe('metricHelpContent', () => {
       expect(triggerHelp.interpretValue(false, 'no_trigger', 'BULLISH')).toBe(
         'Not fired yet -- reference: No trigger.',
       )
+    })
+  })
+
+  describe('seasonHelp.interpretValue', () => {
+    it('frames Spring as the best long entry despite feeling emotionally wrong', () => {
+      const message = seasonHelp.interpretValue('Spring')
+      expect(message).toMatch(/^Currently Spring/)
+      expect(message).toMatch(/best risk\/reward entry for a long/)
+      expect(message).toMatch(/hardest to take emotionally/)
+    })
+
+    it('frames Autumn as the best short entry despite feeling emotionally wrong', () => {
+      const message = seasonHelp.interpretValue('Autumn')
+      expect(message).toMatch(/^Currently Autumn/)
+      expect(message).toMatch(/best risk\/reward entry for a short/)
+      expect(message).toMatch(/hardest to take emotionally/)
+    })
+
+    it('frames Summer as a worse-value, crowd-recognized entry than Spring', () => {
+      const message = seasonHelp.interpretValue('Summer')
+      expect(message).toMatch(/^Currently Summer/)
+      expect(message).toMatch(/crowd-recognized uptrend/)
+      expect(message).toMatch(/worse-value entry than Spring/)
+    })
+
+    it('frames Winter as a worse-value, crowd-recognized entry than Autumn', () => {
+      const message = seasonHelp.interpretValue('Winter')
+      expect(message).toMatch(/^Currently Winter/)
+      expect(message).toMatch(/crowd-recognized downtrend/)
+      expect(message).toMatch(/worse-value entry than Autumn/)
+    })
+
+    it('reports unavailability for a null/undefined season (warm-up)', () => {
+      expect(seasonHelp.interpretValue(null)).toMatch(/unavailable/)
+      expect(seasonHelp.interpretValue(undefined)).toMatch(/unavailable/)
     })
   })
 
@@ -617,7 +653,9 @@ describe('metricHelpContent', () => {
       })
       // Simulates the caller passing only the displayed zones -- the
       // excluded zone above isn't among them.
-      const displayedZones = [buildZone({ role: 'resistance', upper: 350.0, lower: 340.0 })]
+      const displayedZones = [
+        buildZone({ role: 'resistance', upper: 350.0, lower: 340.0 }),
+      ]
       const message = falseBreakoutHelp.interpretValue(displayedZones)
       expect(message).toBe('No false breakouts detected among these zones right now.')
       expect(message).not.toMatch(
@@ -686,7 +724,7 @@ describe('metricHelpContent', () => {
       )
       expect(message).toContain('RSI divergence')
       expect(message).toContain('no centerline requirement')
-      expect(message).toContain("didn’t reach beyond the 30/70 reference line")
+      expect(message).toContain('didn’t reach beyond the 30/70 reference line')
     })
 
     it('appends the Hound of the Baskervilles callout when aborted', () => {

@@ -1,0 +1,73 @@
+{
+  "id": "frontend-indicator-seasons-badge",
+  "title": "Display the \"market season\" (Spring/Summer/Autumn/Winter) label",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-indicator-seasons"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/ScreensPanel.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Small, low-risk addition: display the new Indicator Season classification (backend-indicator-seasons) as a labeled badge (e.g. alongside the existing ScreensPanel content), purely informational -- explicitly not wired into the signal itself. The explanation should carry Elder's own insight, not just define the term: Spring/Autumn are the emotionally hardest, best-risk-reward entries precisely because the crowd hasn't caught on yet. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design and implement the season badge, visually distinct from the actual BUY/SELL/HOLD signal so it's unmistakably informational, not another signal.",
+      "done": true
+    },
+    {
+      "step": "MetricHelp content explaining the season concept and, specifically, why Spring/Autumn are framed as the best entries despite feeling wrong.",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a new domain-agnostic `components/common/SeasonBadge` (outlined Chip + season icon + its own `theme.palette.season.*` four-color set) rather than reusing/extending `common/SignalBadge` or inlining a Chip directly in ScreensPanel.",
+      "rationale": "SignalBadge takes only a BUY/SELL/HOLD string and is filled in the same signal.buy/sell/hold colors used everywhere else on the page as 'this is the trading signal' -- reusing it (or its colors) for the season would directly contradict the checklist's 'visually distinct... unmistakably informational' requirement. A new common/ component passes Frontend.md §3's placement test the same way SignalBadge does: it takes only a plain Season string union, no domain knowledge of how the season was derived, so it belongs in common/ with its own colocated test + Storybook story rather than as a features/stocks/-local one-off."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Wired the badge into `ScreensPanel` (via a new optional `season` prop, sourced from `analysis.indicators.season` at the `StockDetailPage` call site) as a fifth, visually-distinct card after Tide/Impulse/Wave/Trigger, rather than into `IndicatorsPanel` where the `season` field technically lives on the `Indicators` API type.",
+      "rationale": "`IndicatorsPanel`'s StatCard grid renders each value as a plain formatted string inside a `Typography variant=\"h5\"` (a `<p>`) -- a Chip badge doesn't fit that slot without repeating the exact <div>-inside-<p> invalid-nesting bug ScreensPanel's own LabeledValue was previously fixed for (see its comment). Conceptually, season is also a slope+centerline read of the same MACD-Histogram Impulse already uses, closer in spirit to the four Triple Screen results than to the plain numeric indicator values in IndicatorsPanel -- and the task description itself names ScreensPanel as the example placement. The card is deliberately NOT built from ScreensPanel's own `ScreenSection` helper (dashed border, 'Informational -- not a signal' caption, SeasonBadge instead of a screen Chip) so it can't be mistaken for a fifth screen feeding the signal."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `theme.palette.season` four-color group (spring/summer/autumn/winter) rather than reusing `theme.palette.signal.*` or hard-coded hex values inline in SeasonBadge.",
+      "rationale": "Follows the existing precedent `riskBreach`/`divergence` already set in theme.ts: each is its own palette entry specifically because it must never be visually confusable with `signal.buy`/`signal.sell`/`signal.hold`. Guarded with a theme.test.ts assertion (four distinct colors, none equal to a signal color) matching the existing divergence/riskBreach guard tests."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge",
+    "pr_number": 161,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/161",
+    "pushed_at": "2026-09-19T18:49:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T18:58:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/161",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "theme.palette.season.summer (#f9a825) fails WCAG contrast against the white card background common/SeasonBadge renders its label/icon color on directly (no getContrastText adjustment, unlike SignalBadge's filled variant): computed contrast ratio ~1.97:1, below the 3:1 minimum for UI components/graphical objects. spring (3.3:1) and winter (3.28:1) are also below the 4.5:1 text threshold though closer to 3:1; autumn (4.35:1) passes. Non-blocking (the badge is still legible via bold weight + icon + label in practice, and no project doc sets a hard contrast gate), tracked as a follow-up on frontend-indicator-seasons-badge-followups.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 103
+      }
+    ],
+    "notes": "Full review: backend suite 713 passed, 99.91% coverage (unchanged by this frontend-only PR). Frontend suite 492 passed at 100% (a 1-test PortfolioPage.test.tsx timeout flake reproduces identically under full-suite parallel load on main too -- confirmed pre-existing/environment, not a regression); coverage 99.68% stmts / 98.92% branches overall, 100% on every new/changed file (SeasonBadge.tsx, ScreensPanel.tsx, theme.ts), matching the PR's claim. ruff/mypy/eslint/tsc all clean. code-review (medium) skill run against the diff surfaced one finding (the WCAG contrast issue above), no correctness bugs. e2e-test skill: all 16 Playwright specs passed. Browser walkthrough (chromium via frontend's own Playwright dep, no MCP browser tool available in this session) against the fixture data provider's 4 tickers found 3 distinct season values (AAPL=Autumn, GOOGL=Spring, MSFT=Summer; the 4th fixture ticker TSLA also read Summer, so Winter wasn't reachable via the fixture set) -- confirmed: (1) SeasonBadge is genuinely visually distinct from SignalBadge/the Impulse chip, not just a recolor -- outlined vs filled, a season icon, and a dashed-border card with an explicit 'Informational -- not a signal' caption, multiple redundant signals rather than color alone; (2) theme.test.ts's guard test asserts all four season colors are pairwise-distinct AND none equals signal.buy/sell/hold by exact string comparison, matching the PR's claim; (3) seasonHelp.interpretValue genuinely branches on the actual season value passed in (verified live via the MetricHelp popover on AAPL showing the Autumn-specific text, not generic copy); (4) common/ placement for SeasonBadge (domain-agnostic prop, same test SignalBadge already passes) vs feature-specific placement for seasonHelp/wiring in metricHelpContent.ts/ScreensPanel.tsx is consistent with established precedent and well-reasoned in the task's decisions. docs/Analyse.md row 12's Spring/Summer/Autumn/Winter -> slope/centerline mapping and Elder's best-entry framing are both accurately reflected in seasonHelp's definition/elderContext/interpretValue text. No backend/API changes in this PR, so no openapi.json regen was needed. No checklist item phrased as 'decide X' was left undecided -- all three recorded decisions (SeasonBadge placement, ScreensPanel wiring vs IndicatorsPanel, new season palette group) have decision+rationale."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T19:02:08Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran: frontend vitest suite (55 files / 492 tests passed, 99.68% stmt / 98.92% branch coverage, matching pr-reviewer's numbers exactly), `yarn tsc -b --noEmit` (clean) and `yarn build` (clean). Confirmed `git diff main...task/frontend-indicator-seasons-badge` touches no files under backend/ or frontend/src/api/ -- purely additive consumption of the already-shipped indicators.season field. Read theme.ts/theme.test.ts, SeasonBadge.tsx, ScreensPanel.tsx, StockDetailPage.tsx, metricHelpContent.ts diffs directly: theme.test.ts's new guard does assert all four season colors are pairwise-distinct and none equals signal.buy/sell/hold by exact string match, as claimed. Independently hand-computed WCAG contrast ratios for all four season colors against white (#fff) using the standard relative-luminance formula: spring 3.30, summer 1.97, autumn 4.35, winter 3.28 -- matches pr-reviewer's reported ratios exactly, confirming that non-blocking finding is real (and correctly non-blocking, already tracked with a concrete fix suggestion on frontend-indicator-seasons-badge-followups). No human PR comment present to override the automation verdict."
+  }
+}

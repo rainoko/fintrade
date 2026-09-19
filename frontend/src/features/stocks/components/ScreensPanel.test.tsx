@@ -162,4 +162,39 @@ describe('ScreensPanel', () => {
     expect(screen.getByText(/Tide is Neutral/)).toBeInTheDocument()
     expect(screen.queryByText(/enough daily price history/)).not.toBeInTheDocument()
   })
+
+  it('omits the Indicator Season card entirely when no season is supplied', () => {
+    renderWithTheme(<ScreensPanel screens={bullishScreens} />)
+
+    expect(screen.queryByText('Indicator Season')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('season-badge')).not.toBeInTheDocument()
+  })
+
+  it('renders the Indicator Season card, visually marked as informational, when a season is supplied', () => {
+    renderWithTheme(<ScreensPanel screens={bullishScreens} season="Spring" />)
+
+    expect(screen.getByText('Indicator Season')).toBeInTheDocument()
+    expect(screen.getByText('Informational -- not a signal')).toBeInTheDocument()
+    expect(screen.getByTestId('season-badge')).toHaveTextContent('Spring')
+  })
+
+  it("wires the season MetricHelp to carry Elder's Spring/Autumn best-entry insight", async () => {
+    const user = userEvent.setup()
+    renderWithTheme(<ScreensPanel screens={bullishScreens} season="Spring" />)
+
+    await user.click(screen.getByRole('button', { name: 'Indicator Season help' }))
+    expect(screen.getByText(/hardest to take emotionally/)).toBeInTheDocument()
+    expect(screen.getByText(/best risk\/reward entry for a long/)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['Spring', 'Spring'],
+    ['Summer', 'Summer'],
+    ['Autumn', 'Autumn'],
+    ['Winter', 'Winter'],
+  ] as const)('renders the %s season badge with its own label', (season, label) => {
+    renderWithTheme(<ScreensPanel screens={bullishScreens} season={season} />)
+
+    expect(screen.getByTestId('season-badge')).toHaveTextContent(label)
+  })
 })
