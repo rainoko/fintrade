@@ -61,5 +61,10 @@
       }
     ],
     "notes": "Purely a documentation/schema-description accuracy fix (PR #160's two tracked non-blocking findings) -- no functional code, route, or schema shape changed. No API route/schema signature changed (only a Field description string), so the openapi.json/types.ts regeneration was a courtesy per CLAUDE.md's standard (description text is part of the OpenAPI output) rather than a required-for-shape-change regeneration, and both are verified byte-correct. No new module/dependency/layer, so architecture-review was not needed. No frontend component touched (step 7a n/a) and no UI-facing surface at all -- no page/route/component changed, only doc prose and a schema description string with no runtime UI consumer, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) were explicitly skipped as genuinely not applicable rather than silently omitted. The task's one 'decide X'-shaped checklist item (whether Analyse.md §7 should state the coefficient) has a corresponding decisions entry recording the choice and rejected alternatives, satisfying CLAUDE.md's decision-memory requirement. No non-blocking findings this pass -- nothing new added to this task or a further followups task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T19:50:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing: 740 passed, 99.92% overall coverage, risk.py and schemas.py both 100% -- matches pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD): only schemas.py, openapi.json, docs/Analyse.md, frontend/src/api/types.ts, the task-file move, and index.json's mirror changed -- confirmed description-text only (no field/type/shape change) by regenerating openapi.json myself and diffing byte-identical against the committed copy. Hand-checked the new Analyse.md/schemas.py wording ('2x (or more)' / 'minus 2x a volatility buffer') directly against backend/app/portfolio/risk.py:33,140 (_SAFEZONE_COEFFICIENT = 2.0; swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)) -- matches exactly."
   }
 }
