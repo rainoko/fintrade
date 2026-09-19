@@ -887,7 +887,7 @@
       "id": "frontend-signal-wave-lookback-explanation",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-signal-wave-lookback-explanation.json"
     },
     {

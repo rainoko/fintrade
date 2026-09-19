@@ -4,7 +4,7 @@ import type { Screens } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
 import SignalExplanationContent from './SignalExplanationContent'
 
-const ambiguousWaveScreens: Screens = {
+const waveNeverShowedScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'RED',
   wave: {
@@ -20,7 +20,7 @@ const ambiguousWaveScreens: Screens = {
 describe('SignalExplanationContent', () => {
   it('renders the headline and one list item per Triple Screen condition', () => {
     renderWithTheme(
-      <SignalExplanationContent signal="HOLD" screens={ambiguousWaveScreens} />,
+      <SignalExplanationContent signal="HOLD" screens={waveNeverShowedScreens} />,
     )
 
     expect(
@@ -33,8 +33,11 @@ describe('SignalExplanationContent', () => {
 
     // Impulse blocks a fresh BUY here (RED) -- its detail line is rendered.
     expect(screen.getByText(/blocks any fresh BUY/)).toBeInTheDocument()
-    // Wave's true state is genuinely ambiguous from what's exposed -- the
-    // honest caveat renders rather than a false-confident met/not-met claim.
-    expect(screen.getByText(/may have shown one on an earlier day/)).toBeInTheDocument()
+    // Wave's true 5-day lookback state is now known definitively --
+    // showed_pullback_in_lookback: false resolves to a real not-met claim,
+    // not the old ambiguous caveat.
+    expect(
+      screen.getByText(/has not shown a qualifying oversold pullback/),
+    ).toBeInTheDocument()
   })
 })

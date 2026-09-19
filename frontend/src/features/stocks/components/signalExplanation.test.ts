@@ -8,6 +8,8 @@ function screens(
     weeklySlope: Screens['tide']['weekly_macd_histogram_slope']
     impulse: Screens['impulse']
     waveState: string
+    showedPullbackInLookback: boolean | null
+    showedRallyInLookback: boolean | null
     triggerFired: boolean
     triggerReference: string
   }>,
@@ -17,6 +19,12 @@ function screens(
     weeklySlope = 'rising',
     impulse = 'GREEN',
     waveState = 'OVERSOLD_PULLBACK',
+    // Defaults mirror the target-side lookback boolean matching `waveState`'s
+    // default (OVERSOLD_PULLBACK, the BULLISH/BUY side) so tests that don't
+    // care about the lookback distinction still get a self-consistent
+    // fixture; every test that *does* care overrides these explicitly.
+    showedPullbackInLookback = tideTrend === 'NEUTRAL' ? null : tideTrend === 'BULLISH',
+    showedRallyInLookback = tideTrend === 'NEUTRAL' ? null : tideTrend === 'BEARISH',
     triggerFired = true,
     triggerReference = 'close_above_prior_high',
   } = overrides
@@ -27,13 +35,8 @@ function screens(
       stochastic_k: 24.3,
       force_index_2ema: -18234.5,
       state: waveState,
-      // `explainSignal` doesn't yet consume these two fields (see this module's own
-      // docstring on the api-stocks-analysis-wave-lookback follow-up) -- populated here
-      // only so this fixture matches the `Screens` type, using a simple approximation
-      // (not a faithful re-implementation of `_wave_lookback`) since it's inert for
-      // every test in this file.
-      showed_pullback_in_lookback: tideTrend === 'NEUTRAL' ? null : tideTrend === 'BULLISH',
-      showed_rally_in_lookback: tideTrend === 'NEUTRAL' ? null : tideTrend === 'BEARISH',
+      showed_pullback_in_lookback: showedPullbackInLookback,
+      showed_rally_in_lookback: showedRallyInLookback,
     },
     trigger: { fired: triggerFired, reference: triggerReference },
   }
@@ -64,13 +67,14 @@ describe('explainSignal', () => {
         tideTrend: 'BULLISH',
         impulse: 'BLUE',
         waveState: 'NO_WAVE',
+        showedPullbackInLookback: true,
         triggerFired: true,
       }),
     )
 
     const wave = result.conditions.find((c) => c.key === 'wave')!
     expect(wave.met).toBe(true)
-    expect(wave.detail).toMatch(/within the last few trading days/)
+    expect(wave.detail).toMatch(/within the last 5 trading days/)
   })
 
   it('explains a SELL where every condition matches today', () => {
@@ -145,6 +149,7 @@ describe('explainSignal', () => {
         tideTrend: 'BULLISH',
         impulse: 'GREEN',
         waveState: 'NO_WAVE',
+        showedPullbackInLookback: false,
         triggerFired: true,
       }),
     )
@@ -160,13 +165,14 @@ describe('explainSignal', () => {
     expect(result.headline).toMatch(/missing: Wave pullback\/rally \(Screen 2\)\.$/)
   })
 
-  it('explains a HOLD with a directional tide missing exactly the Trigger condition, leaving Wave honestly uncertain', () => {
+  it('explains a HOLD blocked only by Trigger, with Wave definitively having shown the qualifying state within its lookback (no longer ambiguous)', () => {
     const result = explainSignal(
       'HOLD',
       screens({
         tideTrend: 'BULLISH',
         impulse: 'GREEN',
         waveState: 'NO_WAVE',
+        showedPullbackInLookback: true,
         triggerFired: false,
       }),
     )
@@ -175,21 +181,46 @@ describe('explainSignal', () => {
     expect(tide.met).toBe(true)
     expect(impulse.met).toBe(true)
     expect(trigger.met).toBe(false)
-    // Wave's true 5-day state genuinely can't be determined from today's
-    // reading alone once Trigger already blocks the signal on its own.
-    expect(wave.met).toBeNull()
-    expect(wave.detail).toMatch(/may have shown one on an earlier day/)
-    expect(wave.detail).toMatch(/Trigger.*isn.t met/)
+    // The lookback boolean is read directly -- Wave definitively showed the
+    // qualifying state on an earlier day, even though today's own reading
+    // (NO_WAVE) doesn't show it, and even though Trigger is what's actually
+    // blocking a fresh BUY right now.
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/within the last 5 trading days/)
     expect(result.headline).toMatch(/missing: Trigger fired \(Screen 3\)\.$/)
   })
 
-  it('explains a HOLD blocked only by the Impulse gate, with Trigger fired -- Wave stays honestly ambiguous, naming only Impulse as the other blocker', () => {
+  it('explains a HOLD blocked by both Wave and Trigger when Wave never showed the qualifying state in its lookback either', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BULLISH',
+        impulse: 'GREEN',
+        waveState: 'NO_WAVE',
+        showedPullbackInLookback: false,
+        triggerFired: false,
+      }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(impulse.met).toBe(true)
+    expect(trigger.met).toBe(false)
+    expect(wave.met).toBe(false)
+    expect(wave.detail).toMatch(/has not shown a qualifying oversold pullback/)
+    expect(result.headline).toMatch(
+      /missing: Wave pullback\/rally \(Screen 2\), Trigger fired \(Screen 3\)\.$/,
+    )
+  })
+
+  it('explains a HOLD blocked only by the Impulse gate, with Trigger fired and Wave definitively having shown the qualifying state (no longer ambiguous)', () => {
     const result = explainSignal(
       'HOLD',
       screens({
         tideTrend: 'BULLISH',
         impulse: 'RED',
         waveState: 'NO_WAVE',
+        showedPullbackInLookback: true,
         triggerFired: true,
       }),
     )
@@ -198,26 +229,47 @@ describe('explainSignal', () => {
     expect(tide.met).toBe(true)
     expect(impulse.met).toBe(false)
     expect(trigger.met).toBe(true)
-    expect(wave.met).toBeNull()
-    expect(wave.detail).toMatch(/the Impulse gate also isn.t met/)
+    expect(wave.met).toBe(true)
+    expect(wave.detail).toMatch(/within the last 5 trading days/)
     expect(result.headline).toMatch(/missing: Impulse gate\.$/)
   })
 
-  it('explains a HOLD with both the Impulse gate and Trigger already blocking -- uses a plural verb, not "also isn\'t met"', () => {
+  it('explains a HOLD blocked by both the Impulse gate and Wave, with Trigger fired', () => {
     const result = explainSignal(
       'HOLD',
       screens({
         tideTrend: 'BULLISH',
         impulse: 'RED',
         waveState: 'NO_WAVE',
-        triggerFired: false,
+        showedPullbackInLookback: false,
+        triggerFired: true,
+      }),
+    )
+
+    const [tide, impulse, wave, trigger] = result.conditions
+    expect(tide.met).toBe(true)
+    expect(impulse.met).toBe(false)
+    expect(trigger.met).toBe(true)
+    expect(wave.met).toBe(false)
+    expect(result.headline).toMatch(
+      /missing: Impulse gate, Wave pullback\/rally \(Screen 2\)\.$/,
+    )
+  })
+
+  it('treats a null lookback boolean on a directional Tide as not-met (defensive fallback; the API contract never actually sends this)', () => {
+    const result = explainSignal(
+      'HOLD',
+      screens({
+        tideTrend: 'BULLISH',
+        impulse: 'GREEN',
+        waveState: 'NO_WAVE',
+        showedPullbackInLookback: null,
+        triggerFired: true,
       }),
     )
 
     const wave = result.conditions.find((c) => c.key === 'wave')!
-    expect(wave.met).toBeNull()
-    expect(wave.detail).toMatch(/the Impulse gate and Trigger also aren.t met/)
-    expect(wave.detail).not.toMatch(/also isn.t met/)
+    expect(wave.met).toBe(false)
   })
 
   it('gives Trigger a non-contradictory detail when reference is not_applicable despite a directional Tide (fewer than 2 daily bars)', () => {

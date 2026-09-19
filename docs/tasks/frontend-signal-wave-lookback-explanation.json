@@ -3,7 +3,7 @@
   "title": "signalExplanation.ts: consume WaveScreen.showed_pullback_in_lookback/showed_rally_in_lookback to remove the ambiguous-Wave caveat",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["api-stocks-analysis-wave-lookback"],
   "references": [
     "frontend/src/features/stocks/components/signalExplanation.ts",
@@ -13,12 +13,33 @@
   ],
   "description": "Filed from api-stocks-analysis-wave-lookback's own checklist item 5 (that task's `decisions` entry explains why it wasn't folded into that backend task itself). GET /api/stocks/{ticker}/analysis now exposes `screens.wave.showed_pullback_in_lookback`/`showed_rally_in_lookback` (bool | null, null only when `screens.tide.trend` is NEUTRAL) -- the exact `_wave_lookback` booleans `_determine_signal` (backend/app/signals/engine.py) actually gates BUY/SELL on, rather than just today's `screens.wave.state`.\n\n`frontend/src/features/stocks/components/signalExplanation.ts`'s `explainSignal` currently has to render a `met: null` 'can't be confirmed from today's data alone' caveat for every HOLD case except the by-elimination one (see that module's own top-level docstring, 'The Wave lookback data-availability gap' section, for the full case breakdown). With the new field(s) exposed, every one of those cases can instead read the real value directly: `met: showed_pullback_in_lookback` (or `showed_rally_in_lookback`, depending on direction) whenever Tide is directional, with `met: null` genuinely only remaining for the Tide-Neutral case (where Wave was never evaluated against a direction at all -- already its own separate early-return branch in `explainSignal`, not the ambiguous-caveat one).\n\nThis is a real behavior change to a fairly dense piece of branching logic (the `waveMetToday`/`signal !== 'HOLD'`/`impulseMet && triggerMet`/else chain), not just a schema-typing update -- worth its own add-frontend-feature-skill pass (fixture/test rewrite across signalExplanation.test.ts, SignalExplanationContent.test.tsx's `ambiguousWaveScreens` fixture, and the module's own docstring) rather than folded into the backend task that unblocked it.",
   "checklist": [
-    { "step": "Rewrite explainSignal's wave-condition branch (frontend/src/features/stocks/components/signalExplanation.ts) to consume showed_pullback_in_lookback/showed_rally_in_lookback directly for every directional-Tide case, removing the 'other blockers' ambiguous-caveat branch entirely (met should never be null once Tide is directional -- only the Tide-Neutral early return should still produce met: null for Wave).", "done": false },
-    { "step": "Update the module's own top-level docstring ('The Wave lookback data-availability gap' section) to describe the resolved behavior instead of the gap, or remove it if no longer relevant.", "done": false },
-    { "step": "Update signalExplanation.test.ts's screens() fixture builder and test cases (and SignalExplanationContent.test.tsx's ambiguousWaveScreens fixture) to set showed_pullback_in_lookback/showed_rally_in_lookback explicitly per case and assert the new definitive met/detail text, removing coverage for the now-dead null-caveat branch.", "done": false },
-    { "step": "Confirm SignalConditionExplanation.met's JSDoc ('null only for the Wave condition ... genuinely undeterminable') no longer applies, or narrow it to the Tide-Neutral case only.", "done": false },
-    { "step": "Run frontend unit tests and the 90% coverage gate; update Storybook/browser-walkthrough coverage if task-qa-reviewer's checklist for this area expects it.", "done": false }
+    { "step": "Rewrite explainSignal's wave-condition branch (frontend/src/features/stocks/components/signalExplanation.ts) to consume showed_pullback_in_lookback/showed_rally_in_lookback directly for every directional-Tide case, removing the 'other blockers' ambiguous-caveat branch entirely (met should never be null once Tide is directional -- only the Tide-Neutral early return should still produce met: null for Wave).", "done": true },
+    { "step": "Update the module's own top-level docstring ('The Wave lookback data-availability gap' section) to describe the resolved behavior instead of the gap, or remove it if no longer relevant.", "done": true },
+    { "step": "Update signalExplanation.test.ts's screens() fixture builder and test cases (and SignalExplanationContent.test.tsx's ambiguousWaveScreens fixture) to set showed_pullback_in_lookback/showed_rally_in_lookback explicitly per case and assert the new definitive met/detail text, removing coverage for the now-dead null-caveat branch.", "done": true },
+    { "step": "Confirm SignalConditionExplanation.met's JSDoc ('null only for the Wave condition ... genuinely undeterminable') no longer applies, or narrow it to the Tide-Neutral case only.", "done": true },
+    { "step": "Run frontend unit tests and the 90% coverage gate; update Storybook/browser-walkthrough coverage if task-qa-reviewer's checklist for this area expects it.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T04:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "explainSignal reads screens.wave.showed_pullback_in_lookback/showed_rally_in_lookback directly (picking the field matching the resolved direction) for every directional-Tide case, with a `?? false` fallback the code comments mark as defensive-only, not an expected path. The old three-way branch (waveMetToday / signal !== 'HOLD' / impulseMet && triggerMet / else-ambiguous) collapses to a two-way check: today's state matches (met: true, 'shows ... today'), else the lookback boolean is read directly (met: true 'showed one within the last 5 trading days', or met: false 'has not shown a qualifying ... in the last 5 trading days') -- no signal-dependent branching left, since BUY/SELL vs HOLD no longer changes which value is authoritative.",
+      "rationale": "WaveScreen.showed_pullback_in_lookback/showed_rally_in_lookback are contractually non-null once screens.tide.trend is directional (see that field's own OpenAPI schema description and api-stocks-analysis-wave-lookback's decisions entry) -- the Tide-Neutral early return earlier in explainSignal already handles the only case where they're null, so by the time this code runs, direction is resolved and the field is guaranteed non-null. `?? false` is purely a type-level/defensive guard (the TS type is `boolean | null`) rather than a real fallback path the API is expected to exercise; throwing on an unexpected null was considered and rejected as disproportionate for a presentation-layer function -- silently treating an out-of-contract null as 'not shown' fails safe (renders a not-met claim) rather than crashing the balloon UI. A signalExplanation.test.ts case exercises this fallback explicitly for branch coverage, with a comment noting it's not a real API path.",
+      "alternatives_considered": "throwing an Error on an unexpected null lookback value with a directional tide; keeping a signal-dependent branch structure mirroring the old code more closely"
+    },
+    {
+      "timestamp": "2026-09-19T04:16:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The met:false Wave detail text no longer claims 'this is what's currently blocking a fresh BUY/SELL' (the old by-elimination wording) -- it now just states the fact ('Wave has not shown a qualifying X in the last 5 trading days'), letting the headline's 'missing: ...' list (which can now legitimately include Wave alongside Impulse and/or Trigger, since Wave's true state is read directly rather than only known by elimination) communicate whether other conditions are also unmet.",
+      "rationale": "Once Wave's lookback value is read directly instead of inferred by elimination, it's newly possible for Wave to be false *at the same time* as Impulse and/or Trigger, a combination the old by-elimination branch structurally couldn't produce (it only set Wave to met:false when Impulse and Trigger were both already true). Keeping the old 'this is what's blocking it' phrasing would misleadingly imply Wave is the sole cause even when it isn't -- the neutral, factual wording is accurate in both the sole-cause and joint-cause case, and the headline already lists every genuinely unmet condition.",
+      "alternatives_considered": "keeping the old 'this is what's currently blocking' wording only when Wave is the sole unmet condition, with a different string for the joint case -- rejected as unnecessary text-branching for marginal benefit over the headline already listing all blockers"
+    },
+    {
+      "timestamp": "2026-09-19T04:17:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No Storybook story was added or changed for this task.",
+      "rationale": "This task's changes are confined to a feature-scoped pure function (signalExplanation.ts, features/stocks/components/, not components/common/) and its existing test fixtures -- no new or changed common/ component was introduced, so the add-frontend-feature skill's Storybook requirement (Frontend.md §4) doesn't apply. SignalExplanationContent.tsx itself (which does render the explanation) was already a feature component with no story before this task and remains unchanged in this diff beyond its test fixture."
+    }
+  ],
   "questions": []
 }

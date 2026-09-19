@@ -8,11 +8,17 @@ export interface SignalConditionExplanation {
   key: SignalConditionKey
   label: string
   /**
-   * `true`/`false` when this ticker's currently-exposed screen values fully
-   * determine whether the condition held; `null` only for the Wave
-   * condition, and only when it's genuinely undeterminable from what
-   * `GET /api/stocks/{ticker}/analysis` exposes today -- see this module's
-   * own top-level docstring.
+   * `true`/`false` whenever this ticker's currently-exposed screen values
+   * determine whether the condition held; `null` only for the Impulse,
+   * Wave, and Trigger conditions, and only when Tide itself is Neutral --
+   * those three screens are evaluated against a Tide direction that
+   * doesn't exist in that case, so "not evaluated" is the accurate state,
+   * not a data-availability gap. Once Tide picks a direction, every
+   * condition (including Wave, since `showed_pullback_in_lookback`/
+   * `showed_rally_in_lookback` on `GET /api/stocks/{ticker}/analysis`
+   * expose the real 5-day lookback result `_determine_signal` gates on)
+   * resolves to a definite `true`/`false` -- see this module's own
+   * top-level docstring.
    */
   met: boolean | null
   detail: string
@@ -34,42 +40,35 @@ type Direction = 'BULLISH' | 'BEARISH'
  * SignalSummary.tsx, same convention as ConfidenceGauge/confidenceBand.ts --
  * react-refresh/only-export-components).
  *
- * ## The Wave lookback data-availability gap (frontend-signal-why-explanation
- * task `decisions` entry)
+ * ## Wave's condition reads the 5-day lookback, not just today's state
+ * (resolved: frontend-signal-wave-lookback-explanation task)
  *
  * `_determine_signal` doesn't test today's Wave state directly -- it tests
  * `wave_showed_pullback`/`wave_showed_rally` (`_wave_lookback`), true if the
  * qualifying state appeared on *any* of the last 5 trading days, not just
- * today. `GET /api/stocks/{ticker}/analysis`'s `screens.wave.state` only
- * ever reports *today's* `evaluate_wave` result, so this module cannot
- * always know the Wave condition's true multi-day state -- only in these
- * cases can it be reconstructed exactly from what's exposed today:
+ * today. `GET /api/stocks/{ticker}/analysis` exposes exactly those two
+ * booleans as `screens.wave.showed_pullback_in_lookback`/
+ * `showed_rally_in_lookback` (non-null whenever `screens.tide.trend` is
+ * directional, `null` only when it's NEUTRAL -- see `WaveScreen`'s own
+ * schema description), so this module reads the real lookback result
+ * directly instead of reconstructing it from today's `screens.wave.state`
+ * alone:
  *
- * - **BUY/SELL**: the signal already proves `wave_showed_pullback`/`_rally`
- *   was true (that's one of `_determine_signal`'s four required conditions),
- *   so `met` is always `true`, with the detail noting whether today's own
- *   reading matches or the pullback/rally must have happened on an earlier
- *   day within the window.
- * - **HOLD, with Tide/Impulse/Trigger all otherwise satisfying the signal
- *   Tide's own direction**: if those three held today and the signal still
- *   came back HOLD, Wave must be the reason (by elimination -- if Wave had
- *   also shown/showed the qualifying state, `_determine_signal` would have
- *   returned BUY/SELL instead) -- so `met` is definitively `false`.
- * - **Every other HOLD case** (Tide Neutral, or Tide directional but Impulse
- *   already blocks or Trigger hasn't fired): today's `screens.wave.state`
- *   alone can't distinguish "the pullback/rally never happened in the last
- *   5 sessions" from "it happened on an earlier day this field doesn't
- *   show" -- `met` is `null` and the detail says so explicitly rather than
- *   guessing, alongside noting the *other* condition(s) that already block
- *   the signal regardless of Wave's true state.
- *
- * Extending the API to also expose `wave_showed_pullback`/`wave_showed_rally`
- * (or equivalent) would close this gap entirely -- filed as its own backend
- * task, `api-stocks-analysis-wave-lookback` (add-api-endpoint skill), rather
- * than folded into this frontend-skill task per the api-watchlist/
- * api-stocks-indicator-history precedent of a dedicated backend task for a
- * schema change. Until that lands, this module's `null` case is the honest
- * frontend-only fallback -- see this task's `decisions` entry.
+ * - **BUY/SELL**: the signal already proves the relevant lookback boolean
+ *   was `true` (one of `_determine_signal`'s four required conditions), so
+ *   `met` is always `true`, with the detail noting whether today's own
+ *   reading matches or the pullback/rally happened on an earlier day
+ *   within the window.
+ * - **HOLD, with Tide directional**: the lookback boolean is read directly
+ *   and reported as-is -- `met: true` (today or an earlier day within the
+ *   window) if some *other* condition (Impulse/Trigger) is what's blocking
+ *   a fresh BUY/SELL, or `met: false` if Wave itself never showed the
+ *   qualifying state in the window, whether or not another condition also
+ *   blocks.
+ * - **HOLD, with Tide Neutral**: Wave (and Impulse and Trigger) are never
+ *   evaluated against a direction that doesn't exist, so `met` stays
+ *   `null` -- this is "not evaluated", not "undeterminable" (see the
+ *   Tide-Neutral early return below).
  */
 export function explainSignal(
   signal: 'BUY' | 'SELL' | 'HOLD',
@@ -198,6 +197,17 @@ export function explainSignal(
   }
 
   const waveMetToday = waveState === targetWaveState
+  // Tide is directional here (the Neutral case already returned above), so
+  // the relevant lookback boolean is never null -- see WaveScreen.
+  // showed_pullback_in_lookback/showed_rally_in_lookback's own schema
+  // description (null only when screens.tide.trend is NEUTRAL) and this
+  // module's own top-level docstring. `?? false` is a defensive fallback
+  // only, not an expected path.
+  const waveShowedInLookback =
+    (isBuySide
+      ? screens.wave.showed_pullback_in_lookback
+      : screens.wave.showed_rally_in_lookback) ?? false
+
   let waveCondition: SignalConditionExplanation
   if (waveMetToday) {
     waveCondition = {
@@ -206,45 +216,27 @@ export function explainSignal(
       met: true,
       detail: `Wave shows an ${targetWaveLabel} today (Stochastic %K/Force Index confirm, docs/Analyse.md §2).`,
     }
-  } else if (signal !== 'HOLD') {
-    // BUY/SELL already proves wave_showed_pullback/_rally was true at some
-    // point in the 5-day lookback, even though today's own reading doesn't
-    // show it -- docs/Analyse.md §5 explicitly allows the pullback/rally to
-    // have already ended by the day Trigger fires.
+  } else if (waveShowedInLookback) {
+    // Today's own reading doesn't show it, but the 5-day lookback did on an
+    // earlier day -- docs/Analyse.md §5 explicitly allows the pullback/rally
+    // to have already ended by the day Trigger fires (or, for a HOLD, by
+    // today).
     waveCondition = {
       key: 'wave',
       label: 'Wave pullback/rally (Screen 2)',
       met: true,
-      detail: `Wave doesn’t show an ${targetWaveLabel} today, but showed one within the last few trading days -- docs/Analyse.md §5 allows the pullback/rally to have already ended by the day Trigger actually fires.`,
+      detail: `Wave doesn’t show an ${targetWaveLabel} today, but showed one within the last 5 trading days -- docs/Analyse.md §5 allows the pullback/rally to have already ended by the day Trigger actually fires.`,
     }
-  } else if (impulseMet && triggerMet) {
-    // Every other condition is satisfied today; if Wave had also shown/showed
-    // the qualifying state within its 5-day lookback, this would be a fresh
-    // BUY/SELL instead of a HOLD -- so by elimination, it didn't.
+  } else {
+    // Wave never showed the qualifying state in its own 5-day lookback,
+    // whether or not it's also the *only* thing currently blocking a fresh
+    // BUY/SELL -- unreachable for signal !== 'HOLD', since a BUY/SELL
+    // already proves this boolean was true.
     waveCondition = {
       key: 'wave',
       label: 'Wave pullback/rally (Screen 2)',
       met: false,
-      detail: `Wave has not shown a qualifying ${targetWaveLabel} in the last 5 trading days -- this is what’s currently blocking a fresh ${actionWord} (today’s Wave state: ${humanizeSnakeCase(waveState)}).`,
-    }
-  } else {
-    // Genuinely ambiguous from what's exposed today: some other condition
-    // already blocks the signal, so we can't tell whether Wave's 5-day
-    // lookback separately would have qualified or not -- see this module's
-    // own docstring.
-    const otherBlockers = [
-      !impulseMet ? 'the Impulse gate' : null,
-      !triggerMet ? 'Trigger' : null,
-    ].filter((label): label is string => label !== null)
-    // `otherBlockers` is 1 or 2 items long here (see the branch condition
-    // above); pick a subject-verb-agreeing verb rather than always the
-    // singular "isn't", which reads wrong once both are joined with "and".
-    const otherBlockersVerb = otherBlockers.length > 1 ? 'aren’t' : 'isn’t'
-    waveCondition = {
-      key: 'wave',
-      label: 'Wave pullback/rally (Screen 2)',
-      met: null,
-      detail: `Today’s Wave state is ${humanizeSnakeCase(waveState)}, not a qualifying ${targetWaveLabel}. Wave looks back up to 5 trading days, so it may have shown one on an earlier day this view doesn’t show -- but ${otherBlockers.join(' and ')} also ${otherBlockersVerb} met, so this would be a HOLD either way.`,
+      detail: `Wave has not shown a qualifying ${targetWaveLabel} in the last 5 trading days (today’s Wave state: ${humanizeSnakeCase(waveState)}).`,
     }
   }
 
@@ -257,10 +249,10 @@ export function explainSignal(
     // A HOLD reaching this point always has at least one condition with
     // met === false: `tideCondition.met` is always true here (`direction`
     // was itself derived from `tideTrend`, so they can't disagree), and
-    // Wave's `met: null` (ambiguous) case only ever occurs when
-    // `otherBlockers` -- Impulse and/or Trigger -- is non-empty, i.e. at
-    // least one of those is already `false`. So `unmetLabels` below is
-    // never empty for a HOLD -- see signalExplanation.test.ts.
+    // `_determine_signal` only returns BUY/SELL when Impulse, Wave, and
+    // Trigger are *all* met -- so a HOLD with a directional Tide means at
+    // least one of the other three is `false` here too. So `unmetLabels`
+    // below is never empty for a HOLD -- see signalExplanation.test.ts.
     const unmetLabels = conditions.filter((c) => c.met === false).map((c) => c.label)
     headline = `HOLD: the ${humanizeSnakeCase(direction)} Tide setup isn’t complete for this ticker -- missing: ${unmetLabels.join(', ')}.`
   }
