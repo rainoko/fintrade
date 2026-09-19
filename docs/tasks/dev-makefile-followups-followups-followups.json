@@ -1,0 +1,21 @@
+{
+  "id": "dev-makefile-followups-followups-followups",
+  "title": "Root Makefile -- non-blocking review follow-up from PR #139",
+  "area": "infra",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["dev-makefile-followups-followups"],
+  "references": [
+    "docs/tasks/dev-makefile-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/139"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #139 (dev-makefile-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "Found by a `code-review` pass on PR #139 (independently re-verified before filing): the text PR #139 wrote into `docs/tasks/done/dev-makefile-followups.json`'s `decisions[1]` to correct an earlier overstatement is itself imprecise in a related way. It now says the surviving sub-target 'is torn down immediately as soon as either one fails, and `make dev` exits non-zero right away rather than blocking until the last-reaped job exits.' On the most natural reading this whole clause is scoped to the failure case the paragraph is about (a sub-target failing), which is accurate. But `wait -n $$bpid $$fpid` actually returns with the exit status of *whichever* of `bpid`/`fpid` (the two sub-`make` invocations) finishes first, for *any* reason -- not only a failure. If one side were to exit cleanly (status 0) while the other is still healthy (e.g. `vite`'s node process exiting on its own, or someone kills only one side directly rather than the top `make dev` pid), the same teardown-and-`exit $$status` sequence would tear down the still-healthy other side and propagate a *0* exit code from `make dev`, not the non-zero the sentence's less careful reading might suggest. Verified empirically (equivalent scratch Makefile): `wait -n` captured `status=0` when the first-completing job exited 0. This wasn't the scenario the original fail-fast bug or this decision entry were ever about (both are specifically about a sub-target *failing*), so this is a minor precision gap in the decision-log prose, not a runtime bug -- `make dev`'s actual behavior is unaffected and was not claimed to be otherwise anywhere except in this one sentence's phrasing. Worth a follow-up wording tweak to `decisions[1]` (e.g. explicitly noting that a clean 0-exit by one side while the other is still healthy would also trigger the same teardown-and-propagate-that-status behavior, not just a failure) so a future reader can't misread the corrected sentence as claiming `wait -n` is failure-specific.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

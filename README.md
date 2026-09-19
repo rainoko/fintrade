@@ -35,6 +35,17 @@ backend` prints a clear error pointing at `.devcontainer/post-create.sh` / `pip 
 failure; `make dev` invokes `make backend` as a subprocess of its own recipe (not a
 formal Make prerequisite), so that same error surfaces through `make dev` too.
 
+`make dev`'s fail-fast cleanup relies on bash's `wait -n <pids...>`, which needs
+**bash >= 5.1**; the Makefile sets `SHELL := bash` to run its recipes under bash rather
+than this container's default `/bin/sh` (dash), but that resolves `bash` via a `PATH`
+search rather than a pinned path. The dev container's bash (5.3.9) satisfies this, but a
+`bash` found elsewhere on `PATH` might not — notably macOS ships bash 3.2.57 as
+`/bin/bash` by default (licensing, not oversight) and lacks `wait -n` entirely. Outside
+the dev container, either make sure a bash >= 5.1 comes first on `PATH`, or run
+`make backend`/`make frontend` in separate terminals instead of `make dev` (they don't
+use `wait -n` and have no bash-version requirement beyond what `uvicorn`/`yarn`
+themselves need).
+
 ## Backend
 
 Python 3.12+, FastAPI. From `backend/`:
