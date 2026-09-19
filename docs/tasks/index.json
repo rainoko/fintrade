@@ -1020,8 +1020,15 @@
       "id": "backend-trade-grading",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-grading.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-grading.json"
+    },
+    {
+      "id": "backend-trade-grading-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-grading-followups.json"
     },
     {
       "id": "backend-market-data-extra-fields",

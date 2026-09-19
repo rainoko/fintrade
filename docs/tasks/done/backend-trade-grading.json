@@ -3,7 +3,7 @@
   "title": "A-trade grading (buy grade / sell grade / trade grade) for closed trades",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-trade-history-table",
     "backend-channel-envelope-exposure"
@@ -68,5 +68,39 @@
     "pr_number": 149,
     "pr_url": "https://github.com/rainoko/fintrade/pull/149",
     "pushed_at": "2026-09-19T11:01:50Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T11:07:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/149",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-derived the book's ADSK example by hand from the review prompt's own inputs (buy $51.77 on high $52.49/low $51.75; sell $53.78 on high $54.49/low $53.39; entry-day channel upper $53.87/lower $47.61) and got 97.297...% / 35.454...% / 32.108...%, matching the claimed 97%/35%/32% and the exact formulas in app/portfolio/grading.py (buy_grade_pct/sell_grade_pct/trade_grade_pct) and their reference-value test (tests/unit/test_portfolio_grading.py::TestGradeTradeReferenceValues) exactly, including the entry-day-not-exit-day channel measurement for trade_grade_pct."
+      },
+      {
+        "summary": "Confirmed grade_closed_trade/_grade_closed_trades never raise/500 on missing data: entry_date/exit_date not an exact row, a malformed entry-day bar, warm-up-window NaN channel bounds, and a per-ticker DataProviderError all degrade to null grade fields on an otherwise fully-populated closed-trade row, each covered by both unit tests (TestGradeClosedTrade) and integration tests (TestGetClosedTradesGradingDegradesGracefully)."
+      },
+      {
+        "summary": "The strict (require_full_ohlc_on_latest_bar=True) malformed-bar filtering decision is sound: entry/exit dates are essentially never the latest fetched bar for a closed trade, so the stricter default (needed for a real, non-NaN high/low on two arbitrary historical days) doesn't create the false-null risk the lenient GET /api/portfolio/risk carve-out exists to avoid."
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts are genuinely in sync -- re-ran `python scripts/export_openapi.py` and `yarn generate:api-types` against the checked-out branch and both produced zero diff. GET /api/portfolio/closed-trades has response_model, operation_id, summary, and a full docstring; it declares no responses={} error cases, which is correct and consistent with GET /api/portfolio's own precedent (no path params, no request body, and grading degrades gracefully rather than raising, so there's genuinely no documentable error case beyond FastAPI's default). schemas.py's new fields (ClosedTradeOut, ExitReasonOut) all carry descriptions per the API documentation standard, and ExitReasonOut's 8 literals match ExitReason's 8 enum values exactly.",
+        "file": "backend/app/api/routers/portfolio.py"
+      },
+      {
+        "summary": "Full suites pass and exceed the 90% gate: backend 639 passed, 99.89% coverage (grading.py and the router additions both 100%); frontend 349 passed, coverage 99.6-100% across the board. ruff/mypy/eslint/tsc all clean. scripts/validate_tasks.py reports the task board clean.",
+        "file": "backend/app/portfolio/grading.py"
+      },
+      {
+        "summary": "No UI surface in this PR (only the generated frontend/src/api/types.ts changed on the frontend side, confirmed via git diff --stat -- frontend/) -- the step-9 browser walkthrough and step-9a persisted e2e suite are correctly skipped, and the decision to defer the actual frontend consumer to the already-planned frontend-trade-journal task is recorded with rationale.",
+        "file": "frontend/src/api/types.ts"
+      },
+      {
+        "summary": "Non-blocking (efficiency, not correctness): per-ticker daily-history fetch is shared across a ticker's closed-trade rows in _grade_closed_trades's frames dict, but grade_closed_trade's more expensive per-call work -- drop_malformed_daily_bars over the whole frame and the full autoenvelope() rolling-window computation -- is redundantly recomputed once per row instead of once per ticker, so a ticker with many round-trip closed trades does O(n) redundant dropna/autoenvelope passes over an identical frame. Tracked as docs/tasks/backend-trade-grading-followups.json rather than left only here.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 179
+      }
+    ],
+    "notes": "Checked out PR #149. Ran backend pytest --cov (639 passed, 99.89%, grading.py 100%) and frontend vitest --coverage (349 passed, 99.6-100%) -- both match the PR's own claims exactly. ruff/mypy/eslint/tsc all clean. Re-ran scripts/export_openapi.py and yarn generate:api-types against the branch: zero diff, confirming both committed snapshots are genuinely current, not just claimed. Ran architecture-review: app/portfolio/grading.py follows the established pure-domain-function-plus-thin-router-glue pattern (mirrors app/portfolio/risk.py/exits.py), the router stays thin, schemas.py holds all shape/description, no new dependency, no coverage-config changes. Ran verify-elder-signal's spirit against docs/Analyse.md/docs/ideas.md's own ch. 55/ch. 33 notes (line 144-146, 109) -- the implemented formulas, the >50%/>=30%/~10% thresholds, and the entry-day-specific channel measurement for trade_grade_pct all match the source material verbatim, and docs/Analyse.md/docs/architecture/API.md were both updated in this PR to describe the new endpoint/formulas accurately. Ran the code-review skill (medium) against the diff in the background; it independently corroborated no correctness bugs and surfaced the one efficiency finding recorded above. All 4 checklist items are done with 5 decisions entries covering every judgment call made (new-vs-extend endpoint, module split, strict malformed-bar filtering, ExitReasonOut vs importing ExitReason, deferring the frontend consumer) -- no checklist item is phrased as 'decide X' without a matching decisions entry. No frontend components were added or changed in this PR (only generated types.ts), so the frontend component-placement check (step 7a) doesn't apply. No human PR comments/reviews existed on PR #149 before this review. One non-blocking finding filed as docs/tasks/backend-trade-grading-followups.json (new, since no prior follow-up task existed for this id) rather than left only as a PR comment."
   }
 }
