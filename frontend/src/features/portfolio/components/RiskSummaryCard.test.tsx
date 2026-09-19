@@ -33,7 +33,7 @@ describe('RiskSummaryCard', () => {
     expect(screen.getByText('Loading risk summary...')).toBeInTheDocument()
 
     await waitFor(() => expect(screen.getByText('3.20%')).toBeInTheDocument())
-    expect(screen.getByText('Total Open Risk')).toBeInTheDocument()
+    expect(screen.getByText('Total Risk (Open + Realized)')).toBeInTheDocument()
     expect(screen.getByText('Positions Breaching 2% Rule')).toBeInTheDocument()
     expect(screen.getByText('0')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

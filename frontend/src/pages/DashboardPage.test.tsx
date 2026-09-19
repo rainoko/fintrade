@@ -43,7 +43,7 @@ describe('DashboardPage', () => {
       '/stocks/AAPL',
     )
 
-    await waitFor(() => expect(screen.getByText('Total Open Risk')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Total Risk (Open + Realized)')).toBeInTheDocument())
     expect(screen.getByText('Positions Breaching 2% Rule')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
@@ -67,6 +67,7 @@ describe('DashboardPage', () => {
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({
           total_open_risk_pct: 0,
+          realized_losses_this_month_pct: 0,
           six_percent_rule_breached: false,
           positions: [],
         }),
@@ -92,6 +93,7 @@ describe('DashboardPage', () => {
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({
           total_open_risk_pct: 6.8,
+          realized_losses_this_month_pct: 0,
           six_percent_rule_breached: true,
           positions: [
             {

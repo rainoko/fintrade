@@ -17,7 +17,7 @@ threshold-derived response fields (two_percent_rule_breached/six_percent_rule_br
 degrade-gracefully exclusion of a position whose price/history couldn't be fetched.
 """
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -31,6 +31,18 @@ from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
 from app.portfolio.risk import protective_stop
+
+
+def _today() -> date:
+    """Matches `app.api.routers.portfolio._today()` exactly (UTC-derived, not local
+    `date.today()`) -- see the backend-trade-history-table-followups task's `decisions`
+    entry for why: a fixture built from local `date.today()` would intermittently disagree
+    with the UTC-based production value outside a UTC-local-timezone runner (and, near a
+    calendar-month boundary, could land a `ClosedTradeORM` fixture row in the wrong
+    this-month/prior-month bucket relative to what the UTC `as_of` the route actually uses),
+    even though dev container/CI both run in UTC today."""
+    return datetime.now(UTC).date()
+
 
 # The hand-computed 5-row reference series from test_portfolio_risk.py's
 # TestProtectiveStop.test_reference_values_short_series, plus one more "today" row appended
@@ -606,7 +618,7 @@ class TestRealizedLossesThisMonth:
         db_session.add(
             PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
         )
-        this_month = date.today().replace(day=1)
+        this_month = _today().replace(day=1)
         db_session.add_all(
             [
                 ClosedTradeORM(
@@ -654,7 +666,7 @@ class TestRealizedLossesThisMonth:
         db_session.add(
             PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
         )
-        last_day_of_prior_month = date.today().replace(day=1) - timedelta(days=1)
+        last_day_of_prior_month = _today().replace(day=1) - timedelta(days=1)
         db_session.add_all(
             [
                 ClosedTradeORM(
@@ -692,7 +704,7 @@ class TestRealizedLossesThisMonth:
         db_session.add(
             ClosedTradeORM(
                 id="trade_1", ticker="MSFT", quantity=10.0, entry_price=100.0,
-                entry_date=date(2020, 1, 1), exit_price=150.0, exit_date=date.today(),
+                entry_date=date(2020, 1, 1), exit_price=150.0, exit_date=_today(),
                 realized_pnl=500.0, exit_reason=ExitReason.TARGET_HIT.value,
             )
         )

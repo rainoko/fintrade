@@ -1,9 +1,11 @@
 import Stack from '@mui/material/Stack'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import RiskBreachBanner from '../../../components/common/RiskBreachBanner/RiskBreachBanner'
 import StatCard from '../../../components/common/StatCard/StatCard'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+import { totalRiskHelp } from './totalRiskHelp'
 
 /**
  * Dashboard-level condensed view of `GET /api/portfolio/risk`
@@ -26,10 +28,16 @@ export default function RiskSummaryCard() {
     return <LoadingState message="Loading risk summary..." />
   }
 
-  const { total_open_risk_pct, six_percent_rule_breached, positions } = riskQuery.data
+  const {
+    total_open_risk_pct,
+    realized_losses_this_month_pct,
+    six_percent_rule_breached,
+    positions,
+  } = riskQuery.data
   const breachedCount = positions.filter(
     (position) => position.two_percent_rule_breached,
   ).length
+  const riskHelp = totalRiskHelp(total_open_risk_pct, realized_losses_this_month_pct)
 
   return (
     <Stack spacing={2}>
@@ -37,15 +45,27 @@ export default function RiskSummaryCard() {
         <RiskBreachBanner
           message={
             <>
-              6% rule breached — total open risk is {total_open_risk_pct.toFixed(2)}% of
-              equity (limit 6%). See the Portfolio page for details.
+              6% rule breached — total risk (open positions plus this month's realized
+              losses) is {total_open_risk_pct.toFixed(2)}% of equity (limit 6%). See the
+              Portfolio page for details.
             </>
           }
         />
       )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <StatCard label="Total Open Risk" value={`${total_open_risk_pct.toFixed(2)}%`} />
+        <StatCard
+          label={riskHelp.metricLabel}
+          value={`${total_open_risk_pct.toFixed(2)}%`}
+          corner={
+            <MetricHelp
+              metricLabel={riskHelp.metricLabel}
+              definition={riskHelp.definition}
+              elderContext={riskHelp.elderContext}
+              valueInterpretation={riskHelp.valueInterpretation}
+            />
+          }
+        />
         <StatCard label="Positions Breaching 2% Rule" value={String(breachedCount)} />
       </Stack>
     </Stack>

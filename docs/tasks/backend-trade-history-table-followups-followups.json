@@ -1,0 +1,23 @@
+{
+  "id": "backend-trade-history-table-followups-followups",
+  "title": "Total Risk breakdown tooltip (totalRiskHelp) has no direct test coverage -- non-blocking review follow-up",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trade-history-table-followups"],
+  "references": [
+    "docs/tasks/backend-trade-history-table-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/166",
+    "frontend/src/features/portfolio/components/totalRiskHelp.ts",
+    "frontend/src/features/stocks/components/IndicatorsPanel.test.tsx"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #166 (backend-trade-history-table-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "frontend/src/features/portfolio/components/totalRiskHelp.ts computes the new open-vs-realized risk breakdown (`openPositionRiskPct = totalOpenRiskPct - realizedLossesThisMonthPct`) and formats it into the MetricHelp popover's `valueInterpretation` string, wired into both RiskPanel.tsx and RiskSummaryCard.tsx via the shared `common/MetricHelp` question-mark affordance. Neither RiskPanel.test.tsx nor RiskSummaryCard.test.tsx (only updated in PR #166 for the StatCard label-text rename) ever click the new 'Total Risk (Open + Realized) help' icon or assert on the resulting breakdown text/numbers -- unlike the established precedent for this exact MetricHelp usage pattern, frontend/src/features/stocks/components/IndicatorsPanel.test.tsx, which does click its help icons and assert the exact popover text/values shown. There is also no dedicated totalRiskHelp.test.ts unit-testing the arithmetic directly, unlike the sibling frontend/src/features/portfolio/components/metricHelpContent.ts's own metricHelpContent.test.ts (which hand-checks each help object's interpretValue against worked examples). Coverage tooling reports totalRiskHelp.ts at 100% only because the function is called unconditionally during component render (regardless of whether the popover is ever opened) -- no test currently asserts its output is correct. A future change that flips the subtraction order, swaps which field is passed as totalOpenRiskPct vs realizedLossesThisMonthPct, or otherwise breaks the arithmetic would pass CI silently. Manually verified via a real browser walkthrough during PR #166's review that the current arithmetic and rendered text are correct (1.93% open + 691.79% realized = 693.72% total, matching the live /api/portfolio/risk response) -- this finding is about locking that in with an automated test, not about a live bug. Surfaced independently by both the code-review skill and pr-reviewer's own manual check during PR #166's review.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
