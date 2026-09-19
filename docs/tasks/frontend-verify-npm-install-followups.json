@@ -34,5 +34,11 @@
       "rationale": "Rejected doing nothing but rephrasing: a scoped-down claim alone leaves the actual behavior under those constructs unknown, and the synthetic schema was cheap to write and run (one ad hoc JSON fixture, two CLI invocations, no new permanent dependency or CI step) for real evidence instead of just weaker wording. Rejected committing the synthetic schema/generated output as a permanent fixture or vitest test: openapi-typescript is a dev-time codegen tool invoked manually against the committed backend/openapi.json snapshot, not exercised by the app's own runtime code path or the 90% coverage gate (CLAUDE.md's Testing standard governs app code, not tooling scripts), and backend/openapi.json is already regenerated-and-diffed on every real schema change per the API documentation standard -- a standing synthetic-schema test would be permanent maintenance burden for a construct-coverage question this one-time check (recorded here, reproducible from this decision's description) already answers. Rejected editing frontend-verify-npm-install's existing decision text directly: it accurately describes what was verified at the time it was written (byte-identical regen against the real schema, nothing more) and rewriting it after the fact would make a done, merged task's record read as if broader verification had already happened then, which it hadn't."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-verify-npm-install-followups",
+    "pr_number": 137,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/137",
+    "pushed_at": "2026-09-19T02:45:09Z"
+  }
 }
