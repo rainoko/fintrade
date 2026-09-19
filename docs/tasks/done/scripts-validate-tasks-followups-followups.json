@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #114 review (scripts-validate-tasks-followups)",
   "area": "tooling",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["scripts-validate-tasks-followups"],
   "references": [
     "docs/tasks/done/scripts-validate-tasks-followups.json#review",
@@ -31,5 +31,12 @@
     "pr_number": 130,
     "pr_url": "https://github.com/rainoko/fintrade/pull/130",
     "pushed_at": "2026-09-19T01:08:51Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T01:09:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/130",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Trivial scope: corrects a fabricated/rounded decisions[].timestamp in docs/tasks/done/scripts-validate-tasks-followups.json to commit f16ff55's real author/committer date. Independently re-verified via `git log --format=\"%H %aI %cI %s\" f16ff55` -- both author and committer date are 2026-09-18T12:27:07Z, matching the PR's corrected value exactly. `python3 scripts/validate_tasks.py` passes clean (124 task files, no violations); `python3 scripts/tests/test_validate_tasks.py` passes 24/24. Diff touches only 3 task-board JSON files (no application code), so backend/frontend tests, coverage, static analysis, code-review skill, elder-signal/architecture review, OpenAPI regeneration, and browser walkthrough/e2e suite are all inapplicable -- explicitly noted rather than silently skipped. Checklist item is done and backed by a proper decisions entry (decision + rationale + alternatives_considered). No pr_decision present to clear. No findings, nothing to track as a new follow-up."
   }
 }
