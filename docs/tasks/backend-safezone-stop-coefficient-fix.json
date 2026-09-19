@@ -3,7 +3,7 @@
   "title": "Fix protective_stop()'s missing SafeZone multiplier coefficient",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -46,5 +46,11 @@
       "decision": "Kept `_VOLATILITY_EMA_PERIOD` at 13 rather than changing it to the book's 22-day EMA.",
       "rationale": "13 is already this app's standard fast-EMA period, shared across Impulse, Elder-Ray, and Autoenvelope (docs/Analyse.md §4), and `protective_stop`'s EMA(13) is already deliberately shared (via the `short_ema` parameter) with `app.portfolio.exits.evaluate_exit_flags`'s own EMA(13) pass for autoenvelope/Impulse -- switching this one call site to a 22-day EMA would mean either introducing a second, SafeZone-only EMA period with its own separate warm-up/plumbing (duplicating work `evaluate_exit_flags` already shares), or diverging protective_stop's downside-penetration EMA from the EMA the rest of the app treats as 'the' short EMA. This is a re-affirmation of the identical choice already recorded in the `portfolio-risk-rules` task's own `decisions` entry, made explicit again here since this task's own description flagged it as worth a fresh, explicit decision rather than assuming the prior one still stood unexamined. Rejected: switching to 22 (matches the book exactly, but breaks EMA sharing with evaluate_exit_flags and introduces a second EMA period into a module that currently has exactly one); making the period itself a per-caller parameter (no caller currently needs anything other than 13, and doing so would be speculative scope creep for a bug-fix task focused on the missing coefficient)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-safezone-stop-coefficient-fix",
+    "pr_number": 160,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/160",
+    "pushed_at": "2026-09-19T18:30:24Z"
+  }
 }
