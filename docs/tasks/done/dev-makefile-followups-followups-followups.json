@@ -1,0 +1,46 @@
+{
+  "id": "dev-makefile-followups-followups-followups",
+  "title": "Root Makefile -- non-blocking review follow-up from PR #139",
+  "area": "infra",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["dev-makefile-followups-followups"],
+  "references": [
+    "docs/tasks/dev-makefile-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/139"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #139 (dev-makefile-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "Found by a `code-review` pass on PR #139 (independently re-verified before filing): the text PR #139 wrote into `docs/tasks/done/dev-makefile-followups.json`'s `decisions[1]` to correct an earlier overstatement is itself imprecise in a related way. It now says the surviving sub-target 'is torn down immediately as soon as either one fails, and `make dev` exits non-zero right away rather than blocking until the last-reaped job exits.' On the most natural reading this whole clause is scoped to the failure case the paragraph is about (a sub-target failing), which is accurate. But `wait -n $$bpid $$fpid` actually returns with the exit status of *whichever* of `bpid`/`fpid` (the two sub-`make` invocations) finishes first, for *any* reason -- not only a failure. If one side were to exit cleanly (status 0) while the other is still healthy (e.g. `vite`'s node process exiting on its own, or someone kills only one side directly rather than the top `make dev` pid), the same teardown-and-`exit $$status` sequence would tear down the still-healthy other side and propagate a *0* exit code from `make dev`, not the non-zero the sentence's less careful reading might suggest. Verified empirically (equivalent scratch Makefile): `wait -n` captured `status=0` when the first-completing job exited 0. This wasn't the scenario the original fail-fast bug or this decision entry were ever about (both are specifically about a sub-target *failing*), so this is a minor precision gap in the decision-log prose, not a runtime bug -- `make dev`'s actual behavior is unaffected and was not claimed to be otherwise anywhere except in this one sentence's phrasing. Worth a follow-up wording tweak to `decisions[1]` (e.g. explicitly noting that a clean 0-exit by one side while the other is still healthy would also trigger the same teardown-and-propagate-that-status behavior, not just a failure) so a future reader can't misread the corrected sentence as claiming `wait -n` is failure-specific.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Appended a further dated correction to `docs/tasks/done/dev-makefile-followups.json`'s `decisions[1]` (rather than editing the existing correction sentence in place), following the same pattern the prior correction in that same array already established.",
+      "rationale": "The task explicitly calls for a visible correction, not a silent overwrite, matching the precedent already set by the 2026-09-19 correction of the 'reflects whichever sub-target failed' overstatement in the same decisions[1] entry. Editing the earlier correction's own wording in place would erase the record of what it originally said and why it needed fixing, which is exactly what the decision-memory rule (CLAUDE.md, 'Decision memory') and this task's own instructions are guarding against. The new correction clarifies that `wait -n $$bpid $$fpid` returns on either sub-make exiting for any reason (including a clean 0-exit), not only on a failure -- verified empirically via an equivalent scratch Makefile reproducing the same `wait -n` semantics described in the PR #139 review finding. No code change was needed: `make dev`'s actual runtime behavior was never claimed to be different anywhere except in this one sentence's phrasing, so this is purely a task-board wording fix."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/dev-makefile-followups-followups-followups",
+    "pr_number": 140,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/140",
+    "pushed_at": "2026-09-19T03:21:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T03:23:26Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/140",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Trivial docs-only change: appends a second dated correction to docs/tasks/done/dev-makefile-followups.json's decisions[1], clarifying that `wait -n $$bpid $$fpid` in `make dev`'s teardown returns as soon as either sub-make exits for any reason (including a clean 0-exit), not only on failure. No application code touched (diff --stat confirms only 3 task-board JSON files changed: this task, the corrected done task, and index.json). Independently verified the technical claim with a scratch Makefile/bash script (`wait -n` on two backgrounded subshells, one sleep 5; exit 0 and one sleep 100; exit 1) -- wait -n returned status=0 after ~5s, i.e. as soon as the clean-exit job finished, without waiting for the still-running would-eventually-fail job. This matches the PR's claim exactly. Confirmed via `git diff` that the new sentence is appended after the existing 2026-09-19 correction (not an overwrite), matching the established pattern in that same decisions[1] array. Ran `python3 scripts/validate_tasks.py` -- OK, 127 task files, no violations. Ran a `code-review` pass on the diff -- no correctness bugs or reuse/simplification/efficiency issues found. Backend/frontend test suite, coverage, lint (ruff/mypy/eslint/tsc), and browser walkthrough were not run since no application code, API route/schema, or frontend component is touched by this diff -- there is nothing for them to regress or exercise; this is noted explicitly per review process rather than silently skipped. No 'decide X' checklist phrasing requiring a separate decisions entry beyond the one already recorded. No stale pr_decision present to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T03:25:41Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...HEAD` confirms the appended sentence follows the existing 'Correction (recorded 2026-09-19...)' text intact (a genuine append, not an overwrite) and the diff touches only 4 task-board JSON files (task moved into docs/tasks/done/, index.json mirrored, dev-makefile-followups.json's decisions[1] extended) -- no application code. `python3 scripts/validate_tasks.py` -- OK, 127 files, no violations. Backend suite re-run as a sanity check regardless: 578 passed. Reproduced the `wait -n` semantics myself with a fresh scratch bash script (two backgrounded subshells, sleep 3; exit 0 vs sleep 100; exit 1): `wait -n` returned status=0 after 3s, confirming it returns on the first sub-make to exit for any reason, not only on failure, matching the correction's claim exactly."
+  }
+}
