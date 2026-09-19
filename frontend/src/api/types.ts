@@ -424,7 +424,7 @@ export interface components {
              * @description Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.
              */
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
-            /** @description Latest-bar-only snapshot. For the same 7 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
+            /** @description Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             screens: components["schemas"]["Screens"];
             /**
@@ -653,6 +653,11 @@ export interface components {
              */
             macd_histogram: number;
             /**
+             * Rsi
+             * @description Same definition as AnalysisResponse.indicators.rsi, for this bar. Null for a bar still inside the indicator's 9-day warm-up window -- same warm-up-only caveat as stochastic_k/force_index_2ema above, though with a shorter (9-bar) window than either.
+             */
+            rsi?: number | null;
+            /**
              * Signal
              * @description BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.
              * @enum {string}
@@ -702,6 +707,11 @@ export interface components {
             ema_26: number;
             /** Macd Histogram */
             macd_histogram: number;
+            /**
+             * Rsi
+             * @description Relative Strength Index (docs/Analyse.md §4, Elder ch. 27) -- `100 - 100 / (1 + RS)`, RS = average net up-close / average net down-close over a 9-day window (simple/arithmetic rolling average, not Wilder's smoothed variant -- see `app.indicators.rsi.rsi`). Closing-price-only, unlike `stochastic_k` (which also reads high/low) -- Elder's own selling point for it: less noisy, signals tend to emerge earlier. Computation + exposure only; not currently wired into `screens`/`confidence_breakdown` (see the backend-indicator-rsi task). Null for the first 9 trading days of a ticker's history (needs 9 daily closing changes) -- a much shorter warm-up than `channel_upper`/`channel_lower`.
+             */
+            rsi?: number | null;
         };
         /** OHLCVBar */
         OHLCVBar: {

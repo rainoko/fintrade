@@ -577,6 +577,7 @@ class TestAnalyseCombinations:
             "bear_power",
             "channel_upper",
             "channel_lower",
+            "rsi",
         }
         assert all(isinstance(v, float) for v in result.indicators.values())
 
@@ -613,6 +614,23 @@ class TestAnalyseCombinations:
             )
         assert math.isnan(result.indicators["channel_upper"])
         assert result.indicators["channel_lower"] == 99.0
+
+    def test_rsi_passthrough_is_used_verbatim(self) -> None:
+        """rsi, like channel_upper/channel_lower above, is a precomputed-series passthrough
+        parameter -- a caller-supplied series is used as-is (only its latest value read),
+        never recomputed internally."""
+        tide = TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
+        wave = {"stochastic_k": 50.0, "force_index_2ema": 0.0, "state": "NO_WAVE"}
+        trigger = {"fired": False, "reference": "not_applicable"}
+        daily_ohlcv = _daily_ohlcv(5)
+        weekly_ohlcv = _weekly_ohlcv(5)
+        given_rsi = pd.Series([42.0] * len(daily_ohlcv))
+
+        p_tide, p_impulse, p_wave, p_trigger = _patched_screens(tide, "BLUE", wave, trigger)
+        with p_tide, p_impulse, p_wave, p_trigger:
+            result = analyse("TEST", daily_ohlcv, weekly_ohlcv, rsi=given_rsi)
+
+        assert result.indicators["rsi"] == 42.0
 
 
 class TestAnalyseEndToEnd:
