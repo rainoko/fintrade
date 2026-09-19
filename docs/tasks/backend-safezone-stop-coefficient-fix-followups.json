@@ -27,5 +27,11 @@
       "decision": "Updated docs/Analyse.md §7's SafeZone stop-loss description to state the >=2x coefficient explicitly (\"recent swing low minus 2x (or more) a volatility buffer\", with Elder's own 'placing your stop any closer would be self-defeating' quote and a pointer to backend-safezone-stop-coefficient-fix's decisions for why 2x specifically). Also updated backend/app/api/schemas.py:286's RiskPosition.protective_stop field description to \"Recent swing low minus 2x a volatility buffer\", regenerated backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (yarn generate:api-types) since a Field description change is part of the OpenAPI schema output per CLAUDE.md's API documentation standard, even though no field name/type/shape changed.",
       "rationale": "Resolves the explicit ambiguity flagged in this task's first checklist item: whether Analyse.md §7 should state the coefficient going forward. Chose to state it (rather than continue the portfolio-risk-rules precedent of omitting tunable parameters) because the coefficient is part of the formula's *shape*, not a tunable knob like the window length or EMA period -- pr-reviewer's own review of PR #160 noted its absence from Analyse.md is 'exactly the kind of ambiguity that let the original bug go unnoticed,' and Analyse.md is the app's documented source of truth for what it computes (CLAUDE.md). Kept the window-days/EMA-period specifics out of Analyse.md as before (still just 'a short EMA over the last N days'), consistent with the existing precedent for parameters that genuinely are tunable/deferred-to-code-comments; only the coefficient, which the book itself frames as a floor below which the stop is 'self-defeating,' gets called out by value. Rejected: leaving Analyse.md unchanged and treating this as an intentional continuation of the omission precedent (the task's own framing already leans toward this being worth fixing, and a source-of-truth doc that silently omits the fix's whole point is a worse outcome than a doc that's slightly more specific than its own precedent); documenting the coefficient only in code/tests without touching Analyse.md (would leave the same silent-doc-drift risk that let the original bug go unreviewed against its own methodology doc)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-safezone-stop-coefficient-fix-followups",
+    "pr_number": 163,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/163",
+    "pushed_at": "2026-09-19T19:43:33Z"
+  }
 }
