@@ -3,7 +3,7 @@
   "title": "Draw the Autoenvelope/channel bands and value zone on the price chart",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-channel-envelope-exposure"
   ],
