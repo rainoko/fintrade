@@ -130,7 +130,7 @@ test.describe('stock analysis page', () => {
     // under weekly candles (OscillatorChart.tsx's `enabled` gating).
     await expect(
       page.getByText(
-        'Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.',
+        'Oscillators (Stochastic %K, RSI, Force Index, MACD Histogram) are only available for the Daily interval.',
       ),
     ).toBeVisible()
     await expect(page.getByTestId('oscillator-chart-canvas')).not.toBeVisible()

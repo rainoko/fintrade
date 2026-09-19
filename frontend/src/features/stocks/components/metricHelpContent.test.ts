@@ -11,6 +11,7 @@ import {
   getConfidenceComponentHelp,
   impulseHelp,
   macdHistogramHelp,
+  rsiHelp,
   signalHelp,
   supportResistanceZoneHelp,
   tideHelp,
@@ -265,6 +266,59 @@ describe('metricHelpContent', () => {
     it('handles a missing value without throwing', () => {
       expect(bullPowerHelp.interpretValue(undefined)).toMatch(/unavailable/)
       expect(bearPowerHelp.interpretValue(Number.NaN)).toMatch(/unavailable/)
+    })
+  })
+
+  describe('rsiHelp.interpretValue', () => {
+    it('handles a missing value without throwing', () => {
+      expect(() => rsiHelp.interpretValue(null, null)).not.toThrow()
+      expect(rsiHelp.interpretValue(undefined, undefined)).toMatch(/unavailable/)
+      expect(rsiHelp.interpretValue(null, 55.0)).toMatch(/unavailable/)
+    })
+
+    it('reads below 30 as oversold', () => {
+      expect(rsiHelp.interpretValue(24.3, 20.0)).toContain('oversold (below 30)')
+    })
+
+    it('reads exactly 30 as not oversold (oversold is strictly below 30)', () => {
+      expect(rsiHelp.interpretValue(30, 30)).toContain('neutral zone')
+    })
+
+    it('reads above 70 as overbought', () => {
+      expect(rsiHelp.interpretValue(78.1, 82.0)).toContain('overbought (above 70)')
+    })
+
+    it('reads exactly 70 as not overbought (overbought is strictly above 70)', () => {
+      expect(rsiHelp.interpretValue(70, 70)).toContain('neutral zone')
+    })
+
+    it('reads between 30 and 70 as neutral', () => {
+      expect(rsiHelp.interpretValue(48.2, 55.0)).toContain(
+        'in the neutral zone (30-70): neither overbought nor oversold',
+      )
+    })
+
+    it('omits the Stochastic comparison entirely when Stochastic %K is unavailable', () => {
+      expect(rsiHelp.interpretValue(48.2, null)).toBe(
+        'Currently 48.2, in the neutral zone (30-70): neither overbought nor oversold.',
+      )
+    })
+
+    it('reads a close reading (within 10 points) as broadly agreeing with Stochastic', () => {
+      expect(rsiHelp.interpretValue(29.5, 24.3)).toContain(
+        'broadly agreeing with Stochastic %K (24.3) right now',
+      )
+    })
+
+    it('reads a reading more than 10 points apart as diverging from Stochastic, naming the closing-price-only reason (RSI stronger)', () => {
+      const message = rsiHelp.interpretValue(60.0, 20.0)
+      expect(message).toContain('reading stronger than Stochastic %K (20.0) right now')
+      expect(message).toContain('closing prices')
+    })
+
+    it('reads a reading more than 10 points apart the other direction as weaker than Stochastic', () => {
+      const message = rsiHelp.interpretValue(20.0, 60.0)
+      expect(message).toContain('reading weaker than Stochastic %K (60.0) right now')
     })
   })
 

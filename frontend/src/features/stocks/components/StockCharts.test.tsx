@@ -125,7 +125,7 @@ describe('StockCharts', () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          'Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval.',
+          'Oscillators (Stochastic %K, RSI, Force Index, MACD Histogram) are only available for the Daily interval.',
         ),
       ).toBeInTheDocument(),
     )

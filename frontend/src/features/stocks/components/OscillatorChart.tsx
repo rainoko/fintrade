@@ -15,8 +15,10 @@ import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../a
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
+import { rsiHelp } from './metricHelpContent'
 
 export interface OscillatorChartProps {
   ticker: string
@@ -42,21 +44,22 @@ const STOCHASTIC_OVERBOUGHT = 70
 
 interface OscillatorSeriesData {
   stochastic: { time: Time; value: number }[]
+  rsi: { time: Time; value: number }[]
   forceIndex: { time: Time; value: number; color: string }[]
   macdHistogram: { time: Time; value: number; color: string }[]
 }
 
 /**
- * `stochastic_k`/`force_index_2ema` are declared `number | null | undefined`
- * in the generated OpenAPI type (backend/app/api/schemas.py's
+ * `stochastic_k`/`force_index_2ema`/`rsi` are declared `number | null |
+ * undefined` in the generated OpenAPI type (backend/app/api/schemas.py's
  * `IndicatorHistoryPoint` was widened to `float | None` for exactly this
  * reason — see the frontend-oscillator-chart-followups task's `decisions`
  * entry), since the runtime response can legitimately return `null` for
  * early bars still inside an indicator's warm-up window (e.g. Stochastic
  * %K(5,3,3) needs (k_period - 1) + (smooth - 1) prior bars — 6 with the
- * current defaults) — confirmed live via GET
+ * current defaults; RSI needs 9) — confirmed live via GET
  * /api/stocks/AAPL/indicators?range=max, which returns points with
- * stochastic_k/force_index_2ema literally `null`. `macd_histogram` stays
+ * stochastic_k/force_index_2ema/rsi literally `null`. `macd_histogram` stays
  * non-nullable (EMA-seeded indicators never produce NaN, even on the first
  * bar) but is still run through this same guard for defense-in-depth,
  * matching `PriceChart.tsx`'s `hasFiniteOhlc` guard for OHLCV bars.
@@ -75,8 +78,8 @@ interface OscillatorSeriesData {
 const isFiniteValue = isFiniteNumber
 
 /**
- * Projects `/indicators` points into the three oscillator series this pane
- * plots, in a single pass (same "build once, not three separate `.map()`
+ * Projects `/indicators` points into the four oscillator series this pane
+ * plots, in a single pass (same "build once, not four separate `.map()`
  * passes" convention as `PriceChart.tsx`'s `buildOverlayData`). Each series
  * is filtered independently by `isFiniteValue` (a point with a null
  * `stochastic_k` but a valid `force_index_2ema` still contributes to the
@@ -90,19 +93,26 @@ const isFiniteValue = isFiniteNumber
  * BUY signal: Analyse.md §2 is explicit that Force Index's sign is only a
  * buying/selling *cue* in combination with the prevailing trend, which this
  * pane doesn't (and shouldn't) recompute — see this task's `decisions`
- * entry.
+ * entry. `rsi` (frontend-rsi-oscillator-chart) shares Stochastic's own
+ * 0-100 pane rather than getting a line color that varies by sign/zone --
+ * see this task's `decisions` entry for why plotting the two together, not
+ * a fourth separate pane, is the point.
  */
 function buildOscillatorSeriesData(
   points: readonly IndicatorHistoryPoint[],
   colors: { positive: string; negative: string },
 ): OscillatorSeriesData {
   const stochastic: OscillatorSeriesData['stochastic'] = []
+  const rsi: OscillatorSeriesData['rsi'] = []
   const forceIndex: OscillatorSeriesData['forceIndex'] = []
   const macdHistogram: OscillatorSeriesData['macdHistogram'] = []
   for (const point of points) {
     const time = point.date as Time
     if (isFiniteValue(point.stochastic_k)) {
       stochastic.push({ time, value: point.stochastic_k })
+    }
+    if (isFiniteValue(point.rsi)) {
+      rsi.push({ time, value: point.rsi })
     }
     if (isFiniteValue(point.force_index_2ema)) {
       forceIndex.push({
@@ -119,7 +129,7 @@ function buildOscillatorSeriesData(
       })
     }
   }
-  return { stochastic, forceIndex, macdHistogram }
+  return { stochastic, rsi, forceIndex, macdHistogram }
 }
 
 /**
@@ -156,34 +166,54 @@ function addZeroBaselineHistogramPane(
 
 /**
  * Historical oscillator pane for Screen 2 ("the Wave", docs/Analyse.md §2):
- * Stochastic %K(5,3,3), Force Index (2-period EMA), and MACD Histogram
- * (daily — the Impulse System's slope input, docs/Analyse.md §4 row 2/§
- * "Impulse System"), each sourced from `GET /api/stocks/{ticker}/indicators`
- * via the shared `useIndicatorHistory` hook (same hook, same query key
- * convention `PriceChart.tsx`'s signal overlay already uses — the query is
- * deduplicated by TanStack Query, not fetched twice, when both panes are
- * mounted together with the same `ticker`/`range`). No indicator/signal math
- * happens here — every plotted value comes straight from the backend
- * response, per Frontend.md §5's "backend computes, frontend displays" rule.
+ * Stochastic %K(5,3,3), RSI(9), Force Index (2-period EMA), and MACD
+ * Histogram (daily — the Impulse System's slope input, docs/Analyse.md §4
+ * row 2/§ "Impulse System"), each sourced from
+ * `GET /api/stocks/{ticker}/indicators` via the shared `useIndicatorHistory`
+ * hook (same hook, same query key convention `PriceChart.tsx`'s signal
+ * overlay already uses — the query is deduplicated by TanStack Query, not
+ * fetched twice, when both panes are mounted together with the same
+ * `ticker`/`range`). No indicator/signal math happens here — every plotted
+ * value comes straight from the backend response, per Frontend.md §5's
+ * "backend computes, frontend displays" rule.
  *
  * Rendered as three separate Lightweight Charts panes within ONE chart
  * instance (native multi-pane support, `chart.addSeries(definition, opts,
- * paneIndex)`) rather than one shared pane — see this task's `decisions`
- * entry for why: Stochastic (a bounded 0-100 oscillator) and Force Index
- * (an unbounded, volume-weighted value that can run into the tens of
- * thousands) would make each other unreadable sharing one y-axis, and MACD
- * Histogram sits on yet another scale again. All three panes share the same
- * time (x) axis natively, since they belong to the same `IChartApi`
- * instance — no manual cross-chart range syncing needed. Stochastic gets
- * dashed reference lines at the documented 30/70 oversold/overbought
- * thresholds (docs/Analyse.md §4); Force Index and MACD Histogram get a
+ * paneIndex)`) rather than one shared pane per indicator — see this task's
+ * `decisions` entry for why: Stochastic and RSI are both bounded 0-100
+ * oscillators, so they share pane 0's y-axis (this is the whole point —
+ * see below), while Force Index (an unbounded, volume-weighted value that
+ * can run into the tens of thousands) and MACD Histogram each need their
+ * own scale and would make pane 0 unreadable if merged into it. All panes
+ * share the same time (x) axis natively, since they belong to the same
+ * `IChartApi` instance — no manual cross-chart range syncing needed.
+ * Stochastic/RSI share the same dashed reference lines at the documented
+ * 30/70 oversold/overbought thresholds (docs/Analyse.md §4 — both
+ * oscillators use this identical reference-line convention, per the same
+ * doc's divergence-detection section); Force Index and MACD Histogram get a
  * dotted zero baseline instead, since Analyse.md doesn't document a numeric
  * threshold for either — only their sign/spike behavior matters.
+ *
+ * RSI (frontend-rsi-oscillator-chart) is plotted as a *second line on
+ * Stochastic's own pane*, not a fourth separate pane — see this task's
+ * `decisions` entry for why: the whole point of exposing RSI here is Elder's
+ * own side-by-side comparison (docs/Analyse.md row 10, ch. 27) that RSI
+ * (closing-price-only) is "less noisy" than Stochastic (which also reads
+ * the high/low range) and tends to signal earlier on the same data — a
+ * comparison that only reads clearly when both lines share one 0-100 axis a
+ * user can look at directly, not two separate panes they'd have to
+ * mentally overlay themselves. The `rsiHelp` `MetricHelp` affordance next
+ * to the legend explains this comparison in the same explanatory pattern
+ * every other chart element on this page uses (`metricHelpContent.ts`).
  *
  * `IndicatorsPanel.tsx` (fed by `/analysis`) remains the latest-value-only
  * counterpart for MACD Histogram's point-in-time reading; `ScreensPanel.tsx`
  * is the latest-value-only counterpart for Stochastic %K/Force Index. This
- * component is their historical-trend complement, not a replacement.
+ * component is their historical-trend complement, not a replacement. RSI
+ * has no `IndicatorsPanel.tsx` stat-card counterpart — the backend
+ * response's `indicators.rsi` is exposed here only (see this task's
+ * `decisions` entry for why this chart, not a new stat card, was the right
+ * scope for this task).
  */
 export default function OscillatorChart({
   ticker,
@@ -197,6 +227,7 @@ export default function OscillatorChart({
   const indicatorsQuery = useIndicatorHistory(ticker, { range }, { enabled })
   const points = indicatorsQuery.data?.points ?? []
   const hasPoints = points.length > 0
+  const latestPoint = hasPoints ? points[points.length - 1] : undefined
 
   // Depends on `indicatorsQuery.data` itself (a new object per response)
   // rather than the `points`/`hasPoints` derived above, since those are
@@ -211,7 +242,7 @@ export default function OscillatorChart({
 
     const chart = createBaseChart(container)
 
-    const { stochastic, forceIndex, macdHistogram } = buildOscillatorSeriesData(
+    const { stochastic, rsi, forceIndex, macdHistogram } = buildOscillatorSeriesData(
       data.points,
       {
         positive: theme.palette.signal.buy,
@@ -248,6 +279,24 @@ export default function OscillatorChart({
       title: 'Overbought (70)',
     })
 
+    // RSI(9) — a second line sharing Stochastic's own pane/axis (see this
+    // component's own doc comment for why), dashed and in a distinct
+    // (secondary/purple) color so the two 0-100 oscillators stay visually
+    // distinguishable while sitting on the exact same scale.
+    const rsiSeries = chart.addSeries(
+      LineSeries,
+      {
+        color: theme.palette.secondary.main,
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        title: 'RSI (9)',
+        priceLineVisible: false,
+        lastValueVisible: false,
+      },
+      0,
+    )
+    rsiSeries.setData(rsi)
+
     addZeroBaselineHistogramPane(chart, 1, 'Force Index (2-EMA)', forceIndex, theme)
     addZeroBaselineHistogramPane(chart, 2, 'MACD Histogram (Daily)', macdHistogram, theme)
 
@@ -270,7 +319,7 @@ export default function OscillatorChart({
   // see this task's `decisions` entry).
   if (!enabled) {
     return (
-      <EmptyState message="Oscillators (Stochastic %K, Force Index, MACD Histogram) are only available for the Daily interval." />
+      <EmptyState message="Oscillators (Stochastic %K, RSI, Force Index, MACD Histogram) are only available for the Daily interval." />
     )
   }
 
@@ -279,6 +328,39 @@ export default function OscillatorChart({
       <Typography variant="subtitle2" color="text.secondary">
         Oscillators (Screen 2)
       </Typography>
+
+      {/*
+        RSI legend + MetricHelp affordance (frontend-rsi-oscillator-chart).
+        Stochastic itself has no matching legend row here since it predates
+        this task and its own reference lines/title are already visible on
+        the chart -- only the newly-added RSI line gets one, same convention
+        `PriceChart.tsx`'s channel/value-zone legend rows established (only
+        the element a task actually adds gets its own MetricHelp row).
+      */}
+      {indicatorsQuery.isSuccess && hasPoints && (
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+          <Box
+            sx={{
+              width: 14,
+              height: 0,
+              borderTop: '2px dashed',
+              borderColor: 'secondary.main',
+            }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            RSI (9)
+          </Typography>
+          <MetricHelp
+            metricLabel={rsiHelp.metricLabel}
+            definition={rsiHelp.definition}
+            elderContext={rsiHelp.elderContext}
+            valueInterpretation={rsiHelp.interpretValue(
+              latestPoint?.rsi,
+              latestPoint?.stochastic_k,
+            )}
+          />
+        </Stack>
+      )}
 
       {indicatorsQuery.isLoading && (
         <LoadingState message={`Loading oscillator history for ${ticker}...`} />

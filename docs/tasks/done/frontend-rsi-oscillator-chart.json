@@ -1,0 +1,83 @@
+{
+  "id": "frontend-rsi-oscillator-chart",
+  "title": "New chart panel: Relative Strength Index (RSI)",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-indicator-rsi"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/OscillatorChart.tsx",
+    "docs/ideas.md"
+  ],
+  "description": "Surface RSI (backend-indicator-rsi) as a new oscillator panel or an additional line on the existing OscillatorChart, alongside Stochastic. Explain, not just plot, the comparison Elder himself draws: RSI is closing-price-only and tends to give earlier/cleaner signals than Stochastic on the same data -- worth stating in the help content so a user understands why both exist rather than treating it as redundant. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Decide whether RSI becomes a new OscillatorChart variant or an additional series on the existing Stochastic panel; record.",
+      "done": true
+    },
+    {
+      "step": "Implement, following existing chart component conventions.",
+      "done": true
+    },
+    {
+      "step": "MetricHelp content explaining RSI, its formula in plain terms, and the RSI-vs-Stochastic comparison from the book.",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-rsi-oscillator-chart",
+    "pr_number": 157,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/157",
+    "pushed_at": "2026-09-19T16:28:20Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T18:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RSI is plotted as a second `LineSeries` sharing Stochastic %K's existing pane 0/y-axis on `OscillatorChart.tsx` (dashed, `theme.palette.secondary.main`), not a fourth separate Lightweight Charts pane, and not a new stat card on `IndicatorsPanel.tsx`.",
+      "rationale": "The whole point of this task, per its own description, is exposing Elder's side-by-side RSI-vs-Stochastic comparison (closing-price-only, 'less noisy', earlier signals) -- both are already bounded 0-100 oscillators computed over near-identical windows, so sharing one axis lets a user actually compare the two lines directly on the same chart, which is exactly what the book's own comparison shows. A fourth pane would force the user to mentally overlay two separate charts to see the same relationship, defeating the point. A new IndicatorsPanel StatCard was rejected as out of this task's explicit scope ('surface RSI ... as a new oscillator panel or an additional line on the existing OscillatorChart') and as a redundant second surface for a value already covered by the chart's own MetricHelp legend row -- see the next decision."
+    },
+    {
+      "timestamp": "2026-09-19T18:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RSI reuses Stochastic's existing 30/70 dashed reference lines on the shared pane rather than adding a second, RSI-specific pair of price lines at the same 30/70 levels.",
+      "rationale": "docs/Analyse.md itself documents 30/70 as the shared overbought/oversold reference line for both Stochastic and RSI (used identically by the divergence detector's `beyond_reference_line` check for both indicators) -- drawing a second, visually-identical pair of dashed lines at the exact same y-values would only add clutter with no new information, and Lightweight Charts' price lines are shared visual elements on a pane's y-axis anyway (there's no way to visually distinguish 'this 30-line is for RSI' vs 'this 30-line is for Stochastic' even if drawn twice). Rejected a second RSI-only pair of reference lines as redundant, and rejected omitting reference lines entirely as inconsistent with how Stochastic's own lines already work on this pane."
+    },
+    {
+      "timestamp": "2026-09-19T18:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "RSI's line color is `theme.palette.secondary.main` (purple), dashed (`LineStyle.Dashed`), distinct from Stochastic's solid `theme.palette.primary.main` (blue) -- not colored by sign/zone the way Force Index/MACD Histogram bars are.",
+      "rationale": "RSI and Stochastic %K are both single continuous lines on a shared axis, so the priority is visual distinguishability between the two lines themselves (solid-vs-dashed plus a clearly different hue), not per-point coloring -- unlike Force Index/MACD Histogram, which are histograms colored by sign because each bar's sign is itself the signal being read. `theme.palette.secondary.main` was already defined in the theme (not a new color needing its own decision/approval) and is visually distinct from every other color already used on this pane (primary blue for Stochastic, signal buy/sell green/red for the histograms' zero-baseline reference lines)."
+    },
+    {
+      "timestamp": "2026-09-19T18:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No new `components/common/` component was introduced (RSI reuses the existing `common/MetricHelp` as-is), so no new Storybook story was added -- `OscillatorChart.tsx` itself is a `features/stocks/components/` component and has never had a Storybook story (per Frontend.md §4, only `components/common/` needs one).",
+      "rationale": "The add-frontend-feature skill's Storybook requirement (step 5) is scoped to `components/common/` components specifically -- OscillatorChart is, and remains, a feature-specific chart component wired to a live TanStack Query hook, the same category PriceChart/StockCharts/IndicatorsPanel already fall into without their own stories. Adding a story for a feature component here would be inconsistent with every other chart component in this codebase and isn't what the skill actually requires."
+    },
+    {
+      "timestamp": "2026-09-19T18:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`rsiHelp.interpretValue`'s RSI-vs-Stochastic agreement threshold is set at a 10-point gap (values within 10 points of each other read as 'broadly agreeing'; further apart reads as 'diverging', naming the closing-price-only reason).",
+      "rationale": "docs/Analyse.md doesn't specify a numeric agreement/divergence threshold between the two oscillators -- this is a presentation-layer judgment call for the help text's current-value interpretation, not a methodology rule. 10 points (out of the shared 0-100 scale) was picked as a reasonable 'same reading, different precision' band, wide enough to not flag routine noise as a meaningful divergence but narrow enough that a real divergence (e.g. one oscillator oversold while the other is still neutral) gets called out, which is exactly the situation Elder's own 'RSI signals earlier' comparison describes. This only affects explanatory text, not any chart rendering or signal logic, so a different threshold would be a low-risk follow-up if review disagrees."
+    }
+  ],
+  "review": {
+    "reviewed_at": "2026-09-19T16:37:44Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/157",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review pass, no blocking or non-blocking findings. Verified: (1) `yarn tsc -b --noEmit` and `yarn build` both clean from a fresh checkout (the batch's prior #151/#156 tsc/build-failure risk from missing schema fixture fields did not recur here -- no schema/OpenAPI change in this PR at all). (2) static-verify: backend ruff/mypy clean (unaffected, frontend-only PR), frontend eslint/tsc clean. (3) check-coverage: backend 699 tests, 99.91% coverage; frontend 427/427 tests, 99.64%/99%/99.6%/99.76% stmt/branch/fn/line coverage -- both far above the 90% gate, OscillatorChart.tsx and metricHelpContent.ts both actually 100%. (4) code-review (medium effort): zero findings after checking the diff, removed-behavior audit, cross-file trace of buildOscillatorSeriesData/rsiHelp/MetricHelp callers, reuse/simplification/efficiency/altitude. (5) verify-elder-signal-relevant check: confirmed via docs/Analyse.md and backend/app/signals/divergence.py's own `_RSI_OVERSOLD/_RSI_OVERBOUGHT = 30.0/70.0` that RSI's 30/70 reference lines are Elder's own documented convention for RSI too (ch. 27), not a misapplication of Stochastic's thresholds -- reusing Stochastic's existing price lines rather than drawing a redundant second pair at the same y-values is sound. (6) rsiHelp.interpretValue's current-value interpretation genuinely reads the ticker's actual latest rsi/stochastic_k values (confirmed live in browser: AAPL showed 'Currently 74.2, overbought (above 70) -- broadly agreeing with Stochastic %K (65.2) right now', matching the Wave panel's own displayed Stochastic %K reading), not a generic statement -- matches the established metricHelpContent.ts pattern and is backed by thorough unit tests (metricHelpContent.test.ts's rsiHelp.interpretValue describe block covers oversold/overbought/neutral zone boundaries, missing-value, and both agree/diverge-in-either-direction cases). (7) Frontend component placement (step 7a): no new components/common/ component was added (MetricHelp reused as-is per the task's own decisions entry); OscillatorChart.tsx and metricHelpContent.ts both correctly remain feature-specific (features/stocks/components/), consistent with every sibling chart/help-content module in that folder -- no placement issue. (8) No API/schema change in this PR, so backend/openapi.json correctly untouched. (9) Browser walkthrough (Playwright driven via a local Node script against a fixture-provider-backed dev stack, since no Playwright MCP tool was available in this session): golden path on AAPL/Max range confirmed the dashed purple RSI(9) line renders correctly alongside the solid blue Stochastic %K line on the shared pane/0-100 axis, reusing the same 30/70 reference lines; the RSI legend row + MetricHelp popover open correctly with the Elder RSI-vs-Stochastic comparison text ('less noisy', 'closing prices') and the current-value interpretation; edge case (Weekly interval) correctly shows the updated 'Stochastic %K, RSI, Force Index, MACD Histogram' gating message instead of the canvas; zero browser console errors/warnings and zero failed/4xx+ network requests throughout. The warm-up-null RSI case (a still-unavailable current value) was verified via the dedicated vitest test (mocked warmingUpPoint) rather than live in the browser, since the fixture data provider always supplies a full, past-warm-up history for every fixture ticker (AAPL/MSFT/TSLA/GOOGL) -- no practical way to reach a live warm-up-null latest bar through the UI's range/ticker selectors without fixture changes, which is outside this PR's scope; the underlying null-handling code path is shared with Stochastic/Force Index's own already-proven PR #108 regression coverage. (10) e2e-test skill: `make e2e` -- all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed, including stock-analysis.spec.ts's Max-range oscillator-pane regression test and this PR's own gating-message text update. (11) Checklist cross-check: the one 'decide X'-phrased checklist item (OscillatorChart variant vs. new series) has a corresponding decisions entry, as do all four other judgment calls made in this PR -- no undecided-but-implemented gap."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T16:40:40Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `yarn vitest run` (427/427 passed, matching pr-reviewer's count), `yarn tsc -b --noEmit` (clean), and `yarn build` (clean) from the checked-out branch. Skimmed the full diff (`git diff origin/main...HEAD`): confirmed zero backend/ or openapi.json changes (purely additive frontend consumption of already-merged backend-indicator-rsi). Spot-checked the 30/70 shared-reference-line design choice directly against `backend/app/signals/divergence.py`'s `_RSI_OVERSOLD/_RSI_OVERBOUGHT = 30.0/70.0` and docs/Analyse.md row 10/§divergence, which confirm 30/70 is genuinely Elder's own documented threshold for RSI too, not a misapplied Stochastic constant -- reusing Stochastic's existing price lines is sound. No new backend/schema touch, no human PR comments overriding the accept."
+  }
+}
