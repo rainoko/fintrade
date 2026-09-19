@@ -1132,14 +1132,24 @@ describe('PriceChart', () => {
       // own real points).
       expect(tideRegionCalls).toHaveLength(3)
 
-      // Each segment's own series holds only its own bars, PLUS one
-      // trailing point at the next segment's own start date (still
-      // `value: 1`) so even the 1-bar Neutral/Bearish segments render as a
-      // real filled span up to the next segment's boundary -- the very
-      // last segment (Bearish, nothing after it) has no such trailing
-      // point.
+      // Post-review fix (PR #169 needs_work): each segment's own series
+      // holds only its own bars, PLUS one boundary point shared with
+      // whichever adjacent segment doesn't already own that boundary --
+      // Bullish gets no boundary point of its own here because the
+      // trailing one it would otherwise have gained (into Neutral's own
+      // 09-01) was reclaimed by the backward cascade fix so the solo
+      // Neutral segment could use it as ITS OWN leading point instead, and
+      // that same reclaim-and-hand-down cascade repeats one more time so
+      // the solo (and, pre-fix, entirely unshaded) trailing Bearish segment
+      // also ends up a real 2-point span rather than a lone, unrenderable
+      // point. See `buildTideRegionSegments`'s own doc comment for the full
+      // reasoning and the one pathological case (every bar alternating
+      // trend) this cascade can't fix.
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-08-28', value: 1 },
+        { time: '2026-08-31', value: 1 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-08-31', value: 1 },
         { time: '2026-09-01', value: 1 },
       ])
@@ -1147,7 +1157,6 @@ describe('PriceChart', () => {
         { time: '2026-09-01', value: 1 },
         { time: '2026-09-02', value: 1 },
       ])
-      expect(setDataMock).toHaveBeenCalledWith([{ time: '2026-09-02', value: 1 }])
 
       // The dedicated price scale is configured invisible with zero
       // margins, so its [0, 1] range maps exactly onto the pane's own
@@ -1159,6 +1168,80 @@ describe('PriceChart', () => {
         visible: false,
         scaleMargins: { top: 0, bottom: 0 },
       })
+    })
+
+    it('gives a solo trailing (most-recent-bar) segment a real two-point span instead of a lone, unrenderable point (PR #169 needs_work fix)', async () => {
+      // Three Bullish bars, then a single Bearish bar as the most recent
+      // (rightmost) one -- the exact scenario the review comment flagged:
+      // only the LAST segment is solo (unlike `mixedTideIndicators` above,
+      // where the second-to-last segment is ALSO solo and exercises the
+      // backward cascade one extra step).
+      const soloTrailingBars: HistoryResponse = {
+        ticker: 'AAPL',
+        interval: 'daily',
+        bars: [
+          { date: '2026-08-28', open: 220.0, high: 222.0, low: 219.0, close: 221.0, volume: 40000000 },
+          { date: '2026-08-31', open: 221.0, high: 223.0, low: 220.0, close: 222.5, volume: 41000000 },
+          { date: '2026-09-01', open: 222.5, high: 224.0, low: 221.5, close: 223.5, volume: 42000000 },
+          ...twoBars.bars.slice(1),
+        ],
+      }
+      const soloTrailingIndicators: IndicatorHistoryResponse = {
+        ticker: 'AAPL',
+        points: [
+          {
+            ...indicatorPoints.points[0],
+            date: '2026-08-28',
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+          },
+          {
+            ...indicatorPoints.points[0],
+            date: '2026-08-31',
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+          },
+          {
+            ...indicatorPoints.points[0],
+            date: '2026-09-01',
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+          },
+          {
+            ...indicatorPoints.points[1],
+            date: '2026-09-02',
+            tide: { trend: 'BEARISH', weekly_macd_histogram_slope: 'falling' },
+          },
+        ],
+      }
+      mockHistory(soloTrailingBars)
+      mockIndicators(soloTrailingIndicators)
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+
+      const tideRegionCalls = addSeriesMock.mock.calls.filter(
+        ([, options]) =>
+          (options as { priceScaleId?: string } | undefined)?.priceScaleId ===
+          'tide-region-shading',
+      )
+      expect(tideRegionCalls).toHaveLength(2)
+
+      // Bullish keeps its own real bars only -- the trailing boundary point
+      // it would otherwise have gained (into Bearish's own 09-02) is
+      // reclaimed so the solo Bearish segment can use it as its own leading
+      // point instead.
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-08-28', value: 1 },
+        { time: '2026-08-31', value: 1 },
+        { time: '2026-09-01', value: 1 },
+      ])
+      // The solo trailing Bearish segment is now a real 2-point span
+      // (leading boundary at Bullish's own last real bar, 09-01) instead of
+      // the pre-fix lone `[{ time: '2026-09-02', value: 1 }]` that
+      // `AreaSeries` rendered as nothing.
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 1 },
+        { time: '2026-09-02', value: 1 },
+      ])
     })
 
     it('excludes every trend region series from autoscale via a fixed [0, 1] autoscaleInfoProvider', async () => {

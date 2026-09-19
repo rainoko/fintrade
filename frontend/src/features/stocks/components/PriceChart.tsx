@@ -310,9 +310,34 @@ interface TideRegionSegment {
  * segment right up to the next one's own start makes even a 1-bar segment
  * a real 2-point span with actual width, and means every segment's shaded
  * region butts up exactly against the next one's, with no visible seam or
- * gap between them. The very last segment (nothing after it to extend
- * toward) is left as-is -- its own last real bar is also the last visible
- * bar, so there is no "next" boundary to fill up to.
+ * gap between them.
+ *
+ * Post-review fix (PR #169 needs_work): this forward-extension pass, by
+ * construction, only ever gives segments 0..length-2 a trailing boundary --
+ * the LAST segment has no "next" segment to extend toward, so a solo
+ * single-bar final segment (the most recent visible bar's `tide.trend`
+ * differing from the bar before it -- exactly the kind of brief flip this
+ * comment already calls "a real, common case") was left as a 1-point
+ * series, silently rendering NO shading for today's (rightmost, most
+ * decision-relevant) background even though `tideRegionHelp.interpretValue`
+ * kept describing a color for it. Fixed with a second, backward pass run
+ * ONLY over however many segments at the tail still have fewer than 2
+ * points after the forward pass (structurally, that can only ever be a run
+ * starting at the very last segment -- the forward pass already guarantees
+ * every other segment >= 2 points): for each such segment, reclaim the
+ * boundary point the forward pass gave its own predecessor (pop the
+ * predecessor's trailing extension back off, which is always safe -- the
+ * forward pass guarantees that predecessor has >= 2 points to start with,
+ * so popping one leaves it with at least its own real point) and prepend
+ * the predecessor's own true last real point instead, so the two segments
+ * meet at that shared boundary rather than the last segment's own single
+ * date being reused as a zero-width duplicate. This cascades backward
+ * exactly as far as needed to reach a segment with real width to spare --
+ * see this task's `decisions` entry for the one (deliberately unhandled)
+ * pathological case this can't fix: EVERY visible bar alternating trend
+ * with its neighbor, leaving no segment with spare width to cascade from,
+ * which Tide (driven by a weekly MACD histogram slope, not a daily one)
+ * realistically never does.
  */
 function buildTideRegionSegments(
   points: readonly IndicatorHistoryPoint[],
@@ -331,6 +356,15 @@ function buildTideRegionSegments(
   for (let i = 0; i < segments.length - 1; i++) {
     const nextSegmentStart = segments[i + 1].data[0]
     segments[i].data.push({ time: nextSegmentStart.time, value: 1 })
+  }
+  for (let i = segments.length - 1; i > 0 && segments[i].data.length < 2; i--) {
+    const previous = segments[i - 1]
+    previous.data.pop()
+    const previousOwnLast = previous.data.at(-1)
+    if (!previousOwnLast) {
+      break
+    }
+    segments[i].data.unshift({ time: previousOwnLast.time, value: 1 })
   }
   return segments
 }
