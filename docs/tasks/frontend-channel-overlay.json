@@ -63,5 +63,11 @@
       "decision": "channelHelp/valueZoneHelp's elderContext text is precise about what's actually wired into the backend today versus what's still a documented-but-unimplemented Elder concept: channelHelp cites app.portfolio.exits.evaluate_exit_flags's real, existing profit-taking exit-flag rule (confirmed by reading backend/app/portfolio/exits.py directly); valueZoneHelp explicitly states this app doesn't yet compute an explicit target/stop from the value zone (backend-profit-target is still state: planned per docs/tasks/index.json), rather than reusing the task description's own looser phrasing ('a concept this app's own confidence scoring and stop logic already reference internally') verbatim.",
       "rationale": "Grepped backend/app and docs/ for 'value zone'/'value_zone' and found zero backend implementation referencing the EMA13/EMA26 value zone specifically -- only the channel/Autoenvelope (a related but distinct Elder ch. 41 concept) is actually used by evaluate_exit_flags. Overclaiming an existing backend usage that doesn't exist would violate this app's own explanatory-pattern standard of grounding help text in verifiable specifics, not just plausible-sounding claims -- the task description's own parenthetical clarification ('evaluate_exit_flags uses this exact autoenvelope() computation') already narrows the concrete claim to the channel, not the value zone, so this reading is consistent with, not a deviation from, the task's own intent."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-channel-overlay",
+    "pr_number": 151,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/151",
+    "pushed_at": "2026-09-19T11:55:07Z"
+  }
 }
