@@ -426,7 +426,7 @@ export interface components {
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
             /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
             divergence: components["schemas"]["DivergenceOut"] | null;
-            /** @description Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
+            /** @description Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             screens: components["schemas"]["Screens"];
             /**
@@ -729,6 +729,11 @@ export interface components {
              */
             rsi?: number | null;
             /**
+             * Season
+             * @description Same definition as AnalysisResponse.indicators.season, for this bar -- a historical Spring/Summer/Autumn/Winter timeline. Null only for the very first bar (fewer than 2 daily bars available up to and including it) -- a much shorter warm-up than stochastic_k/channel_upper/channel_lower/rsi above.
+             */
+            season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
+            /**
              * Signal
              * @description BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.
              * @enum {string}
@@ -783,6 +788,11 @@ export interface components {
              * @description Relative Strength Index (docs/Analyse.md §4, Elder ch. 27) -- `100 - 100 / (1 + RS)`, RS = average net up-close / average net down-close over a 9-day window (simple/arithmetic rolling average, not Wilder's smoothed variant -- see `app.indicators.rsi.rsi`). Closing-price-only, unlike `stochastic_k` (which also reads high/low) -- Elder's own selling point for it: less noisy, signals tend to emerge earlier. Computation + exposure only; not currently wired into `screens`/`confidence_breakdown` (see the backend-indicator-rsi task). Null for the first 9 trading days of a ticker's history (needs 9 daily closing changes) -- a much shorter warm-up than `channel_upper`/`channel_lower`.
              */
             rsi?: number | null;
+            /**
+             * Season
+             * @description 'Indicator Seasons' (docs/Analyse.md, Elder ch. 32) -- a four-way classification of `macd_histogram`'s bar-over-bar slope combined with its position relative to its own zero centerline: Spring (rising, below -- best time to go long), Summer (rising, above -- crowd-recognized uptrend, take profits on longs into strength), Autumn (falling, above -- best time to go short), Winter (falling, below -- crowd-recognized downtrend, cover shorts into weakness). Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-seasons task). Null only when there are fewer than 2 daily bars available to compute a slope from.
+             */
+            season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
         };
         /** OHLCVBar */
         OHLCVBar: {

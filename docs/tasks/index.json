@@ -992,8 +992,8 @@
       "id": "backend-indicator-seasons",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "planned",
-      "path": "docs/tasks/backend-indicator-seasons.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-seasons.json"
     },
     {
       "id": "backend-channel-envelope-exposure",
@@ -1211,6 +1211,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-trade-journal-followups.json"
+    },
+    {
+      "id": "backend-indicator-seasons-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-seasons-followups.json"
     }
   ]
 }

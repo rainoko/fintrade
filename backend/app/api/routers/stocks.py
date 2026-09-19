@@ -419,6 +419,7 @@ def get_indicator_history(
             channel_upper=result.indicators["channel_upper"],
             channel_lower=result.indicators["channel_lower"],
             rsi=result.indicators["rsi"],
+            season=result.indicators["season"],
             signal=result.signal,
             confidence=result.confidence,
             confidence_band=result.confidence_band,

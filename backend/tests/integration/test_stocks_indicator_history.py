@@ -218,6 +218,7 @@ class TestGetIndicatorHistory:
             "channel_upper",
             "channel_lower",
             "rsi",
+            "season",
             "signal",
             "confidence",
             "confidence_band",
@@ -270,6 +271,7 @@ class TestGetIndicatorHistory:
         assert last_point["channel_upper"] == analysis["indicators"]["channel_upper"]
         assert last_point["channel_lower"] == analysis["indicators"]["channel_lower"]
         assert last_point["rsi"] == analysis["indicators"]["rsi"]
+        assert last_point["season"] == analysis["indicators"]["season"]
 
     def test_hold_signal_has_zero_confidence(self) -> None:
         provider = _StubProvider(
@@ -325,7 +327,7 @@ class TestGetIndicatorHistory:
         assert full_response.json()["points"][-1] == trimmed_response.json()["points"][-1]
 
     def test_early_bars_have_null_stochastic_k_and_force_index(self) -> None:
-        """stochastic_k/force_index_2ema/channel_upper/channel_lower/rsi are the only
+        """stochastic_k/force_index_2ema/channel_upper/channel_lower/rsi/season are the only
         IndicatorHistoryPoint fields that can legitimately be null -- the first
         k_period-1+smooth-1=6 bars have no full Stochastic %K(5,3,3) warm-up window
         (app.indicators.stochastic.stochastic_oscillator's own docstring), the very first bar
@@ -333,12 +335,14 @@ class TestGetIndicatorHistory:
         (app.indicators.force_index.force_index's own docstring), channel_upper/
         channel_lower need a full ~100-bar Autoenvelope deviation-average window (see
         test_channel_bands_populated_after_sufficient_warm_up for that case specifically --
-        this fixture, at 30 bars, never reaches it), and rsi needs 9 daily closing changes
-        (app.indicators.rsi.rsi's own docstring). Every other bar is unaffected: EMA/MACD-
-        Histogram/Bull/Bear Power never produce NaN even on the first bar, since pandas' ewm
-        seeds from the first observation instead of requiring a full window. See this task's
-        `decisions` entry for why the schema marks only these fields Optional rather than
-        trimming warmed-up-insufficient points out of the response entirely."""
+        this fixture, at 30 bars, never reaches it), rsi needs 9 daily closing changes
+        (app.indicators.rsi.rsi's own docstring), and season needs 2 daily bars to have a
+        bar-over-bar slope at all (app.signals.seasons.classify_season's own docstring) --
+        the very first bar only. Every other bar is unaffected: EMA/MACD-Histogram/Bull/Bear
+        Power never produce NaN even on the first bar, since pandas' ewm seeds from the first
+        observation instead of requiring a full window. See this task's `decisions` entry for
+        why the schema marks only these fields Optional rather than trimming warmed-up-
+        insufficient points out of the response entirely."""
         provider = _StubProvider(
             daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()}
         )
@@ -354,6 +358,11 @@ class TestGetIndicatorHistory:
         assert all(point["channel_upper"] is None and point["channel_lower"] is None for point in points)
         assert all(point["rsi"] is None for point in points[:9])
         assert all(point["rsi"] is not None for point in points[9:])
+        assert points[0]["season"] is None
+        assert all(point["season"] is not None for point in points[1:])
+        assert all(
+            point["season"] in ("Spring", "Summer", "Autumn", "Winter") for point in points[1:]
+        )
         # Every other field stays non-null across the whole warm-up window.
         for point in points:
             assert point["ema_13"] is not None

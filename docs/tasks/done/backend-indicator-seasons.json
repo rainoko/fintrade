@@ -1,0 +1,83 @@
+{
+  "id": "backend-indicator-seasons",
+  "title": "\"Indicator Seasons\" classification (Spring/Summer/Autumn/Winter) for MACD-Histogram",
+  "area": "backend/signals",
+  "skill": "add-indicator",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/indicators/macd.py",
+    "backend/app/signals/impulse.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "A four-way classification from Elder ch. 32, purely informational, low-risk to add: combine MACD-Histogram's slope (already computed for Impulse) with its position relative to the centerline (also trivial) into one of Spring (rising, below centerline -- best time to go long), Summer (rising, above -- crowd-recognized uptrend, take profits on longs into strength), Autumn (falling, above -- best time to go short), Winter (falling, below -- crowd-recognized downtrend, cover shorts into weakness). This is a pure informational label on top of an already-computed series -- does not touch _determine_signal or confidence scoring.",
+  "checklist": [
+    {
+      "step": "Implement the 4-way season classification as a small pure function on the existing macd_histogram series.",
+      "done": true
+    },
+    {
+      "step": "Unit tests covering all four season transitions.",
+      "done": true
+    },
+    {
+      "step": "Expose as a new field on GET /api/stocks/{ticker}/analysis (and indicator-history, for a historical season timeline); regenerate openapi.json/frontend types.",
+      "done": true
+    },
+    {
+      "step": "Document in docs/Analyse.md, explicitly noting this is informational only and not wired into signal logic.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "classify_season(histogram) lives in a new app/signals/seasons.py module and is exposed as a new `season` key inside the existing `indicators` dict/schema (AnalysisResponse.indicators.season, IndicatorHistoryPoint.season) rather than as a new top-level response field or under `screens`.",
+      "rationale": "`season` is derived purely from the same macd_histogram series every other `indicators` entry (ema_13, macd_histogram, bull_power/bear_power, channel_upper/lower, rsi) is already keyed off of, and like rsi/channel bands it's computation+exposure-only, not a Screen/gate -- so it fits the existing `indicators` bucket's contract (informational, not read by _determine_signal/confidence) better than `screens` (which holds only the four Triple Screen/Impulse gate outputs `_determine_signal` actually reads) or a new top-level field (which every prior purely-informational addition -- rsi, channel_upper/lower -- avoided in favor of `indicators` already)."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Slope (rising/falling) reuses the same bar-over-bar \"rising iff latest > previous, exact tie counts as falling\" convention app.signals.impulse._direction already established, reimplemented locally in classify_season rather than importing the private `_direction` helper across modules.",
+      "rationale": "Elder's book doesn't define a tie-breaking rule for \"is the indicator rising or falling\" -- reusing the existing, already-rationale'd convention (a not-yet-advanced value hasn't demonstrated rising momentum) keeps every 'rising/falling' comparison in app/signals/ consistent rather than inventing a second, competing tie-break rule for the same kind of question. Reimplemented rather than imported: app.signals.confidence.score_elder_ray_confirmation already set this precedent (its own docstring explicitly says it \"reuses the same ... convention as app.signals.impulse._direction\" while reimplementing the comparison itself, rather than importing the underscore-prefixed helper across module boundaries) -- classify_season follows that same established pattern instead of introducing cross-module imports of a private function, which would also require exporting _direction as a public API it currently isn't."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Position relative to the centerline treats an exact histogram value of 0 as \"below\" the centerline, not \"above\" -- i.e. `above_centerline = latest > 0` (strict), so latest == 0 falls into Spring/Winter, never Summer/Autumn.",
+      "rationale": "Elder ch. 32 doesn't address the zero-exactly case explicitly (a near-impossible float value in practice, but the function needs a defined answer). Chose consistency with the existing sign-convention precedent in app.signals.triple_screen._is_force_index_spike, which treats `sign * latest <= 0` as \"wrong sign\" -- i.e. a reading of exactly zero is never treated as satisfying a directional (positive or negative) condition in this codebase's existing MACD/Force-Index-adjacent sign checks. The alternative (treating 0 as \"above\") was rejected only because it would introduce a second, inconsistent zero-handling rule alongside that existing precedent for no compensating benefit -- Elder's own text gives no reason to prefer one over the other at this exact boundary."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "classify_season returns None (mapped to a nullable `season` field) only when fewer than 2 histogram points are available (or either of the last two is NaN) -- not for any other 'thin data' condition.",
+      "rationale": "A slope needs at least two points to exist at all -- this is the minimum-possible warm-up (shorter than rsi's 9-day window or the Autoenvelope channel's ~100-bar window), so nullability follows the same established 'not enough history yet -> null, not a fabricated value' convention those two already use in the Indicators/IndicatorHistoryPoint schemas, just triggered by a much shorter and rarer condition (effectively only the very first daily bar of any real history)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-seasons",
+    "pr_number": 159,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/159",
+    "pushed_at": "2026-09-19T18:12:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T18:18:33Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/159",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "frontend/src/pages/PortfolioPage.test.tsx's 'adds a new position end to end...' test times out under `vitest --coverage` (v8 instrumentation overhead, default 5000ms timeout) -- reproduced twice during this review. Not caused by this PR (touches no frontend logic besides the generated api/types.ts); passes reliably in isolation, on a coverage-less run, and with the timeout bumped. Pre-existing flake already independently observed on at least two prior PR reviews (backend-indicator-rsi, frontend-trade-journal) -- non-blocking, filed as a follow-up so it stops being silently re-diagnosed each time.",
+        "file": "frontend/src/pages/PortfolioPage.test.tsx",
+        "line": 90
+      }
+    ],
+    "notes": "Backend: pytest --cov=app 712 passed, 99.91% coverage (seasons.py 100%) -- matches PR claims exactly. Frontend: vitest 473 passed once the pre-existing PortfolioPage coverage-timeout flake is accounted for (see comments); 99.68% statement coverage. ruff/mypy/eslint/tsc all clean. Re-ran `python scripts/export_openapi.py` and `yarn generate:api-types` myself -- both produced zero diff against the committed backend/openapi.json and frontend/src/api/types.ts, confirming genuine regeneration, not a stale snapshot. classify_season's four quadrants (Spring=rising+below, Summer=rising+above, Autumn=falling+above, Winter=falling+below) match Elder ch. 32's table exactly as reproduced in both docs/Analyse.md and docs/ideas.md. Grepped app/signals/engine.py, app/signals/confidence.py, app/portfolio/* and confirmed `season`/`classify_season` is read nowhere outside indicators-dict construction and the two response schemas -- genuinely purely informational, never reaching `_determine_signal`. Read app.signals.impulse._direction directly: tie (latest == previous) classifies 'falling' there too, so classify_season's reimplemented tie-is-falling convention is consistent, not just claimed to be. Read app.signals.triple_screen._is_force_index_spike directly: its `sign * latest <= 0` check means an exact-zero Force Index reading fails both the 'positive' and 'negative' branches (never counts as satisfying either direction) -- classify_season's 'exact zero counts as below centerline' choice is a reasonable, consistent extension of that same never-let-zero-satisfy-a-positive-condition precedent, not a contradiction of it. Test suite (test_seasons.py) is genuinely thorough: all four quadrants, a full 8-step cycle walk, the tie and zero conventions each isolated, NaN/insufficient-history cases, and an only-last-two-points-matter check. No new module/dependency friction: seasons.py sits alongside impulse.py/triple_screen.py/confidence.py in app/signals/ per Backend.md's documented layout, and per-bar historical correctness is inherited for free from analyse_history's existing truncate-and-replay design (no separate look-ahead risk to check). No frontend component changes in this PR (only the generated api/types.ts) -- no domain-vs-common placement question applies. No UI surface touched by this PR (nothing consumes indicators.season on the frontend yet) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both explicitly skipped for that reason. No checklist item phrased 'decide X' lacking a decisions entry -- all 4 judgment calls (indicators-bucket placement, tie convention, zero convention, null threshold) are recorded with rationale. No stale pr_decision to clear (first review pass). code-review skill (medium, main...HEAD) found zero findings. No human PR comments/reviews present."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T18:23:59Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (712 passed, 99.91%, seasons.py 100%) and frontend vitest --coverage (473 tests, 1 flake reproduced then confirmed pre-existing by re-running that single test in isolation -- passed in 3.84s; 99.68% statement coverage) -- both match pr-reviewer's numbers exactly. Read the full main...HEAD diff myself and grepped app/signals/engine.py, app/signals/confidence.py, app/api/routers/stocks.py, app/api/schemas.py for `season`/`classify_season`: appears only in indicators-dict construction and response serialization, never in _determine_signal or confidence scoring -- the 'purely informational' claim holds. Hand-computed classify_season's four quadrants myself from its actual slope/centerline logic ([-2,-1]->Spring, [1,2]->Summer, [2,1]->Autumn, [-1,-2]->Winter) and checked them against docs/Analyse.md's row-12 table -- exact match. ruff/mypy/eslint/tsc clean (7 pre-existing ruff findings are in files untouched by this PR's diff, confirmed via git diff --stat, not introduced here)."
+  }
+}
