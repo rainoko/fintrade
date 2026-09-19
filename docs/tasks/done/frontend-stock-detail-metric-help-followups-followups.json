@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #128 review (frontend-stock-detail-metric-help-followups)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-stock-detail-metric-help-followups"],
   "references": [
     "docs/tasks/frontend-stock-detail-metric-help-followups.json",
@@ -41,6 +41,34 @@
     "pr_number": 129,
     "pr_url": "https://github.com/rainoko/fintrade/pull/129",
     "pushed_at": "2026-09-19T01:30:00Z"
+  },
+  "test": {
+    "reviewed_at": "2026-09-19T01:01:29Z",
+    "method": ["static_analysis", "unit_tests", "browser_walkthrough"],
+    "verdict": "pass"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T01:01:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/129",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed both metricHelpContent.ts's tideHelp.interpretValue and signalExplanation.ts's explainSignal genuinely import and interpolate the shared TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE constant from the new tideNeutralCause.ts (not just visually similar hardcoded text); no other file still hardcodes the old duplicated wording (repo-wide grep).",
+        "file": "frontend/src/features/stocks/components/tideNeutralCause.ts"
+      },
+      {
+        "summary": "Browser walkthrough (fixture provider, AAPL = flat/ambiguous tide, GOOGL = falling/disagree tide) confirms: the flat-slope parenthetical omission fix works on both the Tide-help balloon and the 'Why HOLD?' balloon and doesn't leak into the disagree branch, where the '(weekly MACD-H slope falling)' parenthetical still renders correctly on both balloons. No console errors or failed/4xx+ network requests observed.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts"
+      },
+      {
+        "summary": "architecture-review: tideNeutralCause.ts is a plain non-component helper: Frontend.md §3's utils/-vs-common/-vs-features/<domain>/ placement test applies, and since it encodes Elder Tide/evaluate_tide domain semantics, features/stocks/components/ (colocated with its two consumers) is the correct placement, matching the task's own decisions entry.",
+        "file": "frontend/src/features/stocks/components/tideNeutralCause.ts"
+      },
+      {
+        "summary": "Backend pytest 573 passed at 99.86% coverage, frontend vitest 336 passed at 99.69%/99.42% (statements/branches), backend ruff+mypy clean, frontend eslint+tsc clean, make e2e 13/13 passed. No API/schema changes, so the OpenAPI-snapshot check doesn't apply."
+      }
+    ],
+    "notes": "No blocking findings; no new non-blocking findings from this pass either, so nothing filed to a further follow-up task. Full review: tests+coverage, static analysis, code-review skill (medium effort, no bugs found), architecture-review (placement conforms to Frontend.md §3's utils/common/features test), and a live browser walkthrough of both balloons across the flat and disagree branches, plus the persisted e2e suite."
   },
   "questions": []
 }
