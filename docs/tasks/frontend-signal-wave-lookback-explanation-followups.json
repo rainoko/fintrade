@@ -1,0 +1,23 @@
+{
+  "id": "frontend-signal-wave-lookback-explanation-followups",
+  "title": "Non-blocking follow-up from PR #143 review (frontend-signal-wave-lookback-explanation)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-signal-wave-lookback-explanation"],
+  "references": [
+    "docs/tasks/frontend-signal-wave-lookback-explanation.json",
+    "https://github.com/rainoko/fintrade/pull/143",
+    "frontend/src/features/stocks/components/signalExplanation.ts",
+    "frontend/src/features/stocks/components/signalExplanation.test.ts"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #143 (frontend-signal-wave-lookback-explanation), recorded here so it isn't lost once that PR merges. Doesn't affect correctness -- the implementation itself was verified by hand against backend/app/signals/engine.py (`_determine_signal`/`_wave_lookback`) and via a live browser walkthrough of ADBE (Tide BEARISH, `showed_rally_in_lookback: false`), which rendered correctly -- this is a test-completeness gap only.",
+  "checklist": [
+    {
+      "step": "signalExplanation.test.ts's new 'previously-ambiguous HOLD, now definitive' test cases (the ones that override `showedPullbackInLookback` explicitly and assert `wave.met`/`wave.detail`) all use `tideTrend: 'BULLISH'` -- exercising `explainSignal`'s `isBuySide ? screens.wave.showed_pullback_in_lookback : screens.wave.showed_rally_in_lookback` ternary only on the `showed_pullback_in_lookback` (BUY/BULLISH) side with explicit assertions. The existing BEARISH-tide test cases (e.g. 'explains a HOLD blocked by the Impulse gate on the SELL side') either don't reach this branch (Wave already matches today) or don't assert on `wave.met`/`wave.detail` at all. Branch coverage is numerically 100% only because the fixture builder's own defaults (`showedRallyInLookback = tideTrend === 'BEARISH'`) happen to exercise both ternary arms incidentally, not because any assertion would catch a regression that swapped `showed_pullback_in_lookback`/`showed_rally_in_lookback` on the SELL side (e.g. reading the wrong field when `isBuySide` is false). Add at least one explicit BEARISH-tide test mirroring the existing BULLISH-tide 'Wave definitively showed/didn't show the qualifying state within its lookback' cases, asserting `wave.met`/`wave.detail` directly against an explicit `showedRallyInLookback` override.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
