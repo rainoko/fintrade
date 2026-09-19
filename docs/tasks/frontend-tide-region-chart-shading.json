@@ -3,7 +3,7 @@
   "title": "Price chart: shade background regions by historical Screen 1 (Tide) trend",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-indicator-history-tide-exposure"
   ],
