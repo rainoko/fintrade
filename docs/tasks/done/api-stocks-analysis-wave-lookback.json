@@ -3,7 +3,7 @@
   "title": "GET /api/stocks/{ticker}/analysis: expose the Wave screen's 5-day lookback result (wave_showed_pullback/wave_showed_rally), not just today's state",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/signals/engine.py",
@@ -40,5 +40,12 @@
     "pr_number": 142,
     "pr_url": "https://github.com/rainoko/fintrade/pull/142",
     "pushed_at": "2026-09-19T03:54:34Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T03:59:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/142",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Backend (578 tests, 99.87% coverage) and frontend (344 tests, 99.69%/99.44% coverage) suites pass, both well above the 90% gate. ruff/mypy/eslint/tsc all clean. backend/openapi.json and frontend/src/api/types.ts regenerated locally and produced zero diff against what's committed, confirming they're genuinely in sync. Verified _wave_lookback itself is unchanged in this diff (only analyse()'s wave dict construction and docstring changed) -- the two new booleans are plumbed straight through with no recomputation, _determine_signal's call site is identical, and confidence scoring reads the original un-enriched `wave` local rather than the enriched screens[\"wave\"], so scoring is unaffected. Null-only-when-NEUTRAL-tide semantics match _wave_lookback's own contract and docs/Analyse.md §5's 'shows/showed' language. No look-ahead/off-by-one introduced since the lookback loop itself wasn't touched. Both 'decide X' checklist items have decisions entries with rationale. New tests cover exactly the two required cases (directional tide where today's state differs from the lookback result, and the Tide-NEUTRAL null case). The frontend consumer rewrite was correctly deferred to docs/tasks/frontend-signal-wave-lookback-explanation.json with a recorded rationale. No frontend source component was changed (only test fixtures/mocks), so no UI surface for this PR -- browser walkthrough and e2e suite run skipped per review step 9. code-review skill (medium) found no correctness bugs or reuse findings. scripts/validate_tasks.py clean. No non-blocking findings to track."
   }
 }
