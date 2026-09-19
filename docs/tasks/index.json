@@ -712,8 +712,8 @@
       "id": "watchlist-domain-models-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/watchlist-domain-models-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/watchlist-domain-models-followups.json"
     },
     {
       "id": "api-watchlist",
