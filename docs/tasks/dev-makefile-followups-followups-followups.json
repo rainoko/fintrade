@@ -3,7 +3,7 @@
   "title": "Root Makefile -- non-blocking review follow-up from PR #139",
   "area": "infra",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["dev-makefile-followups-followups"],
   "references": [
     "docs/tasks/dev-makefile-followups-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "Found by a `code-review` pass on PR #139 (independently re-verified before filing): the text PR #139 wrote into `docs/tasks/done/dev-makefile-followups.json`'s `decisions[1]` to correct an earlier overstatement is itself imprecise in a related way. It now says the surviving sub-target 'is torn down immediately as soon as either one fails, and `make dev` exits non-zero right away rather than blocking until the last-reaped job exits.' On the most natural reading this whole clause is scoped to the failure case the paragraph is about (a sub-target failing), which is accurate. But `wait -n $$bpid $$fpid` actually returns with the exit status of *whichever* of `bpid`/`fpid` (the two sub-`make` invocations) finishes first, for *any* reason -- not only a failure. If one side were to exit cleanly (status 0) while the other is still healthy (e.g. `vite`'s node process exiting on its own, or someone kills only one side directly rather than the top `make dev` pid), the same teardown-and-`exit $$status` sequence would tear down the still-healthy other side and propagate a *0* exit code from `make dev`, not the non-zero the sentence's less careful reading might suggest. Verified empirically (equivalent scratch Makefile): `wait -n` captured `status=0` when the first-completing job exited 0. This wasn't the scenario the original fail-fast bug or this decision entry were ever about (both are specifically about a sub-target *failing*), so this is a minor precision gap in the decision-log prose, not a runtime bug -- `make dev`'s actual behavior is unaffected and was not claimed to be otherwise anywhere except in this one sentence's phrasing. Worth a follow-up wording tweak to `decisions[1]` (e.g. explicitly noting that a clean 0-exit by one side while the other is still healthy would also trigger the same teardown-and-propagate-that-status behavior, not just a failure) so a future reader can't misread the corrected sentence as claiming `wait -n` is failure-specific.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Appended a further dated correction to `docs/tasks/done/dev-makefile-followups.json`'s `decisions[1]` (rather than editing the existing correction sentence in place), following the same pattern the prior correction in that same array already established.",
+      "rationale": "The task explicitly calls for a visible correction, not a silent overwrite, matching the precedent already set by the 2026-09-19 correction of the 'reflects whichever sub-target failed' overstatement in the same decisions[1] entry. Editing the earlier correction's own wording in place would erase the record of what it originally said and why it needed fixing, which is exactly what the decision-memory rule (CLAUDE.md, 'Decision memory') and this task's own instructions are guarding against. The new correction clarifies that `wait -n $$bpid $$fpid` returns on either sub-make exiting for any reason (including a clean 0-exit), not only on a failure -- verified empirically via an equivalent scratch Makefile reproducing the same `wait -n` semantics described in the PR #139 review finding. No code change was needed: `make dev`'s actual runtime behavior was never claimed to be different anywhere except in this one sentence's phrasing, so this is purely a task-board wording fix."
+    }
+  ],
   "questions": []
 }
