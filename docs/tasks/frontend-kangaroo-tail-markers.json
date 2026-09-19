@@ -64,8 +64,8 @@
   ],
   "git": {
     "branch": "task/frontend-kangaroo-tail-markers",
-    "pr_number": null,
-    "pr_url": null,
-    "pushed_at": null
+    "pr_number": 165,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/165",
+    "pushed_at": "2026-09-19T20:21:37Z"
   }
 }
