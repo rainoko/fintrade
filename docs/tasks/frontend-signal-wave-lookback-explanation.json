@@ -3,7 +3,7 @@
   "title": "signalExplanation.ts: consume WaveScreen.showed_pullback_in_lookback/showed_rally_in_lookback to remove the ambiguous-Wave caveat",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["api-stocks-analysis-wave-lookback"],
   "references": [
     "frontend/src/features/stocks/components/signalExplanation.ts",
@@ -41,5 +41,11 @@
       "rationale": "This task's changes are confined to a feature-scoped pure function (signalExplanation.ts, features/stocks/components/, not components/common/) and its existing test fixtures -- no new or changed common/ component was introduced, so the add-frontend-feature skill's Storybook requirement (Frontend.md §4) doesn't apply. SignalExplanationContent.tsx itself (which does render the explanation) was already a feature component with no story before this task and remains unchanged in this diff beyond its test fixture."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-signal-wave-lookback-explanation",
+    "pr_number": 143,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/143",
+    "pushed_at": "2026-09-19T04:12:33Z"
+  }
 }
