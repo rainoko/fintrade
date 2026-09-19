@@ -159,6 +159,39 @@ const indicatorPoints: IndicatorHistoryResponse = {
   ],
 }
 
+// Post-review fix (PR #158, blocking finding): the divergence overlay is
+// now windowed to the currently visible point range (see
+// `divergenceClick.ts#isDivergenceInRange`), so a test exercising the
+// overlay actually being drawn needs points spanning `bearishDivergence`'s
+// own two extreme dates (2026-08-03 / 2026-09-02) -- unlike `indicatorPoints`
+// above (which only covers 2026-09-01/02 and is now deliberately reused by
+// the new "out of range" tests below to exercise the windowing itself).
+// Deliberately dated 2026-08-01, NOT `bearishDivergence.first_extreme_date`
+// (2026-08-03) itself -- so this extra point's own presence widens the
+// visible range to include 08-03 without also becoming a false-positive
+// match for the `data[0]?.time === '2026-08-03'` lookup the tests below use
+// to find the divergence line's own `setData` call among Stochastic/RSI's.
+const indicatorPointsSpanningDivergence: IndicatorHistoryResponse = {
+  ticker: 'AAPL',
+  points: [
+    {
+      date: '2026-08-01',
+      ema_13: 212.0,
+      ema_26: 208.0,
+      macd_histogram: 0.5,
+      bull_power: 1.0,
+      bear_power: -0.5,
+      stochastic_k: 70.0,
+      rsi: 63.0,
+      force_index_2ema: 500.0,
+      signal: 'HOLD',
+      confidence: 0,
+      confidence_band: 'Low',
+    },
+    ...indicatorPoints.points,
+  ],
+}
+
 // GET /api/stocks/{ticker}/indicators legitimately returns null
 // stochastic_k/force_index_2ema/macd_histogram for early bars still inside
 // an indicator's warm-up window (e.g. Stochastic %K(5,3,3) needs ~11 prior
@@ -511,7 +544,7 @@ describe('OscillatorChart', () => {
 
   describe('divergence overlay (frontend-divergence-markers)', () => {
     it('draws a connecting line + circle markers on the correct pane (Stochastic/RSI share pane 0) between the two compared indicator readings', async () => {
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis(bearishDivergence)
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -547,7 +580,7 @@ describe('OscillatorChart', () => {
     })
 
     it('draws the connecting line on the MACD-Histogram pane (pane 2) when that is the divergence indicator', async () => {
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis({ ...bearishDivergence, indicator: 'macd_histogram', kind: 'bullish' })
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -571,7 +604,7 @@ describe('OscillatorChart', () => {
 
     it('shows the Divergence legend naming the actual two dates/values compared for this ticker', async () => {
       const user = userEvent.setup()
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis(bearishDivergence)
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -588,7 +621,7 @@ describe('OscillatorChart', () => {
     })
 
     it('opens a balloon explaining the divergence when a divergence marker on the correct pane is clicked', async () => {
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis(bearishDivergence)
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -623,7 +656,7 @@ describe('OscillatorChart', () => {
     })
 
     it('does not open the balloon when the click event carries no page coordinates', async () => {
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis(bearishDivergence)
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -643,7 +676,7 @@ describe('OscillatorChart', () => {
 
     it('closes the divergence balloon on Escape', async () => {
       const user = userEvent.setup()
-      mockIndicators(indicatorPoints)
+      mockIndicators(indicatorPointsSpanningDivergence)
       mockAnalysis(bearishDivergence)
 
       renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
@@ -661,6 +694,49 @@ describe('OscillatorChart', () => {
       await user.keyboard('{Escape}')
 
       expect(screen.queryByLabelText('Divergence details')).not.toBeInTheDocument()
+    })
+
+    // Post-review fix (PR #158, blocking finding): same windowing fix as
+    // `PriceChart.test.tsx`'s own -- `indicatorPoints` (2026-09-01/02)
+    // deliberately excludes `bearishDivergence`'s own first extreme date
+    // (2026-08-03).
+    it('does not draw the connecting line/markers/click subscription when the divergence dates fall outside the currently visible point range', async () => {
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+      )
+      // Only the four base series (Stochastic/RSI/Force Index/MACD
+      // Histogram) -- no 5th `addSeries` call for the divergence line.
+      expect(addSeriesMock).toHaveBeenCalledTimes(4)
+      const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
+        ([, markers]) =>
+          Array.isArray(markers) &&
+          (markers as { shape: string }[]).some((marker) => marker.shape === 'circle'),
+      )
+      expect(divergenceMarkersCall).toBeUndefined()
+      expect(subscribeClickMock).not.toHaveBeenCalled()
+    })
+
+    it('still shows the Divergence legend (noting it is not in the current range) when the divergence dates fall outside the currently visible point range', async () => {
+      const user = userEvent.setup()
+      mockIndicators(indicatorPoints)
+      mockAnalysis(bearishDivergence)
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
+
+      await waitFor(() => expect(screen.getByText(/Divergence/)).toBeInTheDocument())
+      expect(screen.getByText('Divergence (not in current range)')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Divergence help' }))
+
+      expect(screen.getByText(/Bearish Stochastic %K divergence/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/isn’t drawn on the chart right now/),
+      ).toBeInTheDocument()
     })
   })
 })

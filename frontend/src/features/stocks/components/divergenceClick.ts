@@ -33,3 +33,50 @@ export function clickedDivergenceExtreme(
     clickedDate === divergence.second_extreme_date
   )
 }
+
+/**
+ * `true` when BOTH of `divergence`'s own extreme dates fall within
+ * `[firstDate, lastDate]` -- the currently visible bar/point range
+ * (inclusive) -- the gate `PriceChart.tsx`'s and `OscillatorChart.tsx`'s
+ * own divergence-drawing effects both check before adding the connecting
+ * `LineSeries`/markers/click subscription for a divergence.
+ *
+ * Post-review fix (PR #158, blocking finding): this task originally drew
+ * the divergence overlay unconditionally, regardless of the chart's
+ * currently selected range -- unlike `selectDisplayedZones`/
+ * `buildFalseBreakoutMarkers` (PR #152), which already window to the
+ * visible bar range for exactly this reason. Since this task only ever
+ * draws the single latest divergence (which can legitimately be many
+ * months old), an unwindowed 2-point `LineSeries` whose own points sit
+ * outside the visible range routinely stretched Lightweight Charts' time
+ * scale to cover the gap, squashing the actual candlestick/oscillator
+ * content into an unreadable sliver (reproduced live: AAPL's real bearish
+ * MACD-Histogram divergence at the default 1Y range, switching to 1M).
+ *
+ * Requires BOTH extremes in range, not just one overlapping -- a single
+ * out-of-range point on either end of the 2-point line still distorts the
+ * axis the same way a fully-out-of-range one does. Colocated here (like
+ * `clickedDivergenceExtreme` above) since the "is this divergence
+ * currently within the visible window" test is identical regardless of
+ * which chart/pane it's checked against -- both the chart-drawing effects
+ * and each chart's own legend (to decide what `divergenceHelp.interpretValue`
+ * should say) share this one function rather than duplicating the
+ * string-date-range comparison.
+ *
+ * Compared as plain `'YYYY-MM-DD'` strings (lexicographic order is date
+ * order for this format) -- the same convention
+ * `buildFalseBreakoutMarkers` (`PriceChart.tsx`) already uses for its own
+ * `reentry_date` windowing check.
+ */
+export function isDivergenceInRange(
+  divergence: DivergenceOut,
+  firstDate: string,
+  lastDate: string,
+): boolean {
+  return (
+    divergence.first_extreme_date >= firstDate &&
+    divergence.first_extreme_date <= lastDate &&
+    divergence.second_extreme_date >= firstDate &&
+    divergence.second_extreme_date <= lastDate
+  )
+}

@@ -537,7 +537,26 @@ export const divergenceHelp = {
     'Price makes a new extreme (a lower low, or a higher high) that an oscillator does NOT confirm with a matching new extreme of its own -- a sign the move driving price is losing the momentum behind it, even though price itself hasn’t turned yet.',
   elderContext:
     'Elder calls divergences "some of the most powerful signals in technical analysis" (docs/ideas.md). A bullish divergence (two successive price swing LOWS, the second with a shallower oscillator reading) is a potential buy setup; a bearish divergence (two successive swing HIGHS) is a potential sell setup. For MACD-Histogram, the oscillator must cross back through its own zero centerline between the two extremes -- "an absolute must for a true divergence" per the book, checked as a hard requirement here, not just a strength cue. Stochastic/RSI have no centerline requirement, but read strongest when the first extreme sits beyond the oscillator’s own 30/70 oversold/overbought reference line and the second is back inside it. Also implements Kerry Lovvorn’s empirical refinement: the two extremes must be 20-40 trading days apart, and the second no more than half the height/depth of the first -- a closer/further-apart or deeper-than-half pair is never reported as a divergence at all. If price later ignores a formed divergence (a new low past the bullish divergence’s own second extreme, or a new high past the bearish one’s), Elder treats that ("Hound of the Baskervilles") as a strong continuation signal in the *opposite* direction, not a failed signal to discard -- his one explicit stop-and-reverse case.',
-  interpretValue(divergence: DivergenceOut | null): string {
+  /**
+   * `inVisibleRange` (post-review fix, PR #158): whether `divergence`'s own
+   * two extreme dates both fall within the chart's currently selected/
+   * visible bar range -- see `divergenceClick.ts#isDivergenceInRange`, which
+   * both `PriceChart.tsx` and `OscillatorChart.tsx` compute and pass here.
+   * Defaults to `true` so every existing caller (including this app's own
+   * `metricHelpContent.test.ts`, which only cares about the divergence's own
+   * content, not range-windowing) doesn't need to think about a range at
+   * all. When `false`, the overlay's own connecting line/markers are NOT
+   * drawn on the chart (see `isDivergenceInRange`'s own doc comment for why
+   * -- an out-of-range point distorts the chart's time scale) -- this
+   * function still names the actual divergence in full (Decision, this
+   * task's `decisions` entry: a real, currently-qualifying divergence stays
+   * worth surfacing even when the user's current range selection happens to
+   * exclude it, unlike `supportResistanceZoneHelp`'s zone legend, which
+   * hides entirely once nothing survives its own relevance filter/cap -- a
+   * *permanent* exclusion for that ticker, not a temporary range choice) and
+   * appends a clause explaining why nothing is currently drawn.
+   */
+  interpretValue(divergence: DivergenceOut | null, inVisibleRange = true): string {
     if (!divergence) {
       return 'No currently qualifying divergence detected for this ticker.'
     }
@@ -560,6 +579,9 @@ export const divergenceHelp = {
     const abortedClause = divergence.aborted
       ? ` "Hound of the Baskervilles": price has since closed beyond the second extreme’s own level in the opposite direction of what this divergence implied -- Elder reads this as a strong continuation signal the other way, not a failed divergence to ignore.`
       : ''
-    return `${kindLabel} ${indicatorLabel} divergence, comparing two successive price ${swingLabel}: ${first} vs ${second}. ${validityClause} ${spacingClause} Implies ${implication}.${abortedClause}`
+    const rangeClause = inVisibleRange
+      ? ''
+      : ` This divergence isn’t drawn on the chart right now -- its own dates (${divergence.first_extreme_date} to ${divergence.second_extreme_date}) fall outside the currently selected range. Switch to a wider range (e.g. 1Y or Max) to see it plotted.`
+    return `${kindLabel} ${indicatorLabel} divergence, comparing two successive price ${swingLabel}: ${first} vs ${second}. ${validityClause} ${spacingClause} Implies ${implication}.${abortedClause}${rangeClause}`
   },
 }

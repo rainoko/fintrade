@@ -27,7 +27,7 @@ import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { clickedDivergenceExtreme } from './divergenceClick'
+import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
 import { divergenceHelp, rsiHelp } from './metricHelpContent'
 
 export interface OscillatorChartProps {
@@ -310,6 +310,19 @@ export default function OscillatorChart({
     left: number
   } | null>(null)
 
+  // Post-review fix (PR #158): whether `divergence` (if any) is actually
+  // drawn on this pane this render -- the same `isDivergenceInRange` check
+  // the chart-creation effect below runs against `data.points`, computed
+  // here from the render-scope `points` array (same source) so the legend
+  // can describe whether the divergence is currently plotted without
+  // duplicating the effect's own windowing logic differently. See
+  // `PriceChart.tsx`'s own identical `divergenceInVisibleRange` for the
+  // shared rationale.
+  const divergenceInVisibleRange =
+    divergence != null && hasPoints
+      ? isDivergenceInRange(divergence, points[0].date, points[points.length - 1].date)
+      : false
+
   // Depends on `indicatorsQuery.data` itself (a new object per response)
   // rather than the `points`/`hasPoints` derived above, since those are
   // fresh references on every render regardless of whether the data
@@ -394,7 +407,25 @@ export default function OscillatorChart({
     // pane's series markers have no DOM trigger of their own, so
     // `chart.subscribeClick` opens `AnchoredInfoBalloon` at the click's own
     // page coordinates instead.
-    if (divergence) {
+    //
+    // Post-review fix (PR #158, blocking finding): windowed to the
+    // currently visible point range (`data.points[0].date`..
+    // `data.points.at(-1).date`) via `isDivergenceInRange` -- same fix,
+    // same rationale as `PriceChart.tsx`'s own divergence-overlay effect
+    // (see that effect's comment and `isDivergenceInRange`'s own doc
+    // comment in divergenceClick.ts): an unwindowed divergence line whose
+    // own dates fall outside the visible range stretched this pane's (and
+    // whichever pane the divergence's indicator belongs to's) time scale to
+    // cover the gap, squashing the actual oscillator content into an
+    // unreadable sliver.
+    const divergenceInRange =
+      divergence != null &&
+      isDivergenceInRange(
+        divergence,
+        data.points[0].date,
+        data.points[data.points.length - 1].date,
+      )
+    if (divergence && divergenceInRange) {
       const color = theme.palette.divergence.main
       const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(
         divergence,
@@ -495,7 +526,13 @@ export default function OscillatorChart({
         markers) -- same `divergenceHelp.interpretValue` content
         `PriceChart.tsx`'s own legend row shows, reading the exact same
         `analysisQuery.data.divergence` value the divergence overlay effect
-        above draws from.
+        above draws from. Still gated on `divergence` alone, not also
+        `divergenceInVisibleRange` -- same Decision (post-review fix, PR
+        #158, this task's `decisions` entry) as `PriceChart.tsx`'s own
+        identical legend row: stays visible and names the real divergence
+        even when the current range excludes it from the chart, with
+        `divergenceHelp.interpretValue`'s own `inVisibleRange` clause
+        explaining why nothing is drawn right now.
       */}
       {indicatorsQuery.isSuccess && hasPoints && analysisQuery.isSuccess && divergence && (
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
@@ -505,16 +542,20 @@ export default function OscillatorChart({
               height: 12,
               borderRadius: '50%',
               bgcolor: 'divergence.main',
+              opacity: divergenceInVisibleRange ? 1 : 0.4,
             }}
           />
           <Typography variant="caption" color="text.secondary">
-            Divergence
+            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
           </Typography>
           <MetricHelp
             metricLabel={divergenceHelp.metricLabel}
             definition={divergenceHelp.definition}
             elderContext={divergenceHelp.elderContext}
-            valueInterpretation={divergenceHelp.interpretValue(divergence)}
+            valueInterpretation={divergenceHelp.interpretValue(
+              divergence,
+              divergenceInVisibleRange,
+            )}
           />
         </Stack>
       )}
@@ -549,7 +590,9 @@ export default function OscillatorChart({
         ariaLabel="Divergence details"
         content={
           <Typography variant="body2">
-            {divergence ? divergenceHelp.interpretValue(divergence) : null}
+            {divergence
+              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+              : null}
           </Typography>
         }
       />

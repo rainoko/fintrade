@@ -35,7 +35,7 @@ import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
 import { bringSeriesToFront, createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { clickedDivergenceExtreme } from './divergenceClick'
+import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
 import {
   channelHelp,
   divergenceHelp,
@@ -937,6 +937,21 @@ export default function PriceChart({
   // `chart.subscribeClick` to open the click-to-explain balloon --
   // isolating that subscription's own lifecycle from the zone-band effect's
   // keeps each effect's cleanup simple and independently reasoned-about.
+  //
+  // Post-review fix (PR #158, blocking finding): windowed to the currently
+  // visible bar range (`finiteBars[0].date`..`finiteBars.at(-1).date`),
+  // same pattern `selectDisplayedZones`/`buildFalseBreakoutMarkers` already
+  // established (PR #152) for the exact same failure class -- see
+  // `isDivergenceInRange`'s own doc comment (divergenceClick.ts) for why an
+  // unwindowed divergence line distorted the whole chart's time scale
+  // whenever its own (often much older) dates fell outside the selected
+  // range. Unlike the zone bands, there's no "still draw it, just capped"
+  // fallback here: a 2-point line with even one point outside the visible
+  // range has nothing sensible to render, so the whole overlay (line,
+  // markers, click subscription) is simply skipped for this render -- the
+  // legend below still surfaces the divergence via `divergenceHelp`'s own
+  // `inVisibleRange` clause (see this task's `decisions` entry for why the
+  // legend stays visible rather than also hiding).
   useEffect(() => {
     const chart = chartRef.current
     const series = seriesRef.current
@@ -946,6 +961,21 @@ export default function PriceChart({
     }
     const divergence = analysisQuery.data?.divergence
     if (!divergence) {
+      return
+    }
+    // No separate "finiteBars.length === 0" guard needed here (unlike the
+    // candlestick/zone effects above, which both check it): `chart`/`series`
+    // (checked above) are only ever non-null when the candlestick effect's
+    // OWN `finiteBars.length === 0` guard passed for this exact
+    // `historyQuery.data` -- and per this component's own documented
+    // effect-cleanup-ordering invariant (see the signal-overlay effect's
+    // comment above), every sibling effect's cleanup for a data change runs
+    // to completion (nulling these refs) before any effect's new body runs,
+    // so `finiteBars` is guaranteed non-empty whenever this line is reached.
+    const finiteBars = data.bars.filter(hasFiniteOhlc)
+    const firstDate = finiteBars[0].date
+    const lastDate = finiteBars[finiteBars.length - 1].date
+    if (!isDivergenceInRange(divergence, firstDate, lastDate)) {
       return
     }
 
@@ -1070,6 +1100,18 @@ export default function PriceChart({
   // comment for why there's no separate filtered/"displayed" variant to
   // keep in sync here, unlike `displayedZones` above).
   const divergence = analysisQuery.data?.divergence ?? null
+
+  // Post-review fix (PR #158): whether `divergence` (if any) is actually
+  // drawn on the chart this render -- the same `isDivergenceInRange` check
+  // the divergence-overlay effect above runs against `finiteBars`, computed
+  // here from `bars` (already `historyQuery.data.bars` filtered by
+  // `hasFiniteOhlc`, same source) so the legend can describe whether the
+  // divergence is currently plotted without duplicating the effect's own
+  // windowing logic differently.
+  const divergenceInVisibleRange =
+    divergence != null && bars.length > 0
+      ? isDivergenceInRange(divergence, bars[0].date, bars[bars.length - 1].date)
+      : false
 
   return (
     <Stack spacing={2}>
@@ -1224,12 +1266,23 @@ export default function PriceChart({
         Divergence legend + MetricHelp affordance (frontend-divergence-
         markers). Reads `analysisQuery.data.divergence` directly -- the
         exact same value the divergence-overlay effect above draws from,
-        with no separate "displayed" filtering step to drift out of sync
-        with (unlike the zone legend above, which needs its own
+        with no separate "displayed" filtering/capping step to drift out of
+        sync with (unlike the zone legend above, which needs its own
         `displayedZones` precisely because there IS a relevance-filter/cap
         step between the raw `zones` array and what's actually drawn -- see
-        that legend's own comment for the bug this pattern exists to avoid;
-        a single divergence object has no such step).
+        that legend's own comment for the bug this pattern exists to avoid).
+        Still gated on `divergence` alone (not `divergenceInVisibleRange`
+        too) -- Decision (post-review fix, PR #158, this task's `decisions`
+        entry): the legend stays visible and keeps naming the real
+        divergence even when the current range selection excludes it from
+        the chart itself, with `divergenceHelp.interpretValue`'s own
+        `inVisibleRange` clause explaining why nothing is drawn right now --
+        chosen over hiding the row entirely (as the zone legend does once
+        `displayedZones` empties) because a divergence's out-of-range-ness is
+        a temporary, range-selection-dependent state for a single real
+        signal, not a permanent exclusion the way a zone failing the
+        relevance filter is; hiding it here would read as "no divergence
+        exists" rather than "not shown at this range".
       */}
       {historyQuery.isSuccess && hasBars && analysisQuery.isSuccess && divergence && (
         <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
@@ -1239,16 +1292,20 @@ export default function PriceChart({
               height: 12,
               borderRadius: '50%',
               bgcolor: 'divergence.main',
+              opacity: divergenceInVisibleRange ? 1 : 0.4,
             }}
           />
           <Typography variant="caption" color="text.secondary">
-            Divergence
+            Divergence{!divergenceInVisibleRange && ' (not in current range)'}
           </Typography>
           <MetricHelp
             metricLabel={divergenceHelp.metricLabel}
             definition={divergenceHelp.definition}
             elderContext={divergenceHelp.elderContext}
-            valueInterpretation={divergenceHelp.interpretValue(divergence)}
+            valueInterpretation={divergenceHelp.interpretValue(
+              divergence,
+              divergenceInVisibleRange,
+            )}
           />
         </Stack>
       )}
@@ -1308,7 +1365,9 @@ export default function PriceChart({
         ariaLabel="Divergence details"
         content={
           <Typography variant="body2">
-            {divergence ? divergenceHelp.interpretValue(divergence) : null}
+            {divergence
+              ? divergenceHelp.interpretValue(divergence, divergenceInVisibleRange)
+              : null}
           </Typography>
         }
       />

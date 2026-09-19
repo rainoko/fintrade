@@ -699,5 +699,23 @@ describe('metricHelpContent', () => {
       const message = divergenceHelp.interpretValue(buildDivergence({ aborted: false }))
       expect(message).not.toContain('Hound of the Baskervilles')
     })
+
+    it('omits the out-of-range clause when inVisibleRange is true (or omitted, the default)', () => {
+      expect(divergenceHelp.interpretValue(buildDivergence())).not.toContain(
+        'isn’t drawn on the chart right now',
+      )
+      expect(divergenceHelp.interpretValue(buildDivergence(), true)).not.toContain(
+        'isn’t drawn on the chart right now',
+      )
+    })
+
+    it('appends an out-of-range clause naming the divergence’s own dates when inVisibleRange is false', () => {
+      const message = divergenceHelp.interpretValue(buildDivergence(), false)
+      // Still names the real divergence...
+      expect(message).toContain('Bullish MACD-Histogram divergence')
+      // ...plus the out-of-range explanation.
+      expect(message).toContain('isn’t drawn on the chart right now')
+      expect(message).toContain('2026-08-03 to 2026-08-31')
+    })
   })
 })
