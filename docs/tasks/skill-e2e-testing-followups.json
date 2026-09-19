@@ -24,5 +24,11 @@
       "rationale": "Step 6's own scale defines `blocker` as breaking the feature or contradicting Analyse.md/API.md, and `major` as 'works but missing required coverage/error-handling/tests'. A non-flake e2e failure (per the e2e-test skill's own flake-vs-regression guidance in its step 4: 'the app's actual behavior changed and a spec's assertion is now correct-and-failing') is by definition the app actually being broken in a real browser+backend run, not merely under-tested — so it fits `blocker`'s definition, not `major`'s, in every case, not just some. Considered instead defining an explicit escalation condition (e.g. 'major, escalating to blocker if the failing spec covers a golden path or contradicts Analyse.md/API.md') to preserve a `major` floor, but rejected it: nearly every persisted e2e spec covers a golden path by design (per the e2e-test skill, the suite is exactly the golden-path specs for dashboard/navigation/portfolio/stock-analysis), so the 'escalates' branch would fire almost universally anyway, making a conditional rule more complex than a flat one for no practical difference. A flat `blocker` also removes the ambiguity the task flagged and matches `pr-reviewer` step 9a's unconditional 'review-blocking' treatment of the identical signal, so a task-qa-reviewer run and a pr-reviewer run never disagree on how severe the same failing spec is."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/skill-e2e-testing-followups",
+    "pr_number": 135,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/135",
+    "pushed_at": "2026-09-19T02:21:06Z"
+  }
 }
