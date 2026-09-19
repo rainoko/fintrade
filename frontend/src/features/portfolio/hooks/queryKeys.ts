@@ -13,7 +13,16 @@
 // moment either hook's key changed without the other being updated in
 // lockstep, whereas the prefix relationship makes that impossible by
 // construction.
+// `closedTrades` nests under `all` for the same reason `risk` does above:
+// `useDeletePosition`'s invalidation of `portfolioKeys.all` records a new
+// `closed_trades` row (API.md's `DELETE /api/portfolio/positions/{id}`), so
+// the trade journal needs to refetch right alongside the portfolio/risk
+// queries after a delete — nesting under the same prefix gets that for free
+// via TanStack Query's prefix-matching invalidation, with no extra call
+// needed in useDeletePosition itself (frontend-trade-journal's `decisions`
+// entry).
 export const portfolioKeys = {
   all: ['portfolio'] as const,
   risk: ['portfolio', 'risk'] as const,
+  closedTrades: ['portfolio', 'closed-trades'] as const,
 }

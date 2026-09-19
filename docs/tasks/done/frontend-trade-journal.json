@@ -1,0 +1,114 @@
+{
+  "id": "frontend-trade-journal",
+  "title": "Trade journal: closed-trade history with A-trade grades",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-trade-history-table",
+    "backend-trade-grading"
+  ],
+  "references": [
+    "frontend/src/features/portfolio/components",
+    "docs/ideas.md"
+  ],
+  "description": "A new page/section surfacing the closed-trade history (backend-trade-history-table) with its buy/sell/trade grades (backend-trade-grading) -- Elder's own emphasis, worth carrying into the UI directly: grade by how much of what was realistically available got captured (the channel-height-based trade grade), not raw P&L alone, since a profitable trade can still be a 'C' and a barely-profitable one can be an 'A'. Include the exit-reason tag captured by backend-trade-history-table's schema so a user can eventually see patterns (e.g. how often they exit via 'couldn't stand the pain' vs. 'target hit') -- Elder credits exactly this kind of segmented review with concretely improving his own trading. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the trade-journal list/detail view: entry/exit price+date, realized P&L, the three grades, exit-reason tag.",
+      "done": true
+    },
+    {
+      "step": "Implement as a new page or a section of the existing portfolio area -- decide placement and record.",
+      "done": true
+    },
+    {
+      "step": "MetricHelp/inline content explaining each grade formula in plain terms next to the grade itself (e.g. 'you sold at 35% up the day's range -- Elder considers >50% very good'), not just the bare percentage.",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook stories for any new common/ pieces; confirm 90% coverage gate holds; run make e2e if this introduces new navigable routes.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented the trade journal as a new `TradeJournalPanel` section on the existing `/portfolio` page (below `RiskPanel`), not a standalone route/nav entry.",
+      "rationale": "RiskPanel/PositionsTable already establish the precedent of stacking self-fetching, section-level components on PortfolioPage rather than spinning up a new route per data slice; the trade journal is a natural extension of the same page (a portfolio's closed-trade history) rather than a distinct navigation destination, and adding a nav item for a single table would clutter NavDrawer's currently-small item list. Rejected alternative: a new `/portfolio/trade-journal` route + NavDrawer entry -- would work but adds routing/nav surface for no functional benefit today; revisit if the journal grows filters/detail views substantial enough to want its own URL. Since no route was added, the e2e checklist item's 'if this introduces new navigable routes' condition doesn't apply -- existing portfolio.spec.ts coverage (positions table render/add/delete) is unaffected since TradeJournalPanel self-fetches independently and doesn't block the rest of the page on error/loading, mirroring RiskPanel/SellFlaggedPositionsCard's own isolation."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Created a new `features/portfolio/components/metricHelpContent.ts` registry (buyGradeHelp/sellGradeHelp/tradeGradeHelp) rather than adding trade-grade entries into `features/stocks/components/metricHelpContent.ts`.",
+      "rationale": "The stocks-feature file's own doc comment explicitly scopes it to 'every metric shown on StockDetailPage', and Frontend.md §3's placement test (a component/module belongs under the feature whose domain concepts it references) applies to this registry the same way it applies to components/hooks -- a closed trade's buy/sell/channel grade is a portfolio-feature concept, not a Triple Screen/confidence-scoring one. The task's instruction to 'add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism' is satisfied by reusing the exact same registry *pattern* (one entry per metric, `definition`/`elderContext`/`interpretValue` fed to the shared `common/MetricHelp`) in a feature-scoped file with the same name, not by literally appending portfolio content into a file documented as stock-detail-only. Rejected alternative: adding the three grade entries directly to the stocks file -- would leave that file's own scoping doc comment false and mix two features' domain vocabulary in one registry."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `components/common/SignedCurrency` component (colored +/-/zero dollar amount) for `realized_pnl`, mirroring `common/PercentChange`'s sign-based coloring but for currency, and a per-row `EXIT_REASON_LABELS` map (`features/portfolio/exitReasonLabels.ts`) mirroring `EXIT_FLAG_LABELS`'s existing convention.",
+      "rationale": "No existing component colors a signed dollar amount (PercentChange is percentage-only, RiskPercent is magnitude-only and never green); `realized_pnl` needs the same 'is this a gain or a loss' visual cue as `unrealized_pnl_pct` gets via PercentChange, so a small domain-agnostic common/ component (plain number in, no P&L domain knowledge) was the correct placement per Frontend.md §3's test, with the required story+test. The exit-reason label map follows the exact precedent EXIT_FLAG_LABELS/humanizeSnakeCase already set for a closed, app-defined enum rendered as a Chip, including the same 'unmapped value falls back to humanizeSnakeCase's generic capitalize-and-space fallback' forward-compat behavior."
+    },
+    {
+      "timestamp": "2026-09-19T11:23:46Z",
+      "recorded_by": "task-worker",
+      "decision": "Grade cells color only against the two thresholds docs/Analyse.md §7 actually states (buy/sell grade >50% is 'very good'; trade grade ~30%+ is an 'A' trade) rather than inventing a full A/B/C/D/F letter-grade scale.",
+      "rationale": "Analyse.md and the backend's own docstrings give exactly two anchor points for trade grade (>=30% 'A', ~10% 'C') and one for buy/sell grade (>50% 'very good') -- no documented boundary for B/D/F or for buy/sell grade's lower bands. Inventing additional cutoffs not grounded in the book/docs would risk misrepresenting Elder's methodology (exactly what verify-elder-signal-style review would flag). The UI shows the raw percentage plus a single bold/not-bold visual cue at the one documented threshold per grade, with the full plain-language explanation carried by each grade's MetricHelp popover instead of an invented letter grade."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-journal",
+    "pr_number": 150,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/150",
+    "pushed_at": "2026-09-19T11:24:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T11:32:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/150",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Grade formulas (buy/sell/trade grade) match docs/Analyse.md §7 exactly, including the subtlety that sell grade is already '% up from the low' while buy grade needs a (100 - grade) complement to express the same framing -- verified both against the book's ADSK worked example (buy 97.3%/sell 35.5%/trade 32.1%) in the diff's own tests and against openapi.json's ClosedTradeOut docstrings.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 0
+      },
+      {
+        "summary": "MetricHelp popovers genuinely interpret the current value (not a static definition alone) for all three grades, including a specific, non-generic explanation for the null case (distinguishing 'entry day OHLC unavailable' from trade grade's 'Autoenvelope warm-up window') -- confirmed live via a browser walkthrough against real backend responses, both for a populated-grade row and a null-grade row.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Null-grade degradation renders as an em dash plus a working MetricHelp explaining why, not a blank cell or crash; confirmed in the browser walkthrough (TSLA row with all three grades null) and in TradeJournalPanel.test.tsx.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 350
+      },
+      {
+        "summary": "common/-vs-feature placement is sound: SignedCurrency is domain-agnostic (plain number in/out, no P&L knowledge) and correctly placed under components/common/ with a Storybook story and test; exitReasonLabels.ts and metricHelpContent.ts are portfolio-domain-specific and correctly placed under features/portfolio/. No near-duplicate of an existing common/ component, and no feature-specific logic misplaced in common/.",
+        "file": "frontend/src/components/common/SignedCurrency/SignedCurrency.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: GradeCell bolds a grade at exactly the threshold (gradePct >= goodThresholdPct), but both the MetricHelp copy and backend/app/api/schemas.py's docstring describe the buy/sell-grade cutoff as strictly 'over 50%'/'>50%'. At exactly 50.0% the visual emphasis and the stated rule disagree. Narrow edge case, tracked as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 494
+      },
+      {
+        "summary": "Non-blocking: SignedCurrency duplicates the sign-to-color ternary and leading-'+' construction already implemented in common/PercentChange instead of extracting a shared helper. Tracked as a follow-up.",
+        "file": "frontend/src/components/common/SignedCurrency/SignedCurrency.tsx",
+        "line": 211
+      },
+      {
+        "summary": "Non-blocking: buy/sell/trade grade columns are marked non-sortable with a rationale ('DataTable's generic comparator has no defined ordering for null vs numeric values') that doesn't match DataTable.tsx's actual compareForSort, which already defines null-sorts-last behavior -- these nullable-numeric columns could be sortable like the table's other numeric columns. Mirrors a pre-existing, likewise-inaccurate comment on PositionsTable's current_price column. Tracked as a follow-up.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 553
+      }
+    ],
+    "notes": "Full review: backend (639 tests, 99.89% coverage, ruff+mypy clean) and frontend (365 tests, 99.71%/99.47% coverage, eslint+tsc clean) both pass; no changes to backend/openapi.json needed since this PR is frontend-only (ClosedTradeOut/ClosedTradesResponse schema already landed in PR #149 and frontend/src/api/types.ts already reflects it). code-review skill (medium effort) found the same two non-blocking findings independently (threshold boundary, SignedCurrency/PercentChange duplication). Browser walkthrough against a live backend (fixture-seeded closed trades, one with real grades hand-set to match the book's ADSK values, one with null grades from a Saturday auto-exit date with no trading bar) confirmed the panel renders correctly on /portfolio below RiskPanel, all three MetricHelp popovers open with correct formula+interpretation text, the null-grade row shows an em dash plus a working explanatory popover, and no console/network errors occurred. make e2e (16/16 specs) passes, including portfolio.spec.ts's add/delete flow which now also exercises GET /api/portfolio/closed-trades end to end. All 4 decisions entries are well-reasoned and cover every 'decide X' checklist item. Three non-blocking findings filed to docs/tasks/frontend-trade-journal-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T11:37:01Z",
+    "verdict": "merge",
+    "notes": "Re-ran both suites myself: backend 639 passed/99.89% coverage (ruff/mypy clean), frontend 365 passed/99.71%-99.47% coverage (eslint/tsc clean) -- one PortfolioPage.test.tsx timeout on the first full run reproduced as flaky (passed in isolation and on a clean rerun), not a real regression. Skimmed the full diff (18 files) myself, including metricHelpContent.ts, TradeJournalPanel.tsx/test.tsx, and SignedCurrency.tsx. Independently hand-verified the buy/sell/trade grade formulas against docs/Analyse.md §7 (definition text matches verbatim) and hand-computed the book's ADSK reference values from test_portfolio_grading.py's own inputs (0.72/0.74=97.297%, 0.39/1.10=35.455%, 2.01/6.26=32.109%), all matching. Confirmed the null-grade path is a real tested code path (TradeJournalPanel.test.tsx 'renders an em dash plus a \"not available\" explanation for null grade fields', asserting 3x '—'), not just claimed. Confirmed the GradeCell >= vs 'over 50%' boundary mismatch and the DataTable sortable/null-ordering claim by reading DataTable.tsx's compareForSort directly -- both genuine but narrow/cosmetic, correctly non-blocking and already filed to frontend-trade-journal-followups.json (present and correctly mirrored in index.json). Accept holds."
+  }
+}

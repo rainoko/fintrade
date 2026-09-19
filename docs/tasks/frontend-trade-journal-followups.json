@@ -1,0 +1,28 @@
+{
+  "id": "frontend-trade-journal-followups",
+  "title": "Trade journal follow-ups from PR #150 review",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-trade-journal"],
+  "references": [
+    "docs/tasks/done/frontend-trade-journal.json",
+    "https://github.com/rainoko/fintrade/pull/150"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #150 (frontend-trade-journal), recorded here so they aren't lost once the PR merges and the review comment scrolls out of view.",
+  "checklist": [
+    {
+      "step": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx's GradeCell bolds a grade at exactly the threshold (`gradePct >= goodThresholdPct`), but both the grade's own MetricHelp copy ('Elder considers a sell/buy grade over 50% \"very good\"') and backend/app/api/schemas.py's docstring describe the buy/sell-grade cutoff as strictly '>50%', not '>=50%'. A grade of exactly 50.0% renders bold (visually 'good') while the popover text it sits next to says 'over 50%' -- a genuine off-by-boundary mismatch, narrow edge case but worth aligning (either use a strict `>` comparison for the two 50%-anchored grades, or reword the copy to '50% or more').",
+      "done": false
+    },
+    {
+      "step": "components/common/SignedCurrency/SignedCurrency.tsx duplicates the exact sign-to-color three-way ternary (success/error/secondary) and the leading '+' construction already implemented in common/PercentChange -- worth extracting a small shared helper (e.g. a `signColor(value)` utility) so a future change to the app's gain/loss color convention only needs updating in one place, and so a third signed-value component doesn't copy-paste a third time.",
+      "done": false
+    },
+    {
+      "step": "TradeJournalPanel.tsx marks buy_grade_pct/sell_grade_pct/trade_grade_pct as not sortable, with a comment claiming 'DataTable's generic comparator has no defined ordering for a nullable percentage' -- but DataTable.tsx's own compareForSort already defines null-sorts-last behavior for exactly this case (nulls always sort after real values, per its own docstring), mirroring the same (also outdated) rationale already on PositionsTable.tsx's current_price column. These grade columns' underlying values are plain nullable numbers, so they could be marked sortable like the table's other nullable numeric columns -- worth revisiting both this column and the pre-existing PositionsTable precedent it copied.",
+      "done": false
+    }
+  ],
+  "decisions": []
+}

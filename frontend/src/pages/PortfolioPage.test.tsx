@@ -43,6 +43,12 @@ describe('PortfolioPage', () => {
       expect(screen.getByRole('table', { name: 'Portfolio risk' })).toBeInTheDocument(),
     )
     expect(screen.getByText('Total Open Risk')).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Trade journal' })).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('heading', { name: 'Trade Journal' })).toBeInTheDocument()
+    expect(screen.getByText('ADSK')).toBeInTheDocument()
   })
 
   it('shows the empty state when the portfolio has no positions', async () => {

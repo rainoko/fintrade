@@ -1139,8 +1139,8 @@
       "id": "frontend-trade-journal",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-journal.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal.json"
     },
     {
       "id": "frontend-fundamental-data-panel",
@@ -1169,6 +1169,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-trade-history-table-followups.json"
+    },
+    {
+      "id": "frontend-trade-journal-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-journal-followups.json"
     }
   ]
 }

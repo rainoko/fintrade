@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
 import type {
+  ClosedTradesResponse,
   PortfolioResponse,
   PositionIn,
   PositionOut,
@@ -163,6 +164,48 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
       },
     ],
   }
+}
+
+// Hand-checked against docs/Analyse.md §7's own worked ADSK example (buy
+// grade 97%, sell grade 35%, trade grade 32% -- backend/tests/unit/
+// test_portfolio_grading.py verifies these exact formulas server-side; this
+// fixture just reuses the same numbers so a frontend test can assert on a
+// value it can cross-check against the doc directly). The second row
+// (`trade_null`) exercises API.md's documented null-grade case (entry date
+// predates the ticker's fetchable history / falls inside the Autoenvelope's
+// warm-up window) -- grading never fails the request, so the row itself
+// stays fully populated with only its three grade fields null.
+const closedTradesFixture: ClosedTradesResponse = {
+  items: [
+    {
+      id: 'trade_abc123',
+      ticker: 'ADSK',
+      quantity: 100,
+      entry_price: 51.77,
+      entry_date: '2026-03-02',
+      exit_price: 53.78,
+      exit_date: '2026-03-09',
+      realized_pnl: 201.0,
+      exit_reason: 'target_hit',
+      buy_grade_pct: 97.3,
+      sell_grade_pct: 35.5,
+      trade_grade_pct: 32.1,
+    },
+    {
+      id: 'trade_def456',
+      ticker: 'TSLA',
+      quantity: 5,
+      entry_price: 210.0,
+      entry_date: '2026-01-15',
+      exit_price: 195.0,
+      exit_date: '2026-01-22',
+      realized_pnl: -75.0,
+      exit_reason: 'stop_hit',
+      buy_grade_pct: null,
+      sell_grade_pct: null,
+      trade_grade_pct: null,
+    },
+  ],
 }
 
 const riskFixture: RiskResponse = {
@@ -331,6 +374,8 @@ export const handlers: HttpHandler[] = [
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
 
   http.get('/api/portfolio/risk', () => HttpResponse.json(riskFixture)),
+
+  http.get('/api/portfolio/closed-trades', () => HttpResponse.json(closedTradesFixture)),
 
   http.post('/api/portfolio/positions', async ({ request }) => {
     const body = (await request.json()) as PositionIn
