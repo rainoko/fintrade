@@ -73,5 +73,11 @@
       "decision": "No new common/ component and no new Storybook story: the legend row reuses the existing common/MetricHelp affordance (same pattern as every other PriceChart.tsx overlay legend), not a new reusable component.",
       "rationale": "Per Frontend.md's common/-vs-feature-specific placement test, a new common/ piece is only warranted when introducing new *reusable* UI, not a new usage of an existing one -- the swatches are plain inline Box/Typography, matching every other legend row on this exact chart."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-tide-region-chart-shading",
+    "pr_number": 169,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/169",
+    "pushed_at": "2026-09-19T22:43:07Z"
+  }
 }
