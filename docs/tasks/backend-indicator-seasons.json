@@ -3,7 +3,7 @@
   "title": "\"Indicator Seasons\" classification (Spring/Summer/Autumn/Winter) for MACD-Histogram",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/macd.py",
@@ -15,19 +15,45 @@
   "checklist": [
     {
       "step": "Implement the 4-way season classification as a small pure function on the existing macd_histogram series.",
-      "done": false
+      "done": true
     },
     {
       "step": "Unit tests covering all four season transitions.",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose as a new field on GET /api/stocks/{ticker}/analysis (and indicator-history, for a historical season timeline); regenerate openapi.json/frontend types.",
-      "done": false
+      "done": true
     },
     {
       "step": "Document in docs/Analyse.md, explicitly noting this is informational only and not wired into signal logic.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "classify_season(histogram) lives in a new app/signals/seasons.py module and is exposed as a new `season` key inside the existing `indicators` dict/schema (AnalysisResponse.indicators.season, IndicatorHistoryPoint.season) rather than as a new top-level response field or under `screens`.",
+      "rationale": "`season` is derived purely from the same macd_histogram series every other `indicators` entry (ema_13, macd_histogram, bull_power/bear_power, channel_upper/lower, rsi) is already keyed off of, and like rsi/channel bands it's computation+exposure-only, not a Screen/gate -- so it fits the existing `indicators` bucket's contract (informational, not read by _determine_signal/confidence) better than `screens` (which holds only the four Triple Screen/Impulse gate outputs `_determine_signal` actually reads) or a new top-level field (which every prior purely-informational addition -- rsi, channel_upper/lower -- avoided in favor of `indicators` already)."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Slope (rising/falling) reuses the same bar-over-bar \"rising iff latest > previous, exact tie counts as falling\" convention app.signals.impulse._direction already established, reimplemented locally in classify_season rather than importing the private `_direction` helper across modules.",
+      "rationale": "Elder's book doesn't define a tie-breaking rule for \"is the indicator rising or falling\" -- reusing the existing, already-rationale'd convention (a not-yet-advanced value hasn't demonstrated rising momentum) keeps every 'rising/falling' comparison in app/signals/ consistent rather than inventing a second, competing tie-break rule for the same kind of question. Reimplemented rather than imported: app.signals.confidence.score_elder_ray_confirmation already set this precedent (its own docstring explicitly says it \"reuses the same ... convention as app.signals.impulse._direction\" while reimplementing the comparison itself, rather than importing the underscore-prefixed helper across module boundaries) -- classify_season follows that same established pattern instead of introducing cross-module imports of a private function, which would also require exporting _direction as a public API it currently isn't."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Position relative to the centerline treats an exact histogram value of 0 as \"below\" the centerline, not \"above\" -- i.e. `above_centerline = latest > 0` (strict), so latest == 0 falls into Spring/Winter, never Summer/Autumn.",
+      "rationale": "Elder ch. 32 doesn't address the zero-exactly case explicitly (a near-impossible float value in practice, but the function needs a defined answer). Chose consistency with the existing sign-convention precedent in app.signals.triple_screen._is_force_index_spike, which treats `sign * latest <= 0` as \"wrong sign\" -- i.e. a reading of exactly zero is never treated as satisfying a directional (positive or negative) condition in this codebase's existing MACD/Force-Index-adjacent sign checks. The alternative (treating 0 as \"above\") was rejected only because it would introduce a second, inconsistent zero-handling rule alongside that existing precedent for no compensating benefit -- Elder's own text gives no reason to prefer one over the other at this exact boundary."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "classify_season returns None (mapped to a nullable `season` field) only when fewer than 2 histogram points are available (or either of the last two is NaN) -- not for any other 'thin data' condition.",
+      "rationale": "A slope needs at least two points to exist at all -- this is the minimum-possible warm-up (shorter than rsi's 9-day window or the Autoenvelope channel's ~100-bar window), so nullability follows the same established 'not enough history yet -> null, not a fabricated value' convention those two already use in the Indicators/IndicatorHistoryPoint schemas, just triggered by a much shorter and rarer condition (effectively only the very first daily bar of any real history)."
     }
   ]
 }

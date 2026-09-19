@@ -81,6 +81,7 @@ Use this as a hard **gate**: if Impulse is Red, do not emit a fresh Buy signal e
 | 9 | Support/Resistance Zones | Daily | fractal swing clustering (see below) | Horizontal congestion-zone detection, strength scoring, false-breakout signal |
 | 10 | RSI (Relative Strength Index) | Daily | 9-day, simple average | Closing-price-only oscillator, overbought/oversold timing (informational, alongside Stochastic) |
 | 11 | Divergence Detection (MACD-Histogram / Stochastic / RSI) | Daily | 20–40-bar swing spacing, ≤50% second-extreme depth (Kerry Lovvorn's empirical filters) | Momentum-vs-price divergence, one of Elder's strongest signal types |
+| 12 | Indicator Seasons (MACD-Histogram) | Daily | slope (rising/falling) × position vs. zero centerline | Four-way Spring/Summer/Autumn/Winter classification of trend maturity (informational only) |
 
 Optional/secondary (not required for MVP, note for future): Williams %R, SafeZone stops (volatility-based trailing stop using average of downside/upside penetrations), Directional System / ADX for trend strength.
 
@@ -111,6 +112,19 @@ Row 9 (Support/Resistance Zones), Elder ch. 18: a horizontal congestion zone is 
 5. **False breakout**: if price *does* close back inside the zone within that same window, it's flagged as a false breakout instead of a confirmed break — role does not flip. `extreme_price` records the failed move's own extreme (its highest high, or lowest low) — Elder's explicit stop-placement reference: a stop belongs near that extreme, not further out.
 
 Exposed on `GET /api/stocks/{ticker}/analysis` as `support_resistance_zones` (up to the 15 strongest zones by `strength_score`) — see `docs/architecture/API.md`. **Detection + scoring + false-breakout flagging + API exposure only**: zones are not (yet) wired into Screen 1/2/3, the Impulse gate, confidence scoring, or §7's `protective_stop()` formula — using a known zone to tighten that stop near support/resistance is an explicit, natural follow-up this task intentionally left unimplemented (see `decisions`). Drawn on the price chart as of `frontend-support-resistance-overlay`: a shaded horizontal band per zone (fill opacity weighted by `strength_score`, a dashed border for a zone whose role has flipped), plus a distinct marker and a dashed stop-price line at `extreme_price` for a zone's most recent false breakout — see `docs/architecture/Frontend.md` §5.
+
+Row 12 (Indicator Seasons), Elder ch. 32 "Time" (pp. 122-124): a four-way classification of an oscillator's state, combining its bar-over-bar **slope** (rising/falling) with its **position relative to its own centerline** — stated generally in the book ("we can apply the concept of seasons to most indicators and timeframes"), applied here to the daily MACD-Histogram specifically, since its slope and centerline are already computed for the Impulse gate/`indicators.macd_histogram`:
+
+| Slope | vs. centerline | Season | Elder's stated read |
+|---|---|---|---|
+| Rising | Below | Spring | Best time to go long |
+| Rising | Above | Summer | Crowd-recognized uptrend; take profits on longs into strength |
+| Falling | Above | Autumn | Best time to go short |
+| Falling | Below | Winter | Crowd-recognized downtrend; cover shorts into weakness |
+
+The book's own insight: Spring and Autumn — the *early*, still-just-crossed-the-centerline states — are explicitly called the best entries, precisely because they're emotionally the hardest to act on ("memories of the downtrend are still fresh" in Spring, so few traders buy even though it's the best risk/reward entry). Implementation (`app.signals.seasons.classify_season`): slope reuses the same bar-over-bar "rising iff latest > previous, tie counts as falling" convention as `app.signals.impulse._direction`; centerline position treats an exact zero as "below," not "above" (mirroring `app.signals.triple_screen`'s existing `sign * latest <= 0` treatment of zero as not-positive). Null only when fewer than 2 daily bars are available to compute a slope from.
+
+Exposed as `season` on `GET /api/stocks/{ticker}/analysis`'s `indicators` and on each point of `GET /api/stocks/{ticker}/indicators` (a historical Spring/Summer/Autumn/Winter timeline) — see `docs/architecture/API.md`. **Purely informational**: this is a label layered on top of the already-computed MACD-Histogram series, not a new signal input — it is *not* read by `_determine_signal`, the Impulse gate, or confidence scoring, and gives a more granular 4-state read than the existing 3-state Impulse (Green/Red/Blue) or 3-state Tide (Bullish/Bearish/Neutral) without changing either.
 
 ---
 

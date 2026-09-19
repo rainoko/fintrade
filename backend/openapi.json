@@ -44,7 +44,7 @@
           },
           "indicators": {
             "$ref": "#/components/schemas/Indicators",
-            "description": "Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators."
+            "description": "Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators."
           },
           "screens": {
             "$ref": "#/components/schemas/Screens"
@@ -577,6 +577,24 @@
             "description": "Same definition as AnalysisResponse.indicators.rsi, for this bar. Null for a bar still inside the indicator's 9-day warm-up window -- same warm-up-only caveat as stochastic_k/force_index_2ema above, though with a shorter (9-bar) window than either.",
             "title": "Rsi"
           },
+          "season": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Spring",
+                  "Summer",
+                  "Autumn",
+                  "Winter"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same definition as AnalysisResponse.indicators.season, for this bar -- a historical Spring/Summer/Autumn/Winter timeline. Null only for the very first bar (fewer than 2 daily bars available up to and including it) -- a much shorter warm-up than stochastic_k/channel_upper/channel_lower/rsi above.",
+            "title": "Season"
+          },
           "signal": {
             "description": "BUY/SELL/HOLD as of this bar (docs/Analyse.md \u00a75), computed from only this bar's own history -- never look-ahead from a later bar.",
             "enum": [
@@ -695,6 +713,24 @@
             ],
             "description": "Relative Strength Index (docs/Analyse.md \u00a74, Elder ch. 27) -- `100 - 100 / (1 + RS)`, RS = average net up-close / average net down-close over a 9-day window (simple/arithmetic rolling average, not Wilder's smoothed variant -- see `app.indicators.rsi.rsi`). Closing-price-only, unlike `stochastic_k` (which also reads high/low) -- Elder's own selling point for it: less noisy, signals tend to emerge earlier. Computation + exposure only; not currently wired into `screens`/`confidence_breakdown` (see the backend-indicator-rsi task). Null for the first 9 trading days of a ticker's history (needs 9 daily closing changes) -- a much shorter warm-up than `channel_upper`/`channel_lower`.",
             "title": "Rsi"
+          },
+          "season": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Spring",
+                  "Summer",
+                  "Autumn",
+                  "Winter"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'Indicator Seasons' (docs/Analyse.md, Elder ch. 32) -- a four-way classification of `macd_histogram`'s bar-over-bar slope combined with its position relative to its own zero centerline: Spring (rising, below -- best time to go long), Summer (rising, above -- crowd-recognized uptrend, take profits on longs into strength), Autumn (falling, above -- best time to go short), Winter (falling, below -- crowd-recognized downtrend, cover shorts into weakness). Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-seasons task). Null only when there are fewer than 2 daily bars available to compute a slope from.",
+            "title": "Season"
           }
         },
         "required": [

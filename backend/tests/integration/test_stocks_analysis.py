@@ -263,6 +263,7 @@ class TestGetAnalysis:
             "channel_upper",
             "channel_lower",
             "rsi",
+            "season",
         }
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's ~100-bar
         # deviation-average warm-up window, so both bands are still null here -- see
@@ -273,6 +274,9 @@ class TestGetAnalysis:
         # already populated on this same 26-bar fixture.
         assert body["indicators"]["rsi"] is not None
         assert 0 <= body["indicators"]["rsi"] <= 100
+        # This fixture (26 bars) is far more than the 2-bar minimum classify_season needs,
+        # so season is always a real label here -- never null.
+        assert body["indicators"]["season"] in ("Spring", "Summer", "Autumn", "Winter")
         # This fixture (26 bars) is also far too short to produce any support/resistance
         # zone (min_zone_length_days=14 plus the fractal/clustering machinery needs real
         # repeated touches) -- see TestSupportResistanceZones below for the populated case.
@@ -323,6 +327,12 @@ class TestGetAnalysis:
             # test targets) -- `clean_daily` alone is far shorter than that window.
             if field in ("channel_upper", "channel_lower"):
                 assert value is None
+                continue
+            # season is a Spring/Summer/Autumn/Winter label, not a number -- checked
+            # separately (it's still real/non-null here, `clean_daily` is far longer than
+            # its 2-bar minimum).
+            if field == "season":
+                assert value in ("Spring", "Summer", "Autumn", "Winter")
                 continue
             assert isinstance(value, (int, float)), f"indicators.{field} was {value!r}, not a number"
         assert body["screens"]["wave"]["stochastic_k"] is not None

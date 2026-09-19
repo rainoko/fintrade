@@ -578,8 +578,14 @@ class TestAnalyseCombinations:
             "channel_upper",
             "channel_lower",
             "rsi",
+            "season",
         }
-        assert all(isinstance(v, float) for v in result.indicators.values())
+        # `season` is a Spring/Summer/Autumn/Winter label (or None), not a float like every
+        # other indicators entry -- checked separately below.
+        assert all(
+            isinstance(v, float) for k, v in result.indicators.items() if k != "season"
+        )
+        assert result.indicators["season"] in ("Spring", "Summer", "Autumn", "Winter", None)
 
     def test_channel_upper_and_lower_passthrough_are_independent(self) -> None:
         """channel_upper/channel_lower, like every other precomputed-series parameter

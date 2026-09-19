@@ -17,6 +17,7 @@ ConfidenceBand = Literal["Low", "Medium", "High"]
 Interval = Literal["daily", "weekly"]
 Trend = Literal["BULLISH", "BEARISH", "NEUTRAL"]
 Impulse = Literal["GREEN", "RED", "BLUE"]
+Season = Literal["Spring", "Summer", "Autumn", "Winter"]
 
 
 # --- /api/stocks/{ticker}/history ---------------------------------------
@@ -108,6 +109,18 @@ class Indicators(BaseModel):
         "first 9 trading days of a ticker's history (needs 9 daily closing changes) -- a much "
         "shorter warm-up than `channel_upper`/`channel_lower`.",
     )
+    season: Season | None = Field(
+        default=None,
+        description="'Indicator Seasons' (docs/Analyse.md, Elder ch. 32) -- a four-way "
+        "classification of `macd_histogram`'s bar-over-bar slope combined with its position "
+        "relative to its own zero centerline: Spring (rising, below -- best time to go long), "
+        "Summer (rising, above -- crowd-recognized uptrend, take profits on longs into "
+        "strength), Autumn (falling, above -- best time to go short), Winter (falling, below "
+        "-- crowd-recognized downtrend, cover shorts into weakness). Purely informational -- "
+        "not wired into `screens`/`confidence_breakdown` (see the backend-indicator-seasons "
+        "task). Null only when there are fewer than 2 daily bars available to compute a "
+        "slope from.",
+    )
 
 
 class FalseBreakoutOut(BaseModel):
@@ -158,7 +171,7 @@ class AnalysisResponse(BaseModel):
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70.")
     screens: Screens
     confidence_breakdown: list[ConfidenceBreakdownItem] = Field(description="Per-component scores behind `confidence`, so the signal is auditable rather than a bare number.")
-    indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 8 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
+    indicators: Indicators = Field(description="Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators.")
     support_resistance_zones: list[SupportResistanceZone] = Field(description="Horizontal support/resistance zones detected from swing-point clustering over the ticker's full available daily history (docs/ideas.md, Elder ch. 18) -- up to the 15 strongest by strength_score, descending. Not currently wired into signal/confidence computation or protective_stop -- informational context only (see the backend-support-resistance task's decisions for why tightening protective_stop near a zone is an explicit, separate follow-up).")
     divergence: DivergenceOut | None = Field(description="The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions).")
 
@@ -178,6 +191,7 @@ class IndicatorHistoryPoint(BaseModel):
     channel_upper: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_upper, for this bar. Null for a bar still inside the Autoenvelope deviation-average's ~100-bar warm-up window -- a far longer warm-up than stochastic_k/force_index_2ema above, so this is null across a much larger leading span of a long `range` (e.g. `range=max`) than either of those.")
     channel_lower: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.channel_lower, for this bar. Null under the same condition as channel_upper.")
     rsi: float | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.rsi, for this bar. Null for a bar still inside the indicator's 9-day warm-up window -- same warm-up-only caveat as stochastic_k/force_index_2ema above, though with a shorter (9-bar) window than either.")
+    season: Season | None = Field(default=None, description="Same definition as AnalysisResponse.indicators.season, for this bar -- a historical Spring/Summer/Autumn/Winter timeline. Null only for the very first bar (fewer than 2 daily bars available up to and including it) -- a much shorter warm-up than stochastic_k/channel_upper/channel_lower/rsi above.")
     signal: Signal = Field(description="BUY/SELL/HOLD as of this bar (docs/Analyse.md §5), computed from only this bar's own history -- never look-ahead from a later bar.")
     confidence: int = Field(description="Same 0-100 weighted composite score as AnalysisResponse.confidence, for this bar's signal. 0 whenever signal is HOLD, same convention as GET /api/stocks/{ticker}/analysis.")
     confidence_band: ConfidenceBand = Field(description="Low <40, Medium 40-70, High >70, for this bar's confidence.")

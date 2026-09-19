@@ -30,6 +30,7 @@ from app.signals.divergence import (
     current_divergence,
 )
 from app.signals.impulse import evaluate_impulse
+from app.signals.seasons import classify_season
 from app.signals.triple_screen import evaluate_tide, evaluate_trigger, evaluate_wave
 
 # Sentinel default for `analyse()`'s `divergence` parameter -- distinct from `None`, which is
@@ -368,6 +369,13 @@ def analyse(
     or confidence scoring; wiring it in is explicitly out of scope for the task that added it
     (docs/tasks/backend-indicator-rsi.json).
 
+    ``indicators["season"]`` is ``app.signals.seasons.classify_season(histogram)`` -- Elder ch.
+    32's four-way Spring/Summer/Autumn/Winter classification of MACD-Histogram's slope +
+    centerline position (docs/Analyse.md, docs/ideas.md). Purely informational, derived from
+    ``histogram`` (the same series ``indicators["macd_histogram"]`` reports), not a new input:
+    not read by ``_determine_signal``, the Impulse gate, or confidence scoring -- see
+    docs/tasks/backend-indicator-seasons.json's own scope.
+
     ``divergence``, if given (a ``Divergence`` or ``None``, distinct from the sentinel default
     that means "not supplied" -- see ``_DIVERGENCE_NOT_GIVEN``), is used as-is instead of being
     computed here -- letting ``analyse_history`` supply its own per-bar, look-ahead-free result
@@ -454,6 +462,7 @@ def analyse(
         "channel_upper": _latest(channel_upper),
         "channel_lower": _latest(channel_lower),
         "rsi": _latest(rsi),
+        "season": classify_season(histogram),
     }
     screens = {
         "tide": {
