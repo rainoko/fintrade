@@ -1,0 +1,25 @@
+{
+  "id": "frontend-support-resistance-overlay-followups",
+  "title": "Non-blocking follow-up from PR #152 review (frontend-support-resistance-overlay)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-support-resistance-overlay"],
+  "references": [
+    "docs/tasks/frontend-support-resistance-overlay.json",
+    "https://github.com/rainoko/fintrade/pull/152"
+  ],
+  "description": "Tracked non-blocking finding from pr-reviewer's review of PR #152 (frontend-support-resistance-overlay), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. Distinct from the PR's own blocking findings (the zone-band price-scale autoscale distortion, and the single-visible-bar setData crash risk), which stay on frontend-support-resistance-overlay itself and must be fixed before that PR can be accepted.",
+  "checklist": [
+    {
+      "step": "RESOLVED IN PART by PR #152's retry-round-2 fix (commit 805a3d9, see the parent task's review.comments): supportResistanceZoneHelp/falseBreakoutHelp's interpretValue calls and the legend's visibility gate now consume the same price-relevance-filtered + MAX_DISPLAYED_ZONES=6-capped `displayedZones` (`selectDisplayedZones`) the chart-drawing effect uses, closing the 'nearest zone'/'Showing N of M' mismatch that was blocking on retry rounds 1 and 2 -- independently re-verified live (AAPL/MSFT/AMD/BA/DIS/OKTA, all range/interval combinations, no divergence found; no useMemo anywhere in PriceChart.tsx, so the two computations can't drift by construction). STILL OPEN: falseBreakoutHelp.interpretValue's 'Most recent' reading is filtered by `displayedZones` but is NOT further windowed by the currently-visible date range the way buildFalseBreakoutMarkers' marker and the dashed 'False-breakout stop' price line both are (PriceChart.tsx's `firstDate`/`lastDate` windowing) -- so it can still describe a specific breakout (exact dates + stop price) whose marker/price-line isn't actually rendered in the current range view, even though the zone it belongs to genuinely is. Reproduced live in the retry-round-2 re-review: OKTA at 1M/3M/6M (reentry 2026-01-28, outside those windows) and DIS at 1M/3M (reentry 2026-01-21) show identical false-breakout legend text whether or not the marker/price-line is actually on screen -- confirmed via screenshot that the 1Y/Max views show both while the shorter ranges show neither, with no change in legend text. Judged non-blocking (the retry-round-2 review's own reasoning: the zone itself is genuinely drawn, the fact described is real, and the zone band's own established behavior is likewise range-independent, so there's a legitimate design-tradeoff reading, not a clear-cut bug). Fix direction if picked up: either window falseBreakoutHelp.interpretValue's search to breakouts whose reentry_date falls within the current `firstDate`/`lastDate` (matching the marker/price-line exactly, at the cost of the legend sometimes saying 'no false breakouts in the current view' even though the zone has one outside it), or explicitly caveat the text when the described episode isn't in the current view (e.g. 'not shown at the current range') -- a decision worth recording explicitly given the zone-band precedent argues for leaving it as-is.",
+      "done": false
+    },
+    {
+      "step": "The 50%-price-ratio relevance window (isZoneRelevant/ZONE_RELEVANCE_PRICE_RATIO, PriceChart.tsx, added in PR #152 retry-round-1 commit 4f1a1f4) is anchored only to the latest visible close, not to the currently-visible bars' own price span. pr-reviewer's retry-round-1 re-review stress-tested this with a synthetic zone ~40% above the latest close (inside the 50% window, so treated as relevant) against a 1-month preset range: the y-axis stretched to squash the actual candlestick/EMA/channel content into roughly the same fraction of the pane (~11%) as the original reported autoscale-distortion bug -- the same zone against a 1-year view was fine (more natural price spread to absorb it). Real zones are strength-scored independent of price distance, so a strong zone 30-45% from today's price is plausible for some ticker/time even though none of AAPL/NVDA/MSFT/AMD's currently-cached data hit this band during that review. Not blocking (bounded distortion, ~2.25x worst case, and a real tradeoff already reasoned through in that PR's decisions entry) but worth reconsidering: an approach that also accounts for the actually-visible bars' own high/low range (e.g. intersecting the ratio window with a multiple of the visible span), not a fixed ratio off the latest close alone.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

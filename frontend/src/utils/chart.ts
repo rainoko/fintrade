@@ -1,4 +1,9 @@
-import { createChart, type IChartApi } from 'lightweight-charts'
+import {
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type SeriesType,
+} from 'lightweight-charts'
 
 /**
  * Shared base `createChart` options for every Lightweight Charts instance
@@ -48,4 +53,42 @@ export function createBaseChart(container: HTMLElement): IChartApi {
  */
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * Moves `series` to the very end of its pane's render-order stack -- i.e.
+ * always paints last (on top of every other series currently in that pane)
+ * -- rather than a hardcoded numeric `setSeriesOrder` index.
+ *
+ * `PriceChart.tsx` keeps its candlestick series pinned above every
+ * translucent/opaque fill series it draws on the same pane (the value-zone
+ * `AreaSeries` fill/mask pair, frontend-channel-overlay; the support/
+ * resistance zone `BaselineSeries` bands, frontend-support-resistance-
+ * overlay) so a candle wick/body dipping into a shaded band is never
+ * painted over -- Lightweight Charts otherwise draws a later-added series
+ * above an earlier one on the same pane, which is exactly the bug PR #151
+ * fixed (an opaque value-zone mask series painting over candlesticks below
+ * it).
+ *
+ * A fixed literal index (that original fix's `series.setSeriesOrder(2)`)
+ * only stays correct as long as exactly one effect ever adds fill series to
+ * the pane. Once a second, independently re-running effect (the support/
+ * resistance zone bands) also adds its own fill series to the same pane,
+ * whichever effect happens to run last would overwrite the other's
+ * hardcoded index with a now-stale absolute position, silently
+ * reintroducing the same occlusion bug for whichever fill series the
+ * *other* effect added. Recomputing "how many series are in this pane right
+ * now" via `chart.panes()[paneIndex].getSeries().length` at the moment each
+ * effect finishes adding its own series, instead, is self-healing
+ * regardless of add/run order between them: whichever effect runs last
+ * always ends by moving the candlestick series past everything currently in
+ * the pane, including series the other effect added.
+ */
+export function bringSeriesToFront(
+  chart: IChartApi,
+  series: ISeriesApi<SeriesType>,
+  paneIndex = 0,
+): void {
+  const paneSeriesCount = chart.panes()[paneIndex].getSeries().length
+  series.setSeriesOrder(paneSeriesCount - 1)
 }

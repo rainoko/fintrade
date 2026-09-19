@@ -2,7 +2,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HistoryResponse, IndicatorHistoryResponse } from '../../../api/stocks'
+import type {
+  AnalysisResponse,
+  HistoryResponse,
+  IndicatorHistoryResponse,
+  SupportResistanceZone,
+} from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
 import {
   createTestQueryClient,
@@ -30,20 +35,43 @@ import PriceChart from './PriceChart'
 // `chart.removeSeries(...)` on a chart the candlestick effect's cleanup had
 // already disposed). A plain shared mock object that never throws wouldn't
 // have caught that bug; this one does.
+//
+// Each chart instance also tracks its own pane's series list (`paneSeries`)
+// so `panes()[0].getSeries().length` reflects the real running count as
+// `addSeries`/`removeSeries` are called — `bringSeriesToFront`
+// (utils/chart.ts) reads this to compute the index it passes to the shared
+// `setSeriesOrderMock` spy below, the same dynamic mechanism the real
+// Lightweight Charts library's pane API provides (see this task's,
+// frontend-support-resistance-overlay's, `decisions` entry for why a
+// hardcoded index broke once a second effect started adding its own fill
+// series to the same pane).
 const setDataMock = vi.fn()
 const removeMock = vi.fn()
 const removeSeriesMock = vi.fn()
 const fitContentMock = vi.fn()
-// `setSeriesOrder` (frontend-channel-overlay, post-review fix) is called
-// only on the candlestick series, to reorder it above the value-zone
-// fill/mask series it's mixed in with on the same pane — see
-// PriceChart.tsx's own doc comment at the call site for why. Every mock
-// series returned by `addSeriesMock` gets one (matching the real
-// `ISeriesApi`, where every series type has it), tracked through this one
-// shared spy since the component only ever calls it on the single
-// candlestick series it holds a ref to.
+const createPriceLineMock = vi.fn(() => ({ id: 'price-line' }))
+const removePriceLineMock = vi.fn()
+// `setSeriesOrder` (frontend-channel-overlay, post-review fix; made
+// dynamic by frontend-support-resistance-overlay via `bringSeriesToFront`)
+// is called only on the candlestick series, to reorder it above every
+// fill series it's mixed in with on the same pane — see PriceChart.tsx's
+// own doc comment at the call site for why. Every mock series returned by
+// `addSeriesMock` gets one (matching the real `ISeriesApi`, where every
+// series type has it), tracked through this one shared spy since the
+// component only ever calls it on the single candlestick series it holds a
+// ref to.
 const setSeriesOrderMock = vi.fn()
-const addSeriesMock = vi.fn(() => ({ setData: setDataMock, setSeriesOrder: setSeriesOrderMock }))
+// Typed to accept a variable number of args (`chart.addSeries(definition,
+// options)` in the real library) purely so `addSeriesMock.mock.calls` below
+// can be spread/destructured for assertions — this mock's own return value
+// never depends on which args it was called with.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const addSeriesMock = vi.fn((..._args: unknown[]) => ({
+  setData: setDataMock,
+  setSeriesOrder: setSeriesOrderMock,
+  createPriceLine: createPriceLineMock,
+  removePriceLine: removePriceLineMock,
+}))
 const setMarkersMock = vi.fn()
 const detachMarkersMock = vi.fn()
 const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
@@ -52,14 +80,24 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
 })
 const createChartMock = vi.fn(() => {
   let disposed = false
+  const paneSeries: unknown[] = []
   return {
-    addSeries: addSeriesMock,
+    addSeries: (...args: unknown[]) => {
+      const created = addSeriesMock(...args)
+      paneSeries.push(created)
+      return created
+    },
     removeSeries: (series: unknown) => {
       removeSeriesMock(series)
       if (disposed) {
         throw new Error('Value is undefined')
       }
+      const index = paneSeries.indexOf(series)
+      if (index !== -1) {
+        paneSeries.splice(index, 1)
+      }
     },
+    panes: () => [{ getSeries: () => [...paneSeries] }],
     timeScale: () => ({ fitContent: fitContentMock }),
     remove: () => {
       removeMock()
@@ -76,8 +114,10 @@ vi.mock('lightweight-charts', () => ({
   LineSeries: 'LineSeries-definition',
   // Value-zone shading (frontend-channel-overlay) uses two `AreaSeries`;
   // channel bands use `LineStyle.Dashed` on top of the existing
-  // `LineSeries-definition`.
+  // `LineSeries-definition`. Support/resistance zone bands
+  // (frontend-support-resistance-overlay) use `BaselineSeries`.
   AreaSeries: 'AreaSeries-definition',
+  BaselineSeries: 'BaselineSeries-definition',
   LineStyle: { Solid: 0, Dotted: 1, Dashed: 2 },
 }))
 
@@ -89,6 +129,74 @@ function mockIndicators(response: IndicatorHistoryResponse) {
   server.use(
     http.get('/api/stocks/:ticker/indicators', () => HttpResponse.json(response)),
   )
+}
+
+// A minimal-but-complete `AnalysisResponse` for support/resistance-zone
+// tests below -- only `support_resistance_zones` itself varies per test
+// (via `mockAnalysis`'s `zones` param); every other field is filled with a
+// plausible, unexercised value so the fixture satisfies the full generated
+// type. Overrides the default MSW handler's own `analysisFixture`
+// (tests/mocks/handlers.ts), which already includes one zone with no false
+// breakout -- most tests below need full control over `broken`/
+// `false_breakout`/`strength_score`/`role` instead.
+const baseAnalysis: AnalysisResponse = {
+  ticker: 'AAPL',
+  as_of: '2026-09-02',
+  signal: 'HOLD',
+  confidence: 50,
+  confidence_band: 'Medium',
+  screens: {
+    tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+    impulse: 'BLUE',
+    wave: {
+      stochastic_k: 50,
+      force_index_2ema: 0,
+      state: 'NONE',
+      showed_pullback_in_lookback: false,
+      showed_rally_in_lookback: false,
+    },
+    trigger: { fired: false, reference: 'not_applicable' },
+  },
+  confidence_breakdown: [],
+  indicators: {
+    ema_13: 226.4,
+    ema_26: 221.7,
+    macd_histogram: 1.82,
+    bull_power: 3.1,
+    bear_power: -1.4,
+  },
+  support_resistance_zones: [],
+}
+
+function mockAnalysis(zones: SupportResistanceZone[]) {
+  server.use(
+    http.get('/api/stocks/:ticker/analysis', () =>
+      HttpResponse.json({ ...baseAnalysis, support_resistance_zones: zones }),
+    ),
+  )
+}
+
+function buildZone(
+  overrides: Partial<SupportResistanceZone> = {},
+): SupportResistanceZone {
+  return {
+    role: 'resistance',
+    upper: 236.9,
+    lower: 233.4,
+    first_touch_date: '2026-06-02',
+    last_touch_date: '2026-08-14',
+    touch_count: 3,
+    length_days: 73,
+    length_category: 'intermediate',
+    height_pct: 1.5,
+    height_category: 'minor',
+    dollar_volume: 12_400_000_000,
+    strength_score: 50,
+    broken: false,
+    break_date: null,
+    false_breakout: null,
+    ...overrides,
+  }
 }
 
 const indicatorPoints: IndicatorHistoryResponse = {
@@ -178,6 +286,8 @@ describe('PriceChart', () => {
     setMarkersMock.mockClear()
     detachMarkersMock.mockClear()
     createSeriesMarkersMock.mockClear()
+    createPriceLineMock.mockClear()
+    removePriceLineMock.mockClear()
     mockIndicators(indicatorPoints)
   })
 
@@ -402,10 +512,12 @@ describe('PriceChart', () => {
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
       // Candlestick + (value-zone top/bottom AreaSeries) + EMA13 + EMA26 +
-      // (channel upper/lower LineSeries) = 7 addSeries calls once the
-      // overlay resolves; each fed its own values straight from the
-      // backend response — no client-side indicator math.
-      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      // (channel upper/lower LineSeries) + (1 support/resistance zone
+      // BaselineSeries, from the default MSW /analysis fixture's single
+      // zone) = 8 addSeries calls once both overlays resolve; each fed its
+      // own values straight from the backend response — no client-side
+      // indicator math.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
       expect(setDataMock).toHaveBeenCalledWith([
         { time: '2026-09-01', value: 225.1 },
         { time: '2026-09-02', value: 226.4 },
@@ -645,7 +757,10 @@ describe('PriceChart', () => {
       // AreaSeries, EMA13/EMA26, and channel upper/lower LineSeries -- 6
       // series total, same set `addSeriesMock`'s 7-per-overlay count above
       // includes (minus the one candlestick series, which isn't touched by
-      // this cleanup at all).
+      // this cleanup at all). The support/resistance zone BaselineSeries
+      // from the default /analysis fixture is untouched by this refetch
+      // too -- its own effect depends on `analysisQuery.data`, not
+      // `indicatorsQuery.data`, so it never re-runs/cleans up here.
       expect(removeSeriesMock).toHaveBeenCalledTimes(6)
       expect(detachMarkersMock).toHaveBeenCalledTimes(1)
     })
@@ -743,7 +858,9 @@ describe('PriceChart', () => {
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
-      await user.click(screen.getByRole('button', { name: 'Channel (Autoenvelope) help' }))
+      await user.click(
+        screen.getByRole('button', { name: 'Channel (Autoenvelope) help' }),
+      )
 
       // Latest indicator point (09-02): channel_upper 233.3, channel_lower
       // 219.5. Latest close (from twoBars, 09-02): 229.7 -- inside the band.
@@ -752,7 +869,7 @@ describe('PriceChart', () => {
       expect(screen.getByText(/inside the channel/)).toBeInTheDocument()
     })
 
-    it("opens the Value Zone MetricHelp balloon with the current EMA13-EMA26 bounds", async () => {
+    it('opens the Value Zone MetricHelp balloon with the current EMA13-EMA26 bounds', async () => {
       mockHistory(twoBars)
       const user = userEvent.setup()
 
@@ -760,29 +877,51 @@ describe('PriceChart', () => {
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
 
-      await user.click(screen.getByRole('button', { name: 'Value Zone (EMA 13-26) help' }))
+      await user.click(
+        screen.getByRole('button', { name: 'Value Zone (EMA 13-26) help' }),
+      )
 
       // Latest indicator point (09-02): ema_13 226.4, ema_26 221.7.
       expect(screen.getByText(/221\.70-226\.40/)).toBeInTheDocument()
     })
 
-    it('reorders the candlestick series above the value-zone fill/mask series so neither ever occludes a candle (PR #151 regression)', async () => {
+    it('reorders the candlestick series above every fill series (value-zone mask + support/resistance zone bands) so neither ever occludes a candle (PR #151 regression, extended by frontend-support-resistance-overlay)', async () => {
       // Regression test for the blocking pr-reviewer finding on PR #151:
       // Lightweight Charts draws later-added series above earlier ones on
       // the same pane, and the two value-zone `AreaSeries` (one an opaque
       // `theme.palette.background.paper` mask) used to be added *after* the
       // candlestick series, painting over any candle that dipped below the
-      // zone. The fix calls `series.setSeriesOrder(2)` on the candlestick
-      // series once both zone series exist, so it always renders on top of
-      // them regardless of add order.
+      // zone. The original fix called a hardcoded `series.setSeriesOrder(2)`
+      // once both zone series existed -- frontend-support-resistance-overlay
+      // replaced that with `bringSeriesToFront` (utils/chart.ts), a dynamic
+      // "move to the end of this pane's series list" call, since a second
+      // effect (support/resistance zone bands, below) now also adds its own
+      // fill series to the same pane: a hardcoded index from one effect
+      // would go stale the moment the *other* effect's own fill-adding
+      // logic changes how many series exist in the pane by the time it
+      // runs. Both effects end by calling `bringSeriesToFront`, so whichever
+      // runs last always leaves the candlestick series painting on top of
+      // everything -- this asserts against the dynamically-computed final
+      // series count (not a hardcoded literal), which is what actually
+      // exercises that self-healing behavior rather than just re-asserting
+      // the original fix's own specific number.
       mockHistory(twoBars)
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+      // The default /analysis MSW fixture's one support/resistance zone
+      // adds an 8th series (see the "overlays EMA13/EMA26..." test above);
+      // wait for it so both fill-adding effects have finished reordering.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
 
-      expect(setSeriesOrderMock).toHaveBeenCalledTimes(1)
-      expect(setSeriesOrderMock).toHaveBeenCalledWith(2)
+      expect(setSeriesOrderMock).toHaveBeenCalledTimes(2)
+      // Value-zone effect's own reorder call: candlestick(1) + the two
+      // value-zone AreaSeries(2) = 3 series in the pane at that point, so
+      // index 2 (0-based, last).
+      expect(setSeriesOrderMock).toHaveBeenNthCalledWith(1, 2)
+      // Zones effect's own reorder call, run after all 8 series exist.
+      expect(setSeriesOrderMock).toHaveBeenNthCalledWith(2, 7)
     })
 
     it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {
@@ -798,6 +937,509 @@ describe('PriceChart', () => {
       )
       expect(screen.queryByText('Channel (Autoenvelope)')).not.toBeInTheDocument()
       expect(screen.queryByText('Value Zone (EMA 13-26)')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('support/resistance zones (frontend-support-resistance-overlay)', () => {
+    it('draws a BaselineSeries band per zone spanning the full visible bar range, colored by role and bounded by [lower, upper]', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 236.9, lower: 233.4, strength_score: 80 }),
+        buildZone({ role: 'support', upper: 225.0, lower: 222.0, strength_score: 20 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+
+      // Each zone's BaselineSeries plots a flat line at `upper`, spanning
+      // the first and last visible bar (not the zone's own
+      // first_touch_date/last_touch_date) -- a support/resistance level is
+      // a live reference price today, not scoped to when it was touched.
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 236.9 },
+        { time: '2026-09-02', value: 236.9 },
+      ])
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 225.0 },
+        { time: '2026-09-02', value: 225.0 },
+      ])
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      expect(baselineCalls).toHaveLength(2)
+      const [resistanceOptions, supportOptions] = baselineCalls.map(
+        ([, options]) => options,
+      ) as [
+        { baseValue: { price: number }; title: string },
+        { baseValue: { price: number }; title: string },
+      ]
+      expect(resistanceOptions.baseValue).toEqual({ type: 'price', price: 233.4 })
+      expect(resistanceOptions.title).toBe('Resistance zone')
+      expect(supportOptions.baseValue).toEqual({ type: 'price', price: 222.0 })
+      expect(supportOptions.title).toBe('Support zone')
+    })
+
+    it("shades a zone's fill more strongly the higher its strength_score", async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ strength_score: 0 }),
+        buildZone({ strength_score: 100, upper: 210.0, lower: 205.0 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      const [weakOptions, strongOptions] = baselineCalls.map(
+        ([, options]) => options as { topFillColor1: string },
+      )
+      // Both share the same base color (role never changed between the two
+      // zones here), but the alpha (opacity) suffix must differ -- a
+      // strength_score of 100 reads as more visually prominent than 0.
+      expect(weakOptions.topFillColor1).not.toBe(strongOptions.topFillColor1)
+      expect(weakOptions.topFillColor1.slice(0, 7)).toBe(
+        strongOptions.topFillColor1.slice(0, 7),
+      )
+    })
+
+    it('draws a broken (role-flipped) zone dashed, distinct from an unbroken zone drawn solid', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ broken: false, upper: 236.9, lower: 233.4 }),
+        buildZone({ broken: true, upper: 210.0, lower: 205.0, break_date: '2026-08-01' }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(9))
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      const [unbrokenOptions, brokenOptions] = baselineCalls.map(
+        ([, options]) => options as { lineStyle: number },
+      )
+      expect(unbrokenOptions.lineStyle).toBe(0) // LineStyle.Solid
+      expect(brokenOptions.lineStyle).toBe(2) // LineStyle.Dashed
+    })
+
+    it('caps rendered zones at the strongest 6, even when more are returned', async () => {
+      mockHistory(twoBars)
+      mockAnalysis(
+        Array.from({ length: 9 }, (_, index) =>
+          buildZone({
+            upper: 200 + index,
+            lower: 195 + index,
+            strength_score: 90 - index,
+          }),
+        ),
+      )
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) + 6
+      // (capped) zone bands = 13.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(13))
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      expect(baselineCalls).toHaveLength(6)
+    })
+
+    it('marks a false breakout distinctly and places a dashed stop price line at its extreme_price', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          role: 'resistance',
+          false_breakout: {
+            direction: 'up',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 238.5,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(2))
+
+      // Call 0 is the BUY/SELL signal-overlay markers plugin (see the
+      // "signal overlay" describe block above); call 1 is this zone's own
+      // false-breakout marker.
+      const [, falseBreakoutMarkers] = createSeriesMarkersMock.mock.calls[1] as [
+        unknown,
+        unknown[],
+      ]
+      expect(falseBreakoutMarkers).toHaveLength(1)
+      expect(falseBreakoutMarkers[0]).toMatchObject({
+        time: '2026-09-02',
+        position: 'aboveBar',
+        shape: 'arrowDown',
+        text: 'False breakout',
+      })
+
+      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      expect(createPriceLineMock).toHaveBeenCalledWith(
+        expect.objectContaining({ price: 238.5, title: 'False-breakout stop' }),
+      )
+    })
+
+    it('omits a false-breakout marker/price line whose reentry_date falls outside the currently visible bar range', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          false_breakout: {
+            direction: 'down',
+            breakout_date: '2025-01-01',
+            reentry_date: '2025-01-15',
+            extreme_price: 200.0,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // One zone still renders its band regardless (candlestick + value-zone
+      // (2) + EMA13/EMA26 (2) + channel (2) + 1 zone band = 8) -- only the
+      // false-breakout marker/price line are windowed out.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+
+      // Only the signal-overlay's own BUY/SELL markers plugin runs -- no
+      // second createSeriesMarkers call for a false breakout whose
+      // reentry_date (2025-01-15) predates every visible bar.
+      expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1)
+      expect(createPriceLineMock).not.toHaveBeenCalled()
+    })
+
+    it('renders zone bands regardless of interval, unlike the daily-only EMA/signal overlay', async () => {
+      server.use(
+        http.get('/api/stocks/:ticker/history', ({ request }) => {
+          const interval = new URL(request.url).searchParams.get('interval')
+          return HttpResponse.json({
+            ...twoBars,
+            interval: (interval ?? 'daily') as 'daily' | 'weekly',
+          })
+        }),
+      )
+      mockAnalysis([buildZone()])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Daily: candlestick + zone band = 2 (the EMA/signal overlay is
+      // disabled by `mockIndicators` never resolving for a weekly-only
+      // test double -- irrelevant here since `indicators` still resolves
+      // via the default `mockIndicators(indicatorPoints)` from
+      // `beforeEach`, so the full 8-series daily set renders first).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+
+      addSeriesMock.mockClear()
+      const intervalGroup = screen.getByRole('group', { name: 'Price history interval' })
+      await user.click(within(intervalGroup).getByRole('button', { name: 'Weekly' }))
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Weekly: the EMA/signal/channel/value-zone overlay is disabled
+      // (`overlayEnabled` is false), but the zone band still renders --
+      // candlestick + 1 zone BaselineSeries = 2 total.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(2))
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        ),
+      ).toBe(true)
+    })
+
+    it('shows the Support/Resistance Zones and False Breakout legend with MetricHelp affordances', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 231.0, lower: 229.9, broken: false }),
+        buildZone({
+          role: 'support',
+          upper: 210.0,
+          lower: 205.0,
+          false_breakout: {
+            direction: 'down',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 203.5,
+          },
+        }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Support/Resistance Zones')).toBeInTheDocument(),
+      )
+      expect(screen.getByText('False Breakout')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Support/Resistance Zones help' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'False Breakout help' }),
+      ).toBeInTheDocument()
+    })
+
+    it('opens the Support/Resistance Zones MetricHelp balloon with the zone nearest the latest close', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 231.0, lower: 229.9, broken: false }),
+        buildZone({ role: 'support', upper: 210.0, lower: 205.0 }),
+      ])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Support/Resistance Zones')).toBeInTheDocument(),
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Support/Resistance Zones help' }),
+      )
+      // Latest close (twoBars, 09-02): 229.7 -- nearest to the resistance
+      // zone (229.9-231.0), not the support zone far below it.
+      expect(screen.getByText(/Showing 2 of 2 detected zones/)).toBeInTheDocument()
+      expect(screen.getByText(/Resistance 229\.90-231\.00/)).toBeInTheDocument()
+    })
+
+    it("opens the False Breakout MetricHelp balloon with the most recent breakout's direction, zone, and suggested stop", async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({ role: 'resistance', upper: 231.0, lower: 229.9 }),
+        buildZone({
+          role: 'support',
+          upper: 210.0,
+          lower: 205.0,
+          false_breakout: {
+            direction: 'down',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 203.5,
+          },
+        }),
+      ])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() => expect(screen.getByText('False Breakout')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: 'False Breakout help' }))
+      expect(
+        screen.getByText(/support zone 205\.00-210\.00 broke below it/),
+      ).toBeInTheDocument()
+      expect(screen.getByText(/stop near 203\.50/)).toBeInTheDocument()
+    })
+
+    it('does not show the support/resistance legend when no zones are detected', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalledTimes(1))
+      expect(screen.queryByText('Support/Resistance Zones')).not.toBeInTheDocument()
+      expect(screen.queryByText('False Breakout')).not.toBeInTheDocument()
+    })
+
+    it('excludes a zone far from the latest close from both the display cap and the axis (PR #152 blocking finding #1: autoscale distortion)', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        // Latest close (twoBars, 09-02) is 229.7. A pre-split-era zone at
+        // ~10x that price (analogous to the real-world NVDA/MSFT/AMD case
+        // the reviewer reproduced) must never reach `setData`/autoscale,
+        // regardless of how high its own strength_score is.
+        buildZone({ upper: 2350.0, lower: 2300.0, strength_score: 100 }),
+        buildZone({ upper: 236.9, lower: 233.4, strength_score: 10 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) + only
+      // the 1 relevant zone band = 8 (not 9 -- the far-away zone is
+      // excluded before the display cap, not just visually deprioritized).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(8))
+
+      const baselineCalls = addSeriesMock.mock.calls.filter(
+        ([definition]) => definition === 'BaselineSeries-definition',
+      )
+      expect(baselineCalls).toHaveLength(1)
+      expect(setDataMock).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ value: 2350.0 })]),
+      )
+      expect(setDataMock).toHaveBeenCalledWith([
+        { time: '2026-09-01', value: 236.9 },
+        { time: '2026-09-02', value: 236.9 },
+      ])
+    })
+
+    it('renders no zone overlay (and does not crash) when only one bar is visible (PR #152 blocking finding #2: duplicate-timestamp setData crash)', async () => {
+      mockHistory({
+        ...twoBars,
+        bars: [twoBars.bars[1]],
+      })
+      mockAnalysis([buildZone()])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
+      // no BaselineSeries, since a single visible bar can't form the
+      // 2-distinct-timestamp span a zone band needs (setData would
+      // otherwise throw on a duplicate timestamp, per Lightweight Charts'
+      // own strictly-ascending-time assertion).
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        ),
+      ).toBe(false)
+    })
+
+    it('renders no zone overlay when every returned zone is filtered out as irrelevant to the latest close', async () => {
+      mockHistory(twoBars)
+      mockAnalysis([
+        // Both far above (and, for the second, far below) the 229.7 latest
+        // close -- unlike the "excludes a zone far from the latest close"
+        // test above, NOTHING survives the relevance filter here.
+        buildZone({ upper: 2350.0, lower: 2300.0 }),
+        buildZone({ upper: 20.0, lower: 15.0 }),
+      ])
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+      )
+      // Candlestick + value-zone (2) + EMA13/EMA26 (2) + channel (2) = 7 --
+      // same as the "no zones detected" case, since none of the returned
+      // zones are eligible to be drawn.
+      await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(7))
+      expect(
+        addSeriesMock.mock.calls.some(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        ),
+      ).toBe(false)
+      // Post-review fix (PR #152 retry round 2): the legend itself must
+      // also disappear when nothing survives the relevance filter -- not
+      // just the chart bands -- since a legend describing zones that
+      // aren't actually drawn is exactly the bug this fix addresses.
+      expect(screen.queryByText('Support/Resistance Zones')).not.toBeInTheDocument()
+      expect(screen.queryByText('False Breakout')).not.toBeInTheDocument()
+    })
+
+    it("keeps the legend's \"Showing N of M\" count and \"Nearest to the latest close\" reading consistent with the zones actually drawn, when some zones are filtered out as irrelevant (PR #152 retry round 2 regression)", async () => {
+      mockHistory(twoBars)
+      const relevantResistance = buildZone({
+        role: 'resistance',
+        upper: 231.0,
+        lower: 229.9,
+        strength_score: 10,
+      })
+      const irrelevantHighStrength = buildZone({
+        // Far pre-split-era-style level, well outside the 50% relevance
+        // window around the 229.7 latest close, but given the HIGHEST
+        // strength_score so a bug that searches "nearest"/counts "shown"
+        // over the raw (unfiltered) zones list would surface it.
+        role: 'support',
+        upper: 2350.0,
+        lower: 2300.0,
+        strength_score: 100,
+      })
+      mockAnalysis([irrelevantHighStrength, relevantResistance])
+      const user = userEvent.setup()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Support/Resistance Zones')).toBeInTheDocument(),
+      )
+      // Only the one relevant zone actually reaches `setData`/the pane.
+      await waitFor(() => {
+        const baselineCalls = addSeriesMock.mock.calls.filter(
+          ([definition]) => definition === 'BaselineSeries-definition',
+        )
+        expect(baselineCalls).toHaveLength(1)
+      })
+
+      await user.click(
+        screen.getByRole('button', { name: 'Support/Resistance Zones help' }),
+      )
+      // The legend must report 1 of 2 (the actually-displayed count), never
+      // the raw zones.length, and must name the relevant resistance zone as
+      // "nearest" -- never the far, unrendered support zone, even though it
+      // has the highest strength_score.
+      expect(screen.getByText(/Showing 1 of 2 detected zones/)).toBeInTheDocument()
+      expect(screen.getByText(/Resistance 229\.90-231\.00/)).toBeInTheDocument()
+      expect(screen.queryByText(/2300\.00-2350\.00/)).not.toBeInTheDocument()
+    })
+
+    it('swaps the zone band/marker/price-line series in place (without recreating the candlestick chart) when only the analysis query refetches', async () => {
+      // Same rationale as the signal-overlay describe block's own "swaps...
+      // in place" test above: an `/analysis`-only refetch leaves
+      // `historyQuery.data` referentially unchanged, so the candlestick
+      // effect never re-runs and `chartRef`/`seriesRef` keep pointing at
+      // the same chart -- this is the path where THIS effect's own cleanup
+      // guard sees matching refs and actually calls `chart.removeSeries(...)`/
+      // `series.removePriceLine(...)`/the false-breakout markers plugin's
+      // `detach()` for real (as opposed to skipping because the candlestick
+      // effect already tore the chart down first).
+      mockHistory(twoBars)
+      mockAnalysis([
+        buildZone({
+          false_breakout: {
+            direction: 'up',
+            breakout_date: '2026-08-20',
+            reentry_date: '2026-09-02',
+            extreme_price: 238.5,
+          },
+        }),
+      ])
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<PriceChart ticker="AAPL" />, { queryClient })
+
+      await waitFor(() => expect(createPriceLineMock).toHaveBeenCalledTimes(1))
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+
+      mockAnalysis([buildZone({ upper: 210.0, lower: 205.0 })])
+      await queryClient.invalidateQueries({
+        queryKey: stocksKeys.analysis('AAPL'),
+      })
+
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith([
+          { time: '2026-09-01', value: 210.0 },
+          { time: '2026-09-02', value: 210.0 },
+        ]),
+      )
+
+      // The candlestick chart itself was never recreated...
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+      expect(removeMock).not.toHaveBeenCalled()
+      // ...but the stale zone band series, false-breakout price line, and
+      // false-breakout markers plugin were removed/detached for real before
+      // the new ones were added (the new zone has no false breakout, so no
+      // second `createPriceLine` call follows).
+      expect(removeSeriesMock).toHaveBeenCalledTimes(1)
+      expect(removePriceLineMock).toHaveBeenCalledTimes(1)
+      expect(detachMarkersMock).toHaveBeenCalledTimes(1)
+      expect(createPriceLineMock).toHaveBeenCalledTimes(1)
     })
   })
 })

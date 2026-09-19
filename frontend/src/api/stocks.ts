@@ -17,6 +17,8 @@ export type WaveScreen = components['schemas']['WaveScreen']
 export type TriggerScreen = components['schemas']['TriggerScreen']
 export type IndicatorHistoryResponse = components['schemas']['IndicatorHistoryResponse']
 export type IndicatorHistoryPoint = components['schemas']['IndicatorHistoryPoint']
+export type SupportResistanceZone = components['schemas']['SupportResistanceZone']
+export type FalseBreakoutOut = components['schemas']['FalseBreakoutOut']
 
 export interface GetStockHistoryParams {
   /**
