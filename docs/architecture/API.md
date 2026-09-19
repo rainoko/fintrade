@@ -94,6 +94,15 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
     "centerline_crossed": null,
     "beyond_reference_line": false,
     "aborted": false
+  },
+  "kangaroo_tail": {
+    "direction": "up",
+    "tail_date": "2026-08-05",
+    "confirmed_date": "2026-08-06",
+    "high": 241.2,
+    "low": 226.8,
+    "range_multiple": 3.1,
+    "suggested_stop": 234.0
   }
 }
 ```
@@ -111,6 +120,8 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 `support_resistance_zones` is a list of horizontal support/resistance zones (Analyse.md §4 row 9, Elder ch. 18) detected from swing-point clustering over the ticker's full available daily history — `app.signals.support_resistance.detect_support_resistance_zones`, computed directly in `get_analysis` (not inside `app.signals.engine.analyse()`, since it's not needed by `GET /api/stocks/{ticker}/indicators`'s per-bar `analyse_history()` loop — see the `backend-support-resistance` task's `decisions`). Up to the 15 strongest zones, ordered by `strength_score` descending. Each zone's `role` (`support`/`resistance`) is its *current* role — a broken zone keeps existing with an inverted role (old resistance becomes new support) rather than being discarded, per Elder's own rule; `broken`/`break_date` record a confirmed break, and `false_breakout` (nullable) records the most recent false-breakout episode — price closing beyond the zone, then closing back inside it within a 10-trading-day window — with `extreme_price` giving the failed move's own extreme, Elder's explicit stop-placement reference. `dollar_volume` is Elder's own `days-in-zone × average volume × average price` formula, exposed raw (not folded into `strength_score`, which is a length/height-only composite — see Analyse.md §4). This is detection + scoring + false-breakout flagging only: zones are not wired into `signal`/`confidence`/`screens` above, nor into `GET /api/portfolio/risk`'s `protective_stop` — see Analyse.md §4 and the task's `decisions` for why that's an explicit, separate follow-up.
 
 `divergence` (Analyse.md §4 row 11, Elder ch. 15/23/26/27) is the single most recent qualifying MACD-Histogram/Stochastic/RSI divergence — `app.signals.divergence.current_divergence`, using the same PRICE swing points (`app.signals.swing_points`) each of the three indicators' own value is read at, per-indicator, per divergence.py's own module docstring. `null` if none currently qualifies. `kind` ∈ `bullish | bearish`; `indicator` ∈ `macd_histogram | stochastic | rsi` — when more than one indicator qualifies with the same `second_extreme_date` (common, since all three are checked against the same price swing points), MACD-Histogram wins the tie-break, then Stochastic, then RSI (Elder's own preferred indicator for this signal). `bars_apart` is always 20–40 (Kerry Lovvorn's empirical spacing filter). `centerline_crossed` is non-null (always `true`) only for `indicator: "macd_histogram"` — a non-crossing pair is never reported as a divergence at all, per the book's "no crossover, no divergence" rule; `null` for stochastic/rsi, which have no such requirement. `beyond_reference_line` is the mirror: non-null only for `indicator` in `stochastic`/`rsi`, `true` when this divergence is at its textbook strongest (first extreme beyond the oscillator's own 30/70 overbought/oversold line, second back inside it) — informational only, never a requirement. `aborted` is the "Hound of the Baskervilles" state — whether price has, as of `as_of`, already ignored this divergence (continued in the "wrong" direction instead of the reversal it implied), which Elder treats as a strong continuation signal in the opposite direction rather than a failed signal to discard. **Detection + exposure only**: not wired into `signal`/`confidence_breakdown`/`screens` above — see the `backend-divergence-detection` task's `decisions`.
+
+`kangaroo_tail` (Analyse.md §4 row 13, Elder ch. 20 "fingers") is the single most recently confirmed Kangaroo Tail reversal pattern — `app.signals.kangaroo_tail.latest_kangaroo_tail`, a pure OHLC pattern needing no other indicator series (unlike every other field on this response). `null` if none currently qualifies. `direction` ∈ `up | down` — `up` is a new high closing back down (bearish), `down` is a new low closing back up (bullish); `tail_date` is the tail bar's own date, `confirmed_date` the very next bar's date, whose own close/range is what makes this a genuinely *confirmed* pattern rather than just a matching shape (a hard gate, not an informational flag — see the `backend-kangaroo-tail-pattern` task's `decisions`). `range_multiple` is how many times the recent (10-day) average bar range this bar's own range was (always ≥ 2.5). `suggested_stop` is Elder's own explicit stop-placement rule — halfway through the tail, not at its tip (too wide) or its base (too tight) — computed as the tail bar's own range midpoint, `(high + low) / 2`. **Detection + exposure only**: not wired into `signal`/`confidence_breakdown`/`screens` above — see the `backend-kangaroo-tail-pattern` task's `decisions`.
 
 ### `GET /api/stocks/{ticker}/indicators`
 
@@ -138,7 +149,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
       "signal": "BUY",
       "confidence": 72,
       "confidence_band": "High",
-      "divergence": null
+      "divergence": null,
+      "kangaroo_tail": null
     }
   ]
 }
@@ -155,6 +167,8 @@ Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` 
 `season` is likewise nullable, same definition/source as `/analysis`'s `indicators.season` above (per-bar, not held fixed) — null only for the very first bar of any `range` (fewer than 2 daily bars available up to and including it), a much shorter/rarer null condition than any of `stochastic_k`/`force_index_2ema`/`channel_upper`/`channel_lower`/`rsi` above.
 
 `divergence` is the same definition/shape as `/analysis`'s `divergence` above, restricted per-bar to only the swing points confirmable using data available through that bar (no look-ahead) — `app.signals.divergence.confirmed_divergence_as_of`, using a full-history swing-point cache (`build_divergence_swing_cache`) built once and sliced per bar rather than re-running swing-point detection on each bar's own truncated prefix (the same precompute-and-slice pattern this endpoint's other fields already use). A swing point needs the same 3-bar-each-side window `app.signals.swing_points` always requires to confirm, so a bar can lag `/analysis`'s own divergence by a few bars right after a new extreme forms — see the `backend-divergence-detection` task's `decisions` for why the swing-point detector's plateau-merging convention doesn't distort this in practice.
+
+`kangaroo_tail` is the same definition/shape as `/analysis`'s `kangaroo_tail` above, restricted per-bar to only a tail whose own confirming bar has arrived by that bar (no look-ahead) — `app.signals.kangaroo_tail.kangaroo_tail_confirmed_as_of`, using a full-history cache (`build_kangaroo_tail_cache`) built once and filtered per bar by confirming-bar position. Unlike `divergence` above, no swing-point-style re-scan window is needed here: a candidate's qualification depends only on bars up to and including its own confirming next bar, so this stays `null` for every bar strictly between a tail's own `tail_date` and its `confirmed_date`, then reports that same tail from `confirmed_date` onward until (if ever) a later one supersedes it — see the `backend-kangaroo-tail-pattern` task's `decisions`.
 
 Latency scales linearly with the number of daily bars in the ticker's *full* available history (not just the requested `range`), since `app.signals.engine.analyse_history` always needs the complete series for correct indicator warm-up even when `range` trims the response — see its own docstring for the precompute-and-slice design that makes this O(history_length) rather than the O(range_size × history_length) an earlier implementation had. Measured at roughly 1ms/bar (a `range=max` request against a synthetic ~11,500-bar series — about as long as AAPL's real daily history back to 1980 — completes in ~10s end to end), so a request against a ticker with decades of daily history is a multi-second, not sub-second, response; a ticker with a few years of history responds in well under a second.
 

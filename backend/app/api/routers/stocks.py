@@ -14,6 +14,7 @@ from app.api.schemas import (
     IndicatorHistoryPoint,
     IndicatorHistoryResponse,
     Indicators,
+    KangarooTailOut,
     OHLCVBar,
     Screens,
     SupportResistanceZone,
@@ -26,6 +27,7 @@ from app.data.exceptions import (
 )
 from app.signals.divergence import Divergence
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
+from app.signals.kangaroo_tail import KangarooTail
 from app.signals.support_resistance import Zone, detect_support_resistance_zones
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
@@ -241,6 +243,21 @@ def _divergence_to_schema(divergence: Divergence) -> DivergenceOut:
     )
 
 
+def _kangaroo_tail_to_schema(tail: KangarooTail) -> KangarooTailOut:
+    """Maps `app.signals.kangaroo_tail.KangarooTail` (the domain type, keeping `pd.Timestamp`
+    dates per that module's own contract) onto `KangarooTailOut` (the API schema, plain
+    `datetime.date` fields) -- same boundary-mapping pattern as `_divergence_to_schema` above."""
+    return KangarooTailOut(
+        direction=tail.direction,
+        tail_date=tail.date.date(),
+        confirmed_date=tail.confirmed_date.date(),
+        high=tail.high,
+        low=tail.low,
+        range_multiple=tail.range_multiple,
+        suggested_stop=tail.suggested_stop,
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -322,6 +339,9 @@ def get_analysis(
         indicators=cast(Indicators, result.indicators),
         support_resistance_zones=[_zone_to_schema(zone) for zone in zones],
         divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
+        kangaroo_tail=(
+            _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
+        ),
     )
 
 
@@ -424,6 +444,9 @@ def get_indicator_history(
             confidence=result.confidence,
             confidence_band=result.confidence_band,
             divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
+            kangaroo_tail=(
+                _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
+            ),
         )
         for bar_date, result in history
     ]

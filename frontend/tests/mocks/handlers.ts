@@ -76,6 +76,7 @@ const analysisFixture: AnalysisResponse = {
     { component: 'volume_confirmation', weight: 0.1, score: 1.0 },
   ],
   divergence: null,
+  kangaroo_tail: null,
   indicators: {
     ema_13: 226.4,
     ema_26: 221.7,

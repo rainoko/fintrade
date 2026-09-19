@@ -985,7 +985,7 @@
       "id": "backend-kangaroo-tail-pattern",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-kangaroo-tail-pattern.json"
     },
     {

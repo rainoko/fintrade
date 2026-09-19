@@ -36,6 +36,7 @@ backend/
       swing_points.py        # shared fractal swing-high/swing-low detector (single series)
       support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
       divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
+      kangaroo_tail.py         # Kangaroo Tail ("fingers") reversal-pattern detection (Analyse.md §4 row 13)
     portfolio/
       models.py        # Position, Account (Pydantic/SQLAlchemy)
       pricing.py         # shared mark-to-market price enrichment (EnrichedPosition)

@@ -30,6 +30,12 @@ from app.signals.divergence import (
     current_divergence,
 )
 from app.signals.impulse import evaluate_impulse
+from app.signals.kangaroo_tail import (
+    KangarooTail,
+    build_kangaroo_tail_cache,
+    kangaroo_tail_confirmed_as_of,
+    latest_kangaroo_tail,
+)
 from app.signals.seasons import classify_season
 from app.signals.triple_screen import evaluate_tide, evaluate_trigger, evaluate_wave
 
@@ -42,6 +48,12 @@ from app.signals.triple_screen import evaluate_tide, evaluate_trigger, evaluate_
 # none of their own computed values is ever `None` in the same "this IS the real answer" sense.
 # See this task's `decisions` entry.
 _DIVERGENCE_NOT_GIVEN = object()
+
+# Sentinel default for `analyse()`'s `kangaroo_tail` parameter -- same shape/reason as
+# `_DIVERGENCE_NOT_GIVEN` above: `None` (no currently confirmed Kangaroo Tail) is itself a
+# legitimate supplied value, distinct from "not supplied, compute it yourself". See
+# docs/tasks/backend-kangaroo-tail-pattern.json's `decisions` entry.
+_KANGAROO_TAIL_NOT_GIVEN = object()
 
 # How many trailing daily bars (today inclusive) evaluate_wave's qualifying oversold/
 # overbought state is allowed to have appeared on before today, for the "Wave shows/showed"
@@ -63,6 +75,7 @@ class SignalResult:
     screens: dict = field(default_factory=dict)
     indicators: dict = field(default_factory=dict)
     divergence: Divergence | None = None
+    kangaroo_tail: KangarooTail | None = None
 
 
 def drop_malformed_daily_bars(
@@ -267,6 +280,7 @@ def analyse(
     channel_lower: pd.Series | None = None,
     rsi: pd.Series | None = None,
     divergence: Divergence | None = _DIVERGENCE_NOT_GIVEN,  # type: ignore[assignment]
+    kangaroo_tail: KangarooTail | None = _KANGAROO_TAIL_NOT_GIVEN,  # type: ignore[assignment]
     _daily_ohlcv_already_clean: bool = False,
 ) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
@@ -389,6 +403,19 @@ def analyse(
     per docs/tasks/backend-divergence-detection.json's own scope -- not read by
     ``_determine_signal``, the Impulse gate, or confidence scoring.
 
+    ``kangaroo_tail``, if given (a ``KangarooTail`` or ``None``, distinct from the sentinel
+    default that means "not supplied" -- see ``_KANGAROO_TAIL_NOT_GIVEN``), is used as-is
+    instead of being computed here -- letting ``analyse_history`` supply its own per-bar,
+    look-ahead-free result from a precomputed ``app.signals.kangaroo_tail.KangarooTailCache``
+    (see that module's ``kangaroo_tail_confirmed_as_of``) instead of this function re-running
+    detection over its own truncated ``daily_ohlcv`` slice every call. When omitted, this
+    function computes ``app.signals.kangaroo_tail.latest_kangaroo_tail(daily_ohlcv)`` itself --
+    purely an OHLC pattern (Elder ch. 20, "Kangaroo Tails"/"fingers"), needing no other
+    indicator series. Exposed on ``SignalResult.kangaroo_tail``
+    (``AnalysisResponse.kangaroo_tail``, docs/architecture/API.md) purely as detection +
+    exposure, per docs/tasks/backend-kangaroo-tail-pattern.json's own scope -- not read by
+    ``_determine_signal``, the Impulse gate, or confidence scoring.
+
     ``_daily_ohlcv_already_clean`` is a private, ``analyse_history``-only optimization escape
     hatch -- not part of this function's public contract -- that skips the
     ``drop_malformed_daily_bars`` call above entirely when the caller can *prove* (not just
@@ -452,6 +479,9 @@ def analyse(
             stochastic=divergence_stochastic_k,
             rsi=rsi,
         )
+
+    if kangaroo_tail is _KANGAROO_TAIL_NOT_GIVEN:
+        kangaroo_tail = latest_kangaroo_tail(daily_ohlcv)
 
     indicators = {
         "ema_13": _latest(ema_13),
@@ -535,6 +565,7 @@ def analyse(
         screens=screens,
         indicators=indicators,
         divergence=divergence,
+        kangaroo_tail=kangaroo_tail,
     )
 
 
@@ -696,6 +727,12 @@ def analyse_history(
     # app.signals.divergence.DivergenceSwingCache's own docstring and this task's `decisions`
     # entry).
     divergence_swing_cache = build_divergence_swing_cache(daily_close, window=DEFAULT_SWING_WINDOW)
+    # One whole-history Kangaroo Tail scan, shared by every bar's `kangaroo_tail_confirmed_as_of`
+    # call below -- unlike `divergence_swing_cache` above, this needs no per-bar re-filtering
+    # window logic beyond a confirming-bar-position comparison (see
+    # app.signals.kangaroo_tail's own "No look-ahead, no global re-ranking" docstring section
+    # and this task's `decisions` entry for why).
+    kangaroo_tail_cache = build_kangaroo_tail_cache(daily_ohlcv)
 
     weekly_ema_13_full = weekly_ema_26_full = weekly_histogram_full = None
     if len(weekly_ohlcv) >= 2 and "close" in weekly_ohlcv.columns:
@@ -749,6 +786,7 @@ def analyse_history(
                         stochastic=stochastic_k_full,
                         rsi=rsi_full,
                     ),
+                    kangaroo_tail=kangaroo_tail_confirmed_as_of(kangaroo_tail_cache, i),
                     _daily_ohlcv_already_clean=True,
                     **weekly_kwargs,
                 ),

@@ -171,6 +171,7 @@ const baseAnalysis: AnalysisResponse = {
   },
   confidence_breakdown: [],
   divergence: null,
+  kangaroo_tail: null,
   indicators: {
     ema_13: 226.4,
     ema_26: 221.7,
