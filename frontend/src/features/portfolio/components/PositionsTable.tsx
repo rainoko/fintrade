@@ -24,7 +24,10 @@ export interface PositionsTableProps {
  * mutation) so PortfolioPage itself stays a thin composition (Frontend.md §3).
  * The Signal column reuses the exact common/SignalBadge + '—' null-fallback
  * pattern WatchlistTable established (frontend-lists-show-signal) rather than
- * a second implementation.
+ * a second implementation. A row's own Delete button is disabled while
+ * `deletePosition` is pending *for that row's id specifically* (`variables
+ * === row.id`, not just `isPending`) — same double-click-race guard
+ * WatchlistTable's own Remove button uses (frontend-watchlist-page-followups).
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
@@ -83,6 +86,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         <IconButton
           aria-label={`Delete ${row.ticker}`}
           size="small"
+          disabled={deletePosition.isPending && deletePosition.variables === row.id}
           onClick={() => setPendingDelete(row)}
         >
           <DeleteOutlineIcon fontSize="small" />

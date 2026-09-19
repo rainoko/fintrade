@@ -33,7 +33,12 @@ export interface WatchlistTableProps {
  * component (frontend-ticker-link), same as every other ticker-displaying
  * table. Owns the remove-ticker flow end to end (confirm dialog +
  * useRemoveWatchlistItem mutation) so WatchlistPage itself stays a thin
- * composition (Frontend.md §3).
+ * composition (Frontend.md §3). A row's own Remove button is disabled while
+ * `removeWatchlistItem` is pending *for that row's ticker specifically*
+ * (`variables === row.ticker`, not just `isPending`) — otherwise a fast
+ * double-click before the invalidated query refetches reopens the confirm
+ * dialog and fires a second DELETE for an already-removed ticker, surfacing
+ * a confusing false "Not found" error (frontend-watchlist-page-followups).
  */
 export default function WatchlistTable({ items }: WatchlistTableProps) {
   const [pendingRemove, setPendingRemove] = useState<WatchlistItemOut | null>(null)
@@ -89,6 +94,9 @@ export default function WatchlistTable({ items }: WatchlistTableProps) {
         <IconButton
           aria-label={`Remove ${row.ticker}`}
           size="small"
+          disabled={
+            removeWatchlistItem.isPending && removeWatchlistItem.variables === row.ticker
+          }
           onClick={() => setPendingRemove(row)}
         >
           <DeleteOutlineIcon fontSize="small" />

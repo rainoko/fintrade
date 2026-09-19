@@ -1,0 +1,56 @@
+{
+  "id": "frontend-watchlist-page-followups",
+  "title": "Watchlist page — non-blocking review follow-ups",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "testing",
+  "depends_on": ["frontend-watchlist-page"],
+  "references": [
+    "docs/tasks/done/frontend-watchlist-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/106"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #106 (frontend-watchlist-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "features/watchlist/components/WatchlistTable.tsx's per-row Remove IconButton isn't disabled while useRemoveWatchlistItem's mutation is isPending, so a fast double-click on the same row (confirm the dialog, then click Remove again before the invalidated query has refetched and the stale row disappeared) fires two DELETE /api/watchlist/{ticker} requests for the same ticker. The second returns 404, and removeWatchlistItem.isError then renders a 'Not found' ErrorState even though the ticker was actually removed successfully by the first request -- a confusing false-failure message for what is really a success. The same pattern pre-exists in features/portfolio/components/PositionsTable.tsx (not introduced by PR #106), but this PR reproduces rather than fixes it; worth addressing in both places together, e.g. by disabling the row's action while a removal for that row is in flight.",
+      "done": true
+    },
+    {
+      "step": "No Playwright e2e spec (frontend/tests/e2e/watchlist.spec.ts) was added for the new /watchlist page in PR #106, even though it's a full new UI flow (add a ticker, see it appear with a signal badge, remove it) comparable in shape to what dashboard.spec.ts/navigation.spec.ts/portfolio.spec.ts/stock-analysis.spec.ts already cover for the other pages. The e2e-test skill's own guidance ('if a new UI flow is added, the underlying task should also add or extend an e2e spec for it') wasn't followed here. The vitest/MSW page-level tests (WatchlistPage.test.tsx) are thorough and this isn't a regression risk today, but the persisted, versioned real-browser regression suite has a coverage gap for this page that every other top-level nav destination doesn't have.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the double-click double-DELETE race in both WatchlistTable.tsx and PositionsTable.tsx (not just WatchlistTable, which this task's checklist item is scoped to), by disabling a row's own action IconButton while the shared mutation is pending *for that row's key specifically* (`mutation.variables === row.ticker` / `row.id`, not just `mutation.isPending`) rather than disabling every row's button whenever any one deletion is in flight.",
+      "rationale": "The checklist item's own wording flags PositionsTable's identical pre-existing pattern as 'worth addressing in both places together', so fixing only WatchlistTable would leave the exact same false-failure bug live in the Portfolio page. Guarding per-row via mutation.variables (rather than a table-wide isPending check) was chosen over disabling every row's button during any single pending removal, since the latter would needlessly block unrelated rows from being removed concurrently for no correctness benefit -- the race is specifically about the *same* row/ticker being clicked twice, not about two different rows being removed close together."
+    },
+    {
+      "timestamp": "2026-09-19T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Used the GOOGL fixture ticker for the new watchlist.spec.ts e2e flow.",
+      "rationale": "backend/app/data/fixture_provider.py only defines four fixture tickers (AAPL, MSFT, TSLA, GOOGL). AAPL is already used by navigation.spec.ts/stock-analysis.spec.ts and MSFT by portfolio.spec.ts; picking an unused one (GOOGL over TSLA, arbitrarily) avoids any risk of this new spec's add/remove cycle being confused with state those other specs leave behind in the shared e2e database, consistent with portfolio.spec.ts's own documented reasoning for choosing MSFT over AAPL."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-watchlist-page-followups",
+    "pr_number": 131,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/131",
+    "pushed_at": "2026-09-19T01:18:00Z"
+  },
+  "state": "done",
+  "review": {
+    "reviewed_at": "2026-09-19T01:23:01Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/131",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest --cov (99.86%, 573 passed), frontend vitest --coverage (99.68% lines, 338 passed), backend ruff+mypy clean, frontend eslint+tsc clean, code-review skill (medium effort) found zero correctness/reuse issues. Verified the per-row disable guard (`mutation.isPending && mutation.variables === row.key`) is correctly scoped -- new unit tests in both WatchlistTable.test.tsx and PositionsTable.test.tsx explicitly assert an unrelated row's button stays enabled while another row's deletion is pending, ruling out the blanket-disable-in-reverse failure mode. Ran `make e2e`: 16/16 passing, including the new watchlist.spec.ts (navigate/add/signal-badge/remove using GOOGL, distinct from AAPL/MSFT already used elsewhere) -- spec assertions genuinely exercise the flow (signal badge text shape, confirm-dialog interaction, row disappearance), not a bare smoke test. Did a live browser walkthrough (Playwright driven directly against `yarn dev` + fixture-mode uvicorn, no MCP browser tool available in this session) on both /watchlist and /portfolio: clicked Remove/Delete, confirmed, then immediately re-clicked the same row's action button before refetch -- the second click was blocked by the disabled attribute in both cases, exactly one DELETE fired per page (204), no false 'Not found' ErrorState/alert appeared, and no console errors. This matches and confirms the fix described in the PR. No backend changes in this PR, so no OpenAPI snapshot check applies. No new components added (existing WatchlistTable/PositionsTable modified in place), so no common/-vs-feature-specific placement question arises. Both checklist items' 'worth addressing' framing is backed by decisions entries recording the fix scope and e2e ticker choice. No findings, blocking or non-blocking."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-19T01:27:33Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov (573 passed, 99.86% coverage) and frontend vitest --coverage (338 passed, 99.68% lines) -- both match pr-reviewer's reported numbers exactly. Ran `make e2e` myself: 16/16 passing. Additionally drove the double-click race independently with a scratch Playwright script (network-delayed DELETE via page.route on /api/watchlist/GOOGL, real backend+frontend): exactly one DELETE reached the server, the row's Remove button was disabled during the pending window, and a forced second click on the disabled button did not reopen the confirm dialog or fire a second request -- confirms the per-row guard in WatchlistTable.tsx/PositionsTable.tsx genuinely fixes the race, not just per pr-reviewer's own walkthrough. Skimmed the full diff (WatchlistTable.tsx, PositionsTable.tsx, their tests, watchlist.spec.ts, task JSON/index.json) myself; found no undersold or missed issues in the application code. Noted one cosmetic-only artifact from pr-reviewer's own accept commit (a duplicate top-level `state` key left in this task JSON, `\"testing\"` then `\"done\"`) but confirmed via scripts/validate_tasks.py (124/124 files pass) and every parser's last-value-wins semantics that it doesn't affect any tooling -- not a merge blocker."
+  }
+}
