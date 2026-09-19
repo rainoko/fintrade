@@ -283,7 +283,7 @@ class PositionIn(BaseModel):
 class RiskPosition(BaseModel):
     id: str
     ticker: str
-    protective_stop: float = Field(description="Recent swing low minus a volatility buffer (SafeZone concept, docs/Analyse.md §7).")
+    protective_stop: float = Field(description="Recent swing low minus 2x a volatility buffer (SafeZone concept, docs/Analyse.md §7).")
     position_risk_pct: float = Field(description="Fraction of current account equity lost if this position hits its protective_stop (the 2% rule).")
     two_percent_rule_breached: bool
     exit_flags: list[str] = Field(description="Risk-driven exit reasons, e.g. 'stop_hit', 'tide_flipped_bearish' (docs/Analyse.md §7). Independent of this stock's fresh entry signal — can be non-empty even when /analysis says HOLD.")

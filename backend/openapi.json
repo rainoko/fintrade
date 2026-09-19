@@ -1041,7 +1041,7 @@
             "type": "number"
           },
           "protective_stop": {
-            "description": "Recent swing low minus a volatility buffer (SafeZone concept, docs/Analyse.md \u00a77).",
+            "description": "Recent swing low minus 2x a volatility buffer (SafeZone concept, docs/Analyse.md \u00a77).",
             "title": "Protective Stop",
             "type": "number"
           },
