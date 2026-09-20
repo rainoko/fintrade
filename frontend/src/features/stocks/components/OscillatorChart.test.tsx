@@ -94,6 +94,17 @@ const baseAnalysis: AnalysisResponse = {
     trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
   },
   support_resistance_zones: [],
+  extended_data: {
+    earnings_date: null,
+    earnings_within_warning_days: false,
+    ex_dividend_date: null,
+    shares_short: null,
+    short_ratio: null,
+    short_percent_of_float: null,
+    float_shares: null,
+    insider_transactions: [],
+    unavailable_reason: null,
+  },
 }
 
 function mockAnalysis(divergence: DivergenceOut | null) {

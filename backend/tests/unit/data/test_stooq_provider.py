@@ -220,3 +220,29 @@ class TestGetWeeklyOhlcv:
 
         with pytest.raises(DataProviderUnavailableError):
             StooqProvider().get_weekly_ohlcv("AAPL")
+
+
+class TestGetExtendedData:
+    """Stooq's plain CSV endpoint has no equivalent to yfinance's calendar/info/
+    insider_transactions data -- see this task's `decisions` entry. Unlike every other method
+    on this provider, this one makes no network call at all (nothing to mock)."""
+
+    def test_returns_all_null_with_unavailable_reason_set(self) -> None:
+        result = StooqProvider().get_extended_data("AAPL")
+
+        assert result.earnings_date is None
+        assert result.ex_dividend_date is None
+        assert result.shares_short is None
+        assert result.short_ratio is None
+        assert result.short_percent_of_float is None
+        assert result.float_shares is None
+        assert result.insider_transactions == []
+        assert result.unavailable_reason == "fallback_provider_active"
+
+    def test_never_raises_regardless_of_ticker(self) -> None:
+        """Explicit "not supported" rather than an exception -- distinguishes this from a
+        per-request availability failure, which callers (CachedDataProvider) treat very
+        differently (see app.data.cache.CachedDataProvider._fetch_extended_from_source)."""
+        result = StooqProvider().get_extended_data("NOTAREALTICKER")
+
+        assert result.unavailable_reason == "fallback_provider_active"

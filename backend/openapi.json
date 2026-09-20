@@ -42,6 +42,10 @@
             ],
             "description": "The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions)."
           },
+          "extended_data": {
+            "$ref": "#/components/schemas/ExtendedDataOut",
+            "description": "Earnings/dividend dates, short interest, and recent insider transactions (docs/ideas.md; Elder ch. 37/53/58) -- confirmed-live-in-yfinance data this app didn't previously expose. Always a present object; see `ExtendedDataOut.unavailable_reason` for when the fallback (Stooq) provider means every field inside it is null/empty rather than a real 'checked, nothing found' result. See the backend-market-data-extra-fields task's `decisions` entry."
+          },
           "indicators": {
             "$ref": "#/components/schemas/Indicators",
             "description": "Latest-bar-only snapshot. For the same 10 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators."
@@ -104,7 +108,8 @@
           "indicators",
           "support_resistance_zones",
           "divergence",
-          "kangaroo_tail"
+          "kangaroo_tail",
+          "extended_data"
         ],
         "title": "AnalysisResponse",
         "type": "object"
@@ -468,6 +473,123 @@
         ],
         "title": "ExitReason",
         "type": "string"
+      },
+      "ExtendedDataOut": {
+        "properties": {
+          "earnings_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Soonest upcoming earnings date (yfinance `Ticker.calendar`'s 'Earnings Date' list, earliest entry -- Yahoo sometimes reports a multi-day estimate window rather than one confirmed date). Null when yfinance has no upcoming earnings date on record for this ticker, or when `unavailable_reason` is set below.",
+            "title": "Earnings Date"
+          },
+          "earnings_within_warning_days": {
+            "description": "True when `earnings_date` falls within the next 14 calendar days from today (Elder ch. 58: 'most traders avoid holding stocks whose earnings are about to be reported... a nasty earnings surprise can do serious damage' -- a gap-through-the-stop risk no technical stop protects against). Always False when `earnings_date` is null or already in the past.",
+            "title": "Earnings Within Warning Days",
+            "type": "boolean"
+          },
+          "ex_dividend_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Next ex-dividend date (`Ticker.calendar`'s 'Ex-Dividend Date'). Null when none is scheduled, or when `unavailable_reason` is set below.",
+            "title": "Ex Dividend Date"
+          },
+          "float_shares": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Freely tradeable share count the short-interest ratios above are computed against (`Ticker.info`'s `floatShares`). Null under the same conditions as `shares_short`.",
+            "title": "Float Shares"
+          },
+          "insider_transactions": {
+            "description": "Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- clustering detection (3+ buys or sells within a month, Elder's own secondary signal) isn't computed here; see the backend-market-data-extra-fields task's `decisions` entry.",
+            "items": {
+              "$ref": "#/components/schemas/InsiderTransactionOut"
+            },
+            "title": "Insider Transactions",
+            "type": "array"
+          },
+          "shares_short": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recently reported short interest -- shares sold short and not yet covered (`Ticker.info`'s `sharesShort`, Elder ch. 37 pp.146-148). Null when not reported for this ticker, or when `unavailable_reason` is set below.",
+            "title": "Shares Short"
+          },
+          "short_percent_of_float": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shares short as a fraction (0-1, not a percentage) of the freely tradeable float (`Ticker.info`'s `shortPercentOfFloat`). Null under the same conditions as `shares_short`.",
+            "title": "Short Percent Of Float"
+          },
+          "short_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'Days to cover' -- `shares_short` divided by average daily trading volume (`Ticker.info`'s `shortRatio`). Higher means more trading days it would take short-sellers to cover their position if they all tried at once -- a rough measure of short-squeeze fuel. Null under the same conditions as `shares_short`.",
+            "title": "Short Ratio"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "const": "fallback_provider_active",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only when the fallback (Stooq) provider is currently serving market data instead of yfinance, which has no equivalent for any of the fields above (docs/architecture/Backend.md's data-provider section) -- every field above is then null/empty, meaning 'not checked, unsupported by the active provider' rather than 'checked, nothing found'. Null in the normal case (yfinance active), in which every null/empty field above genuinely means 'checked, nothing found'.",
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "earnings_date",
+          "earnings_within_warning_days",
+          "ex_dividend_date",
+          "shares_short",
+          "short_ratio",
+          "short_percent_of_float",
+          "float_shares",
+          "insider_transactions",
+          "unavailable_reason"
+        ],
+        "title": "ExtendedDataOut",
+        "type": "object"
       },
       "FalseBreakoutOut": {
         "properties": {
@@ -858,6 +980,99 @@
           "trend_strength"
         ],
         "title": "Indicators",
+        "type": "object"
+      },
+      "InsiderTransactionOut": {
+        "properties": {
+          "insider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filing insider's name, e.g. 'Cook Timothy D'. Null on the rare row yfinance itself didn't populate a name for.",
+            "title": "Insider"
+          },
+          "ownership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "yfinance's raw ownership flag for this filing (e.g. 'D' direct / 'I' indirect) -- passed through unmapped since Yahoo's own code list isn't publicly documented beyond these two common values. Null when not reported.",
+            "title": "Ownership"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Insider's role/relation to the company, e.g. 'Chief Executive Officer' or 'Director' (yfinance's `Position` column). Null when not reported.",
+            "title": "Position"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Number of shares in this transaction. Null when not reported.",
+            "title": "Shares"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Transaction's filed/effective date. Null when not reported.",
+            "title": "Start Date"
+          },
+          "transaction_text": {
+            "description": "yfinance's own free-text transaction description, e.g. 'Sale at price 220.00 - 225.00 per share.' -- kept raw rather than parsed into a structured buy/sell direction (see the backend-market-data-extra-fields task's `decisions` entry).",
+            "title": "Transaction Text",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dollar value of this transaction. Null when not reported.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "insider",
+          "position",
+          "transaction_text",
+          "shares",
+          "value",
+          "start_date",
+          "ownership"
+        ],
+        "title": "InsiderTransactionOut",
         "type": "object"
       },
       "KangarooTailOut": {
@@ -1879,7 +2094,7 @@
     },
     "/api/stocks/{ticker}/analysis": {
       "get": {
-        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.\n\n`ticker` is normalized to uppercase (mirrors `POST /api/portfolio/positions`'s handling\nof the same field) before being passed to the data provider and echoed back in the\nresponse. Daily and weekly OHLCV are fetched via the SQLite-backed cache\n(`app.data.cache.CachedDataProvider`, docs/architecture/Backend.md \u00a77); the weekly fetch\nis what actually enforces the <26-week-history -> 422 rule\n(`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no\nseparate minimum-history check of its own, matching `app.signals.engine.analyse`'s own\ndocumented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this\ntask's `decisions` entry).\n\n`daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed\nunsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`\nbefore `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that\nactually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally\nanyway (see that function's own docstring and this task's `decisions` entry).\n\n`profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md \u00a77)\nis only ever computed for a fresh BUY `signal` -- see that module's own docstring and the\n`backend-profit-target` task's `decisions` entry for why this app's long-only protective-\nstop formula rules out a symmetric SELL-side reward:risk ratio.",
+        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.\n\n`ticker` is normalized to uppercase (mirrors `POST /api/portfolio/positions`'s handling\nof the same field) before being passed to the data provider and echoed back in the\nresponse. Daily and weekly OHLCV are fetched via the SQLite-backed cache\n(`app.data.cache.CachedDataProvider`, docs/architecture/Backend.md \u00a77); the weekly fetch\nis what actually enforces the <26-week-history -> 422 rule\n(`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no\nseparate minimum-history check of its own, matching `app.signals.engine.analyse`'s own\ndocumented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this\ntask's `decisions` entry).\n\n`daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed\nunsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`\nbefore `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that\nactually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally\nanyway (see that function's own docstring and this task's `decisions` entry).\n\n`profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md \u00a77)\nis only ever computed for a fresh BUY `signal` -- see that module's own docstring and the\n`backend-profit-target` task's `decisions` entry for why this app's long-only protective-\nstop formula rules out a symmetric SELL-side reward:risk ratio.\n\n`extended_data` (earnings/dividend dates, short interest, insider transactions -- see\n`ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as\n`daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the\nsame 503 -- in practice this only happens if *both* the primary and fallback providers fail\non this specific call, since the fallback (Stooq) provider always succeeds with an\nexplicit \"unsupported\" result rather than raising (see `app.data.stooq_provider.\nStooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).",
         "operationId": "get_stock_analysis",
         "parameters": [
           {

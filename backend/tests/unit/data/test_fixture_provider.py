@@ -133,3 +133,25 @@ class TestUnknownTicker:
     def test_weekly_ohlcv_raises_ticker_not_found(self) -> None:
         with pytest.raises(TickerNotFoundError):
             FixtureDataProvider().get_weekly_ohlcv("ZZZZINVALID")
+
+    def test_extended_data_raises_ticker_not_found(self) -> None:
+        with pytest.raises(TickerNotFoundError):
+            FixtureDataProvider().get_extended_data("ZZZZINVALID")
+
+
+class TestGetExtendedData:
+    """No synthetic earnings/short-interest/insider data is modeled for the e2e fixture
+    tickers -- every known ticker gets the same fixed all-null result."""
+
+    @pytest.mark.parametrize("ticker", sorted(_FIXTURE_TICKERS))
+    def test_known_ticker_returns_all_null_available_result(self, ticker: str) -> None:
+        result = FixtureDataProvider().get_extended_data(ticker)
+
+        assert result.earnings_date is None
+        assert result.ex_dividend_date is None
+        assert result.shares_short is None
+        assert result.short_ratio is None
+        assert result.short_percent_of_float is None
+        assert result.float_shares is None
+        assert result.insider_transactions == []
+        assert result.unavailable_reason is None

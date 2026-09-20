@@ -3,7 +3,7 @@ import urllib.request
 
 import pandas as pd
 
-from app.data.base import DataProvider
+from app.data.base import DataProvider, ExtendedData
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -60,6 +60,25 @@ class StooqProvider(DataProvider):
         if len(weekly) < _MIN_WEEKLY_BARS:
             raise InsufficientHistoryError(ticker, available=len(weekly), required=_MIN_WEEKLY_BARS)
         return weekly
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        """Explicit "not supported by this provider" rather than silently returning nulls
+        indistinguishable from a real "checked, nothing found" result (see this task's
+        `decisions` entry): Stooq's plain CSV endpoint has no equivalent to yfinance's
+        `calendar`/`info`/`insider_transactions` data, and never will (it's a bare
+        historical-bars endpoint, not a general market-data API) -- so this always returns
+        immediately with every field null/empty and `unavailable_reason` set, never raising.
+        """
+        return ExtendedData(
+            earnings_date=None,
+            ex_dividend_date=None,
+            shares_short=None,
+            short_ratio=None,
+            short_percent_of_float=None,
+            float_shares=None,
+            insider_transactions=[],
+            unavailable_reason="fallback_provider_active",
+        )
 
     def _fetch_daily(self, ticker: str) -> pd.DataFrame:
         url = f"{_BASE_URL}?s={self._to_stooq_symbol(ticker)}&i=d"

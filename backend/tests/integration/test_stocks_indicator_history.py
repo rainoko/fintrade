@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_data_provider
+from app.data.base import ExtendedData
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -20,6 +21,22 @@ from app.indicators.accumulation_distribution import (
 )
 from app.indicators.obv import obv as compute_obv
 from app.main import app
+
+# Every ticker gets this all-null/empty ExtendedData -- this file's tests exercise
+# GET /api/stocks/{ticker}/indicators (which never calls get_extended_data at all) plus a few
+# cross-checks against GET /api/stocks/{ticker}/analysis (which does); none of them assert on
+# extended_data's own content, so a fixed default is enough (see
+# tests/integration/test_stocks_analysis.py's own `_EMPTY_EXTENDED_DATA` for where that field
+# actually gets dedicated coverage).
+_EMPTY_EXTENDED_DATA = ExtendedData(
+    earnings_date=None,
+    ex_dividend_date=None,
+    shares_short=None,
+    short_ratio=None,
+    short_percent_of_float=None,
+    float_shares=None,
+    insider_transactions=[],
+)
 
 
 class _StubProvider:
@@ -48,6 +65,9 @@ class _StubProvider:
         if ticker in self._failing_weekly:
             raise self._failing_weekly[ticker]
         return self._weekly[ticker]
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        return _EMPTY_EXTENDED_DATA
 
 
 def _make_client(provider: _StubProvider) -> TestClient:

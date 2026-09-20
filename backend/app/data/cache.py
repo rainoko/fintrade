@@ -14,16 +14,17 @@ range" reading, and the fallback scope, all of which are shaped by the
 
 from __future__ import annotations
 
+import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from app.data.base import DataProvider
+from app.data.base import DataProvider, ExtendedData, InsiderTransaction
 from app.data.exceptions import DataProviderUnavailableError
-from app.db.models import OHLCVCacheORM
+from app.db.models import ExtendedDataCacheORM, OHLCVCacheORM
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,17 @@ _COLUMNS = ("open", "high", "low", "close", "volume")
 # why this is a flat TTL rather than a trading-calendar-aware "is this the
 # latest session" check.
 _CACHE_TTL = timedelta(hours=24)
+
+# `ExtendedData` (earnings/dividend dates, short interest, insider transactions) is cached
+# separately from OHLCV, on a longer TTL: it changes far less often than a daily price bar --
+# an earnings/dividend date is set weeks ahead and rarely moves day to day, short interest is
+# only re-settled roughly twice a month on the major US exchanges, and a new insider filing is
+# a rare, bursty event rather than a daily occurrence. 24h (matching `_CACHE_TTL`) would just
+# mean paying yfinance's extra `calendar`/`info`/`insider_transactions` request cost every day
+# for data that's virtually always unchanged since yesterday; 3 days balances that against
+# still catching a genuinely new earnings-date announcement or insider filing reasonably
+# promptly (not, say, a full week later) -- see this task's `decisions` entry.
+_EXTENDED_DATA_CACHE_TTL = timedelta(days=3)
 
 
 def _utcnow() -> datetime:
@@ -70,6 +82,114 @@ class CachedDataProvider(DataProvider):
         `get_daily_ohlcv`, cached under a distinct `interval` key.
         """
         return self._get(ticker, interval=_INTERVAL_WEEKLY)
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        """Earnings/dividend dates, short interest, and insider transactions for `ticker`,
+        from cache if fresh (`_EXTENDED_DATA_CACHE_TTL`, a separate and longer TTL than OHLCV's
+        `_CACHE_TTL` -- see that constant's own comment), else fetched and cached.
+
+        Unlike `get_daily_ohlcv`/`get_weekly_ohlcv`, falling back to the secondary provider
+        here never raises `TickerNotFoundError`/`InsufficientHistoryError` (this method's
+        contract has no such per-ticker failure modes -- see `app.data.base.DataProvider.
+        get_extended_data`'s own docstring); it can still raise `DataProviderUnavailableError`
+        if both providers fail on this specific call.
+        """
+        cached_row = self._read_extended_cache(ticker)
+        if cached_row is not None and self._is_extended_fresh(cached_row):
+            return self._row_to_extended_data(cached_row)
+
+        fetched = self._fetch_extended_from_source(ticker)
+        self._upsert_extended(ticker, fetched)
+        return fetched
+
+    def _read_extended_cache(self, ticker: str) -> ExtendedDataCacheORM | None:
+        return (
+            self._db.query(ExtendedDataCacheORM)
+            .filter(ExtendedDataCacheORM.ticker == ticker)
+            .one_or_none()
+        )
+
+    @staticmethod
+    def _is_extended_fresh(row: ExtendedDataCacheORM) -> bool:
+        return _utcnow() - row.fetched_at < _EXTENDED_DATA_CACHE_TTL
+
+    def _fetch_extended_from_source(self, ticker: str) -> ExtendedData:
+        """Same primary-then-fallback structure as `_fetch_from_source` (only a
+        `DataProviderUnavailableError` triggers the fallback attempt) -- but in practice
+        `StooqProvider.get_extended_data` never itself raises (see its own docstring), so this
+        fallback branch always succeeds today; the combined-failure path below exists for
+        forward-compatibility with a future fallback provider that could genuinely fail here.
+        """
+        primary_failure: str | None = None
+        try:
+            return self._primary.get_extended_data(ticker)
+        except DataProviderUnavailableError as primary_exc:
+            primary_failure = str(primary_exc)
+            logger.warning(
+                "Primary data provider failed to fetch extended data for %r, falling back: %s",
+                ticker,
+                primary_failure,
+            )
+
+        try:
+            return self._fallback.get_extended_data(ticker)
+        except DataProviderUnavailableError as fallback_exc:
+            raise DataProviderUnavailableError(
+                f"Both primary and fallback providers failed to fetch extended data for "
+                f"{ticker!r}: primary={primary_failure}, fallback={fallback_exc}"
+            ) from fallback_exc
+
+    def _upsert_extended(self, ticker: str, data: ExtendedData) -> None:
+        """Insert or update the single cache row for `ticker` -- one row per ticker (not one
+        per date, unlike `_upsert`'s OHLCV rows), so this is a plain upsert with no per-date
+        loop."""
+        row = self._read_extended_cache(ticker)
+        if row is None:
+            row = ExtendedDataCacheORM(ticker=ticker)
+            self._db.add(row)
+        row.earnings_date = data.earnings_date
+        row.ex_dividend_date = data.ex_dividend_date
+        row.shares_short = data.shares_short
+        row.short_ratio = data.short_ratio
+        row.short_percent_of_float = data.short_percent_of_float
+        row.float_shares = data.float_shares
+        row.insider_transactions_json = json.dumps(
+            [_insider_transaction_to_dict(t) for t in data.insider_transactions]
+        )
+        row.unavailable_reason = data.unavailable_reason
+        row.fetched_at = _utcnow()
+        try:
+            self._db.commit()
+        except (IntegrityError, OperationalError) as exc:
+            # Same benign concurrent-first-population race `_upsert`'s own except block
+            # documents at length for the OHLCV cache -- two concurrent cache-miss requests
+            # for the same never-yet-cached ticker can both attempt to insert this row; the
+            # loser discards its own write rather than erroring, since `data` (this call's own
+            # freshly fetched result) is still returned to its caller regardless of whether
+            # this commit succeeds. See `_upsert`'s docstring for the full rationale, including
+            # why `OperationalError` is caught alongside `IntegrityError`.
+            self._db.rollback()
+            logger.warning(
+                "Concurrent extended-data cache population for %r raced this upsert; "
+                "discarding this attempt in favor of the concurrently-committed row. (%s: %s)",
+                ticker,
+                type(exc).__name__,
+                exc,
+            )
+
+    @staticmethod
+    def _row_to_extended_data(row: ExtendedDataCacheORM) -> ExtendedData:
+        raw_transactions = json.loads(row.insider_transactions_json) if row.insider_transactions_json else []
+        return ExtendedData(
+            earnings_date=row.earnings_date,
+            ex_dividend_date=row.ex_dividend_date,
+            shares_short=row.shares_short,
+            short_ratio=row.short_ratio,
+            short_percent_of_float=row.short_percent_of_float,
+            float_shares=row.float_shares,
+            insider_transactions=[_dict_to_insider_transaction(t) for t in raw_transactions],
+            unavailable_reason=row.unavailable_reason,  # type: ignore[arg-type]
+        )
 
     def _get(self, ticker: str, *, interval: str) -> pd.DataFrame:
         cached_rows = self._read_cache(ticker, interval)
@@ -280,3 +400,31 @@ class CachedDataProvider(DataProvider):
             index=pd.DatetimeIndex([r.date for r in rows], name="date"),
         )
         return df
+
+
+def _insider_transaction_to_dict(transaction: InsiderTransaction) -> dict:
+    """`InsiderTransaction` -> a JSON-serializable dict for `ExtendedDataCacheORM.
+    insider_transactions_json` (SQLite has no native array/JSON column type)."""
+    return {
+        "insider": transaction.insider,
+        "position": transaction.position,
+        "transaction_text": transaction.transaction_text,
+        "shares": transaction.shares,
+        "value": transaction.value,
+        "start_date": transaction.start_date.isoformat() if transaction.start_date else None,
+        "ownership": transaction.ownership,
+    }
+
+
+def _dict_to_insider_transaction(raw: dict) -> InsiderTransaction:
+    """Inverse of `_insider_transaction_to_dict`."""
+    start_date_raw = raw.get("start_date")
+    return InsiderTransaction(
+        insider=raw.get("insider"),
+        position=raw.get("position"),
+        transaction_text=raw.get("transaction_text") or "",
+        shares=raw.get("shares"),
+        value=raw.get("value"),
+        start_date=date.fromisoformat(start_date_raw) if start_date_raw else None,
+        ownership=raw.get("ownership"),
+    )

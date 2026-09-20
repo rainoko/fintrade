@@ -23,6 +23,8 @@ export type FalseBreakoutOut = components['schemas']['FalseBreakoutOut']
 export type DivergenceOut = components['schemas']['DivergenceOut']
 export type KangarooTailOut = components['schemas']['KangarooTailOut']
 export type ProfitTargetOut = components['schemas']['ProfitTargetOut']
+export type ExtendedDataOut = components['schemas']['ExtendedDataOut']
+export type InsiderTransactionOut = components['schemas']['InsiderTransactionOut']
 
 export interface GetStockHistoryParams {
   /**

@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from typing import Literal, cast
 
 import pandas as pd
@@ -9,11 +10,13 @@ from app.api.schemas import (
     ConfidenceBreakdownItem,
     DivergenceOut,
     ErrorDetail,
+    ExtendedDataOut,
     FalseBreakoutOut,
     HistoryResponse,
     IndicatorHistoryPoint,
     IndicatorHistoryResponse,
     Indicators,
+    InsiderTransactionOut,
     KangarooTailOut,
     OHLCVBar,
     ProfitTargetOut,
@@ -22,7 +25,7 @@ from app.api.schemas import (
     TideScreen,
     TrendStrength,
 )
-from app.data.base import DataProvider
+from app.data.base import DataProvider, ExtendedData
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -54,6 +57,15 @@ from app.signals.support_resistance import Zone, detect_support_resistance_zones
 # guards its own arithmetic (a 4-digit count can still overflow for 'm'/'y' units, e.g.
 # '9999y') so that path is never a bare 500 either.
 _RANGE_PATTERN = r"^(max|\d{1,4}[dwmy])$"
+
+# How many calendar days ahead an upcoming earnings date must fall within to set
+# `ExtendedDataOut.earnings_within_warning_days` (Elder ch. 58's gap-through-the-stop risk).
+# Not itself documented as a specific number of days in Analyse.md/Elder's book -- 14 days (two
+# calendar weeks) was chosen as a reasonable "worth reconsidering a fresh entry, or planning
+# around, right now" horizon: long enough to give real advance notice, short enough that it
+# doesn't flag almost every actively-traded ticker's *next* quarterly report as "imminent". See
+# this task's `decisions` entry.
+_EARNINGS_WARNING_DAYS = 14
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -281,6 +293,53 @@ def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:
     )
 
 
+def _earnings_within_warning_days(earnings_date: date | None, today: date) -> bool:
+    """Whether `earnings_date` falls within `_EARNINGS_WARNING_DAYS` calendar days from `today`
+    (Elder ch. 58: a nasty earnings surprise can gap straight through a technical stop).
+
+    Anchored on real wall-clock `today` (the caller passes `date.today()`), not `as_of`/the
+    latest cached daily bar's own date: an earnings date is a real calendar event independent
+    of how fresh the OHLCV cache happens to be (`app.data.cache`'s up-to-24h TTL) -- using a
+    stale `as_of` here could under- or over-count the days remaining by however stale the cache
+    is. `False` (never left ambiguous) when `earnings_date` is null or already in the past --
+    there's nothing to warn about in either case.
+    """
+    if earnings_date is None:
+        return False
+    return today <= earnings_date <= today + timedelta(days=_EARNINGS_WARNING_DAYS)
+
+
+def _extended_data_to_schema(extended: ExtendedData, *, today: date) -> ExtendedDataOut:
+    """Maps `app.data.base.ExtendedData` (the data-provider-layer domain type) onto
+    `ExtendedDataOut` (the API schema) -- same boundary-mapping pattern as `_zone_to_schema`/
+    `_divergence_to_schema`/`_kangaroo_tail_to_schema`/`_profit_target_to_schema` above, plus
+    deriving `earnings_within_warning_days` (not present on the domain type -- a pure
+    presentation-layer computation, so it belongs at this mapping boundary, not in
+    `app.data`)."""
+    return ExtendedDataOut(
+        earnings_date=extended.earnings_date,
+        earnings_within_warning_days=_earnings_within_warning_days(extended.earnings_date, today),
+        ex_dividend_date=extended.ex_dividend_date,
+        shares_short=extended.shares_short,
+        short_ratio=extended.short_ratio,
+        short_percent_of_float=extended.short_percent_of_float,
+        float_shares=extended.float_shares,
+        insider_transactions=[
+            InsiderTransactionOut(
+                insider=t.insider,
+                position=t.position,
+                transaction_text=t.transaction_text,
+                shares=t.shares,
+                value=t.value,
+                start_date=t.start_date,
+                ownership=t.ownership,
+            )
+            for t in extended.insider_transactions
+        ],
+        unavailable_reason=extended.unavailable_reason,
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -319,11 +378,20 @@ def get_analysis(
     `profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md §7)
     is only ever computed for a fresh BUY `signal` -- see that module's own docstring and the
     `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
-    stop formula rules out a symmetric SELL-side reward:risk ratio."""
+    stop formula rules out a symmetric SELL-side reward:risk ratio.
+
+    `extended_data` (earnings/dividend dates, short interest, insider transactions -- see
+    `ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as
+    `daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the
+    same 503 -- in practice this only happens if *both* the primary and fallback providers fail
+    on this specific call, since the fallback (Stooq) provider always succeeds with an
+    explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
+    StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry)."""
     ticker = ticker.upper()
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
         weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
+        extended = provider.get_extended_data(ticker)
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientHistoryError as exc:
@@ -385,6 +453,7 @@ def get_analysis(
             _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
         ),
         profit_target=_profit_target_to_schema(profit_target) if profit_target is not None else None,
+        extended_data=_extended_data_to_schema(extended, today=date.today()),
     )
 
 

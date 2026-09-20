@@ -1076,7 +1076,7 @@
       "id": "backend-market-data-extra-fields",
       "area": "backend/data",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-market-data-extra-fields.json"
     },
     {

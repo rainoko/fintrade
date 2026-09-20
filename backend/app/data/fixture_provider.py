@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from app.data.base import DataProvider
+from app.data.base import DataProvider, ExtendedData
 from app.data.exceptions import InsufficientHistoryError, TickerNotFoundError
 
 # Mirrors YFinanceProvider/StooqProvider's own _MIN_WEEKLY_BARS (Analyse.md §8: Screen 1
@@ -123,6 +123,24 @@ class FixtureDataProvider(DataProvider):
             # identical check for why this still raises rather than silently under-serving.
             raise InsufficientHistoryError(ticker, available=len(weekly), required=_MIN_WEEKLY_BARS)
         return weekly
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        """No synthetic earnings/short-interest/insider data is modeled for the e2e fixture
+        tickers -- this endpoint's own contract requires a real (never-raising) `ExtendedData`
+        result regardless of ticker, so an unknown ticker still needs its usual
+        `TickerNotFoundError` (matching `get_daily_ohlcv`/`get_weekly_ohlcv`'s behavior for the
+        same case) before returning the fixed all-null result for a known one."""
+        if ticker.upper() not in _FIXTURE_TICKERS:
+            raise TickerNotFoundError(ticker)
+        return ExtendedData(
+            earnings_date=None,
+            ex_dividend_date=None,
+            shares_short=None,
+            short_ratio=None,
+            short_percent_of_float=None,
+            float_shares=None,
+            insider_transactions=[],
+        )
 
     @staticmethod
     def _series(ticker: str) -> pd.DataFrame:

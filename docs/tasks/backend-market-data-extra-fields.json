@@ -3,7 +3,7 @@
   "title": "Expose earnings/dividend dates, short interest, and insider transactions",
   "area": "backend/data",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/data/base.py",
@@ -16,27 +16,71 @@
   "checklist": [
     {
       "step": "Extend the DataProvider protocol with new methods for these three data types (decide the exact shape -- one combined method or three separate ones -- and record as a decisions entry).",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement in YFinanceProvider using the confirmed-available yfinance fields; implement StooqProvider's equivalent as an explicit 'not supported by this provider' rather than silently returning empty/null.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record how CachedDataProvider should treat this new, non-OHLCV, less-frequently-changing data (same SQLite read-through cache as OHLCV, or a separate cache policy -- this data changes far less often than daily prices).",
-      "done": false
+      "done": true
     },
     {
       "step": "Add an 'earnings within N days' warning field to GET /api/stocks/{ticker}/analysis (or wherever makes sense) and expose short interest + insider transactions likewise.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests mocking yfinance's richer Ticker fields (info/calendar/insider_transactions), not just history() -- confirm graceful handling when a field is missing/None (yfinance's own data can be incomplete for smaller tickers).",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json/frontend types; document in docs/Analyse.md and docs/architecture/Backend.md's data-provider section.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "One combined `DataProvider.get_extended_data(ticker) -> ExtendedData` method (earnings/dividend dates + short interest + insider transactions together), not three separate methods.",
+      "rationale": "The only current consumer (GET /api/stocks/{ticker}/analysis) always wants all three together in one request, and yfinance itself exposes them as three cheap-to-batch calls (`Ticker.calendar`/`Ticker.info`/`Ticker.insider_transactions`) against the same `Ticker` object. Three separate protocol methods would mean three separate 'not supported by Stooq' sentinels and three separate cache-table lookups for no real caller benefit today. If a future consumer only ever needs one of the three, splitting the protocol then is a much smaller change than the reverse (un-splitting an already-split protocol everywhere it's called)."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "StooqProvider.get_extended_data never raises -- it always returns an ExtendedData with every field null/empty and a new `unavailable_reason: Literal['fallback_provider_active']` field set, rather than raising a new exception type.",
+      "rationale": "This is a permanent, structural fact about the provider ('this data source has no such data at all'), not a per-request availability failure -- CachedDataProvider's existing primary-then-fallback exception handling is reserved for genuine transient failures (DataProviderUnavailableError). Representing it as a normal return value keeps CachedDataProvider's fallback logic uniform (call the fallback, use what it returns) instead of adding a second exception type + a second catch branch whose only job is to immediately convert back into a sentinel value. The `unavailable_reason` field is the explicit, typed 'not supported' signal the checklist asked for -- distinguishable at the API layer from a real 'checked yfinance, found nothing' null, which is what mattered here, not the raise-vs-return mechanics themselves. Rejected: raising a dedicated `ExtendedDataUnsupportedError` and catching it in CachedDataProvider -- more moving parts for the same outcome, and it would force get_analysis's error handling to special-case a condition that isn't actually an error to the caller (extended_data unavailable doesn't fail the whole /analysis response)."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "CachedDataProvider caches extended data in its own new SQLite table (`extended_data_cache`, one row per ticker), on a separate 3-day TTL (`_EXTENDED_DATA_CACHE_TTL`), distinct from OHLCV's 24h `_CACHE_TTL` table/policy.",
+      "rationale": "Earnings/dividend dates, short interest, and insider filings change on a much slower cadence than a daily price bar (short interest is only re-settled roughly twice a month on US exchanges; an earnings date is set weeks ahead and rarely moves). A single shared 24h OHLCV-style TTL would mean re-hitting yfinance's calendar/info/insider_transactions endpoints daily for data that's virtually always unchanged since yesterday. 3 days was chosen as a middle ground: materially fewer yfinance calls than daily, while still catching a genuinely new earnings-date announcement or insider filing within a few days rather than a full week+. A separate table (rather than new nullable columns bolted onto OHLCVCacheORM) was chosen because the cardinality is different -- one row per ticker, not one row per (ticker, date, interval) -- and because insider_transactions is a list needing its own JSON-serialized column, which doesn't fit OHLCVCacheORM's per-bar-scalar shape at all."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`earnings_within_warning_days` uses a fixed 14-calendar-day window, anchored on real wall-clock `date.today()` (not `as_of`/the latest cached daily bar's own date).",
+      "rationale": "Neither Analyse.md nor Elder's own ch. 58 Tradebill formula specifies a numeric day count for this warning -- 14 days (two calendar weeks) was chosen as a reasonable 'worth reconsidering a fresh entry, or planning around, right now' horizon: long enough to give real advance notice, short enough it doesn't flag almost every actively-traded ticker's next quarterly report as imminent. Anchoring on real 'today' rather than `as_of` avoids the warning's accuracy drifting with how stale the OHLCV cache happens to be (up to 24h per `_CACHE_TTL`, and potentially several calendar days behind on a weekend/holiday) -- an earnings date is a real calendar event independent of price-data freshness."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`earnings_date` is sourced from `Ticker.calendar`'s 'Earnings Date' list (earliest entry when Yahoo reports a multi-day estimate window), not from the separate, heavier `Ticker.earnings_dates` DataFrame (which also carries historical actual/estimate/surprise data).",
+      "rationale": "The concrete value this task targets (a forward-looking 'earnings within N days' warning) only needs the single soonest upcoming date, which `.calendar` gives directly and cheaply as part of the same extended-data fetch. `.earnings_dates` is a heavier historical time series (`limit`/`offset` paginated, up to 12 rows per call) aimed at a different use case (trend of past earnings surprises) that no checklist item or docs/ideas.md value point calls for here -- adding it would be speculative scope, not something this task's own rationale justifies."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Insider transactions are exposed raw (yfinance's own `Insider`/`Position`/`Text`/`Shares`/`Value`/`Start Date`/`Ownership` fields, most-recent-first) with no buy/sell classification or cluster (3+ transactions within a month) detection computed.",
+      "rationale": "The checklist item only asks to 'expose ... insider transactions'; cluster detection is real value docs/ideas.md/this task's own description calls out, but it's a genuinely separate piece of signal-detection logic (parsing yfinance's free-text `Text` field into a buy/sell direction, then a time-windowed grouping pass) with its own edge cases worth scoping on its own, matching this codebase's existing pattern of treating pattern/cluster *detection* as a distinct follow-up task from raw data *exposure* (e.g. divergence detection, kangaroo-tail detection, support/resistance zone detection were each their own task after their underlying data was already available). Left as an explicit, separate follow-up rather than silently expanded scope."
+    },
+    {
+      "timestamp": "2026-09-20T07:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "extended_data is added to GET /api/stocks/{ticker}/analysis (not a new dedicated endpoint), fetched in the same try/except block as daily/weekly OHLCV so a DataProviderUnavailableError from it maps to the same existing 503.",
+      "rationale": "The checklist explicitly allowed 'or wherever makes sense'; /analysis is already this app's single per-ticker aggregation point for signal + supporting context (divergence, kangaroo_tail, support_resistance_zones, profit_target all followed the same precedent of being added here rather than as their own endpoints), and every consumer that cares about a ticker's signal also plausibly cares about an earnings-date warning on it. Folding the fetch into the existing try/except (rather than a separate try/except that degrades gracefully) keeps the error-handling surface simple; in practice this 503 path is nearly unreachable for extended_data specifically, since StooqProvider.get_extended_data never raises (see the unavailable_reason decision above) -- the only way to reach it is both providers genuinely failing on this one call, the same bar the existing 503 case already represents for daily/weekly OHLCV."
     }
   ]
 }

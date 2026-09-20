@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, String
+from sqlalchemy import Date, DateTime, Float, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -88,4 +88,33 @@ class OHLCVCacheORM(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[float] = mapped_column(Float)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ExtendedDataCacheORM(Base):
+    """Cached earnings/dividend dates, short interest, and insider transactions, keyed by
+    ticker alone (a single current snapshot per ticker, unlike `OHLCVCacheORM`'s one row per
+    date -- this data has no per-date history of its own the way OHLCV bars do; docs/
+    architecture/Backend.md §7). `insider_transactions_json` stores
+    `app.data.base.InsiderTransaction` rows as a JSON list (SQLite has no native array/JSON
+    column type) rather than a separate child table -- this app only ever reads/writes the
+    whole list at once per ticker, never queries into individual transactions, so a child
+    table would add join complexity with no query benefit. `unavailable_reason` mirrors
+    `app.data.base.ExtendedData.unavailable_reason` (currently only ever
+    `'fallback_provider_active'`) -- see the backend-market-data-extra-fields task's
+    `decisions` entry for why this whole result (not just OHLCV) is cached, and on a longer,
+    separate TTL (`app.data.cache.CachedDataProvider`'s `_EXTENDED_DATA_CACHE_TTL`).
+    """
+
+    __tablename__ = "extended_data_cache"
+
+    ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    earnings_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ex_dividend_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    shares_short: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    short_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    short_percent_of_float: Mapped[float | None] = mapped_column(Float, nullable=True)
+    float_shares: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    insider_transactions_json: Mapped[str] = mapped_column(String)
+    unavailable_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)

@@ -17,7 +17,7 @@ backend/
       base.py          # DataProvider protocol (interface)
       yfinance_provider.py
       stooq_provider.py
-      cache.py         # SQLite-backed OHLCV cache
+      cache.py         # SQLite-backed OHLCV + extended-data cache
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
     indicators/    # pure functions, one indicator per module
       ema.py
@@ -60,7 +60,9 @@ backend/
   pyproject.toml
 ```
 
-`data/` adapters implement a common `DataProvider` protocol (`get_daily_ohlcv(ticker) -> DataFrame`, `get_weekly_ohlcv(ticker) -> DataFrame`) so `yfinance` and `stooq` are interchangeable and both are mockable in tests via the same fake.
+`data/` adapters implement a common `DataProvider` protocol (`get_daily_ohlcv(ticker) -> DataFrame`, `get_weekly_ohlcv(ticker) -> DataFrame`, `get_extended_data(ticker) -> ExtendedData`) so `yfinance` and `stooq` are interchangeable and both are mockable in tests via the same fake.
+
+`get_extended_data` (earnings/dividend dates, short interest, insider transactions -- docs/ideas.md; Elder ch. 37/53/58) is the one method that doesn't behave symmetrically across providers: `YFinanceProvider` implements it against `Ticker.calendar`/`Ticker.info`/`Ticker.insider_transactions`, all confirmed-live fields this app didn't previously expose, while `StooqProvider` has no equivalent data source at all (its plain CSV endpoint is OHLCV-only) and so never raises for this method -- it always returns an `ExtendedData` with every field null/empty and `unavailable_reason='fallback_provider_active'` set, an explicit "not supported by this provider" signal distinguishable from a real "checked, nothing found" null. `CachedDataProvider` caches this on a separate, longer TTL (3 days, vs. OHLCV's 24h) in its own `extended_data_cache` table (one row per ticker, not per date) -- this data changes far less often than a daily price bar. See the backend-market-data-extra-fields task's `decisions` entry for the full rationale.
 
 ## 3. Key Dependencies
 

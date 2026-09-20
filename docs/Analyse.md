@@ -277,6 +277,16 @@ No new provider calls are needed — every one of these tickers' OHLCV is alread
 
 **Recommendation:** `yfinance` as primary source, **Stooq as fallback** if Yahoo endpoints fail or rate-limit. Both are free and require no API key, which keeps the MVP simple. Revisit if usage grows enough that reliability/ToS become a concern — at that point a paid provider (Tiingo/Polygon/etc.) or a brokerage market-data feed would be the upgrade path.
 
+### Extended data (earnings/dividend dates, short interest, insider transactions)
+
+Confirmed available for free, live, via the same `yfinance` dependency used for OHLCV above — `Ticker.calendar` (earnings + dividend dates), `Ticker.info` (`sharesShort`/`shortRatio`/`shortPercentOfFloat`/`floatShares`), and `Ticker.insider_transactions` (buy/sell filings). Exposed via `GET /api/stocks/{ticker}/analysis`'s `extended_data` field (docs/architecture/API.md) — see that field's own description for the exact shape.
+
+- **Earnings-date awareness** (ch. 58's Tradebill, p. 241): a BUY signal or open position gets an "earnings expected within 14 days" flag (`earnings_within_warning_days`) — a nasty earnings surprise can gap straight through a technical stop, a risk no stop-loss formula protects against. Purely informational: not wired into `signal`/`confidence` — a trader decides for themselves whether to skip/reduce a position ahead of an earnings date, this app doesn't auto-block one.
+- **Short interest** (ch. 37, pp. 146–148): `short_ratio` ("days to cover") and `short_percent_of_float` are a rough measure of short-squeeze fuel — extra buying pressure if short-sellers are forced to cover into a rally. Exposure only, not folded into `confidence`.
+- **Insider transactions** (ch. 37, p. 147): raw recent officer/director buy/sell filings. A cluster of 3+ buys or sells within a month is Elder's own secondary signal worth noting, but cluster *detection* isn't computed by this app (an explicit, separate follow-up) — only the raw filing list is exposed today.
+
+The Stooq fallback provider has no equivalent to any of this (its plain CSV endpoint is OHLCV-only) — when Stooq is actively serving market data instead of yfinance, `extended_data.unavailable_reason` is set to `"fallback_provider_active"` rather than every field silently reading as null (which would be indistinguishable from "checked yfinance, found nothing").
+
 ### Portfolio position & account data
 
 Not retrieved from a market data provider — this is the user's own data:
