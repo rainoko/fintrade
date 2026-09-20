@@ -4,6 +4,35 @@
  */
 
 export interface paths {
+    "/api/ibkr/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the optional IBKR Client Portal Gateway integration is usable right now
+         * @description Reports the IBKR gateway's connection state -- 'disabled' when
+         *     `Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields
+         *     `None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise
+         *     whatever `IBKRProvider.get_gateway_status()` reports ('available' / 'gateway_unreachable'
+         *     / 'not_authenticated').
+         *
+         *     Never raises for any gateway state: `get_gateway_status()` itself never raises (its own
+         *     docstring's contract -- every failure mode it can observe is represented as a
+         *     `GatewayStatus` value instead of an exception), and this handler adds no failure mode of
+         *     its own on top of that.
+         */
+        get: operations["get_ibkr_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/portfolio": {
         parameters: {
             query?: never;
@@ -396,9 +425,20 @@ export interface paths {
          *
          *     Computed fresh on every request rather than cached at this aggregation layer, matching
          *     `GET /api/watchlist`/`GET /api/portfolio`'s own convention -- see this task's
-         *     `decisions` entry. No new provider calls result: every one of these tickers' OHLCV is
-         *     already fetched/cached (`app.data.cache.CachedDataProvider`) for its own per-ticker
-         *     signal on those endpoints.
+         *     `decisions` entry. This endpoint is its own separate HTTP request, not one that also
+         *     computes `GET /api/watchlist`'s or `GET /api/portfolio`'s per-ticker signals in the same
+         *     call -- so it reuses `app.data.cache.CachedDataProvider`'s shared OHLCV cache **when
+         *     warm** (i.e. one of those other endpoints was hit recently enough that the cache TTL
+         *     hasn't expired), rather than guaranteeing no fetch ever happens. If this is the first
+         *     thing loaded in a session, it does a full, uncached per-ticker fetch + `analyse()` pass
+         *     over every tracked ticker, sequentially -- worth revisiting for latency if a large
+         *     watchlist+portfolio ever makes that noticeably slow in practice (see
+         *     `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry).
+         *
+         *     `bullish_pct`/`bearish_pct`/`neutral_pct` are each independently rounded to 1 decimal
+         *     place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split yields
+         *     33.3 + 33.3 + 33.3 = 99.9) -- each percentage is still independently correct; this is not
+         *     a bug to "fix" by deriving one bucket as a remainder, see this task's `decisions` entry.
          *
          *     A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker,
          *     insufficient history, or the data provider being unavailable) is counted in
@@ -530,7 +570,7 @@ export interface components {
             bullish_count: number;
             /**
              * Bullish Pct
-             * @description bullish_count as a percentage of (bullish_count + bearish_count + neutral_count), rounded to 1 decimal place. 0.0 when that denominator is 0 (an empty watchlist+portfolio, or every tracked ticker currently unavailable), rather than an undefined/NaN value.
+             * @description bullish_count as a percentage of (bullish_count + bearish_count + neutral_count), rounded to 1 decimal place. 0.0 when that denominator is 0 (an empty watchlist+portfolio, or every tracked ticker currently unavailable), rather than an undefined/NaN value. bullish_pct/bearish_pct/neutral_pct are each rounded independently, so the three don't always sum to exactly 100.0 (e.g. an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) -- each value is still independently correct, not a display bug.
              */
             bullish_pct: number;
             /**
@@ -822,6 +862,20 @@ export interface components {
             interval: "daily" | "weekly";
             /** Ticker */
             ticker: string;
+        };
+        /** IBKRStatusResponse */
+        IBKRStatusResponse: {
+            /**
+             * Detail
+             * @description Human-readable context for `state` (the underlying transport error, or the gateway's own message) -- informational only, never required for a caller to branch on. Always null for 'disabled' and usually null for 'available'.
+             */
+            detail?: string | null;
+            /**
+             * State
+             * @description Whether the optional IBKR Client Portal Gateway integration is usable right now. 'disabled' -- Settings.ibkr_enabled is False (this app's default; no attempt to reach a gateway is made at all). 'available' -- the gateway is running and its session is authenticated; IBKR-backed features (hourly bars, the market scanner) can be used. 'gateway_unreachable' -- ibkr_enabled is True but no gateway process answered at the configured base URL (most likely it isn't running). 'not_authenticated' -- the gateway process is up and answering but its interactive browser login step hasn't been completed, or the session has since expired. Mirrors app.data.ibkr_provider.GatewayState exactly, plus this endpoint's own 'disabled' state for when that check is never even attempted.
+             * @enum {string}
+             */
+            state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
         };
         /** IndicatorHistoryPoint */
         IndicatorHistoryPoint: {
@@ -1491,6 +1545,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_ibkr_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IBKRStatusResponse"];
+                };
+            };
+        };
+    };
     get_portfolio: {
         parameters: {
             query?: never;

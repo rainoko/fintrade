@@ -1482,7 +1482,7 @@
       "id": "backend-ibkr-status-endpoint",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-status-endpoint.json"
     },
     {

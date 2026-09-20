@@ -3,7 +3,7 @@
   "title": "GET /api/ibkr/status -- surface IBKR gateway connection state",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -12,9 +12,26 @@
   ],
   "description": "app.api.dependencies.get_ibkr_provider exists and is already a thread-safe singleton (backend-ibkr-data-provider-followups), but nothing calls it -- the provider is fully dormant end-to-end. Add a read-only status endpoint wrapping IBKRProvider.get_gateway_status() so the app can actually surface 'IBKR: connected / not authenticated / gateway down / disabled' instead of this being invisible everywhere.",
   "checklist": [
-    { "step": "Add GET /api/ibkr/status returning the gateway state (available/gateway_unreachable/not_authenticated) plus an explicit 'disabled' state when Settings.ibkr_enabled is False, and a detail string.", "done": false },
-    { "step": "Ensure the endpoint never raises for any gateway state -- degrade to the appropriate status value instead, matching IBKRProvider.get_gateway_status's own never-raises contract.", "done": false },
-    { "step": "Unit tests mocking IBKRProvider for each of the four states (disabled, available, gateway_unreachable, not_authenticated).", "done": false },
-    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
-  ]
+    { "step": "Add GET /api/ibkr/status returning the gateway state (available/gateway_unreachable/not_authenticated) plus an explicit 'disabled' state when Settings.ibkr_enabled is False, and a detail string.", "done": true },
+    { "step": "Ensure the endpoint never raises for any gateway state -- degrade to the appropriate status value instead, matching IBKRProvider.get_gateway_status's own never-raises contract.", "done": true },
+    { "step": "Unit tests mocking IBKRProvider for each of the four states (disabled, available, gateway_unreachable, not_authenticated).", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New GET /api/ibkr/status route lives in its own backend/app/api/routers/ibkr.py (not appended to an existing router), registered in app/main.py alongside stocks/portfolio/watchlist. The handler derives 'disabled' purely from app.api.dependencies.get_ibkr_provider yielding None -- it does not separately call get_settings().ibkr_enabled -- since get_ibkr_provider's own documented contract is to yield None in exactly (and only) that case, so re-checking the flag directly would just be a redundant, potentially-divergent second source of truth for the same condition.",
+      "rationale": "A dedicated router file matches this codebase's one-router-per-resource convention (stocks.py/portfolio.py/watchlist.py) rather than shoehorning an unrelated resource into watchlist.py or portfolio.py. Deriving 'disabled' from the dependency's own None sentinel (rather than re-reading Settings) keeps a single source of truth for 'is IBKR enabled' -- get_ibkr_provider.py's own docstring already commits to yielding None if and only if ibkr_enabled is False, so this endpoint just trusts that contract instead of duplicating the check."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKRStatusResponse declares no `responses={...}` error cases beyond FastAPI's default (no 404/422/503 entries) -- the endpoint has no path/query parameters to fail validation on, and both get_gateway_status() and this handler are documented as never raising, so there is no genuine error case to declare per CLAUDE.md's API documentation standard.",
+      "rationale": "The API documentation standard's '404/422/503 etc.' requirement is for endpoints that actually have failure modes worth declaring to a client; forcing placeholder error responses onto a route that structurally cannot produce them would misrepresent the contract rather than clarify it."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint"
+  }
 }

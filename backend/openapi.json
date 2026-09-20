@@ -681,6 +681,38 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "IBKRStatusResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable context for `state` (the underlying transport error, or the gateway's own message) -- informational only, never required for a caller to branch on. Always null for 'disabled' and usually null for 'available'.",
+            "title": "Detail"
+          },
+          "state": {
+            "description": "Whether the optional IBKR Client Portal Gateway integration is usable right now. 'disabled' -- Settings.ibkr_enabled is False (this app's default; no attempt to reach a gateway is made at all). 'available' -- the gateway is running and its session is authenticated; IBKR-backed features (hourly bars, the market scanner) can be used. 'gateway_unreachable' -- ibkr_enabled is True but no gateway process answered at the configured base URL (most likely it isn't running). 'not_authenticated' -- the gateway process is up and answering but its interactive browser login step hasn't been completed, or the session has since expired. Mirrors app.data.ibkr_provider.GatewayState exactly, plus this endpoint's own 'disabled' state for when that check is never even attempted.",
+            "enum": [
+              "disabled",
+              "available",
+              "gateway_unreachable",
+              "not_authenticated"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "IBKRStatusResponse",
+        "type": "object"
+      },
       "IndicatorHistoryPoint": {
         "properties": {
           "accumulation_distribution": {
@@ -2003,6 +2035,28 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/ibkr/status": {
+      "get": {
+        "description": "Reports the IBKR gateway's connection state -- 'disabled' when\n`Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields\n`None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise\nwhatever `IBKRProvider.get_gateway_status()` reports ('available' / 'gateway_unreachable'\n/ 'not_authenticated').\n\nNever raises for any gateway state: `get_gateway_status()` itself never raises (its own\ndocstring's contract -- every failure mode it can observe is represented as a\n`GatewayStatus` value instead of an exception), and this handler adds no failure mode of\nits own on top of that.",
+        "operationId": "get_ibkr_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IBKRStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Whether the optional IBKR Client Portal Gateway integration is usable right now",
+        "tags": [
+          "ibkr"
+        ]
+      }
+    },
     "/api/portfolio": {
       "get": {
         "description": "All held positions plus account equity (cash + mark-to-market positions value).\n`current_price`/`unrealized_pnl_pct` on each position are enriched from the market\ndata cache and are null only if a price fetch for that ticker has failed. A position\nwhose price couldn't be fetched contributes nothing to `equity.positions_value`\n(it can't be marked to market) rather than falling back to cost basis \u2014 see this\ntask's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in\n`app.portfolio.pricing` (shared with GET /api/portfolio/risk) \u2014 see the\napi-portfolio-risk task's `decisions` entry.\n\n`signal`/`confidence`/`confidence_band` on each position come from the exact same\nTriple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md \u00a75) GET\n/api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal\ncomputation. Null together on a position whose signal couldn't be computed right now\n(its price fetch already failed, the separate weekly-history fetch the signal engine\nneeds failed, or the latest daily bar has a valid close but NaN open/high/low -- the\nsignal fields go null rather than silently reflecting yesterday's bar while\n`current_price` reflects today's), mirroring `current_price`'s own null-on-failure\nconvention and WatchlistItemOut's identical precedent -- the position itself is still\nreturned, never dropped or 500'd, just as a price-fetch failure never drops it -- see\n`_compute_position_signal`'s docstring and the api-portfolio-position-signal task's\n`decisions` entry.",
