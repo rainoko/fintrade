@@ -249,6 +249,13 @@ export interface paths {
          *     on this specific call, since the fallback (Stooq) provider always succeeds with an
          *     explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
          *     StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).
+         *
+         *     `insider_clusters` (`app.signals.insider_clusters.detect_insider_clusters`, Elder ch. 37
+         *     p. 147) is computed from `extended_data.insider_transactions` right here in the handler,
+         *     same as `support_resistance_zones`/`zones` above -- see the backend-insider-transaction-
+         *     clusters task's `decisions` entry for why this lives as its own top-level response field
+         *     (a computed detection result, like `support_resistance_zones`/`divergence`/`kangaroo_tail`)
+         *     rather than nested inside the raw `extended_data` object.
          */
         get: operations["get_stock_analysis"];
         put?: never;
@@ -481,6 +488,11 @@ export interface components {
             extended_data: components["schemas"]["ExtendedDataOut"];
             /** @description Latest-bar-only snapshot. For the same 10 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
+            /**
+             * Insider Clusters
+             * @description Buy or sell clusters detected from `extended_data.insider_transactions` -- 3+ distinct insiders trading the same direction within a rolling 30-day window (Elder ch. 37 p. 147: 'several insiders buying (or selling) within a one-month period' is a real, if secondary, signal). Ordered most-recent-window_end_date-first. Empty when no cluster currently qualifies, including whenever `extended_data.insider_transactions` itself is empty. Detection + exposure only -- not wired into signal/confidence_breakdown/portfolio risk (see the backend-insider-transaction-clusters task's `decisions` entry).
+             */
+            insider_clusters: components["schemas"]["InsiderClusterOut"][];
             /** @description The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions). */
             kangaroo_tail: components["schemas"]["KangarooTailOut"] | null;
             /** @description Suggested profit target + reward:risk ratio for this ticker's CURRENT signal (docs/Analyse.md §7, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). Only ever non-null when `signal` is 'BUY': this app's protective-stop formula (and its whole portfolio model) is explicitly long-only, so there's no symmetric short-side stop to pair with a SELL-side reward:risk ratio -- see the backend-profit-target task's `decisions` entry. Also null for a BUY when neither target technique currently produces a candidate (e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above current price). */
@@ -744,7 +756,7 @@ export interface components {
             float_shares: number | null;
             /**
              * Insider Transactions
-             * @description Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- clustering detection (3+ buys or sells within a month, Elder's own secondary signal) isn't computed here; see the backend-market-data-extra-fields task's `decisions` entry.
+             * @description Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- for buy/sell-cluster detection over this same list, see `AnalysisResponse.insider_clusters`.
              */
             insider_transactions: components["schemas"]["InsiderTransactionOut"][];
             /**
@@ -959,6 +971,47 @@ export interface components {
             season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
             /** @description Directional System / ADX (docs/Analyse.md §4, Elder ch. 24) -- always present as an object, but every one of its own fields is independently nullable during its own warm-up window (see `TrendStrength`'s own field descriptions), the same shape convention as this `Indicators` object itself. Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-atr-adx task's own explicit scope note: Elder's usage rules for this data -- trade trend-following only while ADX rises, a 4-step rise off its own low 'rings a bell' on a new trend -- are a separate methodology decision, not indicator plumbing). */
             trend_strength: components["schemas"]["TrendStrength"];
+        };
+        /** InsiderClusterOut */
+        InsiderClusterOut: {
+            /**
+             * Direction
+             * @description Which way this cluster's insiders traded -- 'buy' or 'sell'. Buy and sell clusters are detected entirely independently (a transaction only ever belongs to one direction's clustering pass, per its own classification).
+             * @enum {string}
+             */
+            direction: "buy" | "sell";
+            /**
+             * Insiders
+             * @description Distinct insider names in this cluster, alphabetically sorted. Always at least 3 (the minimum distinct-insider threshold this cluster reached to qualify at all -- Elder ch. 37 p. 147's 'several insiders ... within a one-month period').
+             */
+            insiders: string[];
+            /**
+             * Total Shares
+             * @description Sum of shares across the window's qualifying filings that reported a share count. Null when none of them did.
+             */
+            total_shares: number | null;
+            /**
+             * Total Value
+             * @description Sum of dollar value across the window's qualifying filings that reported one. Null when none of them did.
+             */
+            total_value: number | null;
+            /**
+             * Transaction Count
+             * @description Total qualifying (classified buy/sell, named insider, dated) filings within the window -- can exceed len(insiders) when one of the insiders filed more than once within the window.
+             */
+            transaction_count: number;
+            /**
+             * Window End Date
+             * Format: date
+             * @description start_date of the cluster's most recent qualifying transaction -- always within 30 calendar days of window_start_date.
+             */
+            window_end_date: string;
+            /**
+             * Window Start Date
+             * Format: date
+             * @description start_date of the cluster's earliest qualifying transaction.
+             */
+            window_start_date: string;
         };
         /** InsiderTransactionOut */
         InsiderTransactionOut: {

@@ -16,6 +16,7 @@ from app.api.schemas import (
     IndicatorHistoryPoint,
     IndicatorHistoryResponse,
     Indicators,
+    InsiderClusterOut,
     InsiderTransactionOut,
     KangarooTailOut,
     OHLCVBar,
@@ -38,6 +39,7 @@ from app.indicators.obv import obv as compute_obv
 from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.signals.divergence import Divergence
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
+from app.signals.insider_clusters import InsiderCluster, detect_insider_clusters
 from app.signals.kangaroo_tail import KangarooTail
 from app.signals.support_resistance import Zone, detect_support_resistance_zones
 
@@ -340,6 +342,24 @@ def _extended_data_to_schema(extended: ExtendedData, *, today: date) -> Extended
     )
 
 
+def _insider_cluster_to_schema(cluster: InsiderCluster) -> InsiderClusterOut:
+    """Maps `app.signals.insider_clusters.InsiderCluster` (the domain type -- plain
+    `datetime.date` fields already, unlike `Zone`/`Divergence`/`KangarooTail` above, since
+    `InsiderTransaction.start_date` is itself a plain `date`, not a `pd.Timestamp`) onto
+    `InsiderClusterOut` (the API schema) -- same boundary-mapping pattern as
+    `_zone_to_schema`/`_divergence_to_schema`/`_kangaroo_tail_to_schema`/
+    `_profit_target_to_schema` above, a straight 1:1 field copy here."""
+    return InsiderClusterOut(
+        direction=cluster.direction,
+        window_start_date=cluster.window_start_date,
+        window_end_date=cluster.window_end_date,
+        insiders=cluster.insiders,
+        transaction_count=cluster.transaction_count,
+        total_shares=cluster.total_shares,
+        total_value=cluster.total_value,
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -386,7 +406,14 @@ def get_analysis(
     same 503 -- in practice this only happens if *both* the primary and fallback providers fail
     on this specific call, since the fallback (Stooq) provider always succeeds with an
     explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
-    StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry)."""
+    StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).
+
+    `insider_clusters` (`app.signals.insider_clusters.detect_insider_clusters`, Elder ch. 37
+    p. 147) is computed from `extended_data.insider_transactions` right here in the handler,
+    same as `support_resistance_zones`/`zones` above -- see the backend-insider-transaction-
+    clusters task's `decisions` entry for why this lives as its own top-level response field
+    (a computed detection result, like `support_resistance_zones`/`divergence`/`kangaroo_tail`)
+    rather than nested inside the raw `extended_data` object."""
     ticker = ticker.upper()
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
@@ -454,6 +481,10 @@ def get_analysis(
         ),
         profit_target=_profit_target_to_schema(profit_target) if profit_target is not None else None,
         extended_data=_extended_data_to_schema(extended, today=date.today()),
+        insider_clusters=[
+            _insider_cluster_to_schema(cluster)
+            for cluster in detect_insider_clusters(extended.insider_transactions)
+        ],
     )
 
 

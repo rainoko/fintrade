@@ -130,6 +130,7 @@ const analysisFixture: AnalysisResponse = {
     insider_transactions: [],
     unavailable_reason: null,
   },
+  insider_clusters: [],
 }
 
 function buildHistoryFixture(ticker: string, interval: HistoryInterval): HistoryResponse {

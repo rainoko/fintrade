@@ -276,6 +276,7 @@ describe('StockDetailPage', () => {
             insider_transactions: [],
             unavailable_reason: null,
           },
+          insider_clusters: [],
         }),
       ),
     )

@@ -702,6 +702,131 @@ class TestExtendedData:
         assert response.json()["extended_data"]["unavailable_reason"] == "fallback_provider_active"
 
 
+class TestInsiderClusters:
+    """Confirms GET /api/stocks/{ticker}/analysis's `insider_clusters` field is actually wired
+    to `app.signals.insider_clusters.detect_insider_clusters` over
+    `extended_data.insider_transactions` -- the algorithm itself is hand-verified in
+    tests/unit/signals/test_insider_clusters.py; this just checks the API-layer plumbing
+    (empty by default, populated + correctly shaped when a qualifying cluster exists)."""
+
+    def test_empty_when_no_insider_transactions(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": ExtendedData(
+                earnings_date=None,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions=[],
+            )},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["insider_clusters"] == []
+
+    def test_qualifying_buy_cluster_is_reported(self) -> None:
+        extended = ExtendedData(
+            earnings_date=None,
+            ex_dividend_date=None,
+            shares_short=None,
+            short_ratio=None,
+            short_percent_of_float=None,
+            float_shares=None,
+            insider_transactions=[
+                InsiderTransaction(
+                    insider="Alice A",
+                    position="Director",
+                    transaction_text="Purchase at price 10.00 per share.",
+                    shares=100.0,
+                    value=None,
+                    start_date=date(2026, 1, 1),
+                    ownership="D",
+                ),
+                InsiderTransaction(
+                    insider="Bob B",
+                    position="Director",
+                    transaction_text="Purchase at price 11.00 per share.",
+                    shares=200.0,
+                    value=None,
+                    start_date=date(2026, 1, 10),
+                    ownership="D",
+                ),
+                InsiderTransaction(
+                    insider="Carol C",
+                    position="Director",
+                    transaction_text="Purchase at price 12.00 per share.",
+                    shares=300.0,
+                    value=None,
+                    start_date=date(2026, 1, 20),
+                    ownership="D",
+                ),
+            ],
+        )
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": extended},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["insider_clusters"] == [
+            {
+                "direction": "buy",
+                "window_start_date": "2026-01-01",
+                "window_end_date": "2026-01-20",
+                "insiders": ["Alice A", "Bob B", "Carol C"],
+                "transaction_count": 3,
+                "total_shares": 600.0,
+                "total_value": None,
+            }
+        ]
+
+    def test_non_qualifying_transactions_produce_no_cluster(self) -> None:
+        """Only 2 distinct insiders -- below the 3-insider threshold -- no cluster."""
+        extended = ExtendedData(
+            earnings_date=None,
+            ex_dividend_date=None,
+            shares_short=None,
+            short_ratio=None,
+            short_percent_of_float=None,
+            float_shares=None,
+            insider_transactions=[
+                InsiderTransaction(
+                    insider="Alice A",
+                    position="Director",
+                    transaction_text="Purchase at price 10.00 per share.",
+                    shares=None,
+                    value=None,
+                    start_date=date(2026, 2, 1),
+                    ownership="D",
+                ),
+                InsiderTransaction(
+                    insider="Bob B",
+                    position="Director",
+                    transaction_text="Purchase at price 11.00 per share.",
+                    shares=None,
+                    value=None,
+                    start_date=date(2026, 2, 10),
+                    ownership="D",
+                ),
+            ],
+        )
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": extended},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["insider_clusters"] == []
+
+
 def _bar(high: float, low: float, close: float, volume: float = 1_000_000.0) -> dict:
     return {"open": close, "high": high, "low": low, "close": close, "volume": volume}
 

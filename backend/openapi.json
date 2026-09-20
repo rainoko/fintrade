@@ -50,6 +50,14 @@
             "$ref": "#/components/schemas/Indicators",
             "description": "Latest-bar-only snapshot. For the same 10 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators."
           },
+          "insider_clusters": {
+            "description": "Buy or sell clusters detected from `extended_data.insider_transactions` -- 3+ distinct insiders trading the same direction within a rolling 30-day window (Elder ch. 37 p. 147: 'several insiders buying (or selling) within a one-month period' is a real, if secondary, signal). Ordered most-recent-window_end_date-first. Empty when no cluster currently qualifies, including whenever `extended_data.insider_transactions` itself is empty. Detection + exposure only -- not wired into signal/confidence_breakdown/portfolio risk (see the backend-insider-transaction-clusters task's `decisions` entry).",
+            "items": {
+              "$ref": "#/components/schemas/InsiderClusterOut"
+            },
+            "title": "Insider Clusters",
+            "type": "array"
+          },
           "kangaroo_tail": {
             "anyOf": [
               {
@@ -109,7 +117,8 @@
           "support_resistance_zones",
           "divergence",
           "kangaroo_tail",
-          "extended_data"
+          "extended_data",
+          "insider_clusters"
         ],
         "title": "AnalysisResponse",
         "type": "object"
@@ -520,7 +529,7 @@
             "title": "Float Shares"
           },
           "insider_transactions": {
-            "description": "Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- clustering detection (3+ buys or sells within a month, Elder's own secondary signal) isn't computed here; see the backend-market-data-extra-fields task's `decisions` entry.",
+            "description": "Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- for buy/sell-cluster detection over this same list, see `AnalysisResponse.insider_clusters`.",
             "items": {
               "$ref": "#/components/schemas/InsiderTransactionOut"
             },
@@ -980,6 +989,79 @@
           "trend_strength"
         ],
         "title": "Indicators",
+        "type": "object"
+      },
+      "InsiderClusterOut": {
+        "properties": {
+          "direction": {
+            "description": "Which way this cluster's insiders traded -- 'buy' or 'sell'. Buy and sell clusters are detected entirely independently (a transaction only ever belongs to one direction's clustering pass, per its own classification).",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "insiders": {
+            "description": "Distinct insider names in this cluster, alphabetically sorted. Always at least 3 (the minimum distinct-insider threshold this cluster reached to qualify at all -- Elder ch. 37 p. 147's 'several insiders ... within a one-month period').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Insiders",
+            "type": "array"
+          },
+          "total_shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of shares across the window's qualifying filings that reported a share count. Null when none of them did.",
+            "title": "Total Shares"
+          },
+          "total_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of dollar value across the window's qualifying filings that reported one. Null when none of them did.",
+            "title": "Total Value"
+          },
+          "transaction_count": {
+            "description": "Total qualifying (classified buy/sell, named insider, dated) filings within the window -- can exceed len(insiders) when one of the insiders filed more than once within the window.",
+            "title": "Transaction Count",
+            "type": "integer"
+          },
+          "window_end_date": {
+            "description": "start_date of the cluster's most recent qualifying transaction -- always within 30 calendar days of window_start_date.",
+            "format": "date",
+            "title": "Window End Date",
+            "type": "string"
+          },
+          "window_start_date": {
+            "description": "start_date of the cluster's earliest qualifying transaction.",
+            "format": "date",
+            "title": "Window Start Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "direction",
+          "window_start_date",
+          "window_end_date",
+          "insiders",
+          "transaction_count",
+          "total_shares",
+          "total_value"
+        ],
+        "title": "InsiderClusterOut",
         "type": "object"
       },
       "InsiderTransactionOut": {
@@ -2095,7 +2177,7 @@
     },
     "/api/stocks/{ticker}/analysis": {
       "get": {
-        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.\n\n`ticker` is normalized to uppercase (mirrors `POST /api/portfolio/positions`'s handling\nof the same field) before being passed to the data provider and echoed back in the\nresponse. Daily and weekly OHLCV are fetched via the SQLite-backed cache\n(`app.data.cache.CachedDataProvider`, docs/architecture/Backend.md \u00a77); the weekly fetch\nis what actually enforces the <26-week-history -> 422 rule\n(`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no\nseparate minimum-history check of its own, matching `app.signals.engine.analyse`'s own\ndocumented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this\ntask's `decisions` entry).\n\n`daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed\nunsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`\nbefore `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that\nactually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally\nanyway (see that function's own docstring and this task's `decisions` entry).\n\n`profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md \u00a77)\nis only ever computed for a fresh BUY `signal` -- see that module's own docstring and the\n`backend-profit-target` task's `decisions` entry for why this app's long-only protective-\nstop formula rules out a symmetric SELL-side reward:risk ratio.\n\n`extended_data` (earnings/dividend dates, short interest, insider transactions -- see\n`ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as\n`daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the\nsame 503 -- in practice this only happens if *both* the primary and fallback providers fail\non this specific call, since the fallback (Stooq) provider always succeeds with an\nexplicit \"unsupported\" result rather than raising (see `app.data.stooq_provider.\nStooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).",
+        "description": "Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the\nweighted confidence score for `ticker` (docs/Analyse.md \u00a72-6). `confidence_breakdown`\nexposes the per-component scores so the signal is auditable, not just a bare number.\n\n`ticker` is normalized to uppercase (mirrors `POST /api/portfolio/positions`'s handling\nof the same field) before being passed to the data provider and echoed back in the\nresponse. Daily and weekly OHLCV are fetched via the SQLite-backed cache\n(`app.data.cache.CachedDataProvider`, docs/architecture/Backend.md \u00a77); the weekly fetch\nis what actually enforces the <26-week-history -> 422 rule\n(`app.data.yfinance_provider.YFinanceProvider._MIN_WEEKLY_BARS`) -- this handler adds no\nseparate minimum-history check of its own, matching `app.signals.engine.analyse`'s own\ndocumented degrade-gracefully-to-HOLD behavior for a short/empty daily series (see this\ntask's `decisions` entry).\n\n`daily_ohlcv` has any malformed bar (NaN open/high/low/close -- a real observed\nunsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`\nbefore `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that\nactually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally\nanyway (see that function's own docstring and this task's `decisions` entry).\n\n`profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md \u00a77)\nis only ever computed for a fresh BUY `signal` -- see that module's own docstring and the\n`backend-profit-target` task's `decisions` entry for why this app's long-only protective-\nstop formula rules out a symmetric SELL-side reward:risk ratio.\n\n`extended_data` (earnings/dividend dates, short interest, insider transactions -- see\n`ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as\n`daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the\nsame 503 -- in practice this only happens if *both* the primary and fallback providers fail\non this specific call, since the fallback (Stooq) provider always succeeds with an\nexplicit \"unsupported\" result rather than raising (see `app.data.stooq_provider.\nStooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).\n\n`insider_clusters` (`app.signals.insider_clusters.detect_insider_clusters`, Elder ch. 37\np. 147) is computed from `extended_data.insider_transactions` right here in the handler,\nsame as `support_resistance_zones`/`zones` above -- see the backend-insider-transaction-\nclusters task's `decisions` entry for why this lives as its own top-level response field\n(a computed detection result, like `support_resistance_zones`/`divergence`/`kangaroo_tail`)\nrather than nested inside the raw `extended_data` object.",
         "operationId": "get_stock_analysis",
         "parameters": [
           {
