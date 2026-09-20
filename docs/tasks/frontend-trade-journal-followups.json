@@ -3,7 +3,7 @@
   "title": "Trade journal follow-ups from PR #150 review",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-trade-journal"],
   "references": [
     "docs/tasks/done/frontend-trade-journal.json",
@@ -13,16 +13,35 @@
   "checklist": [
     {
       "step": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx's GradeCell bolds a grade at exactly the threshold (`gradePct >= goodThresholdPct`), but both the grade's own MetricHelp copy ('Elder considers a sell/buy grade over 50% \"very good\"') and backend/app/api/schemas.py's docstring describe the buy/sell-grade cutoff as strictly '>50%', not '>=50%'. A grade of exactly 50.0% renders bold (visually 'good') while the popover text it sits next to says 'over 50%' -- a genuine off-by-boundary mismatch, narrow edge case but worth aligning (either use a strict `>` comparison for the two 50%-anchored grades, or reword the copy to '50% or more').",
-      "done": false
+      "done": true
     },
     {
       "step": "components/common/SignedCurrency/SignedCurrency.tsx duplicates the exact sign-to-color three-way ternary (success/error/secondary) and the leading '+' construction already implemented in common/PercentChange -- worth extracting a small shared helper (e.g. a `signColor(value)` utility) so a future change to the app's gain/loss color convention only needs updating in one place, and so a third signed-value component doesn't copy-paste a third time.",
-      "done": false
+      "done": true
     },
     {
       "step": "TradeJournalPanel.tsx marks buy_grade_pct/sell_grade_pct/trade_grade_pct as not sortable, with a comment claiming 'DataTable's generic comparator has no defined ordering for a nullable percentage' -- but DataTable.tsx's own compareForSort already defines null-sorts-last behavior for exactly this case (nulls always sort after real values, per its own docstring), mirroring the same (also outdated) rationale already on PositionsTable.tsx's current_price column. These grade columns' underlying values are plain nullable numbers, so they could be marked sortable like the table's other nullable numeric columns -- worth revisiting both this column and the pre-existing PositionsTable precedent it copied.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the 50% boundary mismatch by making GradeCell's Buy Grade/Sell Grade columns use a strict `>` comparison (`strictlyAbove` prop, default false) instead of rewording the MetricHelp/backend copy from 'over 50%' to '50% or more'.",
+      "rationale": "The copy ('over 50%') already matches Elder's own wording and the backend schemas.py docstring exactly (both use '>50%'); changing the comparison to match the existing, methodology-grounded copy is a smaller, lower-risk change than rewording two independent copy sources (frontend MetricHelp + backend docstring) to match the code. Trade Grade's own threshold copy ('roughly 30%+') is already inclusive by its own wording, so it intentionally keeps the default `>=` behavior -- only the two 50%-anchored grades pass `strictlyAbove`."
+    },
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared sign-to-color three-way ternary into `frontend/src/utils/signColor.ts` (a plain `(theme, value) => string` function, not a hook or a new common/ component), and had both `common/PercentChange` and `common/SignedCurrency` call it.",
+      "rationale": "A plain function (rather than a `useSignColor()` hook) keeps the call sites' existing `useTheme()` + one-line color derivation shape, needs no extra import of a hooks convention, and is trivially unit-testable on its own (added signColor.test.ts) without rendering a component. Placed under utils/ (alongside format.ts/chart.ts) rather than components/common/ since it renders nothing and has no props/story of its own -- it's a formatting-style utility, not a display component per Frontend.md's common/ vs utils/ distinction elsewhere in the codebase (e.g. formatCurrency)."
+    },
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Marked TradeJournalPanel's buy_grade_pct/sell_grade_pct/trade_grade_pct columns AND PositionsTable's pre-existing current_price column as `sortable: true`, removing the outdated 'DataTable's generic comparator has no defined ordering for a nullable percentage' comments from both.",
+      "rationale": "DataTable's compareForSort operates on the raw `row[column.key]` value regardless of whether the column has a custom `render`, and already defines null-sorts-last ordering for exactly this nullable-number case (existing DataTable.test.tsx coverage). The checklist item explicitly flagged the PositionsTable precedent as worth revisiting too, since TradeJournalPanel's own (incorrect) comment had copied it; fixing only the newer copy would leave the same stale rationale on the older file it was copied from. Added a sort test to each panel confirming null-last ordering end to end (not just at the DataTable unit level)."
+    }
+  ]
 }

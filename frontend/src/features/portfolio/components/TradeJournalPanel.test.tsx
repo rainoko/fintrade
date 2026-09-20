@@ -75,6 +75,86 @@ describe('TradeJournalPanel', () => {
     expect(tradeGrade).toHaveStyle({ fontWeight: '700' })
   })
 
+  it('does not bold a grade at exactly its "good" threshold, since the threshold copy says "over" it', async () => {
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_boundary',
+          ticker: 'MSFT',
+          quantity: 1,
+          entry_price: 100,
+          entry_date: '2026-01-01',
+          exit_price: 110,
+          exit_date: '2026-01-05',
+          realized_pnl: 10,
+          exit_reason: 'target_hit',
+          // Exactly at the buy/sell "over 50%" anchor -- must render as the
+          // non-bold weight, matching the strictly-"over" MetricHelp/backend
+          // copy (frontend-trade-journal-followups).
+          buy_grade_pct: 50,
+          sell_grade_pct: 50,
+          trade_grade_pct: 30,
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('MSFT')).toBeInTheDocument())
+
+    const row = screen.getByText('MSFT').closest('tr') as HTMLElement
+    const grades = within(row).getAllByText('50.0%')
+    expect(grades).toHaveLength(2)
+    grades.forEach((grade) => expect(grade).toHaveStyle({ fontWeight: '400' }))
+    // Trade Grade keeps its inclusive >= 30% "A trade" cutoff.
+    expect(within(row).getByText('30.0%')).toHaveStyle({ fontWeight: '700' })
+  })
+
+  it('sorts by a nullable grade column, missing values last', async () => {
+    const user = userEvent.setup()
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_a',
+          ticker: 'AAA',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          buy_grade_pct: 40,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+        },
+        {
+          id: 'trade_b',
+          ticker: 'BBB',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          buy_grade_pct: 90,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('AAA')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Buy Grade' }))
+
+    const table = screen.getByRole('table', { name: 'Trade journal' })
+    const bodyRows = within(table).getAllByRole('row').slice(1)
+    expect(within(bodyRows[0]).getByText('AAA')).toBeInTheDocument()
+    expect(within(bodyRows[1]).getByText('BBB')).toBeInTheDocument()
+  })
+
   it('wires each grade cell’s MetricHelp to its own formula/value explanation', async () => {
     const user = userEvent.setup()
     mockClosedTrades({
