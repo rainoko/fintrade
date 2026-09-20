@@ -118,5 +118,10 @@
       }
     ],
     "notes": "No blocking findings across tests/coverage (backend 99.92%, frontend ~99.5%+, both suites passing), static analysis (ruff/mypy/eslint/tsc all clean), OpenAPI/frontend-types sync (both independently regenerated and diffed clean), methodology conformance (Tide output unchanged, aggregate is read-only/additive, docs honestly frame this as a proxy not a substitute for real market breadth), dedup logic (verified via consistent upper()-on-write normalization on both the watchlist and portfolio write paths, plus the PR's own GOOG-on-both-lists test), and the empty-watchlist+portfolio edge case (tested and gracefully returns all-zero, not an error). Three non-blocking findings (one from the code-review skill's reuse observation plus a documentation-accuracy nit, one on percentage rounding not always summing to 100.0, one on Analyse.md section placement) filed to backend-watchlist-breadth-proxy-followups.json rather than left only as PR comments."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T00:25:01Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app: 746 passed, 99.92% overall coverage, backend/app/api/routers/watchlist.py at 100% line/branch; ruff and mypy both clean. Regenerated backend/openapi.json and frontend/src/api/types.ts from this branch -- git diff on both shows zero drift from the committed versions. Traced the dedup logic myself in the diff (get_watchlist_breadth: `watchlist_tickers | portfolio_tickers` set union) and confirmed both write paths (watchlist.py:216/237, portfolio.py:295) upper() the ticker before storing, so the union is genuinely case-safe; the PR's own GOOG-on-both-lists test (tracked_ticker_count=4, not 5) matches this trace. Grepped app/signals/ and app/portfolio/ (confidence logic actually lives in app/signals/confidence.py, not app/portfolio/confidence.py) plus a repo-wide grep for 'breadth' -- only backend/app/api/schemas.py and backend/app/api/routers/watchlist.py reference it, confirming the endpoint is a read-only aggregate with no feedback into any per-ticker signal/confidence computation."
   }
 }
