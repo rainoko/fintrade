@@ -3,7 +3,7 @@
   "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/signals/impulse.py",
@@ -15,31 +15,69 @@
   "checklist": [
     {
       "step": "DECIDE AND RECORD: does weekly Impulse fully replace evaluate_tide's current standalone test, or does the app keep both and reconcile disagreements (and if so, how)? This is the central open question from docs/ideas.md.",
-      "done": false
+      "done": true
     },
     {
       "step": "DECIDE AND RECORD: does _determine_signal's existing daily-Impulse gate stay as an additional check per ch. 40's separate technique, or was it effectively superseded by making weekly-Impulse the Screen 1 test itself?",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement evaluate_impulse (or a new weekly-scoped variant) against weekly_ohlcv, reusing the existing daily implementation's structure where it makes sense.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement whatever reconciliation the first decision above calls for.",
-      "done": false
+      "done": true
     },
     {
-      "step": "Update docs/Analyse.md \u00a72/\u00a73 to reflect the corrected methodology (cite the ch. 39 primary-source quote from docs/ideas.md) -- this is a genuine correction to the documented methodology, not just new code.",
-      "done": false
+      "step": "Update docs/Analyse.md §2/§3 to reflect the corrected methodology (cite the ch. 39 primary-source quote from docs/ideas.md) -- this is a genuine correction to the documented methodology, not just new code.",
+      "done": true
     },
     {
       "step": "Tests covering the reconciliation logic's actual decision paths, not just the weekly-Impulse computation in isolation.",
-      "done": false
+      "done": true
     },
     {
       "step": "Run the elder-signal-reviewer agent (or the verify-elder-signal skill directly) against the result before considering this done, given how central Screen 1 is to every downstream signal.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Weekly Impulse fully REPLACES evaluate_tide's old standalone weekly-MACD-Histogram-slope + 13/26-week-EMA test -- not an additional gate layered alongside it, and not a two-test reconciliation scheme. `evaluate_tide` now calls `app.signals.impulse.evaluate_impulse(weekly_ohlcv, ema_13=..., histogram=...)` (the same function already used for the daily gate, reused unchanged rather than duplicated) and maps its GREEN/RED/BLUE color directly onto Tide's BULLISH/BEARISH/NEUTRAL vocabulary (GREEN->BULLISH, RED->BEARISH, BLUE->NEUTRAL).",
+      "rationale": "The primary source (Elder ch. 39, \"Triple Screen Trading System\", The New Trading for a Living, 2014, pp. 156-157, quoted in docs/ideas.md) is explicit and unambiguous: \"The original version of Triple Screen used the slope of weekly MACD-Histogram as its weekly trend-following indicator... After I invented the Impulse system... I began to use it for the first screen of Triple Screen.\" This frames the change as Elder swapping out his main trend tool, not adding a second test alongside the first -- there is no textual basis in ch. 39 for a dual-test reconciliation scheme (which the book never describes), and inventing one would be adding unrequested complexity the source doesn't support. Rejected alternative: keep the old slope+EMA(13/26) test as a second Screen-1-adjacent gate and require both to agree. Rejected because (a) it contradicts the primary source's own framing of a replacement, not an addition, and (b) docs/ideas.md's own reasoning (written before this task existed, verifying the primary source directly) already reached the same conclusion (\"Screen 1 IS the weekly Impulse System color, full stop\"). GREEN->BULLISH/RED->BEARISH/BLUE->NEUTRAL is the only sensible 3-color-to-3-color mapping given the two vocabularies' own documented semantics (BLUE = 'any action allowed, but weaker' already matches NEUTRAL's 'doesn't block, reduces confidence' role in docs/Analyse.md §2)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The pre-existing *daily* Impulse gate in `app.signals.engine._determine_signal` (RED blocks a fresh BUY, GREEN blocks a fresh SELL) is UNCHANGED and stays a separate, additional check -- not superseded by weekly Impulse becoming Screen 1.",
+      "rationale": "docs/ideas.md's own primary-source analysis draws this distinction explicitly: \"he *also* checks daily-Impulse for entry/exit timing on top of this -- that's a real, additional technique, but it's layered on top of Screen 1 being weekly Impulse, not a correction of it.\" This matches Elder ch. 40's own framing of the Impulse System as a general-purpose entry/exit-timing tool usable on any timeframe, independent of which specific timeframe is serving as which Triple Screen pass. Added an explicit end-to-end regression test (`TestAnalyseEndToEnd.test_end_to_end_daily_impulse_gate_still_blocks_a_buy_under_a_bullish_weekly_tide` in backend/tests/unit/signals/test_engine.py) proving the two Impulse computations (weekly-driven Tide vs. the daily gate) are genuinely decoupled with real, unmocked data -- a BULLISH weekly Tide plus a RED daily Impulse still downgrades an otherwise-qualifying setup to HOLD."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`evaluate_tide`'s `ema_26` parameter was removed (it no longer has any use), and `weekly_macd_histogram_slope` stays on `TideResult`/`TideScreen` as informational-only context rather than being dropped from the API schema.",
+      "rationale": "Weekly Impulse's GREEN/RED/BLUE test only reads EMA(13) and MACD-Histogram bar-over-bar direction -- it never touches EMA(26) at all, so keeping an `ema_26` parameter around unused would be dead, misleading surface area on a function whose whole point (per this task) is that Screen 1 no longer works that way. All call sites (`app.signals.engine.analyse`/`analyse_history`, `app.portfolio.exits.evaluate_exit_flags`) were updated to stop computing/passing it. `weekly_macd_histogram_slope`, by contrast, was kept: it's still a genuinely useful, human-readable read of the underlying weekly momentum even though it no longer decides `trend`, and dropping a field from `TideResult`/`TideScreen` (docs/architecture/API.md's `screens.tide` shape, consumed by the frontend) would be a needless breaking API change for informational value that didn't disappear just because it stopped being decisive. Only the `Field` descriptions in `backend/app/api/schemas.py`'s `TideScreen` changed (not the field set), so `backend/openapi.json` only differs in description text -- no frontend type/test literal updates were needed (verified via `grep` across frontend/src for every `TideScreen`/`weekly_macd_histogram_slope` object-literal construction: all still match the unchanged `{trend, weekly_macd_histogram_slope}` shape)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`evaluate_impulse`'s tie-counts-as-falling convention (`app.signals.impulse._direction`, an existing, already-documented convention predating this task) is reused as-is for the weekly call, not forked into a Tide-specific variant with different tie handling.",
+      "rationale": "Reusing the exact same function (not a near-duplicate) for both the daily gate and the new weekly Tide test was this task's own stated goal (\"reusing the existing daily implementation's structure\"); forking a second tie convention purely for Tide would reintroduce the kind of duplicated, driftable logic this app has consistently avoided elsewhere (e.g. `macd_histogram_slope`, `_direction` were each already promoted to shared/public helpers for exactly this reason). Consequence, verified and hand-computed during implementation: a perfectly flat weekly close (identical price for 10+ consecutive weeks) now resolves to weekly Impulse RED / Tide BEARISH rather than NEUTRAL, because EMA(13) and MACD-Histogram are both exactly tied bar-over-bar on the last step, and a tie counts as 'falling' per `_direction`'s own (pre-existing) docstring. This never happens with real market data (mirrors the exact same 'never happens for real' framing already used for `macd_histogram_slope`'s zero-close-division-guard), so it isn't a practical behavior change worth engineering around, and it was the deciding factor in updating three now-misleading test fixtures across the test suite (`test_stocks_analysis.py::_hold_weekly_ohlcv`, `test_watchlist.py::_hold_weekly_ohlcv`, `test_engine.py::test_end_to_end_hold_on_flat_history`) that had relied on a perfectly-flat weekly series to exercise a *genuinely NEUTRAL* Tide -- each now uses a tiny up-week/down-week wiggle that produces a real EMA(13)-vs-MACD-Histogram directional disagreement (weekly Impulse BLUE) instead, preserving each test's actual intent (exercising NEUTRAL-tide behavior) rather than accidentally exercising the flat-tie edge case."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Frontend copy that explains Screen 1/Tide methodology in the old slope+13/26-week-EMA terms (backend/app/api/schemas.py's descriptions were fixed in this PR, but frontend/src/features/stocks/components/metricHelpContent.ts, signalExplanation.ts, and ScreensPanel.tsx's user-facing help text were NOT updated) is left as-is, out of scope for this task.",
+      "rationale": "This task's `area` is `backend/signals` and its `skill` is `add-indicator` (a backend-only workflow); its checklist and `references` name only backend files (`impulse.py`, `triple_screen.py`) plus `docs/Analyse.md`. The frontend copy surface discovered while implementing (several help-text strings in metricHelpContent.ts/signalExplanation.ts describing Tide/Impulse in the pre-correction 'weekly MACD-H slope and 13/26-week EMA relationship agree/disagree' terms) is real and now stale relative to the corrected docs/Analyse.md §2/§3 -- but rewriting it accurately (including its own test coverage, since several *.test.tsx/*.test.ts files assert against these exact strings) is a substantial, separate frontend-copy-and-tests effort that risks scope creep and regression within a task whose actual mandate is the backend signal-computation correction. No frontend *code* or *behavior* changed in this PR (TideScreen's field set is unchanged, confirmed via grep above), so no frontend test currently fails because of this gap -- it's a documentation-accuracy gap, not a functional one. Flagging explicitly here (rather than silently) so pr-reviewer can file it as a `backend-weekly-impulse-screen1-followups` tracked task per CLAUDE.md's non-blocking-finding convention, with concrete pointers: frontend/src/features/stocks/components/metricHelpContent.ts lines ~87-89, ~181, ~198 (tideHelp copy); frontend/src/features/stocks/components/signalExplanation.ts line ~116 (Neutral-tide explanation copy)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Updated `.claude/skills/verify-elder-signal/SKILL.md`'s own checklist (Screen 1 and Impulse Gate sections) to describe the corrected weekly-Impulse-is-Screen-1 methodology, in the same change as the code/doc correction.",
+      "rationale": "Running the skill against this PR's own diff surfaced that its Screen 1 checklist item still said \"Weekly MACD-Histogram slope and 13/26-week EMA relationship both feed the tide determination\" -- the exact pre-correction rule this task replaces. Left as-is, every future run of this skill (or the elder-signal-reviewer agent that loads it) would flag the corrected code as a bug and could push a future worker to regress Screen 1 back to the superseded methodology. This is the skill-file equivalent of the doc-staleness case the skill's own \"If a Mismatch Is Found\" section already tells reviewers to fix in the same change rather than leaving inconsistent -- so it was fixed here rather than filed as a separate follow-up, since leaving it stale would actively mislead the very verification step this task's checklist requires (item 7)."
     }
   ]
 }

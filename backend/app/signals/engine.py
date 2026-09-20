@@ -277,7 +277,6 @@ def analyse(
     stochastic_k: pd.Series | None = None,
     force_index_2ema: pd.Series | None = None,
     weekly_ema_13: pd.Series | None = None,
-    weekly_ema_26: pd.Series | None = None,
     weekly_histogram: pd.Series | None = None,
     channel_upper: pd.Series | None = None,
     channel_lower: pd.Series | None = None,
@@ -357,12 +356,15 @@ def analyse(
     Index pass from scratch (the O(range_size x history_length) cost this task's `decisions`
     entry addresses).
 
-    ``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` are the equivalent passthrough for
-    Screen 1 -- forwarded straight to ``evaluate_tide``'s own like-named parameters (see its
-    docstring), letting ``analyse_history`` share one weekly EMA/MACD pass across every bar's
-    Tide evaluation the same way it does for the five daily-side parameters above, instead of
-    every bar's ``evaluate_tide`` call re-deriving the weekly EMA(13)/EMA(26)/MACD-Histogram
-    from scratch over its own truncated ``weekly_ohlcv`` window.
+    ``weekly_ema_13``/``weekly_histogram`` are the equivalent passthrough for Screen 1 --
+    forwarded straight to ``evaluate_tide``'s own like-named parameters (see its docstring),
+    letting ``analyse_history`` share one weekly EMA/MACD pass across every bar's Tide
+    evaluation the same way it does for the five daily-side parameters above, instead of every
+    bar's ``evaluate_tide`` call re-deriving the weekly EMA(13)/MACD-Histogram from scratch
+    over its own truncated ``weekly_ohlcv`` window. (There is no ``weekly_ema_26`` parameter --
+    ``evaluate_tide`` no longer uses EMA(26) at all now that Screen 1 is the weekly Impulse
+    color rather than the old EMA(13)/EMA(26) relationship test; see its docstring and this
+    task's `decisions` entry.)
 
     ``channel_upper``/``channel_lower``, if given, are the already-computed
     ``autoenvelope(daily_ohlcv['close'], mid=ema_13)['upper']``/``['lower']`` (the Autoenvelope/
@@ -458,7 +460,6 @@ def analyse(
         weekly_ohlcv,
         histogram=weekly_histogram,
         ema_13=weekly_ema_13,
-        ema_26=weekly_ema_26,
     )
     tide = tide_result.trend
 
@@ -709,7 +710,7 @@ def analyse_history(
     ``analyse()`` a same-truncated *slice* of each precomputed series per bar (via
     ``analyse()``'s own ``ema_13``/``ema_26``/``histogram``/``stochastic_k``/
     ``force_index_2ema``/``channel_upper``/``channel_lower``/``rsi``/``plus_di``/``minus_di``/
-    ``atr``/``adx``/``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` parameters -- see
+    ``atr``/``adx``/``weekly_ema_13``/``weekly_histogram`` parameters -- see
     its docstring) -- a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead of
     letting ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/
     ``evaluate_tide``) rederive them from each bar's own truncated ``daily_ohlcv``/
@@ -780,24 +781,18 @@ def analyse_history(
     # and this task's `decisions` entry for why).
     kangaroo_tail_cache = build_kangaroo_tail_cache(daily_ohlcv)
 
-    weekly_ema_13_full = weekly_ema_26_full = weekly_histogram_full = None
+    weekly_ema_13_full = weekly_histogram_full = None
     if len(weekly_ohlcv) >= 2 and "close" in weekly_ohlcv.columns:
         weekly_close = weekly_ohlcv["close"]
         weekly_ema_13_full = ema(weekly_close, 13)
-        weekly_macd_full = macd_components(weekly_close)
-        weekly_ema_26_full = weekly_macd_full.ema_slow
-        weekly_histogram_full = weekly_macd_full.histogram
+        weekly_histogram_full = macd_components(weekly_close).histogram
 
     results = []
     for i in range(start, n):
         bar_date = daily_ohlcv.index[i]
         weekly_window = _weekly_through_bar_date(weekly_ohlcv, bar_date)
         weekly_kwargs: dict[str, pd.Series] = {}
-        if (
-            weekly_ema_13_full is not None
-            and weekly_ema_26_full is not None
-            and weekly_histogram_full is not None
-        ):
+        if weekly_ema_13_full is not None and weekly_histogram_full is not None:
             # `weekly_window` is always the leading (earliest) rows of ``weekly_ohlcv`` --
             # ``_weekly_through_bar_date``'s boolean ``index <= week_friday`` mask over a
             # sorted-ascending index can only ever keep a prefix -- so a cheap positional
@@ -807,7 +802,6 @@ def analyse_history(
             weekly_window_length = len(weekly_window)
             weekly_kwargs = {
                 "weekly_ema_13": weekly_ema_13_full.iloc[:weekly_window_length],
-                "weekly_ema_26": weekly_ema_26_full.iloc[:weekly_window_length],
                 "weekly_histogram": weekly_histogram_full.iloc[:weekly_window_length],
             }
         results.append(

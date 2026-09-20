@@ -11,9 +11,19 @@ description: Review signal-engine, indicator, or confidence-scoring code against
 
 Read `docs/Analyse.md` and the code under review side by side, and confirm:
 
-### Screen 1 — Tide (§2)
-- Weekly MACD-Histogram slope and 13/26-week EMA relationship both feed the tide determination.
-- Tide outputs exactly `BULLISH | BEARISH | NEUTRAL` — no silent default to one of these on missing/ambiguous data.
+### Screen 1 — Tide (§2/§3)
+- Tide is the **weekly Impulse System color** (`app.signals.impulse.evaluate_impulse` run on
+  `weekly_ohlcv`, mapped GREEN→BULLISH / RED→BEARISH / BLUE→NEUTRAL), per Elder ch. 39
+  (`backend-weekly-impulse-screen1`, docs/ideas.md) — **not** a standalone weekly-MACD-
+  Histogram-slope-plus-13/26-week-EMA test; that was the *original*, now-superseded version of
+  Triple Screen. If you find code computing Tide from an EMA(13)-vs-EMA(26) level comparison
+  instead of weekly Impulse, that's the bug (a regression back to the pre-correction
+  methodology), not the doc being wrong.
+- `weekly_macd_histogram_slope` may still be exposed alongside `trend` as informational
+  context (it's still a real, useful read of weekly momentum) but must not be what decides
+  `trend` — confirm it's genuinely no longer load-bearing for the trend decision itself.
+- Tide outputs exactly `BULLISH | BEARISH | NEUTRAL` — no silent default to one of these on
+  missing/ambiguous data.
 
 ### Screen 2 — Wave (§2)
 - Oscillator direction is evaluated **against** the tide (oversold dip during bullish tide, overbought rally during bearish tide) — not oscillator extremes in isolation.
@@ -25,6 +35,12 @@ Read `docs/Analyse.md` and the code under review side by side, and confirm:
 ### Impulse Gate (§3)
 - Green/Red/Blue is computed from EMA(13) direction **and** MACD-Histogram direction together, not either alone.
 - The gate actually blocks/downgrades signals as specified (Red blocks fresh BUY, Green blocks fresh SELL) — check this is enforced before a signal is emitted, not just computed and ignored.
+- This app computes Impulse on **two independent timeframes** (§3, ch. 39/40): the **weekly**
+  color drives Screen 1/Tide (see above), and a separate **daily** color is the fresh-entry
+  gate `_determine_signal` enforces. Confirm the two are genuinely decoupled — a change to one
+  timeframe's computation shouldn't silently affect the other (e.g. both should share the same
+  `evaluate_impulse` function, called once per timeframe with that timeframe's own OHLCV, not a
+  single call whose result gets reused for both purposes).
 
 ### Confidence Score (§6)
 - Weights match: tide 30%, impulse gate 20%, oscillator extremity 25%, Elder-Ray confirmation 15%, volume confirmation 10% — sum to 100%.

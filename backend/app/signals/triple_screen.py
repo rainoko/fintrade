@@ -6,6 +6,7 @@ from app.indicators.ema import ema
 from app.indicators.force_index import force_index
 from app.indicators.macd import macd_components
 from app.indicators.stochastic import stochastic_oscillator
+from app.signals.impulse import evaluate_impulse
 
 # Stochastic %K thresholds -- pinned by docs/Analyse.md §2: "below 30 = oversold,
 # above 70 = overbought".
@@ -47,8 +48,19 @@ _FORCE_INDEX_REVERSAL_DEPTH_MULTIPLIER = 5.0
 # the indicator-macd-histogram task's own decisions entry, which explicitly
 # deferred this choice here). Normalizing by price (rather than a fixed
 # absolute dollar step) keeps the threshold meaningful across tickers of
-# very different price scales.
+# very different price scales. As of `backend-weekly-impulse-screen1`, this
+# threshold no longer decides Screen 1's trend itself (see `evaluate_tide`'s
+# docstring) -- it still governs `weekly_macd_histogram_slope`, which remains
+# exposed as informational context.
 _FLAT_SLOPE_THRESHOLD_PCT = 0.001
+
+# Screen 1 (Tide) is the weekly Impulse System color (Elder ch. 39, quoted directly in
+# docs/ideas.md and this task's `decisions` entry), mapped directly onto Tide's own
+# BULLISH/BEARISH/NEUTRAL vocabulary -- GREEN (EMA(13) + weekly MACD-Histogram both rising)
+# means the tide is bullish, RED (both falling) bearish, and BLUE (disagreement) is the
+# NEUTRAL "don't force a guess" case, exactly matching BLUE's own "any action allowed, but
+# weaker" semantics from docs/Analyse.md §3.
+_WEEKLY_IMPULSE_TO_TIDE_TREND = {"GREEN": "BULLISH", "RED": "BEARISH", "BLUE": "NEUTRAL"}
 
 
 @dataclass(frozen=True)
@@ -74,8 +86,7 @@ def macd_histogram_slope(histogram: pd.Series, latest_close: float) -> str:
     ``evaluate_tide``'s internals -- see this task's `decisions` entry for
     why it was promoted out of ``_macd_histogram_slope``. Takes the already-
     computed histogram (rather than a close-price series) so a caller who
-    also needs other MACD components (e.g. ``evaluate_tide`` needing
-    EMA(slow) too) can get everything from a single
+    also needs other MACD components can get everything from a single
     ``app.indicators.macd.macd_components`` call instead of computing the
     histogram twice.
     """
@@ -122,50 +133,66 @@ def evaluate_tide(
     *,
     histogram: pd.Series | None = None,
     ema_13: pd.Series | None = None,
-    ema_26: pd.Series | None = None,
 ) -> TideResult:
-    """Screen 1: trend + the MACD-Histogram slope classification behind it.
+    """Screen 1: the weekly Impulse System color, plus the MACD-Histogram slope classification
+    behind it.
 
-    From weekly MACD-Histogram slope + 13/26-week EMA relationship (docs/Analyse.md §2).
+    **Methodology correction** (`backend-weekly-impulse-screen1`, verified against the primary
+    source): this app originally modeled Screen 1 as a standalone weekly-MACD-Histogram-slope
+    test, confirmed by the 13-week-vs-26-week EMA relationship -- the docs/Analyse.md §2 text
+    this docstring used to cite. Elder ch. 39 ("Triple Screen Trading System", *The New Trading
+    for a Living*, 2014, pp. 156-157), quoted directly in docs/ideas.md, states that test was
+    only the *original* version of Triple Screen, and that he replaced it outright:
 
-    ``trend`` is 'BULLISH' | 'BEARISH' | 'NEUTRAL'. BULLISH requires the
-    histogram slope to be rising *and* the 13-week EMA above the 26-week
-    EMA; BEARISH requires falling *and* 13-week EMA below 26-week EMA. Any
-    other combination -- a flat slope, the slope and EMA relationship
-    disagreeing, or too little history to compute a slope at all -- returns
-    NEUTRAL rather than forcing a guess, per docs/Analyse.md §2 and this
-    task's checklist.
+        "The original version of Triple Screen used the slope of weekly MACD-Histogram as its
+        weekly trend-following indicator... After I invented the Impulse system... I began to
+        use it for the first screen of Triple Screen."
 
-    ``weekly_macd_histogram_slope`` is the raw 'rising' | 'falling' | 'flat'
-    classification that fed that decision. Exposing it separately (rather
-    than collapsing it into just the trend) lets a downstream consumer such
-    as the confidence-scoring component tell apart the two ways a NEUTRAL
-    trend can arise -- slope 'flat' (genuinely ambiguous) vs. slope
-    'rising'/'falling' but overridden to NEUTRAL by a disagreeing EMA
-    relationship (the "mixed" case docs/Analyse.md §6's confidence table
-    scores at 50%) -- without recomputing the EMA relationship itself; see
-    this task's `decisions` entry.
+    So Screen 1 now reuses ``app.signals.impulse.evaluate_impulse`` -- the exact same
+    EMA(13)-bar-over-bar-direction + MACD-Histogram-bar-over-bar-direction computation Elder
+    ch. 40 already uses for the *daily* Impulse gate (docs/Analyse.md §3) -- run on
+    ``weekly_ohlcv`` instead of ``daily_ohlcv``, with its GREEN/RED/BLUE color mapped directly
+    onto Tide's own BULLISH/BEARISH/NEUTRAL vocabulary (see `_WEEKLY_IMPULSE_TO_TIDE_TREND`
+    above): GREEN -> BULLISH, RED -> BEARISH, BLUE -> NEUTRAL. This is a full replacement, not
+    an additional gate alongside the old test or a reconciliation between the two -- see this
+    task's `decisions` entry for why (the primary source frames it as Elder's main trend tool
+    being swapped out, not a second test layered on top) and for why the pre-existing, separate
+    *daily*-Impulse gate in ``app.signals.engine._determine_signal`` is unaffected (ch. 40's own
+    entry/exit-timing use of Impulse is a distinct, additional technique layered on top of
+    Screen 1 being weekly Impulse, per docs/ideas.md, not something this change supersedes).
 
-    Too little history (<2 weekly bars) to compute a slope at all returns
-    NEUTRAL/'flat' without calling either indicator.
+    ``trend`` is 'BULLISH' | 'BEARISH' | 'NEUTRAL', per the mapping above. Too little history
+    (<2 weekly bars) to compute a direction at all returns NEUTRAL without calling
+    ``evaluate_impulse`` (mirroring that function's own <2-bar guard, which would otherwise
+    reach the same BLUE/NEUTRAL result anyway -- short-circuiting here just avoids the call).
 
-    ``histogram``/``ema_13``/``ema_26``, if given, are used as the
-    already-computed ``macd_components(weekly_ohlcv['close']).histogram`` /
-    ``ema(weekly_ohlcv['close'], 13)`` / ``macd_components(...).ema_slow``
-    instead of recomputing them here (each must be index-aligned with
-    ``weekly_ohlcv``, i.e. the exact output of calling those functions on
-    ``weekly_ohlcv['close']``). All three are independent (a caller may supply
-    any subset); anything omitted is computed internally exactly as before this
-    parameter existed. This lets a caller who evaluates the tide over more than
-    one slice of the same underlying weekly series -- e.g.
-    ``app.portfolio.exits.evaluate_exit_flags``, which calls this twice
-    (``weekly_ohlcv`` and ``weekly_ohlcv[:-1]``) to detect a bullish-to-bearish
-    flip -- compute the MACD/EMA series once over the full series and slice it
-    per call (EMA/MACD are causal: a value at index *t* depends only on data up
-    to *t*, so slicing a full-series computation gives identical values to
-    recomputing over the truncated series) instead of each call independently
-    re-deriving its own MACD/EMA pass -- see the
-    ``portfolio-exit-rules-followups`` task's `decisions` entry.
+    ``weekly_macd_histogram_slope`` is the raw 'rising' | 'falling' | 'flat' classification of
+    the weekly MACD-Histogram's own last step (docs/Analyse.md §2, unchanged threshold/logic).
+    It no longer *decides* ``trend`` -- weekly Impulse's own bar-over-bar direction check does
+    that now -- but stays exposed as informational context: it remains a genuinely useful,
+    human-readable read of the underlying weekly momentum, and dropping it would be a needless
+    breaking change to ``TideResult``/``TideScreen`` (docs/architecture/API.md) for a field
+    whose informational value didn't go away just because it stopped being decisive. See this
+    task's `decisions` entry.
+
+    ``histogram``/``ema_13``, if given, are used as the already-computed
+    ``macd_components(weekly_ohlcv['close']).histogram`` / ``ema(weekly_ohlcv['close'], 13)``
+    instead of recomputing them here (each must be index-aligned with ``weekly_ohlcv``, i.e.
+    the exact output of calling those functions on ``weekly_ohlcv['close']``), and are passed
+    straight through to the internal ``evaluate_impulse`` call too so that call never
+    recomputes its own copy either. Both are independent (a caller may supply either, both, or
+    neither); anything omitted is computed internally exactly as before these parameters
+    existed. This lets a caller who evaluates the tide over more than one slice of the same
+    underlying weekly series -- e.g. ``app.portfolio.exits.evaluate_exit_flags``, which calls
+    this twice (``weekly_ohlcv`` and ``weekly_ohlcv[:-1]``) to detect a bullish-to-bearish flip
+    -- compute the MACD/EMA series once over the full series and slice it per call (EMA/MACD
+    are causal: a value at index *t* depends only on data up to *t*, so slicing a full-series
+    computation gives identical values to recomputing over the truncated series) instead of
+    each call independently re-deriving its own MACD/EMA pass -- see the
+    ``portfolio-exit-rules-followups`` task's `decisions` entry. Note ``ema_26`` was removed
+    from this parameter list by `backend-weekly-impulse-screen1`: the old EMA(13)/EMA(26)
+    relationship test it fed no longer exists here (weekly Impulse doesn't use EMA(26) at all)
+    -- see that task's `decisions` entry.
 
     Raises:
         ValueError: if ``weekly_ohlcv`` has 2 or more rows but is missing the ``close``
@@ -182,26 +209,15 @@ def evaluate_tide(
     weekly_close = weekly_ohlcv["close"]
     latest_close = weekly_close.iloc[-1]
 
-    if histogram is None or ema_26 is None:
-        components = macd_components(weekly_close)
-        if histogram is None:
-            histogram = components.histogram
-        if ema_26 is None:
-            ema_26 = components.ema_slow
-    slope = macd_histogram_slope(histogram, latest_close)
-
+    if histogram is None:
+        histogram = macd_components(weekly_close).histogram
     if ema_13 is None:
         ema_13 = ema(weekly_close, 13)
 
-    ema_13_latest = ema_13.iloc[-1]
-    ema_26_latest = ema_26.iloc[-1]
+    slope = macd_histogram_slope(histogram, latest_close)
 
-    if slope == "rising" and ema_13_latest > ema_26_latest:
-        trend = "BULLISH"
-    elif slope == "falling" and ema_13_latest < ema_26_latest:
-        trend = "BEARISH"
-    else:
-        trend = "NEUTRAL"
+    weekly_impulse = evaluate_impulse(weekly_ohlcv, ema_13=ema_13, histogram=histogram)
+    trend = _WEEKLY_IMPULSE_TO_TIDE_TREND[weekly_impulse]
 
     return TideResult(trend=trend, weekly_macd_histogram_slope=slope)
 

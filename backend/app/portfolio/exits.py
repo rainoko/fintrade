@@ -176,32 +176,31 @@ def evaluate_exit_flags(
     # portfolio-exit-rules-followups task's `decisions` entry.
     validate_weekly_ohlcv_columns(weekly_ohlcv)
 
-    # Weekly MACD-Histogram + EMA(13)/EMA(26), and both evaluate_tide calls that consume them,
-    # are only computed when weekly_ohlcv has at least 2 rows: with fewer than 2, evaluate_tide
-    # short-circuits internally to NEUTRAL/'flat' without ever touching the
-    # histogram/ema_13/ema_26 passed in (see its own `if len(weekly_ohlcv) < 2:` check) --
-    # which in turn makes 'tide_flipped_bearish' unreachable below (it requires
-    # previous_tide == "BULLISH", never true once both calls resolve to NEUTRAL) -- so this
-    # guard skips computing and discarding that MACD/EMA(13)/EMA(26) work on every call with
-    # short weekly history, mirroring evaluate_tide's own graceful degradation (see this
-    # function's own docstring). See the portfolio-exit-rules-followups-followups task's
-    # `decisions` entry.
+    # Weekly MACD-Histogram + EMA(13), and both evaluate_tide calls that consume them, are only
+    # computed when weekly_ohlcv has at least 2 rows: with fewer than 2, evaluate_tide
+    # short-circuits internally to NEUTRAL/'flat' without ever touching the histogram/ema_13
+    # passed in (see its own `if len(weekly_ohlcv) < 2:` check) -- which in turn makes
+    # 'tide_flipped_bearish' unreachable below (it requires previous_tide == "BULLISH", never
+    # true once both calls resolve to NEUTRAL) -- so this guard skips computing and discarding
+    # that MACD/EMA(13) work on every call with short weekly history, mirroring evaluate_tide's
+    # own graceful degradation (see this function's own docstring). See the
+    # portfolio-exit-rules-followups-followups task's `decisions` entry. (No EMA(26) here as of
+    # `backend-weekly-impulse-screen1` -- evaluate_tide no longer uses it, see its own
+    # docstring.)
     if len(weekly_ohlcv) >= 2:
         weekly_close = weekly_ohlcv["close"]
-        weekly_macd = macd_components(weekly_close)
+        weekly_histogram = macd_components(weekly_close).histogram
         weekly_ema_13 = ema(weekly_close, 13)
 
         current_tide = evaluate_tide(
             weekly_ohlcv,
-            histogram=weekly_macd.histogram,
+            histogram=weekly_histogram,
             ema_13=weekly_ema_13,
-            ema_26=weekly_macd.ema_slow,
         ).trend
         previous_tide = evaluate_tide(
             weekly_ohlcv.iloc[:-1],
-            histogram=weekly_macd.histogram.iloc[:-1],
+            histogram=weekly_histogram.iloc[:-1],
             ema_13=weekly_ema_13.iloc[:-1],
-            ema_26=weekly_macd.ema_slow.iloc[:-1],
         ).trend
         if previous_tide == "BULLISH" and current_tide == "BEARISH":
             flags.append("tide_flipped_bearish")

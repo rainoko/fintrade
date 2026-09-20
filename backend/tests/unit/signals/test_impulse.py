@@ -252,3 +252,36 @@ class TestEvaluateImpulsePrecomputedHistogram:
         assert result == "GREEN"
         ema_mock.assert_not_called()
         histogram_mock.assert_not_called()
+
+
+class TestEvaluateImpulseIsTimeframeAgnostic:
+    """Confirms the `backend-weekly-impulse-screen1` task's central claim: `evaluate_impulse`
+    (renamed parameter `daily_ohlcv` -> `ohlcv` by that task) computes the exact same
+    GREEN/RED/BLUE logic regardless of which timeframe's bars it's given -- it makes no
+    assumption baked in about "daily" beyond what's implied by whatever OHLCV frame it
+    receives. ``app.signals.triple_screen.evaluate_tide`` relies on exactly this to reuse
+    this function unchanged for Screen 1's *weekly* Impulse color -- see its own docstring
+    and this task's `decisions` entry.
+    """
+
+    def test_green_on_weekly_frame_with_weekly_cadence_index(self) -> None:
+        """Same accelerating-growth shape as test_green_on_strong_accelerating_uptrend
+        above, but on a weekly-cadence DatetimeIndex (evaluate_impulse never reads the
+        index at all, only column values by position -- this just documents the intended
+        weekly call shape)."""
+        closes = pd.Series(
+            [100 * (1.05**i) for i in range(30)],
+            index=pd.date_range("2025-01-01", periods=30, freq="W"),
+        )
+        weekly_ohlcv = _daily_ohlcv(closes)
+
+        assert evaluate_impulse(weekly_ohlcv) == "GREEN"
+
+    def test_red_on_weekly_frame_with_weekly_cadence_index(self) -> None:
+        closes = pd.Series(
+            [1000 * (0.97**i) for i in range(60)],
+            index=pd.date_range("2025-01-01", periods=60, freq="W"),
+        )
+        weekly_ohlcv = _daily_ohlcv(closes)
+
+        assert evaluate_impulse(weekly_ohlcv) == "RED"
