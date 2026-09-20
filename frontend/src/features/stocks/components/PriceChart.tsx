@@ -336,8 +336,9 @@ interface TideRegionSegment {
  * see this task's `decisions` entry for the one (deliberately unhandled)
  * pathological case this can't fix: EVERY visible bar alternating trend
  * with its neighbor, leaving no segment with spare width to cascade from,
- * which Tide (driven by a weekly MACD histogram slope, not a daily one)
- * realistically never does.
+ * which Tide (driven by the weekly Impulse System color -- weekly EMA(13)
+ * direction + weekly MACD-Histogram direction together, not their daily
+ * equivalents) realistically never does.
  */
 function buildTideRegionSegments(
   points: readonly IndicatorHistoryPoint[],
@@ -754,9 +755,13 @@ function buildKangarooTailMarker(tail: KangarooTailOut, color: string): SeriesMa
  *
  * Also overlays `GET /api/stocks/{ticker}/indicators` (via
  * `useIndicatorHistory`) on top of the candlesticks: EMA13/EMA26 as native
- * Lightweight Charts line series (Screen 1's trend-following pair, per
- * docs/Analyse.md §2/§4), plus BUY/SELL markers via the series-markers
- * plugin at each bar where the signal actually changed (see
+ * Lightweight Charts line series -- drawn here for the value-zone shading
+ * (the band between them) and because EMA(26) feeds daily MACD, not because
+ * they drive Screen 1/Tide, which is the weekly Impulse System color
+ * (weekly EMA(13) direction + weekly MACD-Histogram direction together, per
+ * docs/Analyse.md §2/§3/§4) rather than this daily EMA13/EMA26 pair -- plus
+ * BUY/SELL markers via the series-markers plugin at each bar where the
+ * signal actually changed (see
  * `buildOverlayData` above) — see this task's (frontend-chart-signal-
  * overlay) `decisions` entry for why this combination was chosen over a
  * background-band treatment, and why the overlay is daily-only. No
