@@ -292,6 +292,84 @@ describe('StockDetailPage', () => {
     expect(screen.getByText('Short Interest')).toBeInTheDocument()
   })
 
+  it('wires insider_clusters (a top-level sibling field to extended_data) through to the cluster callout', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/analysis', ({ params }) =>
+        HttpResponse.json({
+          ticker: String(params.ticker).toUpperCase(),
+          as_of: '2026-09-11',
+          signal: 'BUY',
+          confidence: 72,
+          confidence_band: 'High',
+          screens: {
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+            impulse: 'GREEN',
+            wave: {
+              stochastic_k: 24.3,
+              force_index_2ema: -18234.5,
+              state: 'OVERSOLD_PULLBACK',
+              showed_pullback_in_lookback: true,
+              showed_rally_in_lookback: false,
+            },
+            trigger: { fired: true, reference: 'close_above_prior_high' },
+          },
+          confidence_breakdown: [
+            { component: 'tide_alignment', weight: 0.3, score: 1.0 },
+          ],
+          indicators: {
+            ema_13: 226.4,
+            ema_26: 220.1,
+            macd_histogram: 1.2,
+            bull_power: 3.4,
+            bear_power: -1.1,
+          },
+          extended_data: {
+            earnings_date: null,
+            earnings_within_warning_days: false,
+            ex_dividend_date: null,
+            shares_short: null,
+            short_ratio: null,
+            short_percent_of_float: null,
+            float_shares: null,
+            insider_transactions: [
+              {
+                insider: 'Alice Smith',
+                position: 'Director',
+                transaction_text: 'Purchase at price 45.00 per share.',
+                shares: 20_000,
+                value: 900_000,
+                start_date: '2026-08-10',
+                ownership: 'D',
+              },
+            ],
+            unavailable_reason: null,
+          },
+          insider_clusters: [
+            {
+              direction: 'buy',
+              insiders: ['Alice Smith', 'Bob Jones', 'Carol White'],
+              window_start_date: '2026-08-01',
+              window_end_date: '2026-08-20',
+              transaction_count: 3,
+              total_shares: 60_000,
+              total_value: 2_700_000,
+            },
+          ],
+        }),
+      ),
+    )
+
+    renderStockDetail('AAPL')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+    expect(screen.getByText('BUY CLUSTER')).toBeInTheDocument()
+    expect(screen.getByTestId('insider-cluster-callout')).toHaveTextContent(
+      '3 distinct insiders (Alice Smith, Bob Jones, Carol White)',
+    )
+  })
+
   it('shows a 404 error for an unknown ticker', async () => {
     renderStockDetail('UNKNOWN')
 

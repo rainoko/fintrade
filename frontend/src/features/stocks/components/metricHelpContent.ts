@@ -4,6 +4,7 @@ import type {
   FalseBreakoutOut,
   HistoryResponse,
   IndicatorHistoryPoint,
+  InsiderClusterOut,
   InsiderTransactionOut,
   KangarooTailOut,
   ProfitTargetOut,
@@ -503,7 +504,11 @@ function cumulativeVolumeSeriesInterpretation(
   const highest = series.reduce((max, entry) => (entry.value > max.value ? entry : max))
   const lowest = series.reduce((min, entry) => (entry.value < min.value ? entry : min))
   const direction =
-    last.value > first.value ? 'risen' : last.value < first.value ? 'fallen' : 'stayed flat'
+    last.value > first.value
+      ? 'risen'
+      : last.value < first.value
+        ? 'fallen'
+        : 'stayed flat'
   const extremeClause =
     last === highest
       ? ' It is currently at its own highest point over this window.'
@@ -804,7 +809,7 @@ export const kangarooTailHelp = {
   definition:
     'A 3-bar reversal pattern (Elder ch. 20, "fingers"): a single bar whose range is roughly 2.5x the recent average, protruding from a tight recent range, where the close ends up back near the open -- not at the tip the bar spiked to -- flanked by two bars of normal height.',
   elderContext:
-    'An upward-pointing tail (a new high, closing back down) is a bearish reversal signal; a downward-pointing tail (a new low, closing back up) is bullish. Elder\'s explicit stop-placement rule is halfway through the tail -- not at its tip (too wide) or its base (too tight). This app requires the very next bar to confirm the reversal (closing beyond the tail\'s own close, in the implied direction) before ever reporting a tail at all -- an unconfirmed shape-only candidate is never shown (docs/Analyse.md row 13).',
+    "An upward-pointing tail (a new high, closing back down) is a bearish reversal signal; a downward-pointing tail (a new low, closing back up) is bullish. Elder's explicit stop-placement rule is halfway through the tail -- not at its tip (too wide) or its base (too tight). This app requires the very next bar to confirm the reversal (closing beyond the tail's own close, in the implied direction) before ever reporting a tail at all -- an unconfirmed shape-only candidate is never shown (docs/Analyse.md row 13).",
   /**
    * `tailBar` -- the tail bar's own `open`/`close`, looked up by
    * `tail.tail_date` from the currently-fetched `/history` bars (`bars` in
@@ -835,7 +840,9 @@ export const kangarooTailHelp = {
       return 'No currently confirmed Kangaroo Tail pattern detected for this ticker.'
     }
     const directionLabel =
-      tail.direction === 'up' ? 'Bearish (upward-pointing)' : 'Bullish (downward-pointing)'
+      tail.direction === 'up'
+        ? 'Bearish (upward-pointing)'
+        : 'Bullish (downward-pointing)'
     const barRange = tail.high - tail.low
     const avgRange = tail.range_multiple > 0 ? barRange / tail.range_multiple : barRange
     const rangeClause = `On ${tail.tail_date}, this bar's own range was ${barRange.toFixed(2)} (high ${tail.high.toFixed(2)}, low ${tail.low.toFixed(2)}) -- ${tail.range_multiple.toFixed(1)}x the ~${avgRange.toFixed(2)} average range of the preceding 10 trading days, well beyond the 2.5x this pattern requires.`
@@ -869,9 +876,11 @@ export const kangarooTailHelp = {
  * so `tideRegionHelp.interpretValue` and any future consumer share one
  * counting pass rather than duplicating the loop.
  */
-export function countTideTrends(
-  points: readonly IndicatorHistoryPoint[],
-): { bullish: number; bearish: number; neutral: number } {
+export function countTideTrends(points: readonly IndicatorHistoryPoint[]): {
+  bullish: number
+  bearish: number
+  neutral: number
+} {
   let bullish = 0
   let bearish = 0
   let neutral = 0
@@ -890,9 +899,9 @@ export function countTideTrends(
 export const tideRegionHelp = {
   metricLabel: 'Tide Background (Screen 1 history)',
   definition:
-    'The chart\'s background is shaded green/red/amber behind the candlesticks for every historical trading day, by what Screen 1 (the Tide -- docs/Analyse.md §2) actually was on that day: green = Bullish (only BUY signals were ever considered), red = Bearish (only SELL), amber = Neutral (neither -- no directional Triple Screen setup was being evaluated at all).',
+    "The chart's background is shaded green/red/amber behind the candlesticks for every historical trading day, by what Screen 1 (the Tide -- docs/Analyse.md §2) actually was on that day: green = Bullish (only BUY signals were ever considered), red = Bearish (only SELL), amber = Neutral (neither -- no directional Triple Screen setup was being evaluated at all).",
   elderContext:
-    'Elder\'s rule is to never trade against the tide -- Screen 1 gates BUY/SELL before Screen 2 (Wave) or Screen 3 (Trigger) ever get a say, so a stretch of amber (or the "wrong" color for the direction you were watching) is exactly why a BUY or SELL might have barely fired for long periods, even with plenty of price movement on the chart. This is recomputed per historical bar from that bar\'s own calendar week of weekly data (`GET /api/stocks/{ticker}/indicators`, backend-indicator-history-tide-exposure) -- not held fixed at today\'s Tide reading -- so the shading reflects what was actually true on each day, not a single current snapshot painted across the whole history.',
+    "Elder's rule is to never trade against the tide -- Screen 1 gates BUY/SELL before Screen 2 (Wave) or Screen 3 (Trigger) ever get a say, so a stretch of amber (or the \"wrong\" color for the direction you were watching) is exactly why a BUY or SELL might have barely fired for long periods, even with plenty of price movement on the chart. This is recomputed per historical bar from that bar's own calendar week of weekly data (`GET /api/stocks/{ticker}/indicators`, backend-indicator-history-tide-exposure) -- not held fixed at today's Tide reading -- so the shading reflects what was actually true on each day, not a single current snapshot painted across the whole history.",
   interpretValue(points: readonly IndicatorHistoryPoint[]): string {
     if (points.length === 0) {
       return 'Currently unavailable for this ticker.'
@@ -1055,7 +1064,7 @@ export const exDividendDateHelp = {
   definition:
     "The next date this ticker trades without its upcoming dividend attached (yfinance's `Ticker.calendar`, 'Ex-Dividend Date') -- a buyer on or after this date does not receive the upcoming payout, and the share price typically drops by roughly the dividend amount at the open that day as a mechanical (not technical) effect.",
   elderContext:
-    "Not part of the Triple Screen/Impulse/confidence-scoring methodology (docs/Analyse.md) -- shown here purely as calendar context, e.g. so a small price drop around this date reads as an expected mechanical effect rather than a bearish technical signal.",
+    'Not part of the Triple Screen/Impulse/confidence-scoring methodology (docs/Analyse.md) -- shown here purely as calendar context, e.g. so a small price drop around this date reads as an expected mechanical effect rather than a bearish technical signal.',
   interpretValue(exDividendDate: string | null): string {
     if (!exDividendDate) {
       return 'No ex-dividend date currently scheduled for this ticker.'
@@ -1115,18 +1124,59 @@ export const insiderTransactionsHelp = {
   definition:
     "Recent officer/director buy/sell filings for this ticker (yfinance's `Ticker.insider_transactions`), shown raw and most-recent-first, exactly as yfinance itself reports each filing's free-text description.",
   elderContext:
-    "Elder ch. 37 treats insider trading as a real but secondary signal, most meaningful in clusters: three or more purchases (or three or more sales) by different insiders within about a month is worth noting; a single transaction alone usually isn't, since an insider sells for many ordinary reasons unrelated to their view of the company (taxes, diversification, a pre-scheduled 10b5-1 plan). This app currently exposes the raw filings only -- it does not parse each filing's free-text description into a structured buy/sell direction, or automatically detect a qualifying cluster (a stated follow-up; see the backend-market-data-extra-fields task's `decisions` entry). Read the transaction text yourself and look for repeated filings within a similar window before treating this as a signal.",
+    "Elder ch. 37 treats insider trading as a real but secondary signal, most meaningful in clusters: three or more purchases (or three or more sales) by different insiders within about a month is worth noting; a single transaction alone usually isn't, since an insider sells for many ordinary reasons unrelated to their view of the company (taxes, diversification, a pre-scheduled 10b5-1 plan). This table itself is raw -- it doesn't classify each filing's free-text description into a buy/sell direction. This app's backend does now compute qualifying clusters over this same filing history (see the Insider-Transaction Clusters help just above/below this table) -- read the transaction text here yourself if you want to check that classification against the original filing wording.",
   interpretValue(transactions: readonly InsiderTransactionOut[]): string {
     if (transactions.length === 0) {
       return 'No insider transactions currently reported for this ticker.'
     }
     const mostRecentDate = transactions.find((t) => t.start_date !== null)?.start_date
-    const dateClause = mostRecentDate ? `, most recent filing dated ${mostRecentDate}` : ''
+    const dateClause = mostRecentDate
+      ? `, most recent filing dated ${mostRecentDate}`
+      : ''
     const clusterNote =
       transactions.length >= 3
         ? " Three or more filings are shown -- worth reading each one's own direction/text before treating this as a cluster, since this app doesn't classify or count buys vs. sells automatically."
         : " Fewer than Elder's own 3-filing cluster threshold -- on its own, not usually treated as a meaningful signal."
     return `${transactions.length} filing${transactions.length === 1 ? '' : 's'} shown${dateClause}.${clusterNote}`
+  },
+}
+
+/**
+ * Separate registry entry from `insiderTransactionsHelp` above, not an
+ * extension of it (frontend-insider-clusters-badge's own `decisions`
+ * entry): `AnalysisResponse.insider_clusters` is a distinct, separately
+ * computed top-level field (sibling to `extended_data`, per
+ * backend-insider-transaction-clusters's own `decisions` entry), not a
+ * derived view of the raw table `insiderTransactionsHelp` describes -- the
+ * same "one help entry per distinct computed field" convention
+ * `supportResistanceZoneHelp`/`divergenceHelp`/`kangarooTailHelp` already
+ * establish for their own detection fields.
+ */
+export const insiderClustersHelp = {
+  metricLabel: 'Insider-Transaction Clusters',
+  definition:
+    "Buy or sell clusters this app's backend detects among the filings in the table above: 3 or more DISTINCT insiders trading the same classified direction (all buys, or all sells) within a rolling 30-calendar-day window (`AnalysisResponse.insider_clusters`, `app.signals.insider_clusters.detect_insider_clusters`).",
+  elderContext:
+    "Elder ch. 37 p. 147: a single insider transaction usually isn't meaningful on its own -- an insider sells for many ordinary reasons unrelated to their view of the company (taxes, diversification, a pre-scheduled 10b5-1 plan) -- but several insiders buying, or several selling, within about a month is a real, if secondary, signal worth noting. This app's backend requires 3+ DISTINCT insiders (not just 3+ filings from the same person) trading the same direction within 30 calendar days before it ever reports a cluster (see backend-insider-transaction-clusters's `decisions` entry for the exact classification/windowing rule, including which transaction-text patterns are excluded as not a genuine open-market conviction trade -- option exercises, gifts, tax-withholding dispositions, restricted-stock grants). Purely informational: never wired into this app's signal, confidence score, or portfolio risk rules.",
+  interpretValue(clusters: readonly InsiderClusterOut[]): string {
+    if (clusters.length === 0) {
+      return "No qualifying cluster (3+ distinct insiders trading the same direction within a rolling 30-day window) currently detected among this ticker's filings."
+    }
+    const sorted = clusters
+      .slice()
+      .sort((a, b) => (a.window_end_date < b.window_end_date ? 1 : -1))
+    const clusterClauses = sorted.map((cluster) => {
+      const directionLabel = cluster.direction === 'buy' ? 'Buy' : 'Sell'
+      // `transaction_count` is never singular -- `InsiderClusterOut.insiders`
+      // is guaranteed at least 3 distinct names (the qualifying threshold
+      // itself), and `transaction_count` is always >= that count (it can
+      // only exceed it, never fall short, per its own schema description),
+      // so a "1 filing" singular case can never occur for real cluster
+      // data. Hardcoded plural rather than a defensive, permanently-dead
+      // ternary branch.
+      return `${directionLabel} cluster: ${cluster.insiders.length} distinct insiders (${cluster.transaction_count} filings) between ${cluster.window_start_date} and ${cluster.window_end_date}`
+    })
+    return `${clusters.length} cluster${clusters.length === 1 ? '' : 's'} currently detected, most recent first: ${clusterClauses.join('; ')}.`
   },
 }
 

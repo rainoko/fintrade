@@ -33,11 +33,15 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * duplicates that component.
  *
  * `FundamentalDataPanel` (earnings/dividend dates, short interest, insider
- * transactions — frontend-fundamental-data-panel) sits directly below
- * `SignalSummary`, ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts` —
- * see that component's own doc comment for why (its earnings-date warning
- * banner needs to stay visible near the top of the page, not buried below
- * several other panels and the price chart).
+ * transactions and (frontend-insider-clusters-badge) detected
+ * insider-transaction clusters — frontend-fundamental-data-panel) sits
+ * directly below `SignalSummary`, ahead of `ScreensPanel`/`IndicatorsPanel`/
+ * `StockCharts` — see that component's own doc comment for why (its
+ * earnings-date warning banner needs to stay visible near the top of the
+ * page, not buried below several other panels and the price chart).
+ * `AnalysisResponse.insider_clusters` is passed straight through from this
+ * page (it's a top-level sibling field to `extended_data`, not nested
+ * inside it).
  *
  * A "Methodology reference" link to `/methodology`
  * (frontend-methodology-explainer) sits directly under the page header,
@@ -92,7 +96,10 @@ export default function StockDetailPage() {
             profitTarget={analysisQuery.data.profit_target}
           />
 
-          <FundamentalDataPanel extendedData={analysisQuery.data.extended_data} />
+          <FundamentalDataPanel
+            extendedData={analysisQuery.data.extended_data}
+            insiderClusters={analysisQuery.data.insider_clusters}
+          />
 
           <ScreensPanel
             screens={analysisQuery.data.screens}

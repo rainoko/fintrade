@@ -3,6 +3,7 @@ import type {
   DivergenceOut,
   HistoryResponse,
   IndicatorHistoryPoint,
+  InsiderClusterOut,
   KangarooTailOut,
   ProfitTargetOut,
   SupportResistanceZone,
@@ -26,6 +27,7 @@ import {
   fundamentalDataUnavailableHelp,
   getConfidenceComponentHelp,
   impulseHelp,
+  insiderClustersHelp,
   insiderTransactionsHelp,
   kangarooTailHelp,
   macdHistogramHelp,
@@ -103,9 +105,7 @@ describe('metricHelpContent', () => {
     }
 
     it('explains a null signal (couldn’t be computed) distinctly from a definite non-BUY signal', () => {
-      expect(profitTargetHelp.interpretValue(null, null)).toMatch(
-        /couldn’t be computed/,
-      )
+      expect(profitTargetHelp.interpretValue(null, null)).toMatch(/couldn’t be computed/)
     })
 
     it('explains a non-BUY signal by name', () => {
@@ -775,7 +775,9 @@ describe('metricHelpContent', () => {
       })
       const message = falseBreakoutHelp.interpretValue([zone], false)
       // Still names the real episode in full...
-      expect(message).toContain('resistance zone 233.40-236.90 broke above it on 2025-01-01')
+      expect(message).toContain(
+        'resistance zone 233.40-236.90 broke above it on 2025-01-01',
+      )
       expect(message).toContain('238.50')
       // ...plus the out-of-range explanation.
       expect(message).toContain("isn't marked on the chart right now")
@@ -1009,10 +1011,12 @@ describe('metricHelpContent', () => {
     })
 
     it('reports "unavailable" when there are no currently visible points', () => {
-      expect(tideRegionHelp.interpretValue([])).toBe('Currently unavailable for this ticker.')
+      expect(tideRegionHelp.interpretValue([])).toBe(
+        'Currently unavailable for this ticker.',
+      )
     })
 
-    it('reports the Bullish/Bearish/Neutral percentage split and the latest (rightmost) bar\'s trend', () => {
+    it("reports the Bullish/Bearish/Neutral percentage split and the latest (rightmost) bar's trend", () => {
       const points = [
         buildPoint('2026-08-28', 'BULLISH'),
         buildPoint('2026-08-31', 'BULLISH'),
@@ -1028,7 +1032,10 @@ describe('metricHelpContent', () => {
     })
 
     it('reports 100% Bullish and a Bullish (green) latest reading when every visible bar is Bullish', () => {
-      const points = [buildPoint('2026-09-01', 'BULLISH'), buildPoint('2026-09-02', 'BULLISH')]
+      const points = [
+        buildPoint('2026-09-01', 'BULLISH'),
+        buildPoint('2026-09-02', 'BULLISH'),
+      ]
       const message = tideRegionHelp.interpretValue(points)
       expect(message).toContain('100% Bullish, 0% Bearish, 0% Neutral')
       expect(message).toContain("Today's (rightmost) background is Bullish (green)")
@@ -1036,7 +1043,11 @@ describe('metricHelpContent', () => {
   })
 
   describe('obvHelp / accumulationDistributionHelp (frontend-volume-indicators-chart)', () => {
-    function buildPoint(date: string, obv: number, accumulationDistribution: number): IndicatorHistoryPoint {
+    function buildPoint(
+      date: string,
+      obv: number,
+      accumulationDistribution: number,
+    ): IndicatorHistoryPoint {
       return {
         date,
         tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
@@ -1054,7 +1065,7 @@ describe('metricHelpContent', () => {
       }
     }
 
-    it('explains what OBV is and Elder\'s two divergence/trading-range reading styles', () => {
+    it("explains what OBV is and Elder's two divergence/trading-range reading styles", () => {
       expect(obvHelp.definition).toMatch(/running cumulative total/)
       expect(obvHelp.elderContext).toMatch(/divergence/)
       expect(obvHelp.elderContext).toMatch(/trading-range/)
@@ -1074,24 +1085,37 @@ describe('metricHelpContent', () => {
     })
 
     it("states the raw value together with the 'means nothing on its own' caveat, never the raw value alone", () => {
-      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const points = [
+        buildPoint('2026-09-01', 5000, 1200),
+        buildPoint('2026-09-02', 10500, 900),
+      ]
       const message = obvHelp.interpretValue(points)
       expect(message).toContain('Currently 10500 as of 2026-09-02')
-      expect(message).toContain("means nothing on its own")
+      expect(message).toContain('means nothing on its own')
     })
 
     it('describes a rising OBV currently at its own window high', () => {
-      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const points = [
+        buildPoint('2026-09-01', 5000, 1200),
+        buildPoint('2026-09-02', 10500, 900),
+      ]
       const message = obvHelp.interpretValue(points)
       expect(message).toContain('OBV has risen over the 2 bars currently shown')
-      expect(message).toContain('It is currently at its own highest point over this window.')
+      expect(message).toContain(
+        'It is currently at its own highest point over this window.',
+      )
     })
 
     it('describes a falling A/D currently at its own window low', () => {
-      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const points = [
+        buildPoint('2026-09-01', 5000, 1200),
+        buildPoint('2026-09-02', 10500, 900),
+      ]
       const message = accumulationDistributionHelp.interpretValue(points)
       expect(message).toContain('A/D has fallen over the 2 bars currently shown')
-      expect(message).toContain('It is currently at its own lowest point over this window.')
+      expect(message).toContain(
+        'It is currently at its own lowest point over this window.',
+      )
     })
 
     it('describes a flat series and names the window high/low when the latest bar is neither', () => {
@@ -1103,14 +1127,18 @@ describe('metricHelpContent', () => {
       ]
       const message = obvHelp.interpretValue(points)
       expect(message).toContain('OBV has stayed flat over the 4 bars currently shown')
-      expect(message).toContain('its own high was 8000 (2026-08-31) and low was 3000 (2026-09-01)')
+      expect(message).toContain(
+        'its own high was 8000 (2026-08-31) and low was 3000 (2026-09-01)',
+      )
     })
 
     it('handles a single-bar window without a plural mismatch', () => {
       const points = [buildPoint('2026-09-02', 5000, 1200)]
       const message = obvHelp.interpretValue(points)
       expect(message).toContain('OBV has stayed flat over the 1 bar currently shown')
-      expect(message).toContain('It is currently at its own highest point over this window.')
+      expect(message).toContain(
+        'It is currently at its own highest point over this window.',
+      )
     })
   })
 
@@ -1196,7 +1224,7 @@ describe('metricHelpContent', () => {
       expect(message).toContain('with no prior bar shown to compare against')
     })
 
-    it("describes ADX sitting at its own recent low as a lull", () => {
+    it('describes ADX sitting at its own recent low as a lull', () => {
       const points = [
         buildPoint('2026-09-01', { adx: 25.0 }),
         buildPoint('2026-09-02', { adx: 20.0 }),
@@ -1243,7 +1271,7 @@ describe('metricHelpContent', () => {
       )
     })
 
-    it("states the current ATR value as a percentage of EMA(13) and the 1-ATR stop-distance rule", () => {
+    it('states the current ATR value as a percentage of EMA(13) and the 1-ATR stop-distance rule', () => {
       const points = [buildPoint('2026-09-02', { atr: 4.2 }, 210.0)]
       const message = atrHelp.interpretValue(points)
       expect(message).toContain('Currently 4.20 as of 2026-09-02')
@@ -1272,7 +1300,9 @@ describe('metricHelpContent', () => {
       const message = earningsDateHelp.interpretValue('2026-09-25', true)
       expect(message).toContain('2026-09-25 -- within the next 14 days')
       expect(message).toContain('avoid opening a fresh position')
-      expect(message).toContain('no real protection against an overnight earnings-surprise gap')
+      expect(message).toContain(
+        'no real protection against an overnight earnings-surprise gap',
+      )
     })
 
     it('describes a date outside the warning window as such', () => {
@@ -1309,7 +1339,9 @@ describe('metricHelpContent', () => {
       expect(message).toContain('4.2 days to cover')
       expect(message).toContain('float of 33,000,000 shares')
       expect(message).toContain('elevated short-percent-of-float (>=10%)')
-      expect(message).toContain('meaningful squeeze fuel if this ticker rallies on a fresh BUY setup')
+      expect(message).toContain(
+        'meaningful squeeze fuel if this ticker rallies on a fresh BUY setup',
+      )
     })
 
     it('describes a modest (<10%) short-percent-of-float as limited squeeze fuel', () => {
@@ -1378,6 +1410,69 @@ describe('metricHelpContent', () => {
       expect(message).toContain('3 filings shown')
       expect(message).toContain('Three or more filings are shown')
       expect(message).not.toContain('most recent filing dated')
+    })
+  })
+
+  describe('insiderClustersHelp.interpretValue', () => {
+    function buildCluster(overrides: Partial<InsiderClusterOut> = {}): InsiderClusterOut {
+      return {
+        direction: 'buy',
+        insiders: ['Alice Smith', 'Bob Jones', 'Carol White'],
+        window_start_date: '2026-07-01',
+        window_end_date: '2026-07-20',
+        transaction_count: 3,
+        total_shares: 60_000,
+        total_value: 3_000_000,
+        ...overrides,
+      }
+    }
+
+    it('reports no qualifying cluster for an empty list', () => {
+      expect(insiderClustersHelp.interpretValue([])).toBe(
+        "No qualifying cluster (3+ distinct insiders trading the same direction within a rolling 30-day window) currently detected among this ticker's filings.",
+      )
+    })
+
+    it('describes a single buy cluster', () => {
+      const message = insiderClustersHelp.interpretValue([buildCluster()])
+      expect(message).toContain('1 cluster currently detected')
+      expect(message).toContain(
+        'Buy cluster: 3 distinct insiders (3 filings) between 2026-07-01 and 2026-07-20',
+      )
+    })
+
+    it('describes a single sell cluster', () => {
+      const message = insiderClustersHelp.interpretValue([
+        buildCluster({ direction: 'sell', transaction_count: 5 }),
+      ])
+      expect(message).toContain('Sell cluster: 3 distinct insiders (5 filings)')
+    })
+
+    it('lists multiple clusters most-recent-window-first, exercising both sort-comparator directions', () => {
+      const message = insiderClustersHelp.interpretValue([
+        buildCluster({
+          direction: 'sell',
+          window_start_date: '2026-06-01',
+          window_end_date: '2026-06-15',
+        }),
+        buildCluster({
+          direction: 'buy',
+          window_start_date: '2026-04-01',
+          window_end_date: '2026-04-15',
+        }),
+        buildCluster({
+          direction: 'sell',
+          window_start_date: '2026-08-01',
+          window_end_date: '2026-08-20',
+        }),
+      ])
+      expect(message).toContain('3 clusters currently detected')
+      const augIndex = message.indexOf('2026-08-20')
+      const junIndex = message.indexOf('2026-06-15')
+      const aprIndex = message.indexOf('2026-04-15')
+      expect(augIndex).toBeGreaterThanOrEqual(0)
+      expect(augIndex).toBeLessThan(junIndex)
+      expect(junIndex).toBeLessThan(aprIndex)
     })
   })
 
