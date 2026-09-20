@@ -3,7 +3,7 @@
   "title": "Personal Breadth widget -- non-blocking review follow-ups",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-breadth-widget"],
   "references": [
     "docs/tasks/frontend-breadth-widget.json#review",
@@ -25,7 +25,7 @@
     },
     {
       "step": "New from PR #171's re-review (PersonalBreadthCard.tsx fix commit 2acf19c): the 'is'/'are' fix above keys the verb off `computable` (the computable-ticker denominator) instead of `bullishCount` (the actual grammatical subject of \"...are currently BULLISH\"), so it's still wrong whenever those two differ -- e.g. tracked_ticker_count=5, unavailable_count=1, bullish_count=1, bearish_count=3, neutral_count=0 gives computable=4, so the code emits 'are' ('1 of 4 computable tickers (25.0%) are currently BULLISH'), which should be 'is' since only 1 ticker is BULLISH. Also wrong when bullish_count=0 and computable=1 (emits 'is' for a zero count, which conventionally takes 'are'). The only test covering this fix (computable=1 AND bullishCount=1) can't distinguish the two variables, so the residual bug ships uncovered. Fix: key the is/are ternary off `bullishCount === 1`, not `computable === 1`.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -34,6 +34,12 @@
       "recorded_by": "task-worker",
       "decision": "Fixed all three grammar findings directly on task/frontend-breadth-widget (PR #171) alongside the blocking alignItems fix, rather than waiting for a dedicated followups branch/PR for this task id.",
       "rationale": "The dispatching instruction explicitly called these 'cheap to bundle now' while already in these exact files for the blocking fix, and all three are one-line ternary-condition changes with no new design surface. Rejected alternative: leaving them for a separate task/frontend-breadth-widget-followups branch later, which would mean re-opening and re-verifying (tsc -b, full test suite, eslint) the same two files a second time for no benefit. State intentionally left as 'planned' (not 'done') despite the checklist being fully checked off -- closing a task's lifecycle to 'done' is pr-reviewer's/task-qa-reviewer's call per CLAUDE.md's mover convention, not task-worker's, even for a followups task whose fix happened to land as a drive-by; pr-reviewer can confirm and close this out on its next pass over PR #171."
+    },
+    {
+      "timestamp": "2026-09-20T01:32:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the residual is/are bug on its own task/frontend-breadth-widget-followups branch (this task's own branch), keying personalBreadthHelp.ts's valueInterpretation ternary off `bullishCount === 1` instead of `computable === 1`. Added two new tests to PersonalBreadthCard.test.tsx that each set bullishCount and computable to different values (bullish_count=1 with computable=4, and bullish_count=0 with computable=1) so the is/are wording is actually exercised independently of the computable-ticker count, rather than adding a dedicated unit-test file for personalBreadthHelp.ts directly.",
+      "rationale": "Unlike the first three findings (bundled into #171 because that branch was still open), this fourth finding was raised only after #171 already merged, so there was no still-open branch to bundle it into -- a fresh task/<id> branch per CLAUDE.md's normal task-worker flow is the right unit of work here. Kept the new tests inside PersonalBreadthCard.test.tsx (component-level, via MetricHelp's rendered text) rather than adding a standalone personalBreadthHelp.test.ts, matching the existing pattern for this exact help-content style (features/portfolio/components/totalRiskHelp.ts has no dedicated unit test file either, only exercised through its card's tests) -- rejected alternative: a new isolated unit test file, which would be more direct but inconsistent with the sibling pattern and unnecessary duplication of the MSW-mocked rendering path already in place here."
     }
   ]
 }

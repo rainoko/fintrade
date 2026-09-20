@@ -226,4 +226,54 @@ describe('PersonalBreadthCard', () => {
       ),
     ).toBeInTheDocument()
   })
+
+  it('uses singular "is" for exactly one BULLISH ticker even when the computable denominator is plural', async () => {
+    mockBreadth({
+      tracked_ticker_count: 5,
+      bullish_count: 1,
+      bearish_count: 3,
+      neutral_count: 0,
+      unavailable_count: 1,
+      bullish_pct: 25.0,
+      bearish_pct: 75.0,
+      neutral_pct: 0.0,
+    })
+    const user = userEvent.setup()
+
+    renderWithProviders(<PersonalBreadthCard />)
+
+    await waitFor(() => expect(screen.getByText('Bullish')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Personal Breadth help' }))
+
+    expect(
+      screen.getByText(
+        '1 of 4 computable tickers (25.0%) is currently BULLISH, 3 (75.0%) BEARISH, 0 (0.0%) NEUTRAL (1 of 5 tracked tickers unavailable right now, excluded from these percentages).',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('uses plural "are" for zero BULLISH tickers even when the computable denominator is singular', async () => {
+    mockBreadth({
+      tracked_ticker_count: 1,
+      bullish_count: 0,
+      bearish_count: 1,
+      neutral_count: 0,
+      unavailable_count: 0,
+      bullish_pct: 0.0,
+      bearish_pct: 100.0,
+      neutral_pct: 0.0,
+    })
+    const user = userEvent.setup()
+
+    renderWithProviders(<PersonalBreadthCard />)
+
+    await waitFor(() => expect(screen.getByText('Bearish')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Personal Breadth help' }))
+
+    expect(
+      screen.getByText(
+        '0 of 1 computable ticker (0.0%) are currently BULLISH, 1 (100.0%) BEARISH, 0 (0.0%) NEUTRAL.',
+      ),
+    ).toBeInTheDocument()
+  })
 })
