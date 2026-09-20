@@ -1,0 +1,35 @@
+{
+  "id": "backend-day-trader-timeframe-mode",
+  "title": "Switchable day-trader timeframe mode (ch. 39) -- tracked, blocked on product decisions",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "waiting_input",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#switchable-trading-mode-positionswing-trader-vs-day-trader--different-triple-screen-timeframe-scales"
+  ],
+  "description": "Ch. 39, 'Choosing Timeframes--the Factor of Five': Triple Screen doesn't hard-code weekly/daily/intraday -- it's built around whatever three timeframes the trader picks, each related to its neighbor by roughly a factor of five. This app currently hard-codes the swing/position-trader pairing (weekly/daily/intraday). Day-trading is the book's other explicit example (25-min/5-min/2-min, or a 39-min/8-min pairing). This is a genuinely large feature -- new intraday data dependency (needs IBKR live, unlike everything else in this app which works via always-on yfinance), and a real architecture change everywhere the app currently assumes 'weekly'/'daily' as fixed concepts (schema field names, cache table interval columns, calendar-week truncation logic) rather than a generic long-term/intermediate/short-term triple. Deliberately left in waiting_input rather than planned -- the open questions below are genuine product decisions, not judgment calls a worker can make and record on its own.",
+  "checklist": [
+    { "step": "Answer the questions below and move this task to 'planned' before any implementation work starts.", "done": false }
+  ],
+  "questions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "raised_by": "manual",
+      "question": "Should day-trader timeframe mode be built at all, given its scope (a real architecture change, not just a UI toggle) and its hard dependency on IBKR being live (unlike every other feature in this app, which works with no IBKR setup)?",
+      "context": "This is a product/scope call, not something a worker can decide and record on its own -- it commits the app to maintaining a second, materially different data pipeline and a generic long/intermediate/short-term timeframe model throughout the signal engine and API schema."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "raised_by": "manual",
+      "question": "If built, which timeframe triple should ship first -- the book's 25-min/5-min/2-min example, its 39-min/8-min pairing (chosen because 39 minutes divides the 390-minute US trading day into a clean 10 bars), or a fully user-configurable triple?",
+      "context": "Each has different implementation cost: a fixed triple is far simpler than a configurable one, but ch.39 itself frames the timeframe choice as inherently personal to the trader."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "raised_by": "manual",
+      "question": "Should this be a global app-wide setting (the whole app switches mode) or a per-analysis-request parameter (a ticker can be viewed in either mode)?",
+      "context": "This changes the shape of the API contract change significantly -- a global setting is a much smaller, less breaking change than a per-request parameter threaded through every signal/analysis endpoint."
+    }
+  ]
+}

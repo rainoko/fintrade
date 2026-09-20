@@ -1,0 +1,19 @@
+{
+  "id": "frontend-market-breadth-widget",
+  "title": "Real market-breadth widget, alongside the existing personal-breadth proxy",
+  "area": "frontend/pages/watchlist",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-market-breadth-indicators"],
+  "references": [
+    "frontend/src/features/watchlist/components",
+    "docs/tasks/done/frontend-breadth-widget.json",
+    "docs/ideas.md#broad-market-breadth-indicators-ch-3436-nh-nl-stocks-above-50-day-ma-advancedecline"
+  ],
+  "description": "Surface the new real market-breadth indicator(s) alongside the existing personal-watchlist-only breadth widget, clearly labeled as distinct (one reflects the whole market via IBKR, the other only the user's own tracked tickers) -- with a clear disabled/unavailable state when IBKR isn't connected.",
+  "checklist": [
+    { "step": "Build a widget/panel for the new market-breadth indicator(s), clearly distinguishing it from the existing PersonalBreadthCard so a user doesn't confuse the two.", "done": false },
+    { "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.", "done": false },
+    { "step": "Component tests covering available data and the disabled state.", "done": false }
+  ]
+}

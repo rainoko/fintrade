@@ -1,0 +1,17 @@
+{
+  "id": "frontend-trade-journal-followup-review",
+  "title": "Surface trades due for their two-months-later follow-up review",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-trade-journal-followup-review"],
+  "references": [
+    "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
+  ],
+  "description": "Surface trades the backend now identifies as due for a two-months-later follow-up review, and let the user record that review.",
+  "checklist": [
+    { "step": "Add a 'due for follow-up' indicator/section in TradeJournalPanel (or a dedicated panel) listing trades due for review.", "done": false },
+    { "step": "Add a small form/dialog to record follow_up_notes for a given trade.", "done": false },
+    { "step": "Component tests for both: the due-list rendering and submitting a follow-up review.", "done": false }
+  ]
+}

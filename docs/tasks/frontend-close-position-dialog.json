@@ -1,0 +1,21 @@
+{
+  "id": "frontend-close-position-dialog",
+  "title": "Real Close-Position dialog (exit reason + optional manual exit override)",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-close-position-manual-exit"],
+  "references": [
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "frontend/src/features/portfolio/components/AddPositionDialog.tsx",
+    "docs/ideas.md#no-manual-sell--close-position-form--only-a-bare-confirm-delete-dialog"
+  ],
+  "description": "PositionsTable.tsx's close flow is currently a bare ConfirmDialog with zero user-editable fields, wired to useDeletePosition, whose mutation signature is just (id: string). 'Buy' already has a real form (AddPositionDialog); 'sell' has no equivalent. Build a ClosePositionDialog mirroring AddPositionDialog's shape: an exit_reason selector (the backend endpoint already accepts this param, it's just never been surfaced) plus the optional manual exit price/date override once backend-close-position-manual-exit lands.",
+  "checklist": [
+    { "step": "Build ClosePositionDialog with an exit_reason <select> (matching the ExitReason taxonomy already defined) replacing PositionsTable's plain ConfirmDialog for closing a position.", "done": false },
+    { "step": "Add the optional manual exit price/date override fields, defaulting to unset (today's live-price behavior unchanged).", "done": false },
+    { "step": "Update useDeletePosition's mutation signature to pass the new parameters (exit_reason, and the optional override fields).", "done": false },
+    { "step": "Component tests covering a default close (no override, just exit_reason) and an override close (manual exit price/date supplied).", "done": false },
+    { "step": "Decide placement (components/common vs. feature-specific) per Frontend.md's placement guidance, and add a Storybook story if it belongs in common/.", "done": false }
+  ]
+}
