@@ -19,6 +19,7 @@ import {
   formatNullableCurrency,
   formatNullableNumber,
 } from '../../../utils/format'
+import { sortClustersByRecentWindowEnd } from '../../../utils/insiderClusters'
 import {
   earningsDateHelp,
   exDividendDateHelp,
@@ -110,9 +111,7 @@ function InsiderClusterCallouts({
     )
   }
 
-  const sortedClusters = [...clusters].sort((a, b) =>
-    a.window_end_date < b.window_end_date ? 1 : -1,
-  )
+  const sortedClusters = sortClustersByRecentWindowEnd(clusters)
 
   return (
     <Stack spacing={1} sx={{ mb: 1.5 }}>
