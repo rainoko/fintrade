@@ -3,7 +3,7 @@
   "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/signals/impulse.py",
@@ -93,26 +93,36 @@
     "pushed_at": "2026-09-20T08:59:31Z"
   },
   "review": {
-    "reviewed_at": "2026-09-20T08:45:48Z",
+    "reviewed_at": "2026-09-20T09:09:54Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/187",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Backend signal-computation change is correct and well-verified (hand-checked the ch. 39 primary-source quote in docs/ideas.md, confirmed evaluate_impulse is genuinely timeframe-agnostic by reading it, confirmed the daily Impulse gate in _determine_signal is untouched and decoupled via a real unmocked end-to-end test, hand-verified the flat-price tie-to-BEARISH edge case, grepped the whole repo for dangling ema_26 references, confirmed backend/openapi.json is description-only, ran the full backend suite (847 passed, 99.93% coverage) and all 16 Playwright e2e specs). BLOCKING: this PR's own 'frontend copy left stale' decisions entry is real and I confirmed it live in the running app -- the Tide (Screen 1) MetricHelp tooltip on /stocks/AAPL still tells users Tide is 'Driven by the weekly MACD-Histogram (12,26,9) slope... Confirmed by the 13-week/26-week EMA relationship... Neutral when the slope and EMA relationship disagree', which is now factually false (evaluate_tide no longer reads EMA(26) at all, and NEUTRAL now means weekly Impulse BLUE, an EMA(13)-direction-vs-MACD-H-direction disagreement, not an EMA13-vs-EMA26 level disagreement). Same staleness confirmed in frontend/src/features/stocks/components/metricHelpContent.ts:87-89 (tide_alignment confidence help), metricHelpContent.ts:323 (MACD-Histogram help), and signalExplanation.ts:116 (the dynamically-generated, specific, now-incorrect reason shown for a NEUTRAL tide). Given this app's core value proposition is explaining a signal's own methodology to the user, and this is the exact PR that changed that methodology, shipping the old explanation is a real correctness gap, not a nice-to-have -- treating as blocking rather than a tracked follow-up.",
+        "summary": "Re-review (retry round 1) confirms the fix for the prior needs_work finding is genuine, not just claimed. Independently re-derived the GREEN/RED/BLUE->BULLISH/BEARISH/NEUTRAL mapping and the EMA(13)-direction+MACD-Histogram-direction rule from backend/app/signals/impulse.py::evaluate_impulse and triple_screen.py::evaluate_tide's actual code (not just their docstrings), then checked every rewritten string in metricHelpContent.ts (tideHelp, confidenceComponentHelp.tide_alignment, ema13Help, ema26Help, macdHistogramHelp), signalExplanation.ts's Neutral-tide branch, and tideNeutralCause.ts's shared hedge constant against that code -- all accurate, including the more subtle claim that a non-'flat' weekly_macd_histogram_slope proves real weekly history existed (verified: evaluate_tide's <2-bar short-circuit always returns 'flat' and never calls evaluate_impulse, so a non-flat slope can only occur when evaluate_impulse actually ran, making a NEUTRAL result there provably a genuine Green/Red disagreement, i.e. Blue).",
         "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
         "line": 181
       },
       {
-        "summary": "Also stale: frontend/src/features/stocks/components/signalExplanation.ts's NEUTRAL-tide explanation text.",
-        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
-        "line": 116
+        "summary": "Confirmed the 'types.ts never re-synced' claim is real: checked out the pre-fix commit (d7ad00a) and found backend/openapi.json's TideScreen.trend description already corrected there while frontend/src/api/types.ts still had the old 'NEUTRAL when weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree' description -- exactly the claimed drift. Regenerated both backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (yarn generate:api-types) myself against this PR's current HEAD: zero diff either way, confirming the snapshot and generated types are now genuinely in sync.",
+        "file": "frontend/src/api/types.ts",
+        "line": 1302
       },
       {
-        "summary": "Non-blocking: backend/app/signals/confidence.py::score_tide_alignment's docstring quotes docs/Analyse.md §6's old wording verbatim ('100% if slope & EMA agree strongly; 50% if mixed...') even though this PR updated that table's actual text -- behavior is unaffected (the mechanical BULLISH/NEUTRAL/BEARISH -> 1.0/0.5/0.0 mapping is still correct), but the docstring is now a stale quote of doc text that no longer exists. Tracked on backend-weekly-impulse-screen1-followups.",
+        "summary": "Grepped the whole frontend myself for remaining stale Tide/Screen-1/weekly-MACD-slope copy beyond the implementer's own sweep. All user-facing MetricHelp/explanation copy is clean. Found two internal (non-user-facing) doc comments in PriceChart.tsx the implementer's grep missed (didn't contain the exact '13/26-week EMA'/'MACD-H slope and ... relationship' phrasing their sweep searched for): line ~339 ('...which Tide (driven by a weekly MACD histogram slope, not a daily one) realistically never does') and line ~757 ('EMA13/EMA26 as native Lightweight Charts line series (Screen 1's trend-following pair, per docs/Analyse.md §2/§4)') both still describe the superseded mechanism. Non-blocking (internal comments, not user-visible) -- filed on backend-weekly-impulse-screen1-followups.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 339
+      },
+      {
+        "summary": "confidence.py::score_tide_alignment's docstring fix confirmed accurate against docs/Analyse.md §6's actual current text (line 218: '100% if Tide ... agrees ...; 50% if Neutral (weekly Impulse Blue ...); 0% if Tide contradicts') and against score_tide_alignment's own unchanged mechanical logic. ruff/mypy clean on the file.",
         "file": "backend/app/signals/confidence.py",
         "line": 80
+      },
+      {
+        "summary": "Full verification re-run independently: backend suite 847 passed, 99.93% coverage; frontend suite 643 passed (1 PortfolioPage.test.tsx failure in the coverage run was confirmed flaky -- passed in isolation and in a full clean re-run); ruff/mypy clean on backend app/; eslint and tsc -b --noEmit clean on frontend; all 16 Playwright e2e specs (make e2e) passed. Did my own live browser walkthrough (fixture-mode backend + Vite dev server, real Playwright-driven Chromium, not just trusting the implementer's) against TSLA (flat-slope Neutral) and GOOGL (falling-slope/disagreement Neutral): both the Tide MetricHelp tooltip and the dynamically-generated 'Why HOLD?' explanation read correctly and match the code exactly for both branches; also checked a not-found-ticker edge case (expected 404, handled gracefully) and confirmed zero console errors/failed requests across the walkthrough.",
+        "file": "backend/app/signals/triple_screen.py",
+        "line": 130
       }
     ],
-    "notes": "Verified via a real browser walkthrough (started make dev, screenshotted the actual Tide MetricHelp tooltip on /stocks/AAPL) that the stale-frontend-copy gap the implementer's own decisions entry flagged is a real, user-visible correctness issue, not just a documentation nit -- escalated from the deferred/out-of-scope framing in that decisions entry to a blocking finding. Everything else (backend logic, tests, OpenAPI, skill-doc, Analyse.md) reviewed to the same depth as PR #160/#185 and found correct. Full backend suite (847 passed, 99.93% coverage), frontend suite (99.6%+, unchanged), ruff/mypy/eslint/tsc all clean, all 16 e2e specs passed."
+    "notes": "Retry round 1 of PR #187, re-reviewing after the prior needs_work verdict on stale frontend Tide copy. The fix is genuine: independently re-derived the corrected methodology from the actual evaluate_impulse/evaluate_tide code (not the PR's own docstrings) and verified every rewritten user-facing string against it, confirmed the openapi.json<->types.ts drift claim and its fix with a from-scratch regeneration showing zero diff, ran a from-scratch grep sweep that found two additional (non-blocking, internal-comment-only) stale spots in PriceChart.tsx the implementer's own sweep missed, and did an independent live browser walkthrough covering both NEUTRAL-tide branches (flat-slope and disagreement) plus an edge case. No blocking findings. Accepted."
   }
 }

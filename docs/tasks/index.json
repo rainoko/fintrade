@@ -1104,8 +1104,8 @@
       "id": "backend-weekly-impulse-screen1",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "testing",
-      "path": "docs/tasks/backend-weekly-impulse-screen1.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-weekly-impulse-screen1.json"
     },
     {
       "id": "backend-weekly-impulse-screen1-followups",
