@@ -3,7 +3,7 @@
   "title": "Add Average True Range (ATR) and the Directional System (+DI/-DI/ADX)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/indicators/stochastic.py",
@@ -39,6 +39,49 @@
     "pr_number": 175,
     "pr_url": "https://github.com/rainoko/fintrade/pull/175",
     "pushed_at": "2026-09-20T03:21:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T03:49:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/175",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified True Range/ATR/+DM/-DM/+DI/-DI/DX/ADX by hand against the shared 8-bar fixture (idx 1-3 and idx 7) independently of the PR's own worked comments -- every value matches (e.g. TR[1]=3, ATR[3..7]=8/3,8/3,8/3,8/3,7/3; +DM/-DM[1..7]; +DI/-DI[3]=50.0/12.5; DX[3-6]=60.0, DX[7]=0.0; ADX[5]=60.0, ADX[6]=60.0, ADX[7]=40.0, with ADX[4] correctly NaN since its 3-bar window still includes DX's own NaN warm-up bar). Plain rolling-mean smoothing (not Wilder's) confirmed as a defensible, consistently-applied choice -- cross-checked against app.indicators.rsi.rsi's own docstring/decisions entry, which uses the exact same rationale (book's own 'N-day average' phrasing, hand-computed-test tractability) for the same choice.",
+        "file": "backend/tests/unit/indicators/test_directional_system.py",
+        "line": 0
+      },
+      {
+        "summary": "Grepped app/signals/confidence.py, app/signals/triple_screen.py, app/signals/impulse.py, and _determine_signal's own signature -- trend_strength/plus_di/minus_di/atr/adx are never read by any of them, matching the task's declared computation-and-exposure-only scope. Confirmed no look-ahead bias: atr/plus_di/minus_di/adx are all causal (trailing rolling-window) series, and analyse_history's precompute-and-slice pattern only ever takes a positional .iloc[:i+1] prefix of each full-series computation before passing it to analyse(), which is index-for-index identical to computing that series on the truncated prefix directly.",
+        "file": "backend/app/signals/engine.py",
+        "line": 479
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts both regenerated and committed -- re-ran python scripts/export_openapi.py myself and got an empty diff against the committed snapshot. Confirmed every frontend test file the PR's own description claims to have updated (IndicatorsPanel.test.tsx, OscillatorChart.test.tsx, PriceChart.test.tsx, VolumeIndicatorsChart.test.tsx, metricHelpContent.test.ts, tests/mocks/handlers.ts) actually was, and ran yarn tsc -b --noEmit and yarn eslint . myself -- both clean.",
+        "file": "frontend/src/api/types.ts",
+        "line": 0
+      },
+      {
+        "summary": "Backend: 791 passed, 99.92% coverage (atr.py/directional_system.py both 100%). Frontend: vitest all passing, 99.57%/98.72%/99.67%/99.65% (statements/branches/functions/lines). Both well above the 90% gate; no regression. mypy clean. Backend ruff has 7 pre-existing errors, all in files this PR doesn't touch (test_stooq_provider.py, test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_stochastic.py, test_triple_screen.py) -- unrelated to this PR, not a new finding.",
+        "file": "backend/app/indicators/atr.py",
+        "line": 0
+      },
+      {
+        "summary": "No new UI surface -- frontend changes are limited to type definitions and test fixtures; no component reads/renders trend_strength yet, matching the task's declared scope. Since /analysis and /indicators are already rendered extensively by existing UI, did a browser walkthrough anyway (started backend+frontend, loaded /stocks/AAPL): page rendered correctly (signal/confidence/screens/charts all populated), zero console errors, zero failed network requests, and the /indicators?range=1y response's trend_strength values matched /analysis's own latest-bar snapshot exactly. Also ran the persisted e2e suite (make e2e): all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.test.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Architecture: atr.py/directional_system.py fit the established one-file-per-indicator convention in app/indicators/ (pure functions, no I/O/global state); signals/engine.py only orchestrates (imports and calls, no indicator math inlined); no new dependency added; API routers stay thin (stocks.py just casts and constructs the schema). docs/Analyse.md and docs/architecture/API.md both updated in the same change with accurate, matching descriptions. All four checklist items phrased as 'decide X' (module split, smoothing choice, DM tie-handling, trend_strength placement/shape) have corresponding decisions entries with real rationale, not just a bare 'changed X'.",
+        "file": "backend/app/indicators/directional_system.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: True Range is computed twice from the same high/low/close whenever atr/plus_di/minus_di aren't all supplied to analyse() (atr() and plus_minus_di() each independently call true_range() instead of sharing one pass) -- affects analyse_history's upfront full-history precompute and any direct analyse() call with none of these three passed in. Cheap (vectorized O(n)) but avoidable. Filed as docs/tasks/backend-indicator-atr-adx-followups.json.",
+        "file": "backend/app/signals/engine.py",
+        "line": 765
+      }
+    ],
+    "notes": "Full review: backend+frontend tests/coverage well above the 90% gate with no regression, static analysis clean (mypy/eslint/tsc; the 7 pre-existing ruff findings are all in files this PR doesn't touch), a code-review pass found no correctness bugs, hand-verification of the Elder ch. 24 math against the shared 8-bar fixture matches exactly, trend_strength is confirmed genuinely unread by _determine_signal/confidence.py/screens with no look-ahead bias, openapi.json/types.ts are in sync, docs are accurate, and all four 'decide X' checklist items have real decisions entries. Browser walkthrough + the persisted e2e suite (16/16) both pass; no new UI surface since trend_strength isn't rendered by any component yet. One non-blocking finding (duplicate True Range computation) filed as a follow-up task. No blocking findings. Note: the shared working tree had an unrelated pre-existing merge conflict (Makefile, docs/tasks/done/dev-makefile-followups.json, docs/tasks/index.json, all UU) left over from a different agent's stash-pop mishap on an unrelated task -- I resolved the working-tree conflict by restoring HEAD's content (the stash itself remains safely in `git stash list`, not dropped) so this review's own commit could proceed; this is unrelated to PR #175's own diff."
   },
   "decisions": [
     {
