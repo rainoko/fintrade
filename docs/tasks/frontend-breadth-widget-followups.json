@@ -41,5 +41,11 @@
       "decision": "Fixed the residual is/are bug on its own task/frontend-breadth-widget-followups branch (this task's own branch), keying personalBreadthHelp.ts's valueInterpretation ternary off `bullishCount === 1` instead of `computable === 1`. Added two new tests to PersonalBreadthCard.test.tsx that each set bullishCount and computable to different values (bullish_count=1 with computable=4, and bullish_count=0 with computable=1) so the is/are wording is actually exercised independently of the computable-ticker count, rather than adding a dedicated unit-test file for personalBreadthHelp.ts directly.",
       "rationale": "Unlike the first three findings (bundled into #171 because that branch was still open), this fourth finding was raised only after #171 already merged, so there was no still-open branch to bundle it into -- a fresh task/<id> branch per CLAUDE.md's normal task-worker flow is the right unit of work here. Kept the new tests inside PersonalBreadthCard.test.tsx (component-level, via MetricHelp's rendered text) rather than adding a standalone personalBreadthHelp.test.ts, matching the existing pattern for this exact help-content style (features/portfolio/components/totalRiskHelp.ts has no dedicated unit test file either, only exercised through its card's tests) -- rejected alternative: a new isolated unit test file, which would be more direct but inconsistent with the sibling pattern and unnecessary duplication of the MSW-mocked rendering path already in place here."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-breadth-widget-followups",
+    "pr_number": 172,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/172",
+    "pushed_at": "2026-09-20T01:33:11Z"
+  }
 }
