@@ -25,5 +25,11 @@
       "decision": "Reworded valueZoneHelp.elderContext to state EMA(13)/EMA(26) no longer drive the Tide/Screen 1 directly (now the weekly Impulse System color), but that EMA(13) still feeds the daily Impulse System gate as one of its two inputs and both still feed the Elder-Ray baseline -- mirroring ema26Help.elderContext's corrected framing rather than dropping the Impulse-System mention entirely.",
       "rationale": "The checklist item's own suggested rewording kept an indirect Impulse System connection (EMA(13) is one of the two daily Impulse inputs) rather than removing all mention of it, which matches how ema26Help.elderContext (a few lines above) already frames the same pair post-correction -- keeping the two elderContext strings consistent in how they describe the same underlying fact was preferred over independently wording each one. No existing test asserted the stale copy verbatim, so no test needed updating beyond re-running the suite to confirm nothing else depended on it."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-weekly-impulse-screen1-followups-followups",
+    "pr_number": 197,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/197",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }
