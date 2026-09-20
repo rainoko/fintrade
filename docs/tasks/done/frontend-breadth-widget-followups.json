@@ -1,0 +1,63 @@
+{
+  "id": "frontend-breadth-widget-followups",
+  "title": "Personal Breadth widget -- non-blocking review follow-ups",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-breadth-widget"],
+  "references": [
+    "docs/tasks/frontend-breadth-widget.json#review",
+    "https://github.com/rainoko/fintrade/pull/171"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #171 (frontend-breadth-widget), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PersonalBreadthCard.tsx's unavailable-count footnote ('N of M tracked ticker(s) currently unavailable') pluralizes 'ticker(s)' based on unavailable_count instead of the total tracked_ticker_count it's actually attached to -- e.g. unavailable_count=1 with tracked_ticker_count=5 renders 'ticker' instead of 'tickers'. Locked in verbatim by PersonalBreadthCard.test.tsx's assertion of the exact (grammatically wrong) string, so fixing it needs the test's expected string updated too.",
+      "done": true
+    },
+    {
+      "step": "personalBreadthHelp.ts's unavailableClause has the identical pluralization bug ('N of M tracked ticker(s) unavailable right now') -- pluralizes on unavailableCount rather than trackedTickerCount, inconsistent with the correct pattern two lines later in the same function (the computable-ticker clause correctly pluralizes off the total, computable).",
+      "done": true
+    },
+    {
+      "step": "personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when the computable-ticker count is singular (e.g. computable=1 renders '1 of 1 computable ticker (100.0%) are currently BULLISH' -- should be 'is'). Also locked in verbatim by PersonalBreadthCard.test.tsx's singular-wording test.",
+      "done": true
+    },
+    {
+      "step": "New from PR #171's re-review (PersonalBreadthCard.tsx fix commit 2acf19c): the 'is'/'are' fix above keys the verb off `computable` (the computable-ticker denominator) instead of `bullishCount` (the actual grammatical subject of \"...are currently BULLISH\"), so it's still wrong whenever those two differ -- e.g. tracked_ticker_count=5, unavailable_count=1, bullish_count=1, bearish_count=3, neutral_count=0 gives computable=4, so the code emits 'are' ('1 of 4 computable tickers (25.0%) are currently BULLISH'), which should be 'is' since only 1 ticker is BULLISH. Also wrong when bullish_count=0 and computable=1 (emits 'is' for a zero count, which conventionally takes 'are'). The only test covering this fix (computable=1 AND bullishCount=1) can't distinguish the two variables, so the residual bug ships uncovered. Fix: key the is/are ternary off `bullishCount === 1`, not `computable === 1`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed all three grammar findings directly on task/frontend-breadth-widget (PR #171) alongside the blocking alignItems fix, rather than waiting for a dedicated followups branch/PR for this task id.",
+      "rationale": "The dispatching instruction explicitly called these 'cheap to bundle now' while already in these exact files for the blocking fix, and all three are one-line ternary-condition changes with no new design surface. Rejected alternative: leaving them for a separate task/frontend-breadth-widget-followups branch later, which would mean re-opening and re-verifying (tsc -b, full test suite, eslint) the same two files a second time for no benefit. State intentionally left as 'planned' (not 'done') despite the checklist being fully checked off -- closing a task's lifecycle to 'done' is pr-reviewer's/task-qa-reviewer's call per CLAUDE.md's mover convention, not task-worker's, even for a followups task whose fix happened to land as a drive-by; pr-reviewer can confirm and close this out on its next pass over PR #171."
+    },
+    {
+      "timestamp": "2026-09-20T01:32:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the residual is/are bug on its own task/frontend-breadth-widget-followups branch (this task's own branch), keying personalBreadthHelp.ts's valueInterpretation ternary off `bullishCount === 1` instead of `computable === 1`. Added two new tests to PersonalBreadthCard.test.tsx that each set bullishCount and computable to different values (bullish_count=1 with computable=4, and bullish_count=0 with computable=1) so the is/are wording is actually exercised independently of the computable-ticker count, rather than adding a dedicated unit-test file for personalBreadthHelp.ts directly.",
+      "rationale": "Unlike the first three findings (bundled into #171 because that branch was still open), this fourth finding was raised only after #171 already merged, so there was no still-open branch to bundle it into -- a fresh task/<id> branch per CLAUDE.md's normal task-worker flow is the right unit of work here. Kept the new tests inside PersonalBreadthCard.test.tsx (component-level, via MetricHelp's rendered text) rather than adding a standalone personalBreadthHelp.test.ts, matching the existing pattern for this exact help-content style (features/portfolio/components/totalRiskHelp.ts has no dedicated unit test file either, only exercised through its card's tests) -- rejected alternative: a new isolated unit test file, which would be more direct but inconsistent with the sibling pattern and unnecessary duplication of the MSW-mocked rendering path already in place here."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-breadth-widget-followups",
+    "pr_number": 172,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/172",
+    "pushed_at": "2026-09-20T01:33:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T01:44:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/172",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (746 passed, 99.92% cov) and frontend vitest (536 passed, statements 99.55%/branches 98.66%) both pass well above the 90% gate; no coverage regression. ruff, mypy, eslint, tsc -b --noEmit all clean on both sides. code-review skill (medium effort) found zero issues. Hand-checked the fixed ternary (`bullishCount === 1 ? 'is' : 'are'`) against bullishCount=0/1/>1 crossed with computable equal-to and different-from bullishCount -- correct ('is' only for exactly one BULLISH ticker, 'are' otherwise, independent of the computable denominator) in every case, matching docs/Analyse.md's plain-English framing (no methodology rule at stake, this is presentation text). Mentally reverted the fix (restoring `computable === 1 ? 'is' : 'are'`) against both new tests: the computable=4/bullishCount=1 test would flip to 'are' (wrong, test expects 'is') and the computable=1/bullishCount=0 test would flip to 'is' (wrong, test expects 'are') -- both new tests genuinely catch the original bug. `gh pr diff --name-only` confirms only the two watchlist frontend files plus the two task-board JSON files changed -- no backend/API/schema touched, so no openapi.json regeneration was needed. No new module/component/dependency added (architecture-review and the components/common/-vs-feature placement check in step 7a don't apply here -- personalBreadthHelp.ts and PersonalBreadthCard.test.tsx are pre-existing files being edited, not new components). Browser walkthrough: started backend (fixture provider) + frontend dev servers, drove the Watchlist page with a real Chromium browser (not just RTL) -- added 3 tickers then removed down to 1, opening the Personal Breadth help popover at each step; live-rendered text read '0 of 3 computable tickers (0.0%) are currently BULLISH...' and '0 of 1 computable ticker (0.0%) are currently BULLISH...', correctly using 'are' for a zero bullish count independent of the computable denominator (3 vs 1) -- confirms the fix works end to end, not just in the mocked unit tests. Fixture data never produced a bullish_count of 1 to observe the 'is' branch live, but that combination is already covered by the new component tests plus my hand-check above. Two console 404s appeared only from my own test script's cleanup DELETE calls firing after the page had already navigated away -- not an application bug. e2e-test skill: `make e2e` ran all 4 spec files / 16 tests, all passed, no console errors. No checklist item here is phrased as 'decide X' needing a decisions entry beyond the two already recorded, both of which have proper rationale. No non-blocking findings -- nothing to file as a follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T01:47:50Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend vitest (536 passed, 99.55% stmt/98.66% branch cov, matches review), yarn tsc -b --noEmit (clean), yarn eslint . (clean), and backend pytest (746 passed, confirming it's genuinely unaffected -- only the two watchlist frontend files plus task-board JSON changed per `git diff origin/main...HEAD --name-only`). Read the full diff myself: personalBreadthHelp.ts's ternary changed from `computable === 1 ? 'is' : 'are'` to `bullishCount === 1 ? 'is' : 'are'`. Hand-traced both new tests against the reverted (old) logic: bullishCount=1/computable=4 would render 'are' under the old logic vs the test's expected 'is' (fail), and bullishCount=0/computable=1 would render 'is' under the old logic vs the test's expected 'are' (fail) -- both genuinely catch the original bug. index.json mirror and docs/tasks/done/ path move are consistent with the git mv."
+  }
+}
