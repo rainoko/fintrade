@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #188 review (backend-weekly-impulse-screen1-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-weekly-impulse-screen1-followups"],
   "references": [
     "docs/tasks/backend-weekly-impulse-screen1-followups.json",
@@ -15,7 +15,15 @@
   "checklist": [
     {
       "step": "frontend/src/features/stocks/components/metricHelpContent.ts's valueZoneHelp.elderContext (around line 583) still says \"This exact EMA13/EMA26 pair already drives the Tide (Screen 1), the Impulse System gate, and the Elder-Ray baseline elsewhere on this page (docs/Analyse.md §2-4)\" -- this is stale and now factually wrong: per the `backend-weekly-impulse-screen1` methodology correction (and the already-corrected `ema26Help.elderContext` right below it in the same file, which explicitly says EMA(26) 'no longer feeds the Tide directly'), Tide/Screen 1 is driven by the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction), not by the EMA13/EMA26 level pair. This text is user-facing (rendered via the `MetricHelp` affordance on the price chart's Value Zone legend entry, `PriceChart.tsx` line ~1809), so it's more visible than the two internal JSDoc comments PR #188 itself fixed. Reword to match `ema26Help`'s corrected framing -- e.g. that EMA13/EMA26 still feed the Impulse System's daily gate indirectly (EMA(13) is one of the two Impulse inputs; EMA(26) is MACD's slower input) and the Elder-Ray baseline, but no longer drive the Tide/Screen 1 decision itself.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded valueZoneHelp.elderContext to state EMA(13)/EMA(26) no longer drive the Tide/Screen 1 directly (now the weekly Impulse System color), but that EMA(13) still feeds the daily Impulse System gate as one of its two inputs and both still feed the Elder-Ray baseline -- mirroring ema26Help.elderContext's corrected framing rather than dropping the Impulse-System mention entirely.",
+      "rationale": "The checklist item's own suggested rewording kept an indirect Impulse System connection (EMA(13) is one of the two daily Impulse inputs) rather than removing all mention of it, which matches how ema26Help.elderContext (a few lines above) already frames the same pair post-correction -- keeping the two elderContext strings consistent in how they describe the same underlying fact was preferred over independently wording each one. No existing test asserted the stale copy verbatim, so no test needed updating beyond re-running the suite to confirm nothing else depended on it."
     }
   ]
 }
