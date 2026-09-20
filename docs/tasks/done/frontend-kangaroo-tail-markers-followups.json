@@ -1,0 +1,49 @@
+{
+  "id": "frontend-kangaroo-tail-markers-followups",
+  "title": "Non-blocking review follow-ups from PR #165 (Kangaroo Tail markers)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-kangaroo-tail-markers"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-kangaroo-tail-markers.json",
+    "https://github.com/rainoko/fintrade/pull/165",
+    "frontend/src/theme/theme.ts",
+    "frontend/src/features/stocks/components/PriceChart.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's PR #165 review of frontend-kangaroo-tail-markers, tracked here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "theme.palette.kangarooTail.main (#ad1457, magenta, hue ~334deg) sits fairly close in hue to theme.palette.signal.sell (#c62828, red, hue ~0deg) -- theme.test.ts only asserts hex inequality, not perceptual distance. On the chart itself the two are still reliably distinguishable because they also use different marker shapes (square vs. arrowDown), so this isn't blocking, but a future pass could consider a hue further from the red family (e.g. a violet/purple) so the Kangaroo Tail marker also reads as distinct by color alone (e.g. for a quick glance, a colorblind user, or any future legend/report view that shows color swatches without shape).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T14:52:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Did not change theme.palette.kangarooTail.main's hex value. Independently recomputed CIE76 ΔE76 distance (theme.test.ts's own formula, reproduced from scratch in both Python and a standalone Node script that mirrors theme.test.ts exactly) between kangarooTail.main (#ad1457) and every other palette color. kangarooTail.main vs signal.sell (#c62828) computes to ΔE76 ~37.78 -- more than 2.5x the codebase's own MIN_DISTINCT_DELTA_E=15 'clearly distinct' floor, and kangarooTail.main's closest neighbor in the whole palette is riskBreach.main at ~18.62 ΔE76, still comfortably over that floor (cross-checked: this matches the ~18.6 figure already noted in theme.ts's riskBreach comment, and season.summer/season.autumn independently recomputed to ~17.74, matching that comment's '~17.7' too -- gives confidence the formula reimplementation is correct). The checklist item's premise (hue ~334deg vs ~0deg is 'fairly close') is true in raw hue-degree terms but doesn't predict perceptual distance: the two colors differ substantially in lightness/chroma, which ΔE76 -- the metric this codebase adopted specifically because raw hue/RGB comparisons missed the season.spring/signal.buy and riskBreach.main/signal.sell near-collisions in earlier rounds -- correctly captures. Also found and closed a real (smaller) gap while verifying: theme.test.ts's kangarooTail test only checked hex-string inequality (not ΔE76) against warning.main/info.main, even though theme.ts's own comment claims perceptual distinctness from both. Added expectPerceptuallyDistinct assertions for both pairs (they pass at ~70.9 and ~82.6 ΔE76 respectively) and documented the verified math in a theme.ts comment.",
+      "rationale": "Considered shifting kangarooTail.main's hue toward violet/purple per the checklist's suggestion, but rejected it: the suggestion was based on raw hue-degree proximity, not the perceptual metric this codebase has since standardized on (theme.test.ts's ΔE76 helper, added in PR #201/#93cbdde after this task was filed against PR #165). Independent verification shows no actual near-collision exists (ΔE76 ~37.78, vs. the ~2.6-3.9 ΔE76 that characterized the two near-collisions this codebase actually had to fix). Changing an already-well-distinguished color for no measurable perceptual benefit would only add churn and risk introducing a new collision elsewhere in the palette, which is the opposite of what the prior rounds' fixes were trying to prevent. Strengthening the test to assert the warning.main/info.main distances instead closes the one real observability gap (an untested claim in a comment) without an unjustified hex change."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-kangaroo-tail-markers-followups",
+    "pr_number": 203,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/203",
+    "pushed_at": "2026-09-20T14:55:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T14:58:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/203",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full independent re-verification, not a diff skim. Reimplemented sRGB->XYZ->Lab->CIE76 from scratch in Python (own code, no reuse of any script/number from theme.test.ts or the PR author's session) and confirmed exactly: kangarooTail.main (#ad1457) vs signal.sell (#c62828) = 37.7794 ΔE76; vs warning.main (#ed6c02, MUI default light-theme value, confirmed via `createTheme({palette:{mode:'light'}})`) = 70.9139; vs info.main (#0288d1) = 82.6460; vs riskBreach.main (#cb244d, its actual closest palette neighbor) = 18.6230. All match the PR's claimed ~37.78/~70.9/~82.6/~18.62 to within rounding. A parallel code-review skill pass (own independent Node reimplementation) reached the identical numbers, corroborating both. Confirmed theme.test.ts's two new assertions (`expectPerceptuallyDistinct(main, theme.palette.warning.main)` / `...info.main`) read theme.palette.* live, not hardcoded hex literals, and are not tautological -- MIN_DISTINCT_DELTA_E=15 is a real, independently-satisfiable floor that would fail if kangarooTail.main or warning/info.main's hex ever moved close together. Assessed the no-hex-change decision: the task's checklist item was phrased as \"a future pass could consider\", not a firm defect, and is explicitly non-blocking in its own text (marker shapes already differ on-chart); ΔE76 well over 2x the codebase's own floor is real evidence the raw-hue-degree framing in the original finding doesn't hold up perceptually, so declining to change a well-separated color to avoid unjustified churn/new-collision risk is a sound, non-self-serving rationale, not merely convenient. `decisions` entry meets CLAUDE.md's bar (concrete decision + rationale with rejected alternative). ruff/mypy not re-run (backend untouched by this PR); `yarn eslint`/`yarn tsc -b --noEmit` clean; backend pytest --cov 99.94%, frontend vitest --coverage 99.64%/98.94% branches, both well over the 90% gate, no regressions; `theme.test.ts` 7/7 pass; `scripts/validate_tasks.py` clean. No UI-facing change (comment + test-only diff, no rendered color/component changed) so browser walkthrough and e2e-test (step 9/9a) were correctly skipped -- explicitly noting that here rather than silently omitting. No blocking or new non-blocking findings; no new followups task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T15:01:15Z",
+    "verdict": "merge",
+    "notes": "Re-ran frontend suite myself: 69 files/687 tests passed, 99.64% statement / 98.94% branch coverage, matching pr-reviewer's reported numbers exactly; `theme.test.ts` 7/7 pass. `tsc -b --noEmit` and `yarn eslint .` both exit 0. Read `git diff main...task/frontend-kangaroo-tail-markers-followups` myself: only theme.ts (comment-only) and theme.test.ts (two new expectPerceptuallyDistinct assertions) plus task-board bookkeeping changed -- confirmed kangarooTail.main is still literally `#ad1457`, no hex value changed anywhere. Independently reimplemented sRGB->XYZ(D65)->Lab->CIE76 from scratch (own Python, no reuse of theme.test.ts's or reviewer's code) and pulled the live palette hexes via a standalone vite-node script rather than trusting the PR's stated values: kangarooTail.main vs signal.sell (#ad1457 vs #c62828) = 37.7794 ΔE76, matching both pr-reviewer's and the task's own claimed ~37.78 exactly."
+  }
+}
