@@ -1,9 +1,9 @@
 {
   "id": "backend-insider-transaction-clusters-followups",
-  "title": "Insider-transaction cluster detection — non-blocking review follow-ups",
+  "title": "Insider-transaction cluster detection \u2014 non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-insider-transaction-clusters"
   ],
@@ -41,5 +41,23 @@
     "pr_number": 194,
     "pr_url": "https://github.com/rainoko/fintrade/pull/194",
     "pushed_at": "2026-09-20T11:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T11:35:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/194",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "frontend-insider-clusters-badge.json is well-scoped: depends_on backend-insider-transaction-clusters (done), area frontend/pages/stocks + skill add-frontend-feature both appropriate, references resolve to real current files/symbols (FundamentalDataPanel.tsx, metricHelpContent.ts, both done-task decisions arrays it cites, docs/Analyse.md, docs/ideas.md -- checked FundamentalDataPanel.tsx and metricHelpContent.ts exist and referenced concepts are real). Checklist covers all four asked-for concerns (badge placement/content design including multi-cluster handling, implementation, explicit empty-state handling distinct from the unavailable-provider case, MetricHelp content, and tests+Storybook+90% gate) as five discrete items, matching the shape/granularity of done frontend tasks like frontend-profit-target-display.json (spot-checked). No decisions/git/review/pr_decision fields present, correctly matching convention for a fresh planned task.",
+        "file": "docs/tasks/frontend-insider-clusters-badge.json",
+        "line": 1
+      },
+      {
+        "summary": "insider_clusters.py refactor confirmed genuinely behavior-preserving, not just moving the problem: _QualifyingTransaction is constructed at the exact same filter point (`transaction.start_date is None or transaction.insider is None`) the old code already checked before appending to by_direction, so nothing new is being narrowed or assumed -- mypy narrows insider/start_date from the dataclass's own non-Optional field types with nothing left to assert. All three runtime asserts and the blanket `# type: ignore[arg-type,return-value]` are removed with no replacement suppression added anywhere (grepped the full diff for type: ignore/noqa -- only the removed line matches). Public detect_insider_clusters signature/behavior unchanged; the one external caller (app/api/routers/stocks.py) is unaffected. mypy app (53 files) and ruff check on the touched files are both clean; the 7 pre-existing ruff findings elsewhere (test_stochastic.py, test_triple_screen.py, etc.) predate this PR and are untouched by it, confirmed via git show main:... on those files.",
+        "file": "backend/app/signals/insider_clusters.py",
+        "line": 133
+      }
+    ],
+    "notes": "gh pr checkout 194 (already on the branch, clean tree). Backend: pytest --cov=app --cov-fail-under=90 -> 920 passed, 99.94% coverage, insider_clusters.py at 100% line/branch. ruff check . and mypy app both clean except 7 pre-existing findings in files this PR doesn't touch (confirmed pre-existing on main). No test files changed by this PR -- verified correct, since the existing test suite only exercises the public detect_insider_clusters function and its behavior is unchanged. Dispatched code-review (medium effort) against the diff; it independently returned zero findings after checking the diff, removed-behavior, cross-file caller impact, reuse/simplification/efficiency, altitude, and CLAUDE.md-convention angles -- corroborating my own read. git diff main...task/backend-insider-transaction-clusters-followups --stat confirmed exactly the claimed scope: insider_clusters.py (57 changed), the followups task's own JSON, the new frontend-insider-clusters-badge.json, and index.json -- no surprise files. No API route/schema touched, so no backend/openapi.json regeneration required (confirmed empty diff on backend/openapi.json and backend/app/api/). No frontend/UI surface touched by this PR (backend-only refactor + task-board JSON) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as not applicable, not silently omitted. area is backend/signals: read the diff against docs/Analyse.md's insider-transaction/clustering framing (ch. 37 p. 147, per docs/ideas.md) -- purely a type-narrowing refactor with no change to the classification rule, window/threshold, or clustering scan logic, so no methodology drift possible; re-confirmed insider_clusters is still referenced nowhere in confidence.py/triple_screen.py/impulse.py/portfolio/ (unaffected by this PR, already true on main). scripts/validate_tasks.py: 199 files, no violations. index.json mirror correct (state planned->testing for the followups task itself, new frontend-insider-clusters-badge entry added with matching path). Both of this task's own checklist items ('create/scope the frontend follow-up' and 'fix the assert+type:ignore pattern') have real decisions entries with rejected-alternative reasoning, not just a bare 'done' marker. No pre-existing pr_decision or review on this task to clear (first review pass). No new non-blocking findings surfaced beyond what this task itself was already created to track, so no further follow-up task filed. Note: I mistakenly ran `git checkout main -- .` mid-review while diffing against main for the pre-existing-ruff-findings check, which briefly reverted the three tracked files this PR modifies to main's version in the working tree; caught immediately via git status, restored with `git checkout HEAD -- <files>` before any further action, and confirmed a clean zero-diff against HEAD afterward -- no commit was made in between, so nothing was lost."
   }
 }
