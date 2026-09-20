@@ -51,5 +51,11 @@
       "rationale": "This is a stronger encoding of the same ch. 30 directional-asymmetry claim than merely making an up-spike variant 'stricter': the book states the up-spike mirror of this specific short-term-reversal rule 'doesn't work well' at all, not just 'works less reliably' -- it never gives any numeric threshold, strict or otherwise, for an up-spike version of this particular signal (contrast with the '5x' figure it does give for the down-spike case). Fabricating a symmetric-but-stricter up-spike check here (the same treatment chosen for `_is_force_index_spike` above) would assert a claim about magnitude that the book itself declines to make for this rule, whereas `_is_force_index_spike`'s asymmetry is grounded in the same underlying claim applied to a check the book does describe as applying in both directions (Screen 2's oversold-pullback/overbought-rally pair, which Analyse.md \u00a72 documents symmetrically by design). 'Usual depth' baseline: mean absolute value over the 13 bars immediately preceding (excluding) the candidate bar, rather than a window that includes the candidate bar (which would let a large spike inflate its own baseline and mask itself) or a rolling-std-based baseline (which would just be `_is_force_index_spike`'s own definition under a different multiplier, undermining decision #1 above that these are genuinely different signals with genuinely different baselines).",
       "alternatives_considered": "Exposing an informational-only up-spike reading (computed but explicitly documented as unreliable, e.g. returned as a separate always-checked-but-caveated boolean) was considered, but rejected as unnecessary complexity for a value nothing in this codebase would consume differently from 'False' -- if a future task finds a genuine use for that weaker signal, it can add it then with its own justification, rather than this task pre-building an unused code path."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-force-index-refinements",
+    "pr_number": 185,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/185",
+    "pushed_at": "2026-09-20T07:51:38Z"
+  }
 }
