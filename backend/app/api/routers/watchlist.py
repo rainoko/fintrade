@@ -70,26 +70,23 @@ def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
 
 def _tide_trend(ticker: str, provider: DataProvider) -> str | None:
     """Screen 1 (Tide) trend for `ticker` ('BULLISH' | 'BEARISH' | 'NEUTRAL'), or `None` if it
-    can't be computed right now -- same narrow `DataProviderError`-only catch as
-    `_compute_signal` above (and `app.api.routers.portfolio._compute_position_signal`), for
-    the same reason: a genuine bug in `analyse()` should still surface as a loud 500, not be
-    swallowed here.
+    can't be computed right now.
 
-    Reuses the full `analyse()` pipeline rather than calling `app.signals.triple_screen.
-    evaluate_tide` directly, even though only `screens.tide.trend` is read from the result --
-    consistent with this module's own "one place, testable once" principle (module
-    docstring): no second, narrower code path that fetches OHLCV and derives Tide on its own,
-    which could silently drift from what `GET /api/stocks/{ticker}/analysis`'s Tide says for
-    the same ticker. No extra provider calls result either way, since every tracked ticker's
-    OHLCV is already being fetched for this same request's own per-ticker signal computation.
-    See this task's `decisions` entry."""
-    try:
-        daily_ohlcv = provider.get_daily_ohlcv(ticker)
-        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
-    except DataProviderError:
+    Delegates to `_compute_signal` above (same narrow `DataProviderError`-only catch as
+    `app.api.routers.portfolio._compute_position_signal`, for the same reason: a genuine bug
+    in `analyse()` should still surface as a loud 500, not be swallowed here) rather than
+    re-implementing its own fetch-and-catch -- see
+    `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry: the two
+    functions previously duplicated identical error-handling around `analyse()`, which risked
+    one being updated without the other if that shared contract ever changed. Reuses the full
+    `analyse()` pipeline rather than calling `app.signals.triple_screen.evaluate_tide`
+    directly, even though only `screens.tide.trend` is read from the result -- consistent with
+    this module's own "one place, testable once" principle (module docstring): no second,
+    narrower code path that fetches OHLCV and derives Tide on its own, which could silently
+    drift from what `GET /api/stocks/{ticker}/analysis`'s Tide says for the same ticker."""
+    result = _compute_signal(ticker, provider)
+    if result is None:
         return None
-
-    result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
     trend: str = result.screens["tide"]["trend"]
     return trend
 
@@ -156,9 +153,20 @@ def get_watchlist_breadth(
 
     Computed fresh on every request rather than cached at this aggregation layer, matching
     `GET /api/watchlist`/`GET /api/portfolio`'s own convention -- see this task's
-    `decisions` entry. No new provider calls result: every one of these tickers' OHLCV is
-    already fetched/cached (`app.data.cache.CachedDataProvider`) for its own per-ticker
-    signal on those endpoints.
+    `decisions` entry. This endpoint is its own separate HTTP request, not one that also
+    computes `GET /api/watchlist`'s or `GET /api/portfolio`'s per-ticker signals in the same
+    call -- so it reuses `app.data.cache.CachedDataProvider`'s shared OHLCV cache **when
+    warm** (i.e. one of those other endpoints was hit recently enough that the cache TTL
+    hasn't expired), rather than guaranteeing no fetch ever happens. If this is the first
+    thing loaded in a session, it does a full, uncached per-ticker fetch + `analyse()` pass
+    over every tracked ticker, sequentially -- worth revisiting for latency if a large
+    watchlist+portfolio ever makes that noticeably slow in practice (see
+    `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry).
+
+    `bullish_pct`/`bearish_pct`/`neutral_pct` are each independently rounded to 1 decimal
+    place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split yields
+    33.3 + 33.3 + 33.3 = 99.9) -- each percentage is still independently correct; this is not
+    a bug to "fix" by deriving one bucket as a remainder, see this task's `decisions` entry.
 
     A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker,
     insufficient history, or the data provider being unavailable) is counted in

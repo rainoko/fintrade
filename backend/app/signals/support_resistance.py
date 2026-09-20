@@ -23,6 +23,8 @@ from typing import Literal
 
 import pandas as pd
 
+from app.signals._swing_extremes import rolling_extreme_masks
+
 Role = Literal["support", "resistance"]
 StrengthCategory = Literal["minor", "intermediate", "major"]
 BreakoutDirection = Literal["up", "down"]
@@ -145,15 +147,25 @@ def _find_swing_points(
     lows = daily_ohlcv["low"]
     closes = daily_ohlcv["close"]
     n = len(daily_ohlcv)
+    span = 2 * window + 1
+
+    # Vectorized centered-rolling comparison (see app.signals._swing_extremes), replacing a
+    # manual per-bar loop over `.iloc[...]` slices -- `require_full_window=False` reproduces
+    # this function's original behavior exactly: `Series.max()`/`.min()`'s own default
+    # `skipna=True` already tolerated a NaN inside the comparison window (unlike
+    # app.signals.swing_points's stricter contract), and `rolling(..., min_periods=1)`
+    # reproduces that same per-window skipna aggregation. Only `is_swing_high`'s ``high`` mask
+    # and `is_swing_low`'s ``low`` mask are used below -- the other side of each call is
+    # discarded, since `highs` and `lows` are compared independently, never against each other.
+    is_swing_high, _ = rolling_extreme_masks(highs, span, require_full_window=False)
+    _, is_swing_low = rolling_extreme_masks(lows, span, require_full_window=False)
 
     swing_highs: list[tuple[pd.Timestamp, float]] = []
     swing_lows: list[tuple[pd.Timestamp, float]] = []
     for i in range(window, n - window):
-        high_window = highs.iloc[i - window : i + window + 1]
-        low_window = lows.iloc[i - window : i + window + 1]
-        if highs.iloc[i] == high_window.max():
+        if is_swing_high.iloc[i]:
             swing_highs.append((daily_ohlcv.index[i], float(closes.iloc[i])))
-        if lows.iloc[i] == low_window.min():
+        if is_swing_low.iloc[i]:
             swing_lows.append((daily_ohlcv.index[i], float(closes.iloc[i])))
     return swing_highs, swing_lows
 

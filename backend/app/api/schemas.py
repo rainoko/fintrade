@@ -474,7 +474,10 @@ class BreadthResponse(BaseModel):
         description="bullish_count as a percentage of (bullish_count + bearish_count + "
         "neutral_count), rounded to 1 decimal place. 0.0 when that denominator is 0 (an "
         "empty watchlist+portfolio, or every tracked ticker currently unavailable), rather "
-        "than an undefined/NaN value."
+        "than an undefined/NaN value. bullish_pct/bearish_pct/neutral_pct are each rounded "
+        "independently, so the three don't always sum to exactly 100.0 (e.g. an even 3-way "
+        "split rounds to 33.3 + 33.3 + 33.3 = 99.9) -- each value is still independently "
+        "correct, not a display bug."
     )
     bearish_pct: float = Field(
         description="Same as bullish_pct, for bearish_count."

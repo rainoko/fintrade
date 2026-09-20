@@ -957,7 +957,7 @@
       "id": "backend-swing-point-detector-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-swing-point-detector-followups.json"
     },
     {
@@ -1111,7 +1111,7 @@
       "id": "backend-watchlist-breadth-proxy-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-watchlist-breadth-proxy-followups.json"
     },
     {
@@ -1383,7 +1383,7 @@
     {
       "id": "backend-profit-target-followups",
       "area": "backend/signals",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-profit-target-followups.json",
       "skill": null
     },

@@ -3,7 +3,7 @@
   "title": "\"Personal breadth\" proxy -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-watchlist-breadth-proxy"],
   "references": [
     "docs/tasks/done/backend-watchlist-breadth-proxy.json#review",
@@ -14,19 +14,54 @@
   "checklist": [
     {
       "step": "bullish_pct/bearish_pct/neutral_pct (GET /api/watchlist/breadth) are each independently rounded to 1 decimal place, so they don't always sum to exactly 100.0 -- e.g. an even 1/3-1/3-1/3 computable split yields 33.3 + 33.3 + 33.3 = 99.9, confirmed by this PR's own test_mixed_watchlist_and_portfolio_with_an_unavailable_ticker test. Not a bug (each percentage is independently correct), but worth a doc note (docs/Analyse.md / docs/architecture/API.md) that the three percentages aren't guaranteed to sum to 100.0, or a tweak to derive the last bucket's percentage as the remainder -- so the frontend-breadth-widget task doesn't display something that looks like a rounding bug to an end user.",
-      "done": false
+      "done": true
     },
     {
       "step": "docs/Analyse.md's new \"Personal breadth proxy\" subsection is nested under \"## 7. Portfolio-Level Rules (risk management overlay)\", alongside the 2%/6% rules, stop-loss placement, trade grading, and existing-position exit signals -- but it isn't itself a risk-management/position-sizing rule, it's an informational context aggregate (closer in kind to Screen 1/Tide, section 2). Arguable, not clear-cut -- worth reconsidering whether it deserves its own top-level section instead, but reasonable people could keep it where it is given it also spans the portfolio.",
-      "done": false
+      "done": true
     },
     {
       "step": "backend/app/api/routers/watchlist.py's new _tide_trend (line ~71) duplicates _compute_signal's fetch-and-catch logic (identical try/except DataProviderError around get_daily_ohlcv/get_weekly_ohlcv, then analyse()) instead of reusing it -- could instead be `result = _compute_signal(ticker, provider); return result.screens['tide']['trend'] if result else None`. Not a bug, but if the two functions' shared error-handling contract ever changes, a maintainer could update one and miss the other, silently reintroducing the exact code-path divergence this module's own docstring says it's trying to avoid. Flagged by code-review (PR #170).",
-      "done": false
+      "done": true
     },
     {
       "step": "get_watchlist_breadth's docstring/decision record claims 'No new provider calls result either way, since every tracked ticker's OHLCV is already being fetched for this same request's own per-ticker signal computation' -- but GET /api/watchlist/breadth is its own separate HTTP request, not one that also computes GET /api/watchlist's or GET /api/portfolio's per-ticker signals in the same call. Whether _tide_trend's fetches actually hit CachedDataProvider's cache depends on whether one of those other endpoints was hit recently and the cache TTL hasn't expired -- if the breadth widget is the first thing loaded in a session, this endpoint does a full, uncached 2N-fetch + N-full-analyse() pass. Worth correcting the docstring's wording to describe this as 'reuses the shared OHLCV cache when warm' rather than implying no fetch ever happens, and/or considering the latency-at-scale question (sequential per-ticker fetch/analyse over a large watchlist+portfolio) if this ever becomes noticeably slow in practice. Flagged by code-review (PR #170).",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved the rounding-sum item via a doc/description note (docs/Analyse.md, docs/architecture/API.md, and BreadthResponse.bullish_pct's schema description) rather than the remainder-derivation tweak the checklist also offered as an option.",
+      "rationale": "The remainder-derivation approach (deriving one bucket's percentage as 100 minus the other two, rather than rounding all three independently) would change GET /api/watchlist/breadth's already-reviewed, already-tested response values (e.g. the existing test_mixed_watchlist_and_portfolio_with_an_unavailable_ticker integration test asserts all three of bullish_pct/bearish_pct/neutral_pct == 33.3, which a remainder tweak would break for one of the three) and would need an arbitrary, undocumented tie-break for which bucket absorbs the remainder. Each percentage being independently correct-but-not-summing-to-exactly-100 due to per-value rounding is a standard, well-understood UI pattern; documenting it clearly (so it reads as intentional, not a bug) is lower-risk than changing already-shipped, already-frontend-consumed response semantics for a cosmetic 0.1% discrepancy."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Kept the \"Personal breadth proxy\" subsection under docs/Analyse.md's §7 (Portfolio-Level Rules) rather than promoting it to its own top-level section, and instead added a one-line cross-reference from §2 (Screen 1/Tide) pointing to it.",
+      "rationale": "The checklist item itself called this arguable, not clear-cut, and reasonable to leave as-is since the feature spans the whole portfolio, not just a single ticker's Tide. Moving it would also change docs/Analyse.md's own anchor structure (the task's own `references` entry, and this followups task's own reference, point at `docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay` as the section containing it) -- a reorg risks stale cross-references elsewhere in the task board for a purely organizational nit. The cross-reference sentence addresses the discoverability concern (a reader starting at Screen 1/Tide is pointed to where the aggregate view lives) without that churn."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Refactored _tide_trend to delegate to _compute_signal (extracting the trend from its SignalResult) instead of duplicating the fetch-and-catch block, exactly as the review's own suggested replacement described.",
+      "rationale": "Direct, low-risk fix -- removes the duplicated error-handling contract the review flagged as a future-drift risk, with no behavior change (both functions already ran the identical analyse() pipeline; _tide_trend now just reads one field off the same SignalResult _compute_signal already produces). Covered by the existing GET /api/watchlist/breadth integration test suite, all passing unchanged."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the 'no new provider calls result' docstring/doc claims (both the route's own docstring and docs/Analyse.md's Personal breadth proxy prose) to describe the OHLCV cache as reused 'when warm' rather than guaranteed to always avoid a fetch, and noted the latency-at-scale consideration explicitly, without changing any runtime behavior.",
+      "rationale": "This was a documentation-accuracy fix only (the review's finding was about a docstring/doc claim overstating a guarantee the code doesn't actually make, not a functional bug) -- the endpoint's actual fetch behavior via CachedDataProvider was already correct and unchanged; only the prose describing it was wrong. Addressing the latency-at-scale angle with an actual optimization (e.g. batching/parallelizing per-ticker fetches) was left out of scope for this doc-accuracy fix -- no evidence in this task or its review that current watchlist+portfolio sizes make this a real problem in practice, and a performance change would need its own scoping/testing rather than riding along on a docstring correction."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented as part of a batched PR alongside backend-swing-point-detector-followups and backend-profit-target-followups (single branch task/backend-followups-batch-2, single PR), per explicit dispatch instruction to batch these three small followup tasks rather than opening three separate PRs.",
+      "rationale": "All three touch disjoint, non-conflicting areas of the backend, so bundling carries no real merge-conflict or review-scope risk, and keeps three small, already-fully-scoped non-blocking-followup tasks from generating three near-simultaneous PRs for the same reviewer/merger pipeline to churn through."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-followups-batch-2"
+  }
 }

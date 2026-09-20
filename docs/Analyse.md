@@ -47,7 +47,11 @@ Output: `tide = BULLISH | BEARISH | NEUTRAL`, from the weekly Impulse color -> T
 (GREEN → BULLISH, RED → BEARISH, BLUE → NEUTRAL — NEUTRAL reduces confidence, does not block
 signal). Also exposes `weekly_macd_histogram_slope` (rising/falling/flat, the weekly
 MACD-Histogram's own last-step classification) purely as informational context — see
-`docs/architecture/API.md`'s `screens.tide` shape.
+`docs/architecture/API.md`'s `screens.tide` shape. This same per-ticker Tide trend, aggregated
+across a user's whole watchlist+portfolio, is also what §7's "Personal breadth proxy"
+subsection reports — kept there rather than here since it's a portfolio-level, multi-ticker
+aggregate (see the `backend-watchlist-breadth-proxy-followups` task's `decisions` for why it
+stays in §7 despite Tide itself being a Screen 1/§2 concept).
 
 ### Screen 2 — The Wave (medium-term, daily chart)
 
@@ -278,7 +282,9 @@ True market breadth (New High-New Low Index, % of stocks above their 50-day MA, 
 
 As a cheap, no-new-data-source approximation, `GET /api/watchlist/breadth` aggregates the same Screen 1 (Tide) trend already computed for every ticker on the user's own watchlist **and** portfolio (union, deduplicated) into a BULLISH/BEARISH/NEUTRAL count/percentage breakdown. Elder's own justification for tracking broad breadth at all — "general market trends are responsible for as much as half the movement in individual stocks" (ch. 34) — applies just as well at this smaller, personal scale, even though it isn't a substitute for the real thing: this is explicitly a **personal** breadth proxy, reflecting only the tickers this particular user happens to be tracking, not the market as a whole (see the `frontend-breadth-widget` task for how this distinction is surfaced to the user).
 
-No new provider calls are needed — every one of these tickers' OHLCV is already fetched/analyzed for its own signal on `GET /api/watchlist`/`GET /api/portfolio`. The aggregate is computed fresh on every request rather than cached, matching those endpoints' own convention (only the underlying OHLCV fetch is cached, via `app.data.cache.CachedDataProvider` — see the `backend-watchlist-breadth-proxy` task's `decisions`). A tracked ticker whose Tide can't be computed right now is excluded from the counts/percentages and reported separately (`unavailable_count`) rather than guessed at.
+`GET /api/watchlist/breadth` is its own separate request, so it only *reuses* the shared OHLCV cache (`app.data.cache.CachedDataProvider`) **when warm** — if one of `GET /api/watchlist`/`GET /api/portfolio` was hit recently enough that the cache TTL hasn't expired, no new provider fetch results for a ticker also tracked there; otherwise this endpoint does its own fetch, same as any other. The aggregate itself is computed fresh on every request rather than cached, matching those endpoints' own convention (see the `backend-watchlist-breadth-proxy` task's `decisions`). A tracked ticker whose Tide can't be computed right now is excluded from the counts/percentages and reported separately (`unavailable_count`) rather than guessed at.
+
+`bullish_pct`/`bearish_pct`/`neutral_pct` are each rounded independently to 1 decimal place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) — each is still independently correct; this is a known, accepted display characteristic, not a bug (see the `backend-watchlist-breadth-proxy-followups` task's `decisions`).
 
 ---
 

@@ -3,7 +3,7 @@
   "title": "Profit target / reward:risk ratio -- non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-profit-target"],
   "references": [
     "docs/tasks/backend-profit-target.json#review",
@@ -13,19 +13,54 @@
   "checklist": [
     {
       "step": "No unit test in tests/unit/test_portfolio_profit_target.py exercises a zone with role='support' sitting above current price. The task's own decisions entry explicitly says app.portfolio.profit_target._nearest_resistance_price's position-based filter (zone.lower > current_price) deliberately doesn't rely on the role/position coincidence holding (i.e. it should still pick up a 'support'-labeled zone that happens to sit above current price) -- but every test zone built via the file's own _zone() helper uses the default role='resistance', so that specific edge case the decision calls out isn't actually exercised by any test. Add a test passing role='support' for a zone above current price and assert it's still picked up as a candidate.",
-      "done": false
+      "done": true
     },
     {
       "step": "app.portfolio.profit_target.suggest_profit_target's docstring states distance_to_target is 'Always > 0 by construction' -- true for all realistic market data, but in the fully degenerate case where the Autoenvelope's rolling average deviation is exactly 0 across the whole lookback window (channel_upper == channel_lower), the channel-derived target equals current price exactly, so distance_to_target would be 0, not > 0. Soften the docstring wording to 'non-negative' (or add an explicit invariant/guard) so it doesn't overclaim a strict inequality the code doesn't actually guarantee in that edge case.",
-      "done": false
+      "done": true
     },
     {
       "step": "app.portfolio.risk.stop_from_price_action (called from suggest_profit_target via get_analysis) recomputes ema(daily_ohlcv['close'], 13) from scratch every time, even though app.signals.engine.analyse already computes the identical EMA(13) series moments earlier in the same request for result.indicators['ema_13']. Negligible cost at current data sizes, but a same-request duplicate computation that could be shared (mirroring how app.indicators.autoenvelope/app.portfolio.exits.evaluate_exit_flags already accept a precomputed EMA via a mid/short_ema parameter) if app.signals.engine ever exposes the full EMA(13) series to callers rather than only its latest scalar value.",
-      "done": false
+      "done": true
     },
     {
       "step": "app.portfolio.profit_target.suggest_profit_target reads daily_ohlcv[\"close\"] directly (to compute current_price) before any column validation runs, so a non-empty daily_ohlcv missing the 'close' column raises a bare pandas KeyError instead of the ValueError the function's own docstring documents ('propagated from stop_from_price_action'). Verified via direct repro: suggest_profit_target(pd.DataFrame({'low': [99.0, 100.0]}), zones=[], channel_upper=110.0, channel_lower=100.0) raises KeyError('close'), never reaching stop_from_price_action's validate_daily_ohlcv_columns call. Confirmed unreachable via the only real caller today (get_analysis passes the same daily_ohlcv to app.signals.engine.analyse first, which itself already raises a bare KeyError for a frame missing 'close' before profit_target's code ever runs -- so this isn't a new production risk, just a docstring/contract mismatch for a direct/future caller of the module). Move the current_price read after stop_from_price_action's validation (or call validate_daily_ohlcv_columns explicitly up front) so the documented ValueError contract actually holds.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Added test_a_support_labeled_zone_above_current_price_still_qualifies to tests/unit/test_portfolio_profit_target.py, exercising a role='support' zone above current price and asserting it's still picked as the (tighter) target candidate.",
+      "rationale": "Directly closes the coverage gap the review identified -- the code's position-based (not role-based) filter was already correct, only the test suite never exercised the role/position-disagreement case the original decisions entry explicitly called out as intentional."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Softened suggest_profit_target's docstring claim about distance_to_target from 'Always > 0 by construction' to 'Non-negative by construction', with an explicit note about the channel_upper == channel_lower degenerate case where it's exactly 0 -- no code change, since the function's actual behavior in that case (distance_to_target == 0, a valid, meaningful value) was already correct; only the docstring overclaimed a strict inequality.",
+      "rationale": "Matches the review's own suggested fix. Not worth adding a guard/invariant enforcement for this case (e.g. rejecting a 0-height channel) since a 0-distance target is a legitimate, informative output for a degenerate but real input (a channel with zero measured volatility over its lookback window) -- silently rejecting or fabricating a nonzero distance would be worse than reporting the true, if unusual, value."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented the EMA(13) duplicate-computation finding as an inline code comment on app.portfolio.risk.stop_from_price_action's short_ema fallback branch, rather than implementing the sharing mechanism itself (e.g. changing app.signals.engine.analyse to expose the full EMA(13) series so get_analysis could pass it through to suggest_profit_target).",
+      "rationale": "The review's own finding explicitly frames this as conditional future work ('worth sharing... if app.signals.engine ever exposes the full EMA(13) series to callers') -- that precondition doesn't hold today (analyse() only exposes ema_13 as a latest scalar, per result.indicators), and changing analyse()'s return shape to expose the full series is a real signal-engine API change (affecting every other consumer of AnalysisResult) that's out of proportion to a 'negligible cost at current data sizes' finding on a small followups task. The comment preserves the finding for whoever next touches app.signals.engine's exposed series shape, rather than either silently dropping it or forcing a disproportionate refactor now."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed suggest_profit_target's column-validation ordering by calling app.portfolio.risk.validate_daily_ohlcv_columns(daily_ohlcv) before reading daily_ohlcv['close'] for current_price, and passing columns_validated=True to the subsequent stop_from_price_action call to avoid a redundant second validation pass -- mirroring the exact convention app.portfolio.exits.evaluate_exit_flags already established for this same situation.",
+      "rationale": "This is a genuine contract fix (the function's own docstring documented a ValueError guarantee the code didn't actually honor for a frame missing 'close' specifically), reusing an existing, already-reviewed helper (validate_daily_ohlcv_columns) rather than inventing a new validation path -- lowest-risk way to close the gap. Added a regression test (test_non_empty_frame_missing_close_column_raises_value_error_not_key_error) asserting ValueError, not KeyError, for exactly the repro case the review's finding gave."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented as part of a batched PR alongside backend-swing-point-detector-followups and backend-watchlist-breadth-proxy-followups (single branch task/backend-followups-batch-2, single PR), per explicit dispatch instruction to batch these three small followup tasks rather than opening three separate PRs.",
+      "rationale": "All three touch disjoint, non-conflicting areas of the backend, so bundling carries no real merge-conflict or review-scope risk, and keeps three small, already-fully-scoped non-blocking-followup tasks from generating three near-simultaneous PRs for the same reviewer/merger pipeline to churn through."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-followups-batch-2"
+  }
 }

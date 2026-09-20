@@ -3,7 +3,7 @@
   "title": "Swing-point detector — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-swing-point-detector"],
   "references": [
     "docs/tasks/done/backend-swing-point-detector.json#review",
@@ -21,15 +21,38 @@
     },
     {
       "step": "Reuse: the task's decisions entry evaluated two alternatives for avoiding duplication with app.signals.support_resistance._find_swing_points (generalizing that function to accept a DataFrame-or-Series, and a scipy.signal.argrelextrema-based rewrite) and rejected both, but didn't consider a third, narrower option -- extracting just the low-level 'is bar i a local extreme over a full non-NaN window' comparison as a small shared primitive that both modules' genuinely different post-processing (support_resistance's high/low-vs-close touch selection; swing_points's plateau merging) could each layer on top of. Would remove ~15 lines of duplicated core-loop logic between the two modules without forcing either caller into the other's shape. Worth considering next time support_resistance.py is touched.",
-      "done": false
+      "done": true
     },
     {
       "step": "Minor efficiency: swing_highs() and swing_lows() (app/signals/swing_points.py) each independently run the full find_swing_points() pass (computing both kinds and merging plateau runs for both) and then filter by kind. A caller wanting both (plausible for a divergence detector) does the full pass twice. Trivial at typical daily-bar series lengths, but worth a shared-computation path if a hot-path caller ever needs both sides.",
-      "done": false
+      "done": true
     },
     {
       "step": "Style/efficiency: find_swing_points's core scan uses a manual Python loop with a fresh series.iloc[...] slice + .max()/.min()/.isna().any() per candidate bar (O(n*window)) instead of the vectorized centered-rolling idiom (series.rolling(2*window+1, center=True).max()/.min()) already used elsewhere in this codebase (e.g. app/indicators/stochastic.py, app/signals/engine.py). Not a correctness issue at typical daily-bar lengths, but makes this module the odd one out stylistically and the slower path over longer/intraday series.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted a shared, vectorized primitive (app.signals._swing_extremes.rolling_extreme_masks) used by both app.signals.swing_points.find_swing_points and app.signals.support_resistance._find_swing_points, replacing each module's own manual per-bar `.iloc[...]` slice + `.max()`/`.min()` loop with a single `series.rolling(span, center=True).max()`/`.min()` pass plus a boolean-mask lookup in the (still-separate) loop that applies each module's own post-processing. This closes checklist items 3 and 5 together: the narrower 'is bar i a local extreme' primitive the review suggested turned out to compose naturally with the vectorized rolling rewrite the review separately suggested for swing_points.py alone, so both were done in one pass rather than choosing between them.",
+      "rationale": "A `require_full_window` flag lets each caller keep its own, previously-established NaN contract exactly: swing_points.py needs a fully non-NaN window (min_periods=span, matching the old explicit `.isna().any()` check -- verified this is the exact same result via the module's own NaN-handling test cases), while support_resistance.py's original loop relied on Series.max()/.min()'s default skipna=True over a NaN-containing window (min_periods=1 reproduces that identically). Rejected changing support_resistance.py's NaN behavior to match swing_points.py's stricter one 'while I'm in there' -- that module's own review/tests never exercised NaN and its docstring already documents an 'already cleaned of malformed bars' precondition, so tightening it now would be an unreviewed, unasked-for behavior change riding along on an unrelated followups PR, not a genuine part of this task."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the swing_highs()+swing_lows() double-pass (checklist item 4) at its one real call site -- app.signals.divergence.build_divergence_swing_cache, which genuinely needs both sides of the same price series -- by calling find_swing_points() once there and partitioning the result by `kind` locally, rather than changing swing_points.py's public API (e.g. adding a new combined-return function).",
+      "rationale": "The checklist item was framed as speculative ('worth a shared-computation path if a hot-path caller ever needs both sides'), but build_divergence_swing_cache already is exactly that caller -- confirmed by reading app/signals/divergence.py, not assumed. Fixing it at the call site is the minimal, lowest-risk change: it doesn't touch swing_points.py's tested public contract (swing_highs/swing_lows remain simple filters, still used correctly elsewhere in divergence.py where only one side is needed), and it's covered by the existing build_divergence_swing_cache test suite (all passing unchanged, since the returned lows/highs are identical either way -- only the number of full passes over the series changed). Rejected adding a new public 'find both, pre-partitioned' function to swing_points.py itself as premature API surface for a need this one caller already satisfies without it."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented as part of a batched PR alongside backend-watchlist-breadth-proxy-followups and backend-profit-target-followups (single branch task/backend-followups-batch-2, single PR), per explicit dispatch instruction to batch these three small followup tasks rather than opening three separate PRs.",
+      "rationale": "All three touch disjoint, non-conflicting areas of the backend (app/signals/swing_points.py+support_resistance.py+divergence.py; app/api/routers/watchlist.py; app/portfolio/profit_target.py+risk.py), so bundling carries no real merge-conflict or review-scope risk, and keeps three small, already-fully-scoped non-blocking-followup tasks from generating three near-simultaneous PRs for the same reviewer/merger pipeline to churn through."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-followups-batch-2"
+  }
 }
