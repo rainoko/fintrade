@@ -82,6 +82,161 @@ class TestCleanMultiTouchZone:
         assert len(zones) == 1
 
 
+class TestRankingSurvivesCheapScoreExpensiveBuildSplit:
+    """Regression coverage for PR #164's efficiency refactor (splitting the old
+    "score everything, then sort" pipeline into a cheap `_score_candidate` used for
+    ranking every candidate, and the expensive `_build_zone` -- the break/false-breakout
+    scan and dollar-volume aggregation -- run only on the top-`max_zones` survivors).
+
+    `test_max_zones_caps_the_returned_list` above only exercises a single qualifying
+    candidate truncated to `max_zones=1` -- it can't catch a ranking-order regression
+    (e.g. a future edit to the sort key, or to the score/build split) since there's
+    nothing to reorder. This builds 20 candidate resistance zones (more than the
+    default `max_zones=15`) spanning every reachable `strength_score` value below the
+    "major length" category (worth avoiding here purely to keep the fixture's bar count
+    reasonable -- "major" length needs a >=730-calendar-day touch span) and asserts the
+    real returned zones are genuinely the top-15 by (strength_score, touch_count,
+    last_touch_date) descending, not just any 15 zones.
+    """
+
+    # Business-day gaps chosen (and verified below) to land squarely inside the "minor"
+    # (<60 calendar days) and "intermediate" (60-729 calendar days) length categories,
+    # clear of both boundaries.
+    _LENGTH_GAP_BDAYS = {"minor": 16, "intermediate": 45}
+    # height_pct targets chosen clear of the minor/intermediate (2%) and
+    # intermediate/major (5%) boundaries.
+    _HEIGHT_PCT_TARGET = {"minor": 1.0, "intermediate": 3.0, "major": 7.0}
+
+    # 20 (length_category, height_category) combos, ordered so that band index `k`
+    # (0-19) increases monotonically with the band's own place in time (see
+    # `_build_fixture` below) *and* groups by resulting strength_score tier:
+    #   k 0-2:   minor/minor         -> score 33.33 (tier D, all 3 dropped)
+    #   k 3-9:   minor/intermediate & intermediate/minor -> score 50.00 (tier C, 7
+    #            candidates but only max_zones-10=5 slots remain -- the 2 EARLIEST
+    #            (lowest k, earliest last_touch_date) of these 7 must be dropped)
+    #   k 10-16: minor/major & intermediate/intermediate -> score 66.67 (tier B, all 7 kept)
+    #   k 17-19: intermediate/major -> score 83.33 (tier A, all 3 kept)
+    # This deliberately exercises both a fully-kept tier, a fully-dropped tier, AND a
+    # tier that's only partially kept (so the tie-break on last_touch_date, not just
+    # strength_score, has to be right for the cap to land on the correct candidates).
+    _COMBOS = (
+        [("minor", "minor")] * 3
+        + [("minor", "intermediate")] * 3
+        + [("intermediate", "minor")] * 4
+        + [("minor", "major")] * 3
+        + [("intermediate", "intermediate")] * 4
+        + [("intermediate", "major")] * 3
+    )
+
+    def _build_fixture(self) -> tuple[pd.DataFrame, list[dict]]:
+        assert len(self._COMBOS) == 20
+
+        cursor = 5
+        band_meta: list[dict] = []
+        for k, (length_kind, height_kind) in enumerate(self._COMBOS):
+            gap = self._LENGTH_GAP_BDAYS[length_kind]
+            first_idx = cursor
+            last_idx = first_idx + gap
+            # Band price levels spaced 5% apart (and starting at 2000) so that no two
+            # bands' touches ever fall within `_CLUSTER_TOLERANCE_PCT` (1%) of each
+            # other's running mean and accidentally merge into one cluster.
+            band_price = 2000.0 * (1 + 0.05 * k)
+            band_meta.append(
+                {
+                    "k": k,
+                    "length_kind": length_kind,
+                    "height_kind": height_kind,
+                    "first_idx": first_idx,
+                    "last_idx": last_idx,
+                    "band_price": band_price,
+                }
+            )
+            # +10 buffer so this band's touch bars are never within the fractal
+            # window (2) of the next band's -- each override bar must independently
+            # register as a local high regardless of its neighbors.
+            cursor = last_idx + 10
+        n = cursor + 10  # trailing buffer so the last touch still has a full window
+
+        # Matches `_filler_bar`'s own formula for the series' last close (no override
+        # ever lands on the final bar), computed up front since every band's
+        # height_pct is deliberately anchored to this single reference price.
+        reference_price = 90.0 + 0.001 * (n - 1)
+
+        overrides: dict[int, dict] = {}
+        for meta in band_meta:
+            height_gap = self._HEIGHT_PCT_TARGET[meta["height_kind"]] / 100 * reference_price
+            lower_price = meta["band_price"]
+            upper_price = lower_price + height_gap
+            # Two touches per band (== _MIN_TOUCHES), well within 1% of each other
+            # (height_gap is at most 7% of the ~91 reference_price, i.e. a few
+            # dollars, against a >=2000 band price -- comfortably inside tolerance).
+            overrides[meta["first_idx"]] = _bar(lower_price + 2, lower_price - 2, lower_price)
+            overrides[meta["last_idx"]] = _bar(upper_price + 2, upper_price - 2, upper_price)
+            meta["upper"] = upper_price
+            meta["lower"] = lower_price
+
+        daily_ohlcv = _build_ohlcv(n, overrides)
+
+        index = daily_ohlcv.index
+        for meta in band_meta:
+            length_days = (index[meta["last_idx"]] - index[meta["first_idx"]]).days
+            height_pct = abs(meta["upper"] - meta["lower"]) / reference_price * 100
+            length_category = _length_category(length_days)
+            height_category = _height_category(height_pct)
+            # Confirms the fixture itself actually lands in the intended category --
+            # if this ever fails, the fixture's own construction needs adjusting, not
+            # the code under test.
+            assert length_category == meta["length_kind"]
+            assert height_category == meta["height_kind"]
+            meta["strength_score"] = _strength_score(length_category, height_category)
+            meta["last_touch_date"] = index[meta["last_idx"]]
+
+        return daily_ohlcv, band_meta
+
+    def test_top_max_zones_survive_in_strict_descending_strength_order(self) -> None:
+        daily_ohlcv, band_meta = self._build_fixture()
+
+        # Independently-computed expected ranking: sort every candidate by
+        # (strength_score, k) descending -- `k` stands in for `last_touch_date` here
+        # since every band has an equal touch_count (2) and `_build_fixture` places
+        # bands strictly later in time as `k` increases, so higher k == later
+        # last_touch_date == the correct tie-break winner.
+        expected_ranked = sorted(band_meta, key=lambda m: (m["strength_score"], m["k"]), reverse=True)
+        expected_kept = expected_ranked[:15]
+        expected_dropped = expected_ranked[15:]
+        # Sanity-check the fixture actually produces the partial-tier-truncation
+        # scenario this test is designed to exercise (see class docstring).
+        assert {m["k"] for m in expected_kept} == {5, 6, 7, 8, 9} | set(range(10, 20))
+        assert {m["k"] for m in expected_dropped} == {0, 1, 2, 3, 4}
+
+        zones = detect_support_resistance_zones(daily_ohlcv)
+
+        assert len(zones) == 15
+
+        # 1. The returned zones are truly sorted by the documented key, strictly
+        # descending pair-by-pair (not just "roughly ordered").
+        for earlier, later in zip(zones, zones[1:], strict=False):
+            earlier_key = (earlier.strength_score, earlier.touch_count, earlier.last_touch_date)
+            later_key = (later.strength_score, later.touch_count, later.last_touch_date)
+            assert earlier_key > later_key
+
+        # 2. Each returned zone matches the independently-computed expected survivor
+        # at that same rank -- not just "some 15 zones in the right order", but the
+        # SPECIFIC 15 the sort key says should win.
+        for zone, expected in zip(zones, expected_kept, strict=True):
+            assert zone.strength_score == pytest.approx(expected["strength_score"])
+            assert zone.touch_count == 2
+            assert zone.last_touch_date == expected["last_touch_date"]
+            assert zone.upper == pytest.approx(expected["upper"])
+            assert zone.lower == pytest.approx(expected["lower"])
+
+        # 3. None of the 5 lowest-ranked candidates (all of tier D, plus the 2
+        # earliest of the partially-kept tier C) leaked into the result.
+        returned_last_touch_dates = {zone.last_touch_date for zone in zones}
+        for expected in expected_dropped:
+            assert expected["last_touch_date"] not in returned_last_touch_dates
+
+
 class TestZoneRoleFlip:
     def test_true_breakout_flips_role_and_marks_broken(self) -> None:
         overrides = {

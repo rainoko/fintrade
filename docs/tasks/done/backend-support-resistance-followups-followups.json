@@ -1,0 +1,51 @@
+{
+  "id": "backend-support-resistance-followups-followups",
+  "title": "Support/resistance zones — non-blocking review follow-up from PR #164",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-support-resistance-followups"],
+  "references": [
+    "docs/tasks/backend-support-resistance-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/164"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #164 (backend-support-resistance-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #164's efficiency refactor (splitting `detect_support_resistance_zones`'s scoring into a cheap `_score_candidate` used for ranking, and `_build_zone` now only run on the top-`max_zones` survivors) is provably equivalent to the old pipeline by code inspection -- the sort key (`strength_score`, `touch_count`, `last_touch_date`) never depends on the deferred `_scan_breaks_and_false_breakouts`/`_dollar_volume` work, and pr-reviewer independently re-verified this both by re-reading the code and via a standalone synthetic simulation of 40 candidates confirming old-pipeline vs new-pipeline produce identical order/truncation. However, `backend/tests/unit/signals/test_support_resistance.py`'s only zone-cap test (`test_max_zones_caps_the_returned_list`) exercises a single qualifying candidate with `max_zones=1` -- it truncates a list of length 1 and never exercises reordering across multiple distinct-strength-score candidates, so it would NOT catch a ranking-order regression in this exact refactor if one were ever introduced (e.g. a future edit to the sort key or the score/build split). Add a fixture with >`max_zones` (15) qualifying candidate clusters spanning multiple `strength_score` values (varying length/height category combinations) and assert `detect_support_resistance_zones`'s returned zones are both capped at `max_zones` AND in strict descending (`strength_score`, `touch_count`, `last_touch_date`) order, to give this refactor's equivalence claim real, in-repo regression coverage instead of relying on external reasoning alone.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built the >max_zones fixture as 20 resistance-only candidate clusters at widely-spaced absolute price levels (2000, 2100, 2200, ... in 5% steps), rather than mixing support and resistance or packing candidates at similar price levels. Each band's two touches are placed within 1% of each other (so they cluster into one zone) while every band is >>1% away from its neighbors (so bands never cross-merge) -- both margins are generous (dollar gaps of a few dollars against band price levels in the thousands) specifically so the fixture's own construction can't accidentally fail from floating-point or clustering-tolerance edge effects. Rejected mixing in support zones or reusing similar price levels across bands: either would have required much more careful tolerance-boundary arithmetic for no added coverage of the thing actually under test (the sort/truncate key, which doesn't care about role).",
+      "rationale": "The refactor being regression-tested (PR #164) only touches the ranking/truncation step, which is role-agnostic (resistance and support candidates get merged into one `ranked` list before sorting) -- so a resistance-only fixture exercises the exact same code path as a mixed one, with far less fixture-construction risk."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Deliberately avoided the 'major' length category (>=730 calendar days) in the fixture, using only 'minor' (16 business-day touch gap, 22 calendar days) and 'intermediate' (45 business-day gap, 63 calendar days) length categories, combined with all three height categories, to reach 4 distinct strength_score tiers (33.33/50.00/66.67/83.33) across 20 candidates. Rejected including a 'major'-length tier: it would need a >=730-calendar-day (roughly 520-business-day) touch span per band, ballooning the already-~850-bar fixture for no extra coverage of the ranking logic itself, since the sort key treats strength_score as an opaque number regardless of which category combination produced it (already covered independently by TestStrengthScoringHelpers).",
+      "rationale": "The task only requires 'multiple strength_score values' to exercise real reordering, not full category coverage -- 4 distinct tiers (one fully kept, one fully dropped, one only partially kept requiring correct last_touch_date tie-break, one fully kept) already exercises every edge the cap/sort logic can produce, at a fraction of the fixture size and runtime."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-support-resistance-followups-followups",
+    "pr_number": 199,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/199",
+    "pushed_at": "2026-09-20T13:41:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T13:47:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/199",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite (921 passed, support_resistance.py at 100% line/branch coverage, overall 99.94% vs 90% gate), ruff/mypy clean on the changed file (7 pre-existing ruff findings elsewhere in the backend test tree are outside this diff, confirmed via git diff main...HEAD). Read app/signals/support_resistance.py end to end and confirmed the new test genuinely exercises the cheap-score/rank/truncate/expensive-build split; verified this concretely by mutating the source (dropping the last_touch_date tie-break, and truncating candidates before scoring) and re-running the test -- both mutations correctly fail it, then reverted cleanly. Independently hand-reconstructed the fixture's expected top-15 in a standalone script (not reusing the test's own reasoning) and it matches the real function's output exactly: tiers A (k17-19) and B (k10-16) fully kept, only the 5 latest of tier C (k5-9) kept, k0-4 correctly dropped. The resistance-only and skip-major-length simplifications are reasonable -- the sort key is role-agnostic and major-length classification is independently covered by TestStrengthScoringHelpers. No production signal logic changed; cross-checked test's category thresholds and max_zones=15 against docs/Analyse.md Row 9 (Elder ch. 18) -- no drift. No API/schema or frontend touched, so OpenAPI snapshot check and browser/e2e walkthrough don't apply (explicitly skipped, not silently omitted). Task board validated clean. No blocking or new non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T13:50:08Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest --cov=app myself: 921 passed, 99.94% total coverage, app/signals/support_resistance.py at 100% line+branch, matching pr-reviewer's numbers exactly. Read the full diff (git diff origin/main...HEAD): only the new test class plus task-board bookkeeping (index.json state/path mirror, task file move to docs/tasks/done/) -- no production code touched. Independently mutation-tested a third mutation of my own choosing (flipped ranked.sort's reverse=True to reverse=False in app/signals/support_resistance.py:473, a different mutation than either of pr-reviewer's two) and confirmed the new test fails on it (AssertionError on the strict-descending assertion), then reverted and confirmed git diff/status are clean. Accept holds."
+  }
+}
