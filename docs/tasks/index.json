@@ -1223,7 +1223,7 @@
       "id": "frontend-channel-overlay-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/frontend-channel-overlay-followups.json"
     },
     {
