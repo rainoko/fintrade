@@ -144,14 +144,15 @@ class TestMacdHistogramSlope:
         assert macd_histogram_slope(histogram, latest_close=0.0) == "flat"
 
 
-def _mock_macd_components(mocker, *, histogram: pd.Series, ema_slow: float) -> None:
-    """Patch app.signals.triple_screen.macd_components to return a controlled
-    histogram + ema_slow, leaving the rest of MacdComponents unused (evaluate_tide
-    only reads .histogram and .ema_slow).
+def _mock_macd_components(mocker, *, histogram: pd.Series) -> None:
+    """Patch app.signals.triple_screen.macd_components to return a controlled histogram,
+    leaving the rest of MacdComponents unused (evaluate_tide only reads .histogram as of the
+    `backend-weekly-impulse-screen1` task -- it no longer touches .ema_slow, since Screen 1
+    stopped being an EMA(13)/EMA(26) relationship test).
     """
     fake = MacdComponents(
         ema_fast=pd.Series([float("nan")]),
-        ema_slow=pd.Series([ema_slow]),
+        ema_slow=pd.Series([float("nan")]),
         macd_line=pd.Series([float("nan")]),
         signal_line=pd.Series([float("nan")]),
         histogram=histogram,
@@ -160,44 +161,60 @@ def _mock_macd_components(mocker, *, histogram: pd.Series, ema_slow: float) -> N
 
 
 class TestEvaluateTideCombinationLogic:
-    """Isolates the BULLISH/BEARISH/NEUTRAL decision table from real indicator math by
-    mocking the slope helper, macd_components, and ema() directly -- covers every slope x
-    EMA-relationship combination, not just the two "everything agrees" happy paths.
+    """Isolates the weekly-Impulse-color -> BULLISH/BEARISH/NEUTRAL mapping (Elder ch. 39,
+    see `evaluate_tide`'s own docstring and this task's `decisions` entry) from real indicator
+    math by mocking `evaluate_impulse` (the function `evaluate_tide` now delegates the actual
+    weekly trend test to) and `macd_histogram_slope` directly -- covers all three weekly
+    Impulse colors, confirming each maps to the trend the doc table specifies, and confirms
+    `weekly_macd_histogram_slope` is still populated (informationally) regardless of which
+    color drove `trend`.
     """
 
-    def _mock_ema_13(self, mocker, *, ema_13: float) -> None:
-        mocker.patch(
-            "app.signals.triple_screen.ema",
-            return_value=pd.Series([ema_13]),
-        )
-
     @pytest.mark.parametrize(
-        ("slope", "ema_13", "ema_26", "expected"),
+        ("weekly_impulse_color", "expected_trend"),
         [
-            ("rising", 110.0, 100.0, "BULLISH"),
-            ("rising", 100.0, 110.0, "NEUTRAL"),  # slope/EMA disagree
-            ("rising", 100.0, 100.0, "NEUTRAL"),  # EMA relationship not strictly up
-            ("falling", 100.0, 110.0, "BEARISH"),
-            ("falling", 110.0, 100.0, "NEUTRAL"),  # slope/EMA disagree
-            ("falling", 100.0, 100.0, "NEUTRAL"),  # EMA relationship not strictly down
-            ("flat", 110.0, 100.0, "NEUTRAL"),
-            ("flat", 100.0, 110.0, "NEUTRAL"),
-            ("flat", 100.0, 100.0, "NEUTRAL"),
+            ("GREEN", "BULLISH"),
+            ("RED", "BEARISH"),
+            ("BLUE", "NEUTRAL"),
         ],
     )
-    def test_decision_table(self, mocker, slope, ema_13, ema_26, expected) -> None:
-        _mock_macd_components(mocker, histogram=pd.Series([0.0, 0.0]), ema_slow=ema_26)
-        mocker.patch("app.signals.triple_screen.macd_histogram_slope", return_value=slope)
-        self._mock_ema_13(mocker, ema_13=ema_13)
+    def test_decision_table(self, mocker, weekly_impulse_color, expected_trend) -> None:
+        mocker.patch(
+            "app.signals.triple_screen.evaluate_impulse", return_value=weekly_impulse_color
+        )
+        mocker.patch("app.signals.triple_screen.macd_histogram_slope", return_value="rising")
         weekly_ohlcv = _weekly_ohlcv(pd.Series([100.0, 101.0]))
 
-        result = evaluate_tide(weekly_ohlcv)
+        result = evaluate_tide(
+            weekly_ohlcv, histogram=pd.Series([0.0, 0.0]), ema_13=pd.Series([100.0, 101.0])
+        )
 
-        assert result == TideResult(trend=expected, weekly_macd_histogram_slope=slope)
+        assert result == TideResult(trend=expected_trend, weekly_macd_histogram_slope="rising")
+
+    def test_weekly_impulse_receives_the_same_ema_13_and_histogram_evaluate_tide_uses(
+        self, mocker
+    ) -> None:
+        """The `evaluate_impulse` call inside `evaluate_tide` must be given the exact same
+        (possibly caller-supplied) `ema_13`/`histogram` series `evaluate_tide` itself resolved
+        -- not a second, independently-recomputed pair -- so the two never disagree about
+        which weekly series they're reading."""
+        evaluate_impulse_mock = mocker.patch(
+            "app.signals.triple_screen.evaluate_impulse", return_value="GREEN"
+        )
+        histogram = pd.Series([1.0, 2.0])
+        ema_13 = pd.Series([50.0, 51.0])
+        weekly_ohlcv = _weekly_ohlcv(pd.Series([100.0, 101.0]))
+
+        evaluate_tide(weekly_ohlcv, histogram=histogram, ema_13=ema_13)
+
+        evaluate_impulse_mock.assert_called_once_with(
+            weekly_ohlcv, ema_13=ema_13, histogram=histogram
+        )
 
     def test_empty_frame_is_neutral_flat_without_calling_indicators(self, mocker) -> None:
         components_mock = mocker.patch("app.signals.triple_screen.macd_components")
         ema_mock = mocker.patch("app.signals.triple_screen.ema")
+        evaluate_impulse_mock = mocker.patch("app.signals.triple_screen.evaluate_impulse")
         weekly_ohlcv = _weekly_ohlcv(pd.Series([], dtype=float))
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
@@ -205,10 +222,12 @@ class TestEvaluateTideCombinationLogic:
         )
         components_mock.assert_not_called()
         ema_mock.assert_not_called()
+        evaluate_impulse_mock.assert_not_called()
 
     def test_single_row_frame_is_neutral_flat_without_calling_indicators(self, mocker) -> None:
         components_mock = mocker.patch("app.signals.triple_screen.macd_components")
         ema_mock = mocker.patch("app.signals.triple_screen.ema")
+        evaluate_impulse_mock = mocker.patch("app.signals.triple_screen.evaluate_impulse")
         weekly_ohlcv = _weekly_ohlcv(pd.Series([100.0]))
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
@@ -216,18 +235,22 @@ class TestEvaluateTideCombinationLogic:
         )
         components_mock.assert_not_called()
         ema_mock.assert_not_called()
+        evaluate_impulse_mock.assert_not_called()
 
 
 class TestEvaluateTideEndToEnd:
-    """Real (unmocked) composition of evaluate_tide -> macd_components -> ema, over small
-    synthetic weekly series -- confirms the actual wiring, not just the decision table.
+    """Real (unmocked) composition of evaluate_tide -> evaluate_impulse -> macd_components/ema,
+    over small synthetic weekly series -- confirms the actual wiring, not just the decision
+    table, and hand-verifies the underlying weekly EMA(13)/MACD-Histogram bar-over-bar
+    directions evaluate_impulse itself reads (see app.signals.impulse's own hand-computed
+    reference tests for that function's math in isolation).
     """
 
     def test_bullish_on_accelerating_uptrend(self) -> None:
-        """40 weeks of 5%/week compounding growth (100 * 1.05**i): fast EMA pulls away
-        from slow EMA fast enough that the histogram's last step clears the 0.1%-of-price
-        flat threshold on the rising side, while the compounding growth keeps EMA(13)
-        above EMA(26) throughout.
+        """40 weeks of 5%/week compounding growth (100 * 1.05**i): both weekly EMA(13) and
+        the weekly MACD-Histogram are strictly rising bar-over-bar on the last step (real
+        indicator math, hand-verified below) -- weekly Impulse GREEN, so Tide is BULLISH per
+        Elder ch. 39 (see evaluate_tide's own docstring).
         """
         closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
         weekly_ohlcv = _weekly_ohlcv(closes)
@@ -236,17 +259,19 @@ class TestEvaluateTideEndToEnd:
         from app.indicators.macd import macd_components as real_macd_components
 
         histogram = real_macd_components(closes).histogram
+        ema_13 = real_ema(closes, 13)
         assert macd_histogram_slope(histogram, closes.iloc[-1]) == "rising"
-        assert real_ema(closes, 13).iloc[-1] > real_ema(closes, 26).iloc[-1]
+        assert histogram.iloc[-1] > histogram.iloc[-2]  # weekly Impulse's own bar-over-bar check
+        assert ema_13.iloc[-1] > ema_13.iloc[-2]
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
             trend="BULLISH", weekly_macd_histogram_slope="rising"
         )
 
     def test_bearish_on_accelerating_downtrend(self) -> None:
-        """40 weeks of 10%/week compounding decline (1000 * 0.9**i): mirrors the bullish
-        case -- histogram's last step clears the flat threshold on the falling side, and
-        EMA(13) stays below EMA(26) throughout the decline.
+        """40 weeks of 10%/week compounding decline (1000 * 0.9**i): mirrors the bullish case
+        -- both weekly EMA(13) and the weekly MACD-Histogram are strictly falling bar-over-bar
+        on the last step, so weekly Impulse is RED and Tide is BEARISH.
         """
         closes = pd.Series([1000 * (0.9**i) for i in range(40)], dtype=float)
         weekly_ohlcv = _weekly_ohlcv(closes)
@@ -255,23 +280,33 @@ class TestEvaluateTideEndToEnd:
         from app.indicators.macd import macd_components as real_macd_components
 
         histogram = real_macd_components(closes).histogram
+        ema_13 = real_ema(closes, 13)
         assert macd_histogram_slope(histogram, closes.iloc[-1]) == "falling"
-        assert real_ema(closes, 13).iloc[-1] < real_ema(closes, 26).iloc[-1]
+        assert histogram.iloc[-1] < histogram.iloc[-2]
+        assert ema_13.iloc[-1] < ema_13.iloc[-2]
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
             trend="BEARISH", weekly_macd_histogram_slope="falling"
         )
 
-    def test_neutral_on_flat_price(self) -> None:
+    def test_bearish_on_flat_price(self) -> None:
         """A perfectly constant weekly close is already at MACD-Histogram steady state
-        (identically 0 at every point per app.indicators.macd's first-value-seed
-        convention), so the slope is exactly flat regardless of the EMA relationship.
+        (identically 0 at every point per app.indicators.macd's first-value-seed convention),
+        and EMA(13) is identically the constant price too -- both series are exactly *flat*
+        (a tie, latest == previous) on the last bar-over-bar comparison, not "disagreeing".
+        `app.signals.impulse._direction`'s own documented tie convention treats a tie as
+        "falling" (the conservative read for a gate that can block a fresh BUY, per that
+        function's own docstring) -- reused as-is here rather than forked into a
+        Tide-specific variant, so this degenerate case (constant price for 10 straight weeks,
+        never realistic with real market data -- see `macd_histogram_slope`'s own
+        zero-division-guard precedent for the same "never happens for real" framing) resolves
+        to weekly Impulse RED / Tide BEARISH, not NEUTRAL. See this task's `decisions` entry.
         """
         closes = pd.Series([50.0] * 10)
         weekly_ohlcv = _weekly_ohlcv(closes)
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
-            trend="NEUTRAL", weekly_macd_histogram_slope="flat"
+            trend="BEARISH", weekly_macd_histogram_slope="flat"
         )
 
     def test_neutral_on_empty_history(self) -> None:
@@ -288,32 +323,35 @@ class TestEvaluateTideEndToEnd:
             trend="NEUTRAL", weekly_macd_histogram_slope="flat"
         )
 
-    def test_neutral_slope_rising_but_ema_disagrees(self) -> None:
-        """Exercises the "mixed" case from real (unmocked) indicator math: a genuine
-        rising histogram slope, but the 13/26-week EMA relationship hasn't caught up
-        yet (or disagrees), so evaluate_tide must still return NEUTRAL overall while
-        weekly_macd_histogram_slope still reports the real 'rising' classification --
-        the piece of information a downstream confidence scorer needs to tell this
-        "mixed" NEUTRAL apart from a flat/genuinely-ambiguous one (see this task's
-        `decisions` entry).
+    def test_neutral_mixed_ema_rising_histogram_falling(self) -> None:
+        """Exercises the "mixed"/BLUE case from real (unmocked) indicator math: weekly EMA(13)
+        is still rising (the broader uptrend hasn't reversed) but the weekly MACD-Histogram
+        ticks down on the very last bar (a momentum pause) -- the two weekly Impulse inputs
+        disagree, so evaluate_tide must return NEUTRAL overall while weekly_macd_histogram_slope
+        still reports the real 'falling' classification for that last step -- the piece of
+        information a downstream confidence scorer needs to tell this "mixed" NEUTRAL apart
+        from a flat/genuinely-ambiguous one (see this task's `decisions` entry, and the
+        `screen1-tide` task's original decisions entry this mirrors the intent of).
         """
-        # A sharp rally in just the last two weeks after a long decline: the
-        # histogram's last step is clearly rising, but 26 weeks of prior decline
-        # means EMA(13) is still below EMA(26).
-        declining = [200 * (0.95**i) for i in range(30)]
-        closes = pd.Series(declining + [declining[-1] * 1.5, declining[-1] * 2.5])
+        # 38 weeks of accelerating 5%/week growth, then one week down 0.5%: EMA(13) (a lagging
+        # average) is still pulled upward by the prior acceleration, but the histogram's very
+        # last step reverses.
+        growth = [100 * (1.05**i) for i in range(39)]
+        closes = pd.Series(growth + [growth[-1] * 0.995], dtype=float)
         weekly_ohlcv = _weekly_ohlcv(closes)
 
         from app.indicators.ema import ema as real_ema
         from app.indicators.macd import macd_components as real_macd_components
 
         histogram = real_macd_components(closes).histogram
+        ema_13 = real_ema(closes, 13)
         slope = macd_histogram_slope(histogram, closes.iloc[-1])
-        assert slope == "rising"
-        assert real_ema(closes, 13).iloc[-1] < real_ema(closes, 26).iloc[-1]
+        assert slope == "falling"
+        assert histogram.iloc[-1] < histogram.iloc[-2]
+        assert ema_13.iloc[-1] > ema_13.iloc[-2]
 
         assert evaluate_tide(weekly_ohlcv) == TideResult(
-            trend="NEUTRAL", weekly_macd_histogram_slope="rising"
+            trend="NEUTRAL", weekly_macd_histogram_slope="falling"
         )
 
     def test_malformed_weekly_ohlcv_missing_close_raises_value_error_not_key_error(self) -> None:
@@ -362,12 +400,13 @@ class TestValidateWeeklyOhlcvColumns:
 
 
 class TestEvaluateTidePrecomputedSeries:
-    """Covers the `histogram`/`ema_13`/`ema_26` parameters (see the
-    portfolio-exit-rules-followups task's `decisions` entry) that let a caller share an
-    already-computed MACD-Histogram/EMA(13)/EMA(26) of the same weekly close series
-    instead of evaluate_tide recomputing them internally -- used by
-    app.portfolio.exits.evaluate_exit_flags to avoid two independent MACD/EMA passes when
-    it calls evaluate_tide twice (full series, then the prior-bar slice)."""
+    """Covers the `histogram`/`ema_13` parameters (see the portfolio-exit-rules-followups
+    task's `decisions` entry) that let a caller share an already-computed
+    MACD-Histogram/EMA(13) of the same weekly close series instead of evaluate_tide
+    recomputing them internally -- used by app.portfolio.exits.evaluate_exit_flags to avoid
+    two independent MACD/EMA passes when it calls evaluate_tide twice (full series, then the
+    prior-bar slice). (No `ema_26` parameter as of `backend-weekly-impulse-screen1` --
+    evaluate_tide no longer uses EMA(26) at all; see its own docstring.)"""
 
     def test_precomputed_series_matches_default_computation(self) -> None:
         from app.indicators.ema import ema as real_ema
@@ -383,7 +422,6 @@ class TestEvaluateTidePrecomputedSeries:
             weekly_ohlcv,
             histogram=components.histogram,
             ema_13=precomputed_ema_13,
-            ema_26=components.ema_slow,
         )
 
         assert result_shared == result_default
@@ -410,7 +448,6 @@ class TestEvaluateTidePrecomputedSeries:
             truncated_ohlcv,
             histogram=full_components.histogram.iloc[:-1],
             ema_13=full_ema_13.iloc[:-1],
-            ema_26=full_components.ema_slow.iloc[:-1],
         )
         result_from_fresh_recomputation = evaluate_tide(truncated_ohlcv)
 
@@ -426,8 +463,7 @@ class TestEvaluateTidePrecomputedSeries:
         result = evaluate_tide(
             weekly_ohlcv,
             histogram=pd.Series([-5.0, 5.0]),  # rising
-            ema_13=pd.Series([110.0]),
-            ema_26=pd.Series([100.0]),
+            ema_13=pd.Series([100.0, 110.0]),  # rising
         )
 
         assert result == TideResult(trend="BULLISH", weekly_macd_histogram_slope="rising")
@@ -435,8 +471,8 @@ class TestEvaluateTidePrecomputedSeries:
         ema_mock.assert_not_called()
 
     def test_each_precomputed_series_can_be_supplied_independently(self, mocker) -> None:
-        """Supplying only `ema_13` (leaving histogram/ema_26 to be computed internally)
-        must still work -- the three parameters are independent, not all-or-nothing."""
+        """Supplying only `ema_13` (leaving `histogram` to be computed internally) must still
+        work -- the two parameters are independent, not all-or-nothing."""
         from app.indicators.ema import ema as real_ema
 
         closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
@@ -448,10 +484,10 @@ class TestEvaluateTidePrecomputedSeries:
 
         assert result_partial == result_default
 
-    def test_only_histogram_supplied_still_derives_ema_26_from_macd_components(self) -> None:
-        """Supplying `histogram` alone (leaving `ema_26` unsupplied) must still call
-        macd_components internally to get `ema_26` -- the two aren't both skipped just
-        because one of them was provided."""
+    def test_only_histogram_supplied_still_derives_ema_13_from_ema(self) -> None:
+        """Supplying `histogram` alone (leaving `ema_13` unsupplied) must still call `ema`
+        internally to get `ema_13` -- the two aren't both skipped just because one of them
+        was provided."""
         from app.indicators.macd import macd_components as real_macd_components
 
         closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
@@ -460,20 +496,6 @@ class TestEvaluateTidePrecomputedSeries:
 
         result_default = evaluate_tide(weekly_ohlcv)
         result_partial = evaluate_tide(weekly_ohlcv, histogram=components.histogram)
-
-        assert result_partial == result_default
-
-    def test_only_ema_26_supplied_still_derives_histogram_from_macd_components(self) -> None:
-        """Supplying `ema_26` alone (leaving `histogram` unsupplied) must still call
-        macd_components internally to get `histogram`."""
-        from app.indicators.macd import macd_components as real_macd_components
-
-        closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
-        weekly_ohlcv = _weekly_ohlcv(closes)
-        components = real_macd_components(closes)
-
-        result_default = evaluate_tide(weekly_ohlcv)
-        result_partial = evaluate_tide(weekly_ohlcv, ema_26=components.ema_slow)
 
         assert result_partial == result_default
 

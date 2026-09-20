@@ -23,12 +23,31 @@ Elder's system uses three "screens" applied at different timeframes to filter ou
 
 Purpose: determine the dominant market trend. **Never trade against the tide.**
 
-- **Indicator:** Weekly MACD-Histogram (12, 26, 9) slope.
-  - Histogram rising → tide is bullish → only look for buy (long) signals on lower timeframe.
-  - Histogram falling → tide is bearish → only look for sell/avoid signals.
-- **Secondary confirmation:** 13-week and 26-week EMA relationship (13 EMA above 26 EMA = uptrend).
+- **Indicator: the weekly Impulse System color** (see §3 below, computed on the *weekly* chart
+  instead of the daily one). **Verified against the primary source** (Elder ch. 39, "Triple
+  Screen Trading System", *The New Trading for a Living*, 2014, pp. 156-157 — quoted in full in
+  `docs/ideas.md`): "The original version of Triple Screen used the slope of weekly
+  MACD-Histogram as its weekly trend-following indicator... After I invented the Impulse
+  system... I began to use it for the first screen of Triple Screen." Elder's own words are
+  explicit that the Impulse System **directly replaced** the plain weekly-MACD-Histogram-slope
+  test as his main trend tool — it is not an addition alongside that test, and this app's Screen
+  1 (`app.signals.triple_screen.evaluate_tide`) implements that replacement, not a reconciliation
+  between the two (see the `backend-weekly-impulse-screen1` task's `decisions` entry for the full
+  rationale). Weekly Impulse GREEN (EMA(13) and weekly MACD-Histogram(12,26,9) both rising
+  bar-over-bar) → tide is bullish → only look for buy (long) signals on lower timeframes. Weekly
+  Impulse RED (both falling) → tide is bearish → only look for sell/avoid signals. Weekly Impulse
+  BLUE (the two disagree, or too little weekly history) → tide is neutral.
+- **Superseded** (kept here for history only — no longer what `evaluate_tide` computes): the
+  original standalone test was weekly MACD-Histogram slope, secondarily confirmed by the 13-week
+  vs. 26-week EMA relationship (13 EMA above 26 EMA = uptrend). The weekly MACD-Histogram's own
+  slope classification is still exposed alongside `tide` (see below) as informational context,
+  but no longer decides it.
 
-Output: `tide = BULLISH | BEARISH | NEUTRAL` (neutral if MACD-H slope is flat/ambiguous — reduces confidence, does not block signal).
+Output: `tide = BULLISH | BEARISH | NEUTRAL`, from the weekly Impulse color -> Tide mapping above
+(GREEN → BULLISH, RED → BEARISH, BLUE → NEUTRAL — NEUTRAL reduces confidence, does not block
+signal). Also exposes `weekly_macd_histogram_slope` (rising/falling/flat, the weekly
+MACD-Histogram's own last-step classification) purely as informational context — see
+`docs/architecture/API.md`'s `screens.tide` shape.
 
 ### Screen 2 — The Wave (medium-term, daily chart)
 
@@ -62,7 +81,18 @@ Elder's **Impulse System** colors each bar using the interaction of trend and mo
 - **Red** — EMA(13) falling AND MACD-Histogram falling → only sell or hold allowed (no new buys).
 - **Blue** — indicators disagree → any action allowed, but signal strength is weaker.
 
-Use this as a hard **gate**: if Impulse is Red, do not emit a fresh Buy signal even if Screen 2/3 line up — cap confidence or downgrade to Hold instead. Same in reverse for Red-gated Sell signals during Green impulse.
+This app computes the Impulse System on **two separate timeframes, both per Elder ch. 39/40**
+(pp. 156-166, `docs/ideas.md`), using the exact same color logic above on each:
+
+- **Weekly** — computed on the weekly chart and used as **Screen 1 (Tide)'s own trend test**
+  (see §2 above); this is the ch. 39 replacement of the original weekly-MACD-Histogram-slope
+  test, not a second, separate weekly technique.
+- **Daily** — computed on the daily chart and used as the entry/exit-timing **gate** ch. 40
+  itself describes, layered on top of Screen 1: if daily Impulse is Red, do not emit a fresh
+  Buy signal even if Screens 1-3 otherwise line up — cap confidence or downgrade to Hold
+  instead. Same in reverse for Green-gated Sell signals during a Red-blocked setup. This daily
+  gate is unaffected by the weekly-Impulse-is-Screen-1 correction above — it's a distinct,
+  additional technique per the primary source, not something the weekly change supersedes.
 
 ---
 
@@ -185,7 +215,7 @@ Confidence is a **weighted agreement score** across the indicators, not a statis
 
 | Component | Weight | Scoring |
 |---|---|---|
-| Tide alignment (Screen 1) | 30% | 100% if MACD-H slope & EMA13/26 agree strongly; 50% if mixed; 0% if tide contradicts the signal direction |
+| Tide alignment (Screen 1) | 30% | 100% if Tide (the weekly Impulse color, §2/§3) agrees with the signal direction (Bullish for Buy / Bearish for Sell); 50% if Neutral (weekly Impulse Blue — the underlying EMA(13)/MACD-H directions disagree, or too little weekly history); 0% if Tide contradicts the signal direction |
 | Impulse gate | 20% | 100% if Impulse color matches signal direction (Green for Buy / Red for Sell); 40% if Blue; 0% if opposite color (should have blocked signal already) |
 | Oscillator extremity (Screen 2) | 25% | Scaled by how deep into oversold/overbought territory Stochastic + Force Index are (e.g., Stochastic < 20 scores higher than < 30) |
 | Elder-Ray confirmation | 15% | 100% if Bull/Bear Power confirms the exhaustion-then-reversal pattern |

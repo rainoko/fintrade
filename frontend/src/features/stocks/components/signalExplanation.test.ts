@@ -97,7 +97,7 @@ describe('explainSignal', () => {
     expect(trigger.detail).toMatch(/close below prior low/i)
   })
 
-  it('explains a HOLD with a Neutral tide (slope disagreeing with EMA13/26) as not evaluating the other three screens', () => {
+  it('explains a HOLD with a Neutral tide (weekly EMA(13)/MACD-Histogram directions disagreeing) as not evaluating the other three screens', () => {
     const result = explainSignal(
       'HOLD',
       screens({
@@ -112,7 +112,7 @@ describe('explainSignal', () => {
     expect(result.headline).toMatch(/Tide is Neutral/)
     const [tide, impulse, wave, trigger] = result.conditions
     expect(tide.met).toBe(false)
-    expect(tide.detail).toMatch(/13\/26-week EMA relationship disagree/)
+    expect(tide.detail).toMatch(/weekly EMA\(13\) and weekly MACD-Histogram.*reads Blue/)
     expect(impulse.met).toBeNull()
     expect(wave.met).toBeNull()
     expect(trigger.met).toBeNull()
@@ -136,8 +136,8 @@ describe('explainSignal', () => {
     const tide = result.conditions.find((c) => c.key === 'tide')!
     expect(tide.met).toBe(false)
     expect(tide.detail).toMatch(/enough weekly price history/)
-    expect(tide.detail).toMatch(/genuinely flat/)
-    expect(tide.detail).not.toMatch(/relationship disagree/)
+    expect(tide.detail).toMatch(/too small to call clearly rising or falling/)
+    expect(tide.detail).not.toMatch(/reads Blue/)
   })
 
   it('explains a HOLD with a directional tide missing exactly the Wave condition (definitively, by elimination)', () => {

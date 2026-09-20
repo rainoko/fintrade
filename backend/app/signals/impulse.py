@@ -23,30 +23,41 @@ def _direction(series: pd.Series) -> str:
 
 
 def evaluate_impulse(
-    daily_ohlcv: pd.DataFrame,
+    ohlcv: pd.DataFrame,
     *,
     ema_13: pd.Series | None = None,
     histogram: pd.Series | None = None,
 ) -> str:
     """'GREEN' | 'RED' | 'BLUE', from EMA(13) direction + MACD-Histogram direction together (docs/Analyse.md §3).
 
-    Acts as a gate: GREEN blocks fresh SELL signals, RED blocks fresh BUY signals.
+    As the daily Impulse gate (``ohlcv`` = ``daily_ohlcv``), acts as a gate: GREEN blocks
+    fresh SELL signals, RED blocks fresh BUY signals (docs/architecture/Backend.md §5,
+    ``app.signals.engine._determine_signal``) -- Elder ch. 40's original, entry/exit-timing
+    use of the Impulse System. As of the `backend-weekly-impulse-screen1` task, this same
+    function is also called on ``weekly_ohlcv`` (``app.signals.triple_screen.evaluate_tide``)
+    to compute the *weekly* Impulse color that IS Screen 1 (Tide) itself, per Elder ch. 39's
+    primary-source correction (docs/ideas.md; see that task's `decisions` entry) -- the
+    parameter is named generically (not ``daily_ohlcv``) because the same EMA(13)-direction +
+    MACD-Histogram-direction computation below is timeframe-agnostic: it only ever needs
+    ``ohlcv['close']`` (via the ``ema_13``/``histogram`` defaults) and >=2 bars, whichever
+    timeframe those bars happen to be.
 
-    GREEN requires both EMA(13) and the daily MACD-Histogram to be rising bar-over-bar;
-    RED requires both falling. Any disagreement between the two -- or fewer than two daily
-    bars to even compute a direction -- returns BLUE, matching docs/Analyse.md §3's "any
-    action allowed, but signal strength is weaker" description; BLUE is deliberately the
-    ambiguous-data fallback too, since (unlike Screen 1's three-way BULLISH/BEARISH/NEUTRAL)
-    there is no separate "unknown" state in the GREEN/RED/BLUE vocabulary, and BLUE is the
-    one of the three that doesn't gate anything, so insufficient data never masquerades as a
-    directional gate. Note: this function only *computes* the Impulse color -- enforcing the
-    gate (blocking a fresh BUY under RED, a fresh SELL under GREEN) is signal-engine.py's
-    job (docs/architecture/Backend.md §5), not this module's; see this task's `decisions`
-    entry for why that's out of scope here.
+    GREEN requires both EMA(13) and MACD-Histogram to be rising bar-over-bar; RED requires
+    both falling. Any disagreement between the two -- or fewer than two bars to even compute
+    a direction -- returns BLUE, matching docs/Analyse.md §3's "any action allowed, but
+    signal strength is weaker" description; BLUE is deliberately the ambiguous-data fallback
+    too, since (unlike Screen 1's three-way BULLISH/BEARISH/NEUTRAL) there is no separate
+    "unknown" state in the GREEN/RED/BLUE vocabulary, and BLUE is the one of the three that
+    doesn't gate anything, so insufficient data never masquerades as a directional gate. Note:
+    this function only *computes* the Impulse color -- enforcing the daily gate (blocking a
+    fresh BUY under RED, a fresh SELL under GREEN) is signal-engine.py's job
+    (docs/architecture/Backend.md §5), and mapping the weekly color onto Screen 1's own
+    BULLISH/BEARISH/NEUTRAL vocabulary is ``evaluate_tide``'s job -- neither is this module's,
+    see this task's `decisions` entry for why that's out of scope here.
 
     ``ema_13``/``histogram``, if given, are used as the already-computed
-    ``ema(daily_ohlcv['close'], 13)`` / ``macd_histogram(daily_ohlcv['close'])`` instead of
-    recomputing them here (each must be index-aligned with ``daily_ohlcv``). Both are
+    ``ema(ohlcv['close'], 13)`` / ``macd_histogram(ohlcv['close'])`` instead of
+    recomputing them here (each must be index-aligned with ``ohlcv``). Both are
     independent (a caller may supply either, both, or neither); anything omitted is computed
     internally exactly as before these parameters existed. ``ema_13`` lets a caller who needs
     that same EMA(13) elsewhere too (e.g. ``app.portfolio.exits.evaluate_exit_flags``, which
@@ -57,14 +68,14 @@ def evaluate_impulse(
     recomputing both a second time on the same ``daily_close`` -- see this task's `decisions`
     entry.
     """
-    if len(daily_ohlcv) < 2:
+    if len(ohlcv) < 2:
         return "BLUE"
 
-    daily_close = daily_ohlcv["close"]
+    close = ohlcv["close"]
     if ema_13 is None:
-        ema_13 = ema(daily_close, 13)
+        ema_13 = ema(close, 13)
     if histogram is None:
-        histogram = macd_histogram(daily_close)
+        histogram = macd_histogram(close)
     ema_direction = _direction(ema_13)
     histogram_direction = _direction(histogram)
 

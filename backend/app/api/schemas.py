@@ -42,8 +42,8 @@ class HistoryResponse(BaseModel):
 
 
 class TideScreen(BaseModel):
-    trend: Trend = Field(description="Screen 1 output (docs/Analyse.md §2). NEUTRAL when weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree.")
-    weekly_macd_histogram_slope: Literal["rising", "falling", "flat"]
+    trend: Trend = Field(description="Screen 1 output (docs/Analyse.md §2/§3): the weekly Impulse System color (EMA(13) direction + MACD-Histogram direction, both on the weekly chart) mapped onto BULLISH/BEARISH/NEUTRAL -- GREEN->BULLISH, RED->BEARISH, BLUE (the two disagree, or too little history)->NEUTRAL. Per Elder ch. 39, this replaced the original standalone weekly-MACD-Histogram-slope-plus-13/26-week-EMA test as Screen 1's own trend tool.")
+    weekly_macd_histogram_slope: Literal["rising", "falling", "flat"] = Field(description="The weekly MACD-Histogram's own last-step classification -- informational context only as of docs/Analyse.md §2's ch. 39 correction; it no longer decides `trend` above (weekly Impulse's own EMA(13)/MACD-Histogram direction check does).")
 
 
 class WaveScreen(BaseModel):

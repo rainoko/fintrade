@@ -78,11 +78,13 @@ def score_tide_alignment(tide: str, signal_direction: str) -> float:
     """Screen 1 (Tide) component score (docs/Analyse.md §6, weight 30%).
 
     ``evaluate_tide`` (app.signals.triple_screen) only ever returns BULLISH / BEARISH /
-    NEUTRAL -- the doc's "100% if slope & EMA agree strongly; 50% if mixed; 0% if tide
-    contradicts" already collapses onto that same three-way output, since a slope/EMA
-    disagreement is exactly what makes ``evaluate_tide`` return NEUTRAL in the first place.
-    So this is a direct, mechanical mapping: tide agreeing with ``signal_direction`` scores
-    1.0, NEUTRAL scores 0.5 ("mixed"), and tide contradicting ``signal_direction`` scores 0.0.
+    NEUTRAL -- the doc's "100% if Tide agrees with the signal direction; 50% if Neutral
+    (weekly Impulse Blue); 0% if Tide contradicts" already collapses onto that same
+    three-way output, since a weekly EMA(13)/MACD-Histogram direction disagreement (or too
+    little weekly history) is exactly what makes ``evaluate_tide`` return NEUTRAL in the
+    first place. So this is a direct, mechanical mapping: tide agreeing with
+    ``signal_direction`` scores 1.0, NEUTRAL scores 0.5, and tide contradicting
+    ``signal_direction`` scores 0.0.
     """
     if signal_direction not in ("BUY", "SELL"):
         raise ValueError(f"signal_direction must be 'BUY' or 'SELL', got {signal_direction!r}")

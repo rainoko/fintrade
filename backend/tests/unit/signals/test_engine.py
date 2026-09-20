@@ -815,6 +815,62 @@ class TestAnalyseEndToEnd:
         assert 0 <= result.confidence <= 100
         assert len(result.breakdown) == 5
 
+    def test_end_to_end_daily_impulse_gate_still_blocks_a_buy_under_a_bullish_weekly_tide(
+        self,
+    ) -> None:
+        """Real, end-to-end reconciliation-path coverage for `backend-weekly-impulse-
+        screen1`'s two decisions together: Screen 1 (Tide) is now the *weekly* Impulse
+        color, and the pre-existing *daily* Impulse gate in `_determine_signal` is a
+        distinct, additional ch. 40 technique layered on top -- unaffected by that
+        replacement (see `evaluate_tide`'s and this module's own docstrings). This
+        reproduces that exact combination from real (unmocked) data, not just the
+        `_determine_signal` string-input unit tests above: the same BULLISH weekly fixture
+        as the BUY test above (weekly Impulse GREEN), paired with a daily fixture whose
+        final "trigger" bar is a genuine-but-very-weak rally -- just barely enough to
+        cross the prior day's high (Screen 3 fires) and follow a real oversold pullback
+        (Screen 2 showed it), but too weak to turn the *daily* EMA(13)/MACD-Histogram
+        around, so daily Impulse is still RED. A RED daily Impulse must still block the
+        fresh BUY (downgrade to HOLD) even though the weekly Tide itself is unambiguously
+        BULLISH -- the two Impulse computations (weekly Tide vs. daily gate) must not be
+        conflated with each other.
+        """
+        closes = [100 + i * 0.5 for i in range(20)]
+        closes += [closes[-1] - 3 * i for i in range(1, 6)]
+        closes.append(closes[-1] + 0.05)  # a bare-minimum rally, not the BUY test's sharp one
+        volumes = [1_000_000] * 24 + [9_000_000, 500_000]
+        daily_ohlcv = pd.DataFrame(
+            {
+                "open": closes,
+                "high": [c + 0.02 for c in closes[:-1]] + [closes[-1] + 0.01],
+                "low": [c - 0.3 for c in closes],
+                "close": closes,
+                "volume": volumes,
+            }
+        )
+        # Weekly: identical BULLISH fixture to the BUY test above.
+        weekly_closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = pd.DataFrame(
+            {
+                "open": weekly_closes,
+                "high": weekly_closes * 1.01,
+                "low": weekly_closes * 0.99,
+                "close": weekly_closes,
+                "volume": 1_000_000,
+            }
+        )
+
+        result = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert result.screens["tide"]["trend"] == "BULLISH"
+        assert result.screens["impulse"] == "RED"
+        assert result.screens["wave"]["showed_pullback_in_lookback"] is True
+        assert bool(result.screens["trigger"]["fired"]) is True
+        # Everything except the daily Impulse gate lines up for a BUY -- the gate alone
+        # must still downgrade this to HOLD.
+        assert result.signal == "HOLD"
+        assert result.confidence == 0
+        assert result.breakdown == []
+
     def test_malformed_latest_bar_is_excluded_and_does_not_change_signal(self) -> None:
         """Regression test for the real, observed yfinance condition (see
         drop_malformed_daily_bars's docstring and this task's `decisions` entry): the most
@@ -933,12 +989,20 @@ class TestAnalyseEndToEnd:
                 "volume": [1_000_000] * 30,
             }
         )
+        # 8 flat weeks, then a tiny up-week and a tiny down-week -- deliberately *not*
+        # perfectly flat throughout, to land on Tide NEUTRAL rather than BEARISH. A
+        # perfectly constant weekly close makes weekly EMA(13) and the weekly
+        # MACD-Histogram both exactly tied bar-over-bar, which
+        # `app.signals.impulse._direction`'s tie-counts-as-falling convention (reused by
+        # `evaluate_tide` for Screen 1, per `backend-weekly-impulse-screen1`) resolves to
+        # weekly Impulse RED / Tide BEARISH, not this test's intended NEUTRAL.
+        weekly_closes = [100.0] * 8 + [100.3, 100.1]
         weekly_ohlcv = pd.DataFrame(
             {
-                "open": [100.0] * 10,
-                "high": [101.0] * 10,
-                "low": [99.0] * 10,
-                "close": [100.0] * 10,
+                "open": weekly_closes,
+                "high": [c * 1.01 for c in weekly_closes],
+                "low": [c * 0.99 for c in weekly_closes],
+                "close": weekly_closes,
                 "volume": [1_000_000] * 10,
             }
         )

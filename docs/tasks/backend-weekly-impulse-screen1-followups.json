@@ -1,0 +1,31 @@
+{
+  "id": "backend-weekly-impulse-screen1-followups",
+  "title": "Non-blocking follow-ups from backend-weekly-impulse-screen1's PR review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-weekly-impulse-screen1"],
+  "references": [
+    "docs/tasks/backend-weekly-impulse-screen1.json",
+    "https://github.com/rainoko/fintrade/pull/187"
+  ],
+  "description": "Tracked, non-blocking findings from pr-reviewer's review of PR #187 (backend-weekly-impulse-screen1, the Screen 1/Tide weekly-Impulse methodology correction). See that PR's review comment and docs/tasks/backend-weekly-impulse-screen1.json's review.comments for full context.",
+  "checklist": [
+    {
+      "step": "backend/app/signals/confidence.py::score_tide_alignment's docstring quotes docs/Analyse.md §6's old wording verbatim ('100% if slope & EMA agree strongly; 50% if mixed; 0% if tide contradicts') even though backend-weekly-impulse-screen1 updated that table's actual text to describe the weekly-Impulse-color-based scoring. Behavior is unaffected (the mechanical BULLISH/NEUTRAL/BEARISH -> 1.0/0.5/0.0 mapping is still correct), but the docstring is now a stale quote of doc text that no longer exists in docs/Analyse.md -- update it to match the corrected §6 wording.",
+      "done": true
+    },
+    {
+      "step": "Non-blocking, found during PR #187's retry-round re-review (pr-reviewer): frontend/src/features/stocks/components/PriceChart.tsx has two internal (non-user-facing) doc comments still describing Tide/Screen 1 in the superseded terms, missed by the round-1 fix's own grep sweep since neither contains the '13/26-week EMA'/'MACD-H slope and ... relationship' phrasing that sweep searched for. Line ~339: \"...which Tide (driven by a weekly MACD histogram slope, not a daily one) realistically never does.\" -- Tide is now driven by the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction together), not solely 'a weekly MACD histogram slope'; the comment's own conclusion (weekly-cadence trend changes rarely alternate every bar) still holds, but the parenthetical misstates the mechanism. Line ~757: \"EMA13/EMA26 as native Lightweight Charts line series (Screen 1's trend-following pair, per docs/Analyse.md §2/§4)\" -- EMA(26) no longer feeds Screen 1/Tide at all (per this task's own `decisions` entry and the corrected ema26Help copy in metricHelpContent.ts), so labeling the EMA13/EMA26 pair \"Screen 1's trend-following pair\" is now incorrect; the pair is still drawn on the chart for other legitimate reasons (value-zone shading, MACD's own EMA(26) input) but that's a different claim than the comment currently makes. Neither is user-visible (both are internal JSDoc-style comments), so non-blocking, but both should be reworded to match the corrected methodology.",
+      "done": false
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed this checklist item's docstring staleness in the same task-worker pass that fixed backend-weekly-impulse-screen1's blocking frontend-copy finding (PR #187), rather than leaving it for a separate pass through this followups task.",
+      "rationale": "The reviewer's own comment marked this non-blocking but said it was optional 'if convenient since you're already touching related methodology text' -- since fixing the blocking frontend Tide copy already required editing the same 'how is Tide scored/described' surface, fixing this one-line docstring quote alongside it was a small, low-risk addition rather than a separate task-board cycle. This task's own checklist item stays as the durable record that it happened, per CLAUDE.md's non-blocking-finding-stays-tracked convention -- this entry doesn't move it to done itself; state remains planned since backend-weekly-impulse-screen1 (its depends_on) hasn't reached done yet, and a human/orchestrator pass can close this task's remaining checklist (now empty) once that dependency lands."
+    }
+  ]
+}

@@ -42,13 +42,23 @@ def _hold_daily_ohlcv() -> pd.DataFrame:
 
 
 def _hold_weekly_ohlcv() -> pd.DataFrame:
+    """28 flat weeks, then a tiny up-week and a tiny down-week -- deliberately *not*
+    perfectly flat throughout, to land on Tide NEUTRAL rather than BEARISH. See
+    test_stocks_analysis.py's identically-shaped fixture docstring for why: a perfectly
+    constant weekly close makes weekly EMA(13) and the weekly MACD-Histogram both exactly
+    tied bar-over-bar, which `app.signals.impulse._direction`'s tie-counts-as-falling
+    convention (reused by `evaluate_tide` for Screen 1, per `backend-weekly-impulse-
+    screen1`) resolves to weekly Impulse RED / Tide BEARISH, not this fixture's intended
+    NEUTRAL.
+    """
+    weekly_closes = [100.0] * 28 + [100.3, 100.1]
     return pd.DataFrame(
         {
-            "open": [100.0] * 30,
-            "high": [101.0] * 30,
-            "low": [99.0] * 30,
-            "close": [100.0] * 30,
-            "volume": [1_000_000] * 30,
+            "open": weekly_closes,
+            "high": [c * 1.01 for c in weekly_closes],
+            "low": [c * 0.99 for c in weekly_closes],
+            "close": weekly_closes,
+            "volume": 1_000_000,
         },
         index=pd.date_range("2025-01-01", periods=30, freq="W", name="date"),
     )
