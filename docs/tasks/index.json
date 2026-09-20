@@ -1111,8 +1111,8 @@
       "id": "backend-force-index-refinements",
       "area": "backend/signals",
       "skill": "add-indicator",
-      "state": "testing",
-      "path": "docs/tasks/backend-force-index-refinements.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-force-index-refinements.json"
     },
     {
       "id": "backend-force-index-refinements-followups",
