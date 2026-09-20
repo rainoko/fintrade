@@ -25,6 +25,7 @@ export type KangarooTailOut = components['schemas']['KangarooTailOut']
 export type ProfitTargetOut = components['schemas']['ProfitTargetOut']
 export type ExtendedDataOut = components['schemas']['ExtendedDataOut']
 export type InsiderTransactionOut = components['schemas']['InsiderTransactionOut']
+export type InsiderClusterOut = components['schemas']['InsiderClusterOut']
 
 export interface GetStockHistoryParams {
   /**
