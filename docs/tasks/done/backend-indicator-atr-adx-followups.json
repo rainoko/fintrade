@@ -3,7 +3,7 @@
   "title": "ATR/Directional System -- non-blocking review follow-ups",
   "area": "backend/indicators",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-indicator-atr-adx"],
   "references": [
     "docs/tasks/backend-indicator-atr-adx.json#review",
@@ -31,5 +31,17 @@
     "pr_number": 205,
     "pr_url": "https://github.com/rainoko/fintrade/pull/205",
     "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T15:54:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the shared `true_range` sharing is correct, not just a claimed optimization: `atr()`/`plus_minus_di()` both fall back to computing `true_range()` internally when the new keyword-only `true_range=` isn't supplied, so behavior for every existing caller is unchanged. `engine.py`'s `analyse()`/`analyse_history()` now compute True Range at most once per call and pass the same series into both `compute_atr()`/`plus_minus_di()` whenever either needs computing from scratch -- confirmed the O(n) double-pass elimination is real by reading the `analyse()` conditional (`daily_true_range` is only computed when `atr is None or plus_di is None or minus_di is None`, and left `None`/unused when all three are already supplied). New tests (`test_precomputed_true_range_is_used_as_is`, `test_precomputed_true_range_overrides_recomputation` in both `test_atr.py` and `test_directional_system.py`) genuinely prove the precomputed series is trusted as-is (a deliberately-wrong constant series changes the result), not silently ignored/recomputed. No other call site outside `engine.py` calls `atr()`/`plus_minus_di()` with the new kwarg, and the kwarg being optional/keyword-only means nothing else needed updating.",
+        "file": "backend/app/signals/engine.py"
+      }
+    ],
+    "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No API/schema changes -- openapi.json correctly untouched. Backend-only diff -- no frontend/UI surface, so no browser walkthrough or e2e run (explicitly noted, not silently skipped). No conflicts found between this task's engine.py change and the divergence.py/kangaroo_tail.py changes in the same PR -- disjoint modules, only engine.py imports/calls the touched indicator functions."
   }
 }

@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-kangaroo-tail-pattern PR review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-kangaroo-tail-pattern"],
   "references": [
     "docs/tasks/backend-kangaroo-tail-pattern.json",
@@ -34,5 +34,21 @@
     "pr_number": 205,
     "pr_url": "https://github.com/rainoko/fintrade/pull/205",
     "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T15:54:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed the isinstance guard in `build_kangaroo_tail_cache` matches `app.signals.divergence`'s precedent (divergence.py:333-338) line-for-line in intent: same `isinstance(position, int)` check after `Index.get_loc`, same `# pragma: no cover` (unreachable given this app's always-unique daily-bar indices), same rationale comment. The one difference is graceful-degradation shape -- divergence.py's guard returns None for the whole call (aborting that one divergence-pair evaluation), while kangaroo_tail.py's filters just that one tail out of the cache and continues -- appropriate given kangaroo_tail.py is building a list/cache of many tails rather than evaluating a single pair, and the diff correctly keeps `filtered_tails`/`confirmed_positions` index-parallel for the `zip(..., strict=True)` consumer downstream.",
+        "file": "backend/app/signals/kangaroo_tail.py"
+      },
+      {
+        "summary": "Confirmed the outside-bar tie-break regression test is non-tautological: it constructs a bar that is simultaneously a new high (110.0, beyond the window's 101.0 max) and a new low (90.0, beyond the window's 99.0 min), with a body (open=95.0, close=95.5) that only satisfies the 'up' direction's retracement-from-the-high check (0.75/0.725, both >= 0.5) and explicitly would NOT satisfy the 'down' direction's retracement-from-the-low check (0.25/0.275, both < 0.5) per the test's own worked-out arithmetic (independently re-verified: range=20.0, (110-95)/20=0.75, (110-95.5)/20=0.725 vs (95-90)/20=0.25, (95.5-90)/20=0.275). So the test would fail if the tie-break ever silently resolved to 'down' instead of 'up' (no tail would be detected at all) -- it isn't just checking the tie-break happens to agree with whichever direction was already going to pass.",
+        "file": "backend/tests/unit/signals/test_kangaroo_tail.py"
+      }
+    ],
+    "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No conflicts with the other three tasks' changes in this batch. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
   }
 }

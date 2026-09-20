@@ -3,7 +3,7 @@
   "title": "Divergence detection — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-divergence-detection"],
   "references": [
     "docs/tasks/backend-divergence-detection.json#review",
@@ -34,5 +34,21 @@
     "pr_number": 205,
     "pr_url": "https://github.com/rainoko/fintrade/pull/205",
     "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T15:54:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Traced the RSI threshold fix and its regression test: `_evaluate_pair` now branches on `indicator_name == \"rsi\"` and passes `oversold=_RSI_OVERSOLD, overbought=_RSI_OVERBOUGHT` explicitly, matching docs/Analyse.md's own 30/70 reference line for both Stochastic and RSI (no methodology drift). Traced `test_rsi_beyond_reference_line_uses_rsi_constants_not_stochastic`: it monkeypatches `_RSI_OVERSOLD`/`_RSI_OVERBOUGHT` to 20.0/80.0 (diverging them from Stochastic's unchanged 30.0/70.0) and builds a fixture where the second extreme (21.0) sits inside the patched RSI line but still outside Stochastic's unchanged line. With the fix, `is_beyond_reference_line(15.0, 21.0, \"bullish\", oversold=20.0, overbought=80.0)` -> `15 < 20 <= 21` -> True. Without the fix (falling back to the buggy shared default, which reads `_STOCHASTIC_OVERSOLD`/`_STOCHASTIC_OVERBOUGHT` = 30.0/70.0 regardless of the RSI patch) -> `15 < 30 <= 21` -> `30 <= 21` is False -> `beyond_reference_line` would be False. The test asserts True, so this genuinely fails on a regression -- not a tautology.",
+        "file": "backend/app/signals/divergence.py"
+      },
+      {
+        "summary": "Independently reproduced the documented plateau-tie look-ahead leak to confirm it's real, not just plausible-sounding prose: for `vals=[10,9,8,7,6,5,5,5,5,5,6,7,8,9,10,...]`, `swing_lows(series, window=3)` truncated to length 11 (causal data through position 10) reports the merged low at index 6, while the full-series/length-12+ merge converges to index 7 -- exactly the one-bar-early leak the new docstring describes, confirmed by direct reproduction. Given (a) the task's own prior decisions entry already treats an exact multi-bar float tie in real price/indicator data as vanishingly rare, (b) a proper fix would require widening `app.signals.swing_points`'s public contract (exposing each point's last-raw-candidate position, not just its reported position) -- a real cross-module API change several other pieces depend on, and (c) the originating checklist item explicitly offered 'tighten the check' and 'document the gap' as equally acceptable resolutions, documenting this precisely (mechanism, root cause, why left undefended) in `confirmed_divergence_as_of`'s own docstring is an acceptable, non-blocking call for a small batched followups PR -- not a bug that should block this PR. Flagging the swing_points contract widening as a legitimate future task if the tightened check is ever wanted.",
+        "file": "backend/app/signals/divergence.py"
+      }
+    ],
+    "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No conflicts with the other three tasks' changes in this batch -- engine.py's True Range sharing and kangaroo_tail.py's isinstance guard touch disjoint code paths from divergence.py. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
   }
 }
