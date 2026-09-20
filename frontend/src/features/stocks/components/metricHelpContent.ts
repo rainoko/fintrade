@@ -2,6 +2,7 @@ import type {
   DivergenceOut,
   FalseBreakoutOut,
   HistoryResponse,
+  IndicatorHistoryPoint,
   KangarooTailOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
@@ -718,5 +719,60 @@ export const kangarooTailHelp = {
       ? ''
       : ` This tail isn't marked on the chart right now -- ${tail.tail_date} falls outside the currently selected range. Switch to a wider range (e.g. 1Y or Max) to see it plotted.`
     return `${directionLabel} Kangaroo Tail. ${rangeClause}${bodyClause}${confirmClause}${stopClause}${rangeVisibilityClause}`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Tide (Screen 1) background shading (PriceChart.tsx,
+// frontend-tide-region-chart-shading)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tallies how many of `points` (the exact windowed/visible dataset
+ * `PriceChart.tsx`'s tide-shading effect actually draws from --
+ * `selectVisibleIndicatorPoints`, not the raw unwindowed `/indicators`
+ * response) fall into each of the three `TideScreen.trend` values. Exported
+ * so `tideRegionHelp.interpretValue` and any future consumer share one
+ * counting pass rather than duplicating the loop.
+ */
+export function countTideTrends(
+  points: readonly IndicatorHistoryPoint[],
+): { bullish: number; bearish: number; neutral: number } {
+  let bullish = 0
+  let bearish = 0
+  let neutral = 0
+  for (const point of points) {
+    if (point.tide.trend === 'BULLISH') {
+      bullish += 1
+    } else if (point.tide.trend === 'BEARISH') {
+      bearish += 1
+    } else {
+      neutral += 1
+    }
+  }
+  return { bullish, bearish, neutral }
+}
+
+export const tideRegionHelp = {
+  metricLabel: 'Tide Background (Screen 1 history)',
+  definition:
+    'The chart\'s background is shaded green/red/amber behind the candlesticks for every historical trading day, by what Screen 1 (the Tide -- docs/Analyse.md §2) actually was on that day: green = Bullish (only BUY signals were ever considered), red = Bearish (only SELL), amber = Neutral (neither -- no directional Triple Screen setup was being evaluated at all).',
+  elderContext:
+    'Elder\'s rule is to never trade against the tide -- Screen 1 gates BUY/SELL before Screen 2 (Wave) or Screen 3 (Trigger) ever get a say, so a stretch of amber (or the "wrong" color for the direction you were watching) is exactly why a BUY or SELL might have barely fired for long periods, even with plenty of price movement on the chart. This is recomputed per historical bar from that bar\'s own calendar week of weekly data (`GET /api/stocks/{ticker}/indicators`, backend-indicator-history-tide-exposure) -- not held fixed at today\'s Tide reading -- so the shading reflects what was actually true on each day, not a single current snapshot painted across the whole history.',
+  interpretValue(points: readonly IndicatorHistoryPoint[]): string {
+    if (points.length === 0) {
+      return 'Currently unavailable for this ticker.'
+    }
+    const { bullish, bearish, neutral } = countTideTrends(points)
+    const total = points.length
+    const pct = (count: number) => Math.round((count / total) * 100)
+    const latestTrend = points[points.length - 1].tide.trend
+    const latestLabel =
+      latestTrend === 'BULLISH'
+        ? 'Bullish (green)'
+        : latestTrend === 'BEARISH'
+          ? 'Bearish (red)'
+          : 'Neutral (amber)'
+    return `Across the ${total} bars currently shown: ${pct(bullish)}% Bullish, ${pct(bearish)}% Bearish, ${pct(neutral)}% Neutral. Today's (rightmost) background is ${latestLabel}.`
   },
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   DivergenceOut,
   HistoryResponse,
+  IndicatorHistoryPoint,
   KangarooTailOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
@@ -10,6 +11,7 @@ import {
   bullPowerHelp,
   channelHelp,
   confidenceHelp,
+  countTideTrends,
   divergenceHelp,
   ema13Help,
   ema26Help,
@@ -23,6 +25,7 @@ import {
   signalHelp,
   supportResistanceZoneHelp,
   tideHelp,
+  tideRegionHelp,
   triggerHelp,
   valueZoneHelp,
   waveHelp,
@@ -894,6 +897,66 @@ describe('metricHelpContent', () => {
       expect(message).toContain('Bearish (upward-pointing) Kangaroo Tail')
       expect(message).toContain("isn't marked on the chart right now")
       expect(message).toContain('2026-08-15 falls outside the currently selected range')
+    })
+  })
+
+  describe('countTideTrends / tideRegionHelp.interpretValue (frontend-tide-region-chart-shading)', () => {
+    function buildPoint(
+      date: string,
+      trend: IndicatorHistoryPoint['tide']['trend'],
+    ): IndicatorHistoryPoint {
+      return {
+        date,
+        tide: { trend, weekly_macd_histogram_slope: 'flat' },
+        ema_13: 100,
+        ema_26: 98,
+        macd_histogram: 0.5,
+        bull_power: 1,
+        bear_power: -1,
+        signal: 'HOLD',
+        confidence: 0,
+        confidence_band: 'Low',
+      }
+    }
+
+    it('tallies each trend value independently', () => {
+      const points = [
+        buildPoint('2026-08-28', 'BULLISH'),
+        buildPoint('2026-08-31', 'BULLISH'),
+        buildPoint('2026-09-01', 'NEUTRAL'),
+        buildPoint('2026-09-02', 'BEARISH'),
+      ]
+      expect(countTideTrends(points)).toEqual({ bullish: 2, bearish: 1, neutral: 1 })
+    })
+
+    it('returns all-zero counts for an empty array', () => {
+      expect(countTideTrends([])).toEqual({ bullish: 0, bearish: 0, neutral: 0 })
+    })
+
+    it('reports "unavailable" when there are no currently visible points', () => {
+      expect(tideRegionHelp.interpretValue([])).toBe('Currently unavailable for this ticker.')
+    })
+
+    it('reports the Bullish/Bearish/Neutral percentage split and the latest (rightmost) bar\'s trend', () => {
+      const points = [
+        buildPoint('2026-08-28', 'BULLISH'),
+        buildPoint('2026-08-31', 'BULLISH'),
+        buildPoint('2026-09-01', 'NEUTRAL'),
+        buildPoint('2026-09-02', 'BEARISH'),
+      ]
+      const message = tideRegionHelp.interpretValue(points)
+      expect(message).toContain('Across the 4 bars currently shown')
+      expect(message).toContain('50% Bullish')
+      expect(message).toContain('25% Bearish')
+      expect(message).toContain('25% Neutral')
+      expect(message).toContain("Today's (rightmost) background is Bearish (red)")
+    })
+
+    it('reports 100% Bullish and a Bullish (green) latest reading when every visible bar is Bullish', () => {
+      const points = [buildPoint('2026-09-01', 'BULLISH'), buildPoint('2026-09-02', 'BULLISH')]
+      const message = tideRegionHelp.interpretValue(points)
+      expect(message).toContain('100% Bullish, 0% Bearish, 0% Neutral')
+      expect(message).toContain("Today's (rightmost) background is Bullish (green)")
     })
   })
 })

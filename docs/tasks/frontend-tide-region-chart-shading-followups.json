@@ -1,0 +1,25 @@
+{
+  "id": "frontend-tide-region-chart-shading-followups",
+  "title": "Non-blocking follow-up from PR #169 review (frontend-tide-region-chart-shading)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-tide-region-chart-shading"],
+  "references": [
+    "docs/tasks/frontend-tide-region-chart-shading.json",
+    "https://github.com/rainoko/fintrade/pull/169"
+  ],
+  "description": "Tracked non-blocking findings from pr-reviewer's review of PR #169 (frontend-tide-region-chart-shading), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. Distinct from the PR's own blocking finding (buildTideRegionSegments never extending the trailing boundary of the LAST segment, so a solo 1-bar final segment renders no fill), which stays on frontend-tide-region-chart-shading itself and must be fixed before that PR can be accepted.",
+  "checklist": [
+    {
+      "step": "tideRegionHelp.interpretValue (frontend/src/features/stocks/components/metricHelpContent.ts, ~line 762-777) rounds the Bullish/Bearish/Neutral percentages of the currently visible bars independently (Math.round per count), so the three displayed percentages don't always sum to 100% -- e.g. a 3-bar 1/1/1 split reads '33% Bullish, 33% Bearish, 33% Neutral' (99% total). Cosmetic, but worth fixing (e.g. compute two shares directly and derive the third as the remainder to 100%) since a careful reader will notice the numbers don't add up.",
+      "done": false
+    },
+    {
+      "step": "buildTideRegionSegments's backward-cascade loop (frontend/src/features/stocks/components/PriceChart.tsx, ~line 364, added by the PR #169 needs_work fix in commit 60d99d3) has an `if (!previousOwnLast) break` guard that is unreachable dead code given the loop's own invariants -- a segment can only ever be popped once (as `previous`), always before it could become an unshift target in a later iteration, so `previous.data.at(-1)` can never be undefined there (confirmed by fuzz-testing every 2-symbol trend sequence up to length 10 in the PR #169 re-review). Not a functional bug, but worth removing or replacing with a comment/assertion explaining why it's structurally unreachable, since as written it reads like it guards a real edge case that doesn't actually exist at that point -- the real (documented) unhandled edge case is segments[0] under-sizing, not this branch.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

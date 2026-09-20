@@ -1,0 +1,107 @@
+{
+  "id": "frontend-tide-region-chart-shading",
+  "title": "Price chart: shade background regions by historical Screen 1 (Tide) trend",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-indicator-history-tide-exposure"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/PriceChart.tsx",
+    "frontend/src/components/common/MetricHelp",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "docs/ideas.md"
+  ],
+  "description": "The very first idea logged in docs/ideas.md, now unblocked: shade the price chart's background by historical Tide state (bull/bear/neutral) so it's visually obvious when BUY/SELL were even structurally possible vs. gated off entirely by a Neutral or opposite-direction Tide -- directly answers the kind of question this session spent a long time investigating conversationally for ORCL/V ('why did this signal barely ever fire'). lightweight-charts has no native background-band primitive -- use a low-opacity area series or equivalent plugin technique; decide and record. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Decide the rendering technique (low-opacity area series vs. a plugin) given lightweight-charts has no native background-band primitive; record as a decisions entry.",
+      "done": true
+    },
+    {
+      "step": "Implement the shading using the newly-exposed tide_trend per historical bar (backend-indicator-history-tide-exposure).",
+      "done": true
+    },
+    {
+      "step": "Add a legend/key so the three colors (or equivalent) are self-explanatory, plus a MetricHelp entry explaining what Tide/Screen 1 means and why it gates everything else.",
+      "done": true
+    },
+    {
+      "step": "Verify visually against a real ticker with a known Tide history (e.g. ORCL or V from this session's own conversation) that the shading correctly matches known BULLISH/BEARISH/NEUTRAL stretches.",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook story if a new common/ piece was introduced; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Render the background shading as one lightweight-charts AreaSeries PER CONTIGUOUS same-trend segment (not one long-lived series per trend, and not a custom series plugin), each pinned to its own dedicated, invisible [0,1] priceScaleId (`tide-region-shading`) with a fixed autoscaleInfoProvider so it can never influence or be distorted by the real candlestick price scale.",
+      "rationale": "Considered and rejected two alternatives during a live-browser verification pass against real cached ORCL/V data (docs/tasks index -> backend-indicator-history-tide-exposure dependency already merged): (1) a single huge-value AreaSeries per trend on the chart's own real price scale with autoscaleInfoProvider returning null to exclude it -- rejected because the huge value's pixel mapping still depends on the real scale's current bounds, and because a live browser test proved lightweight-charts' AreaSeries fill BRIDGES STRAIGHT ACROSS any gap between two of a series' own real points -- real omission or an explicit WhitespaceData point alike -- so a single series per trend (bullish/bearish/neutral) rendered three giant overlapping blobs, each spanning from that trend's first occurrence in the visible range to its last, with whichever trend's series was added most recently painting over the other two. This was caught only via a real browser screenshot against ORCL/V's actual Tide history (mocked unit tests never exercised more than one gap in a trend's own array, so never caught it) -- a small purpose-built standalone HTML page loading the real lightweight-charts package confirmed the bridging behavior conclusively. (2) a custom series plugin (ICustomSeriesPaneView) -- rejected as overkill complexity for a decorative background band when the private-price-scale + one-series-per-bounded-span technique (the same 'one series per bounded span' pattern buildZoneRenderData already established for support/resistance zone bands) works and is simpler. Each segment's own data is extended with one trailing point at the NEXT segment's own start date so even a single-bar segment (a real, common case for a brief Tide flip) renders as a real 2-point filled span with actual width rather than an invisible lone point."
+    },
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Two further real integration bugs found only via a live browser walkthrough (not the mocked unit tests) and fixed: (a) chart.priceScale(id).applyOptions(...) must be called AFTER at least one series with that priceScaleId has been added -- calling it before throws synchronously ('Trying to apply price scale options with incorrect ID'), so the code now configures the scale via series.priceScale().applyOptions(...) on one of the already-added region series instead. (b) The three/N region series were given no plain `title`, and `lineColor` is set explicitly to each segment's own trend color -- omitting `title` avoids a `lastValueVisible:false`-independent 'Tide: Bullish'-style label badge Lightweight Charts still renders next to the (hidden) last-value label, and setting `lineColor` avoids that badge defaulting to the library's own hardcoded green (#33D778) fallback when unset.",
+      "rationale": "Both bugs were invisible to the existing mocked-lightweight-charts unit tests (the test double has no equivalent validation/default-fallback behavior), and were only caught by actually running the app (make backend + make frontend) against the real, already-cached ORCL/V daily/weekly OHLCV in backend/fintrade.db (bumping the 24h-TTL cache rows' fetched_at forward so the CachedDataProvider served them without a live network call, per docs/architecture/Backend.md \u00a77) and taking real Playwright screenshots. Fixing both before merge was judged necessary since either would have shipped a broken or visually-cluttered feature despite all existing/added unit tests passing -- this task's own checklist item 4 (visual verification against real ORCL/V Tide history) existed specifically to catch exactly this class of gap."
+    },
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reused the existing theme.palette.signal.buy/sell/hold colors (green/red/amber) for Bullish/Bearish/Neutral shading rather than adding new dedicated 'tide' palette keys the way divergence/season/kangarooTail each did.",
+      "rationale": "Tide Bullish/Bearish/Neutral maps semantically onto the same BUY-only/SELL-only/neither-allowed meaning the signal palette already carries elsewhere on this exact page (BUY/SELL/HOLD badges, transition markers) -- Screen 1 literally gates which of BUY/SELL is even considered, so reusing signal.buy/sell/hold reinforces that connection rather than introducing a fourth, unrelated color system a viewer would have to learn. Fill alpha (~8%, TIDE_REGION_FILL_ALPHA) is deliberately much fainter than the value-zone (~20%) or support/resistance zone (7%-29%) shadings, since this shading covers the ENTIRE pane behind every other overlay rather than a bounded slice of the price range."
+    },
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added the shading as its own SEPARATE `useEffect` (not folded into the existing EMA/channel/value-zone/marker signal-overlay effect), even though both share identical gating (`overlayEnabled`, `indicatorsQuery.data`, `historyQuery.data`, `theme`).",
+      "rationale": "Matches this component's own established convention of isolating each independently-reasoned-about overlay into its own effect (support/resistance zones, divergence, kangaroo tail are all already separate effects despite some sharing gating/data sources with each other) -- keeps the large, delicate signal-overlay effect's own carefully-ordered cleanup (documented at length in its own comment, including a previously-shipped crash) untouched and independently testable, and keeps this new effect's own cleanup/dependency footprint easy to reason about in isolation."
+    },
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a new `tideRegionHelp` entry to metricHelpContent.ts (reusing the existing common/MetricHelp affordance) rather than reusing the pre-existing `tideHelp` entry (ScreensPanel.tsx's latest-value-only Tide panel).",
+      "rationale": "`tideHelp` explains only TODAY's Tide reading; this task's own explicit ask ('why did a BUY/SELL barely fire' -- the motivating ORCL/V investigation) needed the explanation to describe the CURRENT (windowed) chart's actual historical composition, not just today's single value. `tideRegionHelp.interpretValue` computes the Bullish/Bearish/Neutral percentage split from the exact same `selectVisibleIndicatorPoints`-windowed dataset the chart-drawing effect itself draws from (shared, not independently recomputed), so the legend text can never describe a different set of bars than what's actually shaded -- the same data-source-consistency convention this task's own context note calls out (the PR #152 round-2 legend/chart mismatch bug class)."
+    },
+    {
+      "timestamp": "2026-09-19T22:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No new common/ component and no new Storybook story: the legend row reuses the existing common/MetricHelp affordance (same pattern as every other PriceChart.tsx overlay legend), not a new reusable component.",
+      "rationale": "Per Frontend.md's common/-vs-feature-specific placement test, a new common/ piece is only warranted when introducing new *reusable* UI, not a new usage of an existing one -- the swatches are plain inline Box/Typography, matching every other legend row on this exact chart."
+    },
+    {
+      "timestamp": "2026-09-19T23:55:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the PR #169 needs_work blocking finding (a solo trailing/last segment rendering as an unshaded 1-point series) with a second backward-cascading pass over `buildTideRegionSegments`'s output -- for however many segments at the tail still have fewer than 2 points after the existing forward pass, reclaim the boundary point the forward pass gave that segment's own predecessor (pop it back off, always safe since the forward pass guarantees every non-last segment starts with >= 2 points) and prepend the predecessor's own true last real point to the under-sized segment instead, so the two meet at that shared boundary. Considered and rejected two alternatives: (1) extending the last segment FORWARD past the real data into a synthetic future date -- rejected because this component calls `chart.timeScale().fitContent()`, which would then stretch the visible time axis to include that synthetic point, distorting/compressing the real candlesticks' own width (the exact class of axis-distortion bug this file's own `selectVisibleIndicatorPoints`/support-resistance-zone comments already call out as a prior incident, PR #152/#158); (2) naively prepending the immediately preceding segment's own real last point to the last segment WITHOUT also removing that same point from the preceding segment's own (already-existing) forward extension -- rejected after tracing it through this task's own `mixedTideIndicators` test fixture and finding it fully re-covers the preceding segment's entire span with the last segment's color, erasing (not just failing to show) the preceding segment's correct shading for that whole bar, a worse regression than the original bug.",
+      "rationale": "Verified by tracing the fix through both the existing `mixedTideIndicators` fixture (where the second-to-last segment is ALSO solo, exercising two cascade steps) and a new, more narrowly-targeted `soloTrailingBars`/`soloTrailingIndicators` fixture (only the last segment solo, a single cascade step) added to PriceChart.test.tsx -- both now assert a real 2-point span for every segment. One known, deliberately unhandled edge case remains and is documented in the function's own doc comment: a visible range where literally every bar alternates trend from its immediate neighbor exhausts the cascade before reaching a segment with spare width, leaving the very first segment under-sized instead -- accepted as out of scope since Tide (driven by a weekly MACD histogram slope, not a daily one) realistically never flips every single bar in a row, and the original, reported bug (today's bar losing its shading) is unconditionally fixed regardless of how long a trailing run of solo segments precedes it, which is the actually-common case this fix targets."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-tide-region-chart-shading",
+    "pr_number": 169,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/169",
+    "pushed_at": "2026-09-19T22:43:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-19T23:56:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/169",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking (tracked on frontend-tide-region-chart-shading-followups): the `if (!previousOwnLast) break` guard in buildTideRegionSegments's backward-cascade loop is unreachable dead code given the loop's own invariants (a segment can only ever be popped once, always before it could receive an unshift, so `previous.data.at(-1)` can never be undefined there). Not a functional bug (confirmed via fuzz-testing every 2-symbol trend sequence up to length 10), but reads as if it guards a real edge case that doesn't actually exist at that point, which could mislead a future reader about where the real (documented) unhandled edge case actually lives.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 364
+      }
+    ],
+    "notes": "Re-review (retry round 1) of the PR #169 needs_work fix (commit 60d99d3, backward-cascading pass over buildTideRegionSegments). (1) Correctness: hand-traced the algorithm against both the existing mixedTideIndicators fixture (two-step cascade) and the new soloTrailingBars/soloTrailingIndicators fixture (single-step cascade) -- both traces produced exactly the segment arrays the tests assert. Verified the pop-safety invariant holds (a segment is used as `previous` at most once, always before it could become an unshift target, so it always has >=2 points at pop time per the forward pass's guarantee). Independently corroborated by a code-review skill pass that fuzz-tested every 2-symbol trend sequence up to length 10: the only failure mode is segments[0] under-sizing, exactly the documented/accepted pathological case -- no crash, no out-of-bounds access, no duplicate/mismatched timestamp in any case. One non-blocking dead-code nit found (see comments). (2) Tests: backend 743 passed, 99.92% coverage, ruff/mypy clean; frontend 522 passed, 99.55%/98.73%/99.65%/99.63% stmt/branch/func/line coverage, eslint/tsc clean -- one PortfolioPage add-position test timed out once under full-parallel-suite load, passed cleanly on immediate re-run and in isolation, same pre-existing flake noted in the prior review pass and unrelated to this PR's files. (3) Live browser walkthrough with a constructed scenario: real cached ORCL data has no current solo trailing flip, so intercepted GET /api/stocks/ORCL/indicators in a real Chromium session (Playwright) and rewrote only tide.trend values to construct both a single-step flip (long Bullish run -> solo trailing Bearish) and the mixedTideIndicators-shaped two-step case (Bullish -> solo Neutral -> solo Bearish for the last two bars). Sampled actual rendered canvas pixels (not just a visual screenshot, since the fill is only ~8% alpha) at the chart's right edge: single-step case showed green (bullish) across the whole chart transitioning to red (bearish) only in the last ~10px/one bar's width at the very edge; two-step case showed green -> a narrow amber band (the solo Neutral segment) -> red at the final bar, no gap or missing segment. No console errors, no failed/4xx/5xx network requests, no x-axis/candlestick distortion. (4) make e2e: all 16 specs pass, including stock-analysis.spec.ts's range/interval-toggle and Max-range coverage of PriceChart. (5) Edge-case sanity check: the one deliberately-unhandled pathological case (every visible bar alternating trend) requires Tide's weekly-cadence computation to flip on literally every daily bar, which fuzz-testing confirms degrades gracefully to segments[0] losing shading (not a crash or corrupted render) -- a genuinely narrow, well-documented tradeoff, not a bigger problem in disguise. No API/schema changes in this PR, so no openapi.json staleness concern. No new frontend component introduced (fix is confined to an existing pure function), so no common/-vs-feature placement finding to make. Posted findings as a COMMENTED PR review (not approve/request-changes)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T00:03:18Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the frontend suite (vitest run --coverage: 522 passed, 99.55%/98.73%/99.65%/99.63% stmt/branch/func/line -- matches pr-reviewer exactly), tsc -b --noEmit and eslint (both clean), and the backend suite (743 passed, 99.92% coverage -- matches, though this PR touches no backend files). Read the full diff (git diff origin/main...HEAD) and hand-traced buildTideRegionSegments's forward-extend + backward-cascade pop/unshift logic myself against both the mixedTideIndicators fixture (two-step cascade: Bullish/Bullish/Neutral/Bearish -> final segments [08-28,08-31]/[08-31,09-01]/[09-01,09-02]) and the soloTrailingBars fixture (single-step cascade: 3xBullish/1xBearish -> final [08-28,08-31,09-01]/[09-01,09-02]) -- both traces landed on exactly the arrays the tests assert, and confirmed the `if (!previousOwnLast) break` guard is genuinely unreachable (each segment can be popped-as-previous at most once, always after the forward pass guarantees it >=2 points), matching pr-reviewer's own dead-code finding, which is correctly filed as non-blocking on frontend-tide-region-chart-shading-followups rather than left unaddressed. No backend/schema changes in this PR to check for openapi.json staleness. Accept holds."
+  }
+}
