@@ -3,7 +3,7 @@
   "title": "GET /api/ibkr/status -- surface IBKR gateway connection state",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -36,5 +36,23 @@
     "pr_number": 212,
     "pr_url": "https://github.com/rainoko/fintrade/pull/212",
     "pushed_at": "2026-09-20T23:35:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T23:41:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/212",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "IBKRStatusResponse.detail's schema description claims detail is \"Always null for 'disabled'\", but app/api/routers/ibkr.py's handler always populates a non-null explanatory string for that state (confirmed by backend/tests/integration/test_ibkr_status.py::test_status_disabled asserting `detail is not None`). Same wrong claim duplicated into backend/openapi.json, frontend/src/api/types.ts, and docs/architecture/API.md. Non-blocking (informational-only field, never required for a caller to branch on per the schema's own framing) -- tracked as backend-ibkr-status-endpoint-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 594
+      },
+      {
+        "summary": "Verified the task-worker's claim that regenerating backend/openapi.json/frontend/src/api/types.ts picked up unrelated pre-existing docstring drift on GET /api/watchlist/breadth: confirmed main's backend/openapi.json already matched the current code docstring, but main's frontend/src/api/types.ts was stale (still had the old \"No new provider calls result\" text) -- this PR's regeneration step just caught types.ts up to what openapi.json already said. Description text only, no schema/type shape change -- genuinely in-scope snapshot catch-up, not a live behavior change.",
+        "file": "backend/openapi.json",
+        "line": 0
+      }
+    ],
+    "notes": "Backend: 939 passed, 99.94% line/branch coverage (pytest --cov=app --cov-fail-under=90). Frontend: 99.72%/99.19%/99.72%/99.78% (statements/branches/functions/lines; vitest run --coverage) -- unaffected by this PR's only frontend change (regenerated types.ts), run anyway for completeness. ruff/mypy/eslint/tsc all clean. `python scripts/export_openapi.py` reproduces the committed backend/openapi.json byte-for-byte. code-review skill (medium effort) run independently and converged on the same single finding as my own manual review (the detail-field doc/behavior mismatch); no other correctness, reuse, or efficiency issues found. Architecture: new backend/app/api/routers/ibkr.py follows the existing one-router-per-resource convention (stocks.py/portfolio.py/watchlist.py) -- not a new layer, architecture-review not separately invoked. Not backend/signals or backend/portfolio and skill isn't verify-elder-signal, so that check doesn't apply. No frontend component/page touched (only generated types.ts) and no endpoint has a frontend consumer yet, so this PR has no UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both skipped, explicitly, rather than silently omitted. No checklist item phrased 'decide X' lacking a decisions entry -- both real judgment calls (router placement/disabled-derivation, and no responses={} error cases) are recorded with decision+rationale. Verdict: accepted; one non-blocking finding filed as backend-ibkr-status-endpoint-followups."
   }
 }
