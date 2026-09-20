@@ -31,16 +31,17 @@ import {
 
 export interface FundamentalDataPanelProps {
   /**
-   * `AnalysisResponse.extended_data` -- always a present object on a real
-   * backend response (`ExtendedDataOut` is a non-optional field per
-   * `backend/app/api/schemas.py`), but typed nullable/optional here too:
-   * several of this page's own existing tests (`StockDetailPage.test.tsx`'s
-   * SELL/HOLD/season/normalize cases) hand-roll a partial `AnalysisResponse`
-   * fixture that omits it entirely, the same defensive posture
-   * `IndicatorsPanel.tsx`'s `formatValue` already takes toward a generated
-   * type it treats as optimistic, not a runtime guarantee.
+   * `AnalysisResponse.extended_data` -- a genuinely non-optional,
+   * non-nullable field per `backend/app/api/schemas.py` and the generated
+   * `ExtendedDataOut` type, so a real backend response always supplies it.
+   * Tightened to match that contract exactly (frontend-fundamental-data-
+   * panel-followups): the `StockDetailPage.test.tsx` SELL/HOLD/season/
+   * normalize fixtures that used to hand-roll a partial `AnalysisResponse`
+   * omitting this field have been synced to include it, so the
+   * `if (!extendedData) return null` guard this type used to require is no
+   * longer needed and has been removed.
    */
-  extendedData: ExtendedDataOut | null | undefined
+  extendedData: ExtendedDataOut
   /**
    * `AnalysisResponse.insider_clusters` -- a top-level field SIBLING to
    * `extended_data` (not nested inside it, per
@@ -228,10 +229,6 @@ export default function FundamentalDataPanel({
   extendedData,
   insiderClusters,
 }: FundamentalDataPanelProps) {
-  if (!extendedData) {
-    return null
-  }
-
   if (extendedData.unavailable_reason === 'fallback_provider_active') {
     return (
       <Card variant="outlined" sx={{ borderStyle: 'dashed', borderColor: 'divider' }}>

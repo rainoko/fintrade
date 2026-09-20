@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #184 review (frontend-fundamental-data-panel)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-fundamental-data-panel"],
   "references": [
     "docs/tasks/done/frontend-fundamental-data-panel.json",
@@ -13,7 +13,21 @@
   "checklist": [
     {
       "step": "FundamentalDataPanel.tsx's `extendedData: ExtendedDataOut | null | undefined` prop type and its `if (!extendedData) return null` guard are currently load-bearing, not just defense-in-depth: `AnalysisResponse.extended_data` is a genuinely required (non-optional, non-nullable) field per backend/app/api/schemas.py and the generated frontend/src/api/types.ts, so a real backend response never omits it -- but 4 pre-existing StockDetailPage.test.tsx fixtures (the SELL/HOLD/season/lowercase-normalize cases, predating this task) hand-roll a partial `AnalysisResponse` JSON literal via untyped `HttpResponse.json({...})` that omits `extended_data` entirely, and MSW/TypeScript don't validate that literal against the real response type, so nothing currently forces those 4 fixtures to stay in sync with new required fields (verified: `yarn tsc -b --noEmit` is clean either way, confirming this guard isn't masking any compile-time error -- it's covering a real runtime gap in those 4 tests instead). Consider updating those 4 fixtures to include `extended_data` (mirroring the already-correct, explicitly-typed `frontend/tests/mocks/handlers.ts`'s `analysisFixture: AnalysisResponse`, which PR #183 already keeps current) so the FundamentalDataPanel prop type/guard can eventually be tightened to match the real non-nullable contract instead of staying permanently defensive for a case that shouldn't exist in production data.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T15:06:29Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a minimal, all-null/empty `extended_data` object (mirroring frontend/tests/mocks/handlers.ts's already-typed `analysisFixture` shape) to each of the 4 stale StockDetailPage.test.tsx fixtures (SELL, HOLD, season, lowercase-normalize), rather than a richer fixture per case, since none of those 4 tests assert on fundamental-data content -- only on signal/confidence/indicators/season, which are unaffected by extended_data's value. Left `insiderClusters`/`insider_clusters` untouched (still optional/nullable, still omitted from these same 4 fixtures): the task's checklist item and description scope this specifically to `extendedData`, and unlike `extendedData` `insiderClusters` isn't guarded by a hard `if (!x) return null` -- FundamentalDataPanel.tsx already falls back to `insiderClusters ?? []` wherever it's read, so leaving it optional there isn't dead defensive code the same way the extendedData guard was.",
+      "rationale": "Keeps the change scoped to exactly what PR #184's review flagged and this task's checklist describes, avoids inventing test data that isn't needed, and avoids widening the diff into insiderClusters typing which is a separate, not-yet-load-bearing concern."
+    },
+    {
+      "timestamp": "2026-09-20T15:06:29Z",
+      "recorded_by": "task-worker",
+      "decision": "Removed FundamentalDataPanel.test.tsx's two direct-unit tests that exercised the now-removed `if (!extendedData) return null` guard (`extendedData={undefined}`/`extendedData={null}`) rather than keeping them with a type-cast workaround, since `extendedData: ExtendedDataOut` (no longer `| null | undefined`) makes passing null/undefined a compile error, not just a behavior change -- the guard they tested no longer exists to test.",
+      "rationale": "A type-cast (`as any`/`as ExtendedDataOut`) to keep the old tests compiling would reintroduce exactly the kind of type-system bypass this followup task exists to remove; deleting the tests for dead behavior is more honest than forcing them to compile against a type they now violate."
     }
   ]
 }

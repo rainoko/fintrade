@@ -134,6 +134,22 @@ describe('StockDetailPage', () => {
             bull_power: -3.1,
             bear_power: -5.4,
           },
+          // Non-optional per `AnalysisResponse.extended_data` (backend/app/api/schemas.py) --
+          // a real backend response always includes it, so this fixture does too now (see
+          // this task's `decisions` entry for why, and frontend-fundamental-data-panel-
+          // followups.json's checklist for the guard this keeps load-bearing rather than
+          // permanently defensive).
+          extended_data: {
+            earnings_date: null,
+            earnings_within_warning_days: false,
+            ex_dividend_date: null,
+            shares_short: null,
+            short_ratio: null,
+            short_percent_of_float: null,
+            float_shares: null,
+            insider_transactions: [],
+            unavailable_reason: null,
+          },
         }),
       ),
     )
@@ -175,6 +191,18 @@ describe('StockDetailPage', () => {
             macd_histogram: 0,
             bull_power: 0,
             bear_power: 0,
+          },
+          // Non-optional per `AnalysisResponse.extended_data` -- see the SELL fixture above.
+          extended_data: {
+            earnings_date: null,
+            earnings_within_warning_days: false,
+            ex_dividend_date: null,
+            shares_short: null,
+            short_ratio: null,
+            short_percent_of_float: null,
+            float_shares: null,
+            insider_transactions: [],
+            unavailable_reason: null,
           },
         }),
       ),
@@ -220,6 +248,18 @@ describe('StockDetailPage', () => {
             bull_power: 3.4,
             bear_power: -1.1,
             season: 'Spring',
+          },
+          // Non-optional per `AnalysisResponse.extended_data` -- see the SELL fixture above.
+          extended_data: {
+            earnings_date: null,
+            earnings_within_warning_days: false,
+            ex_dividend_date: null,
+            shares_short: null,
+            short_ratio: null,
+            short_percent_of_float: null,
+            float_shares: null,
+            insider_transactions: [],
+            unavailable_reason: null,
           },
         }),
       ),
@@ -449,6 +489,18 @@ describe('StockDetailPage', () => {
             macd_histogram: 1.2,
             bull_power: 3.4,
             bear_power: -1.1,
+          },
+          // Non-optional per `AnalysisResponse.extended_data` -- see the SELL fixture above.
+          extended_data: {
+            earnings_date: null,
+            earnings_within_warning_days: false,
+            ex_dividend_date: null,
+            shares_short: null,
+            short_ratio: null,
+            short_percent_of_float: null,
+            float_shares: null,
+            insider_transactions: [],
+            unavailable_reason: null,
           },
         })
       }),

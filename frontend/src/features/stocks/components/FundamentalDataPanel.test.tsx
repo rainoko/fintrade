@@ -50,19 +50,13 @@ function buildInsiderCluster(
 }
 
 describe('FundamentalDataPanel', () => {
-  it('renders nothing when extended_data is missing from the response', () => {
-    const { container } = renderWithTheme(
-      <FundamentalDataPanel extendedData={undefined} insiderClusters={undefined} />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('renders nothing when extended_data is null', () => {
-    const { container } = renderWithTheme(
-      <FundamentalDataPanel extendedData={null} insiderClusters={null} />,
-    )
-    expect(container).toBeEmptyDOMElement()
-  })
+  // `extendedData: ExtendedDataOut | null | undefined` and its
+  // `if (!extendedData) return null` guard (and the two tests that used to
+  // exercise it here) were removed in frontend-fundamental-data-panel-
+  // followups: `AnalysisResponse.extended_data` is a genuinely non-optional,
+  // non-nullable field per backend/app/api/schemas.py, so `extendedData` is
+  // now typed as plain `ExtendedDataOut` and this defensive case can no
+  // longer occur (or even type-check).
 
   it('shows a distinct unavailable state when the fallback provider is active, not a blank panel', async () => {
     const user = userEvent.setup()
