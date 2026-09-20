@@ -3,7 +3,7 @@
   "title": "Force Index refinements — non-blocking review follow-up from PR #185",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-force-index-refinements"],
   "references": [
     "docs/tasks/done/backend-force-index-refinements.json#review",
@@ -29,5 +29,12 @@
     "pr_number": 186,
     "pr_url": "https://github.com/rainoko/fintrade/pull/186",
     "pushed_at": "2026-09-20T08:14:57Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T08:16:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/186",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "JSON-only task-closure PR. Confirmed via `git diff main...task/backend-force-index-refinements-followups --stat` that only docs/tasks/backend-force-index-refinements-followups.json and docs/tasks/index.json changed -- no source diff. Independently read backend/app/signals/triple_screen.py's _is_force_index_spike (lines 262-266) and confirmed the multiplier selection is already the direct form `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`, matching the task's decision entry and PR #185's own review notes. Commit ae3007c's message on main also explicitly documents this same fix landing as part of the is_force_index_reversal_spike baseline-guard fix. Ran the full backend suite as a sanity check (no code changed): 850 passed, 99.93% coverage, well above the 90% gate. No static analysis needed since no source changed. No UI surface -- browser walkthrough and e2e suite not applicable. No blocking findings; no new non-blocking findings to track."
   }
 }

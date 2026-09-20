@@ -1118,8 +1118,8 @@
       "id": "backend-force-index-refinements-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-force-index-refinements-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-force-index-refinements-followups.json"
     },
     {
       "id": "backend-ibkr-data-provider",
