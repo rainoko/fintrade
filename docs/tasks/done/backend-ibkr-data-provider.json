@@ -1,0 +1,141 @@
+{
+  "id": "backend-ibkr-data-provider",
+  "title": "Optional IBKR Client Portal Web API data provider (hourly bars + market scanner)",
+  "area": "backend/data",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/data/base.py",
+    "backend/app/data/yfinance_provider.py",
+    "backend/app/data/stooq_provider.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "User has decided to use their existing IBKR account via a locally-run IB Gateway (Client Portal Gateway). Confirmed live against IBKR's actual Web API (not the older TWS socket API) in this session: `GET /iserver/marketdata/history?bar=1h` gives real hourly bars (max 1,000 points/call, needs paginated `startTime` walking for deeper history) -- the mechanism for Screen 3's original intraday entry-timing technique (an alternative to the yfinance-hourly path already confirmed available, and to the daily-bar EMA-penetration approximation from backend-weekly-impulse-screen1's sibling ideas); `POST /iserver/scanner/run` (+ `/iserver/scanner/params`, cache-worthy at 1 req/15min) gives the market scanner (52-week-high/low, hot-by-volume) -- the real mechanism for market-breadth detection, aggregated broker-side instead of this app fetching hundreds of tickers itself. IMPORTANT structural constraint: the gateway is a persistent local process requiring one-time browser-based login that IBKR explicitly does not support automating -- this is a poor fit as the PRIMARY data provider (where yfinance's always-on nature is a real advantage) and should be an OPTIONAL secondary provider used specifically for hourly bars and the scanner, with graceful degradation (clearly-surfaced 'unavailable, gateway not running/authenticated' rather than a hard error) when it isn't up. Testing constraint: a sandboxed CI/task-worker environment will not have a live authenticated gateway -- design for mock-based testing against the documented request/response shapes, and treat any live-gateway verification as something the user does manually, not something task-worker/pr-reviewer can do end-to-end.",
+  "checklist": [
+    {
+      "step": "Implement an IBKRProvider (or similarly named) class implementing whatever subset of DataProvider (or a new, separate protocol for hourly/scanner data specifically) makes sense -- decide and record whether this extends the existing DataProvider protocol or is a distinct interface, since its capabilities don't map 1:1 onto daily/weekly OHLCV.",
+      "done": true
+    },
+    {
+      "step": "Implement graceful detection of 'gateway not running' / 'gateway running but not authenticated' (distinguishable via /iserver/auth/status) and surface that state clearly to callers rather than raising an opaque error.",
+      "done": true
+    },
+    {
+      "step": "Implement the historical-bars pagination needed to build up more than one 1,000-point call's worth of hourly history.",
+      "done": true
+    },
+    {
+      "step": "Implement the scanner query + a sensible caching layer respecting the 1-req/15-min params limit and 1-req/sec run limit.",
+      "done": true
+    },
+    {
+      "step": "Tests using mocked HTTP responses matching the documented Web API shapes (not a live gateway) -- explicitly note in the task/PR that live-gateway behavior needs manual verification by the user, since no CI/sandboxed environment has an authenticated session.",
+      "done": true
+    },
+    {
+      "step": "Document setup instructions (gateway download/run/auth, matching the walkthrough already captured in this conversation) in docs/architecture/Backend.md or a new dedicated doc, and make this provider's use fully optional/feature-flagged so the app works exactly as today with no IBKR setup at all.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKRProvider (app/data/ibkr_provider.py) is a distinct class, not an implementation of the DataProvider protocol (app/data/base.py) -- it does not implement get_daily_ohlcv/get_weekly_ohlcv/get_extended_data at all.",
+      "rationale": "DataProvider's contract is per-ticker daily/weekly OHLCV plus extended per-ticker fields; IBKR's two capabilities in scope here (hourly bars for one contract id, and a market-scanner run returning a list of contracts) don't map onto that shape without misrepresenting what they actually do -- e.g. resampling hourly bars into a fake daily series to satisfy get_daily_ohlcv, or returning scanner results through a per-ticker method. Forcing the fit would also pull IBKRProvider into test_provider_contract.py's cross-provider interchangeability contract (app/data/base.py's whole point), which is wrong here since this provider is never interchangeable with yfinance/Stooq -- it's not a drop-in for the primary/fallback chain, it's an optional, narrower, separate capability. Considered and rejected: making DataProvider itself broader (adding optional hourly/scanner methods with NotImplementedError defaults) -- rejected because it would force StooqProvider/YFinanceProvider/FixtureDataProvider to also carry (or explicitly reject) methods with no real Stooq/yfinance equivalent, muddying a protocol that's deliberately kept to the three methods every implementation genuinely supports today."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "No new API route/endpoint was added, despite this task's `skill` being add-api-endpoint. IBKRProvider is wired only as far as a new `get_ibkr_provider()` FastAPI dependency (app/api/dependencies.py) that no router yet consumes.",
+      "rationale": "This task's own checklist (unlike, e.g., backend-market-data-extra-fields, which explicitly listed 'add a field to GET /api/stocks/{ticker}/analysis') never asks for a consuming endpoint -- its description frames this as an optional secondary provider that should leave 'the app work[ing] exactly as today with no IBKR setup at all', which a bare, unused capability class + dependency satisfies without inventing a consumer this task never scoped (what request/response shape a future hourly-bars or scanner-results endpoint should have is itself a real design question -- e.g. does the scanner response need conid-to-ticker resolution before it's useful to a frontend -- better left to a dedicated future task than guessed here). Regenerated backend/openapi.json after this change to confirm it: byte-for-byte identical, since nothing in the API schema/route surface changed."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "httpx moved from being only a dev/test dependency to also being a main runtime dependency of backend/pyproject.toml.",
+      "rationale": "IBKRProvider performs real HTTP calls against the gateway in production code (not just in tests), unlike YFinanceProvider (via the yfinance package) and StooqProvider (via stdlib urllib). httpx was already an installed transitive dependency (FastAPI's TestClient requires it) so this adds no new package to the environment, only moves where it's declared -- kept listed in the dev extra too since that's specifically what TestClient needs, independent of this provider."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "A single IBKRUnavailableError covers both 'gateway confirmed not available before any request was attempted' and 'a request itself failed' (transport error, non-200, unparseable body); a separate IBKRRateLimitedError covers only run_scanner's client-side 1-req/sec self-throttle.",
+      "rationale": "Every data-fetching method's contract is the same either way from a caller's perspective -- 'I couldn't get this data' -- so splitting 'not available' vs 'request failed' into two exception types would add a distinction no caller in this task's scope needs to make (get_gateway_status is the method callers use when they specifically want to distinguish gateway-down from not-authenticated before deciding whether to even try). IBKRRateLimitedError is kept separate because it's a genuinely different situation a caller might want to handle differently (retry shortly, using the exception's own retry_after) rather than treat as a hard failure -- conflating it with IBKRUnavailableError would lose that actionable signal."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "get_scanner_params() serves a stale-but-within-TTL cached result on every call inside the 15-minute window (never raises for 'called too soon'); run_scanner() instead raises IBKRRateLimitedError (with a retry_after) when called again inside 1 second of its own last call, rather than silently serving/blocking.",
+      "rationale": "The two documented rate limits have different semantics for this app's use: scanner params (the filter/instrument/location option lists) change rarely, so a 15-minute-stale copy is a perfectly good answer and there's no reason to ever make a caller wait or fail for it. A scan run's results are meaningfully time-sensitive (that's the whole point of a scanner), so there's no sensible cached value to silently return instead when called too soon -- surfacing the constraint as a typed, catchable exception (rather than a real time.sleep(), which would also make tests slow/flaky) lets a caller decide whether to retry after retry_after seconds or just skip this refresh cycle."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "get_hourly_bars takes an IBKR conid (contract id) directly, not a ticker symbol -- no symbol-to-conid resolution (e.g. via /iserver/secdef/search) is implemented.",
+      "rationale": "This task's description explicitly scopes the endpoints to /iserver/marketdata/history, /iserver/scanner/run(+/params), and /iserver/auth/status -- symbol resolution wasn't researched or confirmed as part of this task's own docs/ideas.md groundwork, and inventing an unverified extra endpoint's request/response shape would be exactly the kind of live-gateway guesswork this task's own description says to avoid. A future task wiring this provider into an actual ticker-driven feature (e.g. Screen 3 hourly-bar entry timing) will need conid resolution as a real, separate, addressable piece of work -- noted here rather than silently worked around."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "Live-gateway behavior (the actual browser-based interactive login flow, real API response shapes beyond what's documented in docs/ideas.md, and any undocumented quirks) is unverified in this implementation and deferred to manual testing by the user against a real running gateway.",
+      "rationale": "This is a known, accepted limitation of implementing against a spec rather than a live service, not a blocker -- no sandboxed/CI environment (including this implementation session) has an IBKR account, a running Client Portal Gateway, or the ability to complete IBKR's explicitly-non-automatable interactive browser login. Every test in tests/unit/data/test_ibkr_provider.py mocks HTTP at the IBKRProvider._request boundary against the documented request/response shapes rather than a live gateway, per this task's own description and docs/architecture/Testing.md's 'no live network calls' rule. See docs/architecture/Backend.md's IBKR section, which states this same caveat for a human reader."
+    },
+    {
+      "timestamp": "2026-09-20T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed both blocking findings from pr-reviewer's needs_work verdict on PR #190: (1) run_scanner's client-side 1-req/sec throttle check now runs before _require_available's real GET /iserver/auth/status call, not after -- so a caller retrying within the same second makes zero HTTP requests, matching IBKRRateLimitedError's documented contract. (2) get_hourly_bars's full-page/short-page pagination decision now compares the raw response's row count (len(payload['data'])) against _MAX_BARS_PER_PAGE, not len(page_bars) (the post-_parse_bars, malformed-row-filtered count) -- a single malformed row in an otherwise-full page no longer stops pagination early. Also fixed both non-blocking follow-ups while in this area (get_ibkr_provider now reuses a process-wide IBKRProvider singleton instead of a fresh instance per request, so the scanner-params cache/run_scanner throttle actually persist across requests once a route consumes it; docs/architecture/Backend.md §3's httpx row now mentions IBKRProvider's production use) -- see backend-ibkr-data-provider-followups.json's own decisions entry for why that task's state was left 'planned' rather than flipped to 'done' here.",
+      "rationale": "Both fixes were verified with new regression tests (test_throttled_second_call_makes_no_http_request asserts the mocked httpx.Client is never invoked on a throttled call; test_full_page_with_one_malformed_row_still_paginates asserts a raw 1,000-row page with one malformed row still triggers a second paginated call) plus the full backend suite (890 passed, 99.93% coverage) and clean ruff/mypy on every file this PR touches. Considered leaving the two non-blocking follow-ups for a later PR (they were explicitly optional per the dispatch instruction) but fixed them anyway since both touch files already open in this diff (app/api/dependencies.py, docs/architecture/Backend.md) and doing so now avoids a near-duplicate follow-up PR re-touching the same lines moments later."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-data-provider",
+    "pr_number": 190,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/190",
+    "pushed_at": "2026-09-20T10:18:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T10:23:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/190",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "VERIFIED FIXED (was blocking): run_scanner()'s client-side 1-req/sec throttle check now runs before self._require_available() -- traced the exact call order in the current source: `now = self._clock(); ... raise IBKRRateLimitedError(...)` happens first, and `self._require_available()` (the real GET /iserver/auth/status call) is only reached after that check passes. Hand-traced the new regression test (test_throttled_second_call_makes_no_http_request): it mocks the underlying httpx.Client directly (not get_gateway_status, unlike the pre-existing test), makes one successful run_scanner() call, resets the mock, advances the fake clock by 0.5s, then asserts a second run_scanner() call both raises IBKRRateLimitedError and leaves mock_client.request uncalled. Confirmed this test would fail against the pre-fix code (old order called _require_available() first, which would have hit the mocked client once before the throttle raise) -- non-tautological.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 315
+      },
+      {
+        "summary": "VERIFIED FIXED (was blocking): get_hourly_bars's full-page/short-page decision now uses `raw_row_count = len(payload.get('data') or [])` (computed straight from the raw HTTP response, before _parse_bars drops malformed rows) instead of `len(page_bars)`. Hand-traced the new regression test (test_full_page_with_one_malformed_row_still_paginates): a raw first page of exactly 1,000 rows (999 well-formed + 1 with only a 't' field) parses down to 999 IBKRBar objects, but raw_row_count stays 1000, so `raw_row_count < _MAX_BARS_PER_PAGE` is false and pagination correctly continues to a second page; final assertion is request.call_count == 2 and len(bars) == 1000 (999 + 1). Confirmed this test would fail against the pre-fix code (len(page_bars) == 999 < 1000 would have stopped pagination after one call) -- non-tautological.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 251
+      },
+      {
+        "summary": "VERIFIED FIXED (was non-blocking): get_ibkr_provider() now reuses a process-wide module-level IBKRProvider singleton (lazily constructed on first use, never closed) instead of a fresh instance per request, so the scanner-params cache and run_scanner throttle now actually persist across requests once a route consumes this dependency. New tests (test_enabled_reuses_the_same_singleton_across_calls, test_enabled_yields_a_configured_provider_and_leaves_it_open_on_cleanup) confirm this, and both reset the module global via monkeypatch.setattr(..., None) before running -- checked for test-isolation risk specifically and confirmed no leakage between test runs given current test structure (see new non-blocking finding below for a caveat on this).",
+        "file": "backend/app/api/dependencies.py",
+        "line": 47
+      },
+      {
+        "summary": "VERIFIED FIXED (was non-blocking): docs/architecture/Backend.md §3's httpx row now reads 'API integration tests (via FastAPI TestClient), and IBKRProvider's real production HTTP client against the local IB Gateway (§8)', accurately reflecting httpx's dual role.",
+        "file": "docs/architecture/Backend.md",
+        "line": 79
+      },
+      {
+        "summary": "Non-blocking (new, found during this re-review -- also independently surfaced by the code-review skill sub-agent): get_ibkr_provider()'s lazy singleton init is an unlocked check-then-set on a plain module global (`if _ibkr_provider_singleton is None: _ibkr_provider_singleton = IBKRProvider(...)`), and FastAPI runs sync dependency generators in a worker thread pool by default -- two concurrent first-requests could each observe None and construct their own IBKRProvider, silently defeating the cross-request throttle/cache this singleton exists to provide, plus leaking an unclosed httpx.Client from the discarded instance. Currently dormant (no route consumes get_ibkr_provider yet). Consider a thread-safe lazy-init (e.g. an lru_cache(maxsize=1)-wrapped factory, matching get_settings()'s own already-thread-safe pattern in backend/app/config.py) rather than hand-rolled double-checked locking. Tracked as a new checklist item on docs/tasks/backend-ibkr-data-provider-followups.json.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 79
+      },
+      {
+        "summary": "Non-blocking (new, found during this re-review): the module-global _ibkr_provider_singleton has no autouse test fixture resetting it between tests -- only the two tests that directly exercise get_ibkr_provider() remember to monkeypatch it back to None first. A future test reaching this dependency indirectly (e.g. a real route via TestClient, once one is added) would mutate the plain module attribute through application code's own `global` assignment, which monkeypatch's teardown does not revert (it only reverts changes made through monkeypatch itself) -- risk of a stale IBKRProvider leaking into later tests in the same pytest session, order-dependently. Not a live problem today since no such test exists yet. Tracked as a new checklist item on docs/tasks/backend-ibkr-data-provider-followups.json.",
+        "file": "backend/tests/unit/api/test_dependencies.py",
+        "line": 1
+      }
+    ],
+    "notes": "Re-review (retry round 1) of task-worker's fix for pr-reviewer's prior needs_work verdict. Checked out PR #190 at commit b2593da. Both originally-blocking findings verified genuinely fixed by direct source trace (not just plausible-looking): run_scanner's throttle check now runs before _require_available's real HTTP call, and get_hourly_bars's full/short-page decision now uses the raw response row count instead of the post-parse count. Both new regression tests hand-traced line-by-line and confirmed non-tautological -- each would fail against the pre-fix code. Both previously-filed non-blocking follow-ups (IBKRProvider dependency now a process-wide singleton; Backend.md httpx row updated) also verified fixed, with the singleton's test isolation specifically checked (existing tests that construct IBKRProvider directly are unaffected since they don't touch the module global; the two tests that do exercise get_ibkr_provider() itself correctly reset the singleton via monkeypatch.setattr before running). Ran the full backend suite (backend/.venv/bin/pytest --cov=app --cov-report=term-missing: 890 passed, 99.93% coverage, gate 90%), ruff check app/ (clean -- pre-existing lint findings in tests/ for unrelated files not touched by this PR are out of scope, confirmed via git diff main...task/backend-ibkr-data-provider), mypy (clean, 52 files), python scripts/export_openapi.py (openapi.json unchanged -- no route/schema change), and python scripts/validate_tasks.py (clean, 196 task files). Ran the code-review skill (medium effort, backgrounded) against this fix commit specifically; it confirmed both headline fixes correct and independently surfaced the same thread-safety gap in the new singleton that I'd already found by manual trace, plus one additional test-isolation caveat -- both are new non-blocking findings, added to docs/tasks/backend-ibkr-data-provider-followups.json's checklist (now 2 done, 2 new not-done). No frontend files touched and no API route added/consumes IBKRProvider (confirmed via grep across app/api/routers/ and app/main.py), so there is no UI-facing surface -- browser walkthrough and e2e-test skill (steps 9/9a) are inapplicable, not silently skipped. verify-elder-signal does not apply (area is backend/data). No human PR comments/reviews present (only the raino-agent automation account) -- no override to honor. No blocking findings remain; verdict is accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T10:27:51Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing (890 passed, 99.93% coverage) and ruff check app/ + mypy app/ (both clean) -- match pr-reviewer's reported numbers exactly. Read the full diff (git diff main...task/backend-ibkr-data-provider) and re-traced both blocking-bug fixes directly in backend/app/data/ibkr_provider.py: run_scanner's client-side throttle check (lines 321-325) runs before _require_available's real HTTP call (line 327); get_hourly_bars's full/short-page decision (line 266) uses raw_row_count computed from the unparsed payload (line 251), not the post-_parse_bars count. Hand-traced both new regression tests (test_throttled_second_call_makes_no_http_request, test_full_page_with_one_malformed_row_still_paginates) and confirmed each would fail against the pre-fix ordering/count logic -- non-tautological. Confirmed via grep across backend/app/api/routers/ and backend/app/main.py that nothing consumes get_ibkr_provider/IBKRProvider yet, so the two new non-blocking findings (unlocked check-then-set singleton race; no autouse fixture resetting it between tests) are genuinely dormant, not something that should have blocked this PR. Also confirmed backend/openapi.json is byte-identical on this branch (no route/schema change) and no human PR comments/reviews exist on PR #190 (only the raino-agent automation account). Accept holds."
+  }
+}

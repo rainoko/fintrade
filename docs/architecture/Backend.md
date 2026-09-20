@@ -19,6 +19,7 @@ backend/
       stooq_provider.py
       cache.py         # SQLite-backed OHLCV + extended-data cache
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
+      ibkr_provider.py # optional IBKR Client Portal Web API provider (hourly bars + scanner) -- not a DataProvider, see §8
     indicators/    # pure functions, one indicator per module
       ema.py
       macd.py
@@ -75,7 +76,7 @@ backend/
 | `sqlalchemy` + `alembic` | Persistence + migrations |
 | `pydantic` | Request/response validation, settings |
 | `pytest`, `pytest-cov`, `pytest-mock` | Testing (see [Testing.md](Testing.md)) |
-| `httpx` (via FastAPI `TestClient`) | API integration tests |
+| `httpx` | API integration tests (via FastAPI `TestClient`), and `IBKRProvider`'s real production HTTP client against the local IB Gateway (§8) |
 
 ## 4. Indicator Engine Notes
 
@@ -100,6 +101,74 @@ SQLite via SQLAlchemy for MVP: positions, account equity, a watchlist (ticker + 
 `app/main.py`'s FastAPI lifespan hook still calls `Base.metadata.create_all(bind=engine)` on startup — this is now just a convenience bootstrap (idempotent, a no-op against a database Alembic already migrated) so a brand-new dev/test SQLite file works immediately without running `alembic upgrade head` first, not a substitute for migrations going forward.
 
 **Retrofitting Alembic onto a database created by the earlier `create_all`-only stopgap:** any database that predates this task (`db-migrations`) had its tables created by `create_all` directly, not by a migration — running `alembic upgrade head` against one fails (`CREATE TABLE` against a table that already exists). Run `alembic stamp head` instead, which records the initial migration as already applied without touching the schema (see `tests/integration/test_db_migrations.py` for both paths exercised as regression tests). This only works cleanly if that pre-existing schema actually matches what the initial migration would have created — e.g. a `positions` table created before `unique=True` was added to `PositionORM.ticker` (see the `api-portfolio-add-position` task's `decisions`) won't retroactively gain that index just because it gets stamped as head; a genuinely drifted database needs a manual fix-up, not a stamp. `scripts/fix_schema_drift.py` (see README.md's "Database migrations" section, and `docs/tasks/db-migrations-followups.json`) closes this one specific, currently-known drift case: it idempotently corrects `positions.ticker`'s index to unique if it's missing or wrong, no-ops if it's already correct, and fails loudly instead of silently succeeding if duplicate ticker rows already exist under the old non-unique index (a genuine data problem, not something to paper over). It is a narrow, targeted fix for this one case, not a general pre-stamp schema-diff tool — a future schema change that introduces a new kind of possible pre-Alembic drift needs its own fix, not an assumption that this script still covers it.
+
+## 8. Optional: IBKR Client Portal Web API Provider
+
+`app/data/ibkr_provider.py`'s `IBKRProvider` is an **optional, secondary** market-data
+source (docs/tasks/backend-ibkr-data-provider.json, docs/ideas.md's "Decided: add IBKR's
+Client Portal Web API" entry) used only for two capabilities the primary
+yfinance/Stooq chain doesn't have: hourly bars (Screen 3 intraday entry-timing) and the
+IBKR market scanner (broad-market-breadth detection). It deliberately does **not**
+implement the `DataProvider` protocol (§2 above) — its capabilities don't map onto that
+protocol's daily/weekly/extended-data shape — and nothing in the app currently consumes
+it (`app.api.dependencies.get_ibkr_provider` is wired up but not yet called from any
+route); it exists purely as infrastructure a future task can build an endpoint against.
+See that module's own docstring, and this task's `decisions` entry, for the full
+rationale.
+
+**This is fully optional and off by default.** `Settings.ibkr_enabled` (env var
+`FINTRADE_IBKR_ENABLED`) defaults to `False`, and every other part of the app —
+including the full test/coverage suite — works identically whether or not it's set.
+Turning it on requires a real, locally-running, authenticated IB Gateway; nothing here
+is needed for normal development.
+
+**Setup (only if you actually want to use this), matching the walkthrough captured
+while scoping this task:**
+
+1. Download `clientportal.gw.zip` from
+   `download2.interactivebrokers.com/portal/clientportal.gw.zip` and unzip it.
+2. Run `bin/run.sh root/conf.yaml` from that directory — this starts the gateway
+   process, listening on `https://localhost:5000/` by default.
+3. Open `https://localhost:5000/` in a browser and log in with your IBKR credentials.
+   This step is genuinely interactive — IBKR does not support automating it — so it
+   must be done by a human, once per session (the session expires after a period of
+   inactivity and needs re-authenticating the same way).
+4. Keep the session alive with a periodic `GET /tickle` call roughly once a minute
+   while the gateway needs to stay authenticated (not automated by this app today — a
+   future task consuming this provider from a long-running process would need to add
+   that, itself a currently-open gap, not something this task's checklist covers).
+5. Set `FINTRADE_IBKR_ENABLED=true` (and `FINTRADE_IBKR_BASE_URL` if the gateway isn't
+   at the default `https://localhost:5000/v1/api`) in the backend's environment.
+
+**Endpoints used**, all under the gateway's `/v1/api` base:
+
+- `GET /iserver/auth/status` — whether the gateway is running and the session is
+  authenticated. `IBKRProvider.get_gateway_status()` wraps this into a typed
+  `GatewayStatus` (`available` / `gateway_unreachable` / `not_authenticated`) rather
+  than raising, so a caller can distinguish "gateway isn't running at all" from
+  "running, but the browser login step hasn't been done (or has expired)" — checked
+  before every other call this provider makes.
+- `GET /iserver/marketdata/history` (`bar=1h`) — hourly OHLCV bars, capped at 1,000
+  points per call (~41 days) by IBKR itself; `get_hourly_bars` walks the `startTime`
+  cursor backward across as many calls as needed to cover the requested lookback
+  window, up to a fixed page-count safety bound.
+- `GET /iserver/scanner/params` — the scanner's valid filter/instrument/location
+  options, rate-limited by IBKR to 1 request/15 minutes; `get_scanner_params` caches
+  the result for that same window rather than re-fetching on every call.
+- `POST /iserver/scanner/run` — runs a scan (e.g. 52-week-high/low, hot-by-volume),
+  rate-limited by IBKR to 1 request/second; `run_scanner` self-enforces that limit
+  client-side (`IBKRRateLimitedError` if called again too soon) rather than always
+  spending a real HTTP round-trip only to have the gateway reject it.
+
+**Known, accepted limitation — unverified against a live gateway.** Every one of the
+above was implemented directly against IBKR's own documented Web API request/response
+shapes (docs/ideas.md's own research), and every test in
+`tests/unit/data/test_ibkr_provider.py` mocks HTTP at the `_request` boundary rather
+than hitting a real gateway — no sandboxed/CI environment used to build or review this
+has one. The actual response shapes returned by a live gateway, the interactive login
+flow itself, and any undocumented quirks are therefore not verified end-to-end here;
+this is deferred to manual testing by a user with a real running, authenticated
+gateway. See this task's `decisions` entry.
 
 ## Testing Notes
 

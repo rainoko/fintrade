@@ -1,0 +1,39 @@
+{
+  "id": "backend-ibkr-data-provider-followups",
+  "title": "Optional IBKR data provider — non-blocking review follow-ups",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-data-provider"],
+  "references": [
+    "docs/tasks/backend-ibkr-data-provider.json",
+    "https://github.com/rainoko/fintrade/pull/190"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #190 (backend-ibkr-data-provider), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "app.api.dependencies.get_ibkr_provider() constructs a brand-new IBKRProvider (closed at the end of every request) on every dependency resolution, so IBKRProvider's in-memory scanner-params TTL cache and 1-req/sec run_scanner throttle never persist across requests. This is currently dormant (no route consumes get_ibkr_provider yet) but whoever builds the first consuming endpoint needs to choose a longer-lived instance (e.g. a module-level singleton, or move the cache/throttle state to a shared store) rather than assume the per-request FastAPI dependency already provides IBKR-rate-limit protection.",
+      "done": true
+    },
+    {
+      "step": "docs/architecture/Backend.md §3's 'Key Dependencies' table still lists `httpx` with the purpose 'via FastAPI TestClient | API integration tests' only -- it wasn't updated to also reflect that `httpx` is now a main/production runtime dependency (app/data/ibkr_provider.py's `IBKRProvider` performs real HTTP calls with it, not just tests). Update the §3 table row to mention IBKRProvider's production use alongside the existing TestClient-testing purpose.",
+      "done": true
+    },
+    {
+      "step": "app.api.dependencies.get_ibkr_provider()'s lazy singleton init (`if _ibkr_provider_singleton is None: _ibkr_provider_singleton = IBKRProvider(...)`) is a check-then-set on a plain module-level global with no lock, and FastAPI runs sync dependency generators in a worker thread pool -- two concurrent first-requests can both observe None and each construct their own IBKRProvider (each with independent scanner-params cache / run_scanner throttle state and its own un-closed httpx.Client), silently defeating exactly the cross-request rate-limit protection this singleton was introduced for. Consider a thread-safe lazy-init instead of hand-rolled double-checked locking -- e.g. an `@lru_cache(maxsize=1)`-wrapped factory, matching `get_settings()`'s own already-thread-safe pattern (backend/app/config.py) rather than reinventing it. Currently dormant (no route consumes get_ibkr_provider yet), found during PR #190's re-review (pr-reviewer, code-review skill sub-agent).",
+      "done": false
+    },
+    {
+      "step": "The module-global `_ibkr_provider_singleton` has no autouse test fixture resetting it between tests -- only the two tests that directly exercise get_ibkr_provider() remember to `monkeypatch.setattr(..., None)` first. A future test that reaches this dependency indirectly (e.g. hitting a real route through FastAPI's TestClient once one is added, rather than calling get_ibkr_provider() directly) would mutate the plain module attribute via application code's own `global` assignment -- monkeypatch's teardown only reverts changes made through monkeypatch itself, not a later in-process `global` mutation, so such a test could leak a stale IBKRProvider (bound to a previous test's base_url/mock client) into later tests in the same pytest session, non-deterministically depending on execution order. Consider an autouse fixture in tests/unit/api/test_dependencies.py (or conftest.py) that resets the singleton to None on teardown. Found during PR #190's re-review.",
+      "done": false
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Both non-blocking checklist items were fixed directly on PR #190's branch (task/backend-ibkr-data-provider) while addressing that PR's needs_work blocking findings, rather than through a separate branch/PR of this task's own. state is deliberately left as 'planned' rather than flipped to 'done' here.",
+      "rationale": "pr-reviewer's original review comment explicitly invited fixing these 'if convenient since you're already in this area' as part of resolving the two blocking findings on the same branch -- doing so avoids a near-duplicate PR re-touching the same two files (app/api/dependencies.py, docs/architecture/Backend.md) moments later. state is left as 'planned' (not flipped to 'done') because moving a task to done -- including the git mv into docs/tasks/done/ -- is documented as pr-reviewer's/pr-merger's call once a PR is actually reviewed and merged, not task-worker's to make unilaterally; pr-reviewer re-reviewing PR #190 will see both checklist items already checked and the actual diff (get_ibkr_provider now a process-wide singleton; Backend.md §3's httpx row updated) and can move this task to done in that same pass once PR #190 merges."
+    }
+  ]
+}
