@@ -122,6 +122,18 @@ class TestGetClosedTradesFields:
         assert item["exit_date"] == _EXIT_DATE.isoformat()
         assert item["realized_pnl"] == pytest.approx(20.0)
         assert item["exit_reason"] == "target_hit"
+        # No entry_notes was passed to _add_closed_trade above -- defaults to null, not an
+        # empty string or omitted field.
+        assert item["entry_notes"] is None
+
+    def test_entry_notes_is_carried_through_when_present(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", entry_notes="Breakout above resistance.")
+
+        response = client.get("/api/portfolio/closed-trades")
+        [item] = response.json()["items"]
+        assert item["entry_notes"] == "Breakout above resistance."
 
     def test_grades_match_the_formulas_applied_to_the_fixture_frame(
         self, client: TestClient, db_session: Session

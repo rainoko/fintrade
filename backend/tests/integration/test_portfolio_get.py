@@ -136,6 +136,7 @@ class TestGetPortfolio:
                 quantity=100,
                 avg_cost_basis=195.30,
                 entry_date=date(2026, 5, 14),
+                entry_notes="Breakout above resistance.",
             )
         )
         db_session.commit()
@@ -159,6 +160,7 @@ class TestGetPortfolio:
         assert position["entry_date"] == "2026-05-14"
         assert position["current_price"] == pytest.approx(228.9)
         assert position["unrealized_pnl_pct"] == pytest.approx((228.9 - 195.30) / 195.30 * 100.0)
+        assert position["entry_notes"] == "Breakout above resistance."
 
         assert body["equity"]["cash"] == pytest.approx(5000.0)
         assert body["equity"]["positions_value"] == pytest.approx(100 * 228.9)
@@ -188,6 +190,10 @@ class TestGetPortfolio:
         prices = {p["ticker"]: p["current_price"] for p in body["positions"]}
         assert prices == {"AAPL": pytest.approx(110.0), "MSFT": pytest.approx(330.0)}
         assert body["equity"]["positions_value"] == pytest.approx(10 * 110.0 + 5 * 330.0)
+        # No entry_notes was recorded for either position (created directly via PositionORM
+        # above, not through POST /api/portfolio/positions) -- both come back null, not an
+        # empty string or omitted field.
+        assert all(p["entry_notes"] is None for p in body["positions"])
 
     def test_positions_are_ordered_by_entry_date_then_id_not_insertion_order(
         self, db_session: Session

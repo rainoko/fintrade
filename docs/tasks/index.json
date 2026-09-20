@@ -1531,7 +1531,7 @@
       "id": "backend-trade-journal-entry-notes",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-journal-entry-notes.json"
     },
     {

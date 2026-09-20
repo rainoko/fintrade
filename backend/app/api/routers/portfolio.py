@@ -260,6 +260,7 @@ def get_portfolio(
                 signal=signal_result.signal if signal_result is not None else None,
                 confidence=signal_result.confidence if signal_result is not None else None,
                 confidence_band=signal_result.confidence_band if signal_result is not None else None,
+                entry_notes=e.entry_notes,
             )
         )
 
@@ -302,6 +303,10 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     bases (mirrors how a brokerage averages up/down a position instead of tracking separate
     lots) — see the api-portfolio-add-position task's `decisions` for the full rationale and
     the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
+    `entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on
+    a merge, an incoming note is appended to the existing one (blank-line separated) rather
+    than overwritten, so notes from multiple buys aren't lost -- see the
+    backend-trade-journal-entry-notes task's `decisions`.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -317,6 +322,7 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
             quantity=position.quantity,
             avg_cost_basis=position.avg_cost_basis,
             entry_date=position.entry_date,
+            entry_notes=position.entry_notes,
         )
         db.add(row)
     else:
@@ -357,6 +363,16 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         existing.quantity = merged_quantity
         existing.avg_cost_basis = merged_avg_cost_basis
         existing.entry_date = min(existing.entry_date, position.entry_date)
+        # entry_notes merges by appending rather than overwriting -- see this task's
+        # `decisions` entry: an incoming note is never silently dropped just because a
+        # position already existed, and a merge with no incoming note leaves the existing
+        # one untouched (there's nothing to append).
+        if position.entry_notes:
+            existing.entry_notes = (
+                f"{existing.entry_notes}\n\n{position.entry_notes}"
+                if existing.entry_notes
+                else position.entry_notes
+            )
         row = existing
 
     db.commit()
@@ -373,6 +389,7 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         signal=None,
         confidence=None,
         confidence_band=None,
+        entry_notes=row.entry_notes,
     )
 
 
@@ -399,11 +416,13 @@ def delete_position(
     reducing a position means deleting and re-adding it with the new quantity.
 
     Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
-    realized P&L, exit_reason) -- the trade-history/ledger this app previously had no model
-    for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month component
-    of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading task's
-    buy/sell/trade-grade formulas plus a future trade-journal frontend page. `exit_price` is
-    today's latest close for this ticker, fetched the same way `current_price` is everywhere
+    realized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously
+    had no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month
+    component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
+    task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
+    carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
+    Section A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`
+    is today's latest close for this ticker, fetched the same way `current_price` is everywhere
     else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
     since this app already treats "current market price" as authoritative for mark-to-market
     elsewhere rather than trusting a client-supplied number. `realized_pnl` is
@@ -430,6 +449,7 @@ def delete_position(
                 exit_date=_today(),
                 realized_pnl=row.quantity * (exit_price - row.avg_cost_basis),
                 exit_reason=exit_reason.value,
+                entry_notes=row.entry_notes,
             )
         )
 
@@ -632,6 +652,7 @@ def get_closed_trades(
                 buy_grade_pct=grades[row.id].buy_grade_pct,
                 sell_grade_pct=grades[row.id].sell_grade_pct,
                 trade_grade_pct=grades[row.id].trade_grade_pct,
+                entry_notes=row.entry_notes,
             )
             for row in rows
         ]

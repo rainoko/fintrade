@@ -3,16 +3,30 @@
   "title": "Free-text 'why did I take this trade' entry notes",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
   ],
   "description": "Ch. 59 Section A of Elder's Trade Journal asks why the trader decided to take this trade -- a free-text note at entry time. No field for this exists anywhere in this app today (PositionIn has no notes field).",
   "checklist": [
-    { "step": "Add a nullable free-text `entry_notes` field to PositionIn/PositionOut/PositionORM.", "done": false },
-    { "step": "Carry `entry_notes` through to ClosedTradeORM/ClosedTradeOut when a position closes.", "done": false },
-    { "step": "Unit/integration tests for a position created with and without notes, and that notes carry through correctly to the closed trade row on close.", "done": false },
-    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+    { "step": "Add a nullable free-text `entry_notes` field to PositionIn/PositionOut/PositionORM.", "done": true },
+    { "step": "Carry `entry_notes` through to ClosedTradeORM/ClosedTradeOut when a position closes.", "done": true },
+    { "step": "Unit/integration tests for a position created with and without notes, and that notes carry through correctly to the closed trade row on close.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T23:56:31Z",
+      "recorded_by": "task-worker",
+      "decision": "On POST /api/portfolio/positions merging into an existing same-ticker position, an incoming `entry_notes` is appended to the existing note (joined by a blank line, `\\n\\n`) rather than overwriting it or being silently dropped. A merge with no incoming note leaves the existing note untouched.",
+      "rationale": "Elder's Section A note captures 'why did I take this trade' at entry time; when a second buy merges into the same position, both original reasons are still relevant and neither should be lost. Overwrite would silently discard the first buy's rationale; ignoring the new note on merge would silently discard the second. Appending (mirroring the plain-text, human-readable nature of this field, unlike the numeric quantity/avg_cost_basis merge which needs one blended number) preserves both without inventing a structured multi-note schema this MVP doesn't otherwise need."
+    },
+    {
+      "timestamp": "2026-09-20T23:56:31Z",
+      "recorded_by": "task-worker",
+      "decision": "`entry_notes` is carried on `app.portfolio.pricing.EnrichedPosition` as its own field (populated from `PositionORM.entry_notes` in `enrich_positions_with_price`) rather than being added to the shared `app.portfolio.models.Position` domain model that `EnrichedPosition.position` wraps.",
+      "rationale": "`Position` is reused by `app.portfolio.risk`/`app.portfolio.exits`, which have no use for a free-text note, and its serialization shape is pinned exactly to the `GET /api/portfolio` JSON example in `docs/architecture/API.md` via `tests/unit/test_portfolio_models.py`'s byte-for-byte round-trip test. Adding an unused field there would mean either updating that pinned example/test for a field two of its three consumers never touch, or accepting drift. Keeping `entry_notes` alongside `daily_ohlcv` on `EnrichedPosition` (which already exists precisely to carry extra per-position context past `Position` itself) avoids both, at the cost of one extra dataclass field GET /api/portfolio's handler reads directly."
+    }
   ]
 }
