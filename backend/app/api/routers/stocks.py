@@ -19,6 +19,7 @@ from app.api.schemas import (
     Screens,
     SupportResistanceZone,
     TideScreen,
+    TrendStrength,
 )
 from app.data.base import DataProvider
 from app.data.exceptions import (
@@ -462,6 +463,11 @@ def get_indicator_history(
             channel_lower=result.indicators["channel_lower"],
             rsi=result.indicators["rsi"],
             season=result.indicators["season"],
+            # Same cast-only-for-mypy pattern as `tide=cast(TideScreen, ...)` above --
+            # `result.indicators["trend_strength"]` is always built by `analyse()`/
+            # `analyse_history()` to match `TrendStrength`'s shape exactly; Pydantic validates
+            # it at construction time regardless.
+            trend_strength=cast(TrendStrength, result.indicators["trend_strength"]),
             signal=result.signal,
             confidence=result.confidence,
             confidence_band=result.confidence_band,

@@ -11,6 +11,7 @@ const indicators: Indicators = {
   macd_histogram: 1.82,
   bull_power: 3.1,
   bear_power: -1.4,
+  trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
 }
 
 describe('IndicatorsPanel', () => {
@@ -43,6 +44,7 @@ describe('IndicatorsPanel', () => {
       macd_histogram: 1.82,
       bull_power: null as unknown as number,
       bear_power: null as unknown as number,
+      trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
     }
 
     expect(() =>

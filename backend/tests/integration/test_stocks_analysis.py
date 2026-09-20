@@ -264,6 +264,7 @@ class TestGetAnalysis:
             "channel_lower",
             "rsi",
             "season",
+            "trend_strength",
         }
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's ~100-bar
         # deviation-average warm-up window, so both bands are still null here -- see
@@ -277,6 +278,15 @@ class TestGetAnalysis:
         # This fixture (26 bars) is far more than the 2-bar minimum classify_season needs,
         # so season is always a real label here -- never null.
         assert body["indicators"]["season"] in ("Spring", "Summer", "Autumn", "Winter")
+        # trend_strength.atr/plus_di/minus_di warm up after 13 bars, well within this 26-bar
+        # fixture; adx needs a further 13-bar window on top of that (26 total), so it's only
+        # just barely defined by this fixture's very last bar.
+        trend_strength = body["indicators"]["trend_strength"]
+        assert set(trend_strength) == {"atr", "plus_di", "minus_di", "adx"}
+        assert trend_strength["atr"] is not None and trend_strength["atr"] >= 0
+        assert trend_strength["plus_di"] is not None and trend_strength["plus_di"] >= 0
+        assert trend_strength["minus_di"] is not None and trend_strength["minus_di"] >= 0
+        assert trend_strength["adx"] is not None and trend_strength["adx"] >= 0
         # This fixture (26 bars) is also far too short to produce any support/resistance
         # zone (min_zone_length_days=14 plus the fractal/clustering machinery needs real
         # repeated touches) -- see TestSupportResistanceZones below for the populated case.
@@ -333,6 +343,15 @@ class TestGetAnalysis:
             # its 2-bar minimum).
             if field == "season":
                 assert value in ("Spring", "Summer", "Autumn", "Winter")
+                continue
+            # trend_strength is a nested object -- same 26-bar fixture as
+            # test_buy_signal_response_shape, so every one of its own fields (atr/plus_di/
+            # minus_di/adx) is already past its own warm-up and real (non-null) here too.
+            if field == "trend_strength":
+                for sub_field, sub_value in value.items():
+                    assert isinstance(sub_value, (int, float)), (
+                        f"indicators.trend_strength.{sub_field} was {sub_value!r}, not a number"
+                    )
                 continue
             assert isinstance(value, (int, float)), f"indicators.{field} was {value!r}, not a number"
         assert body["screens"]["wave"]["stochastic_k"] is not None

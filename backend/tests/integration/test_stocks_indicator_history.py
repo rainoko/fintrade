@@ -319,6 +319,7 @@ class TestGetIndicatorHistory:
             "channel_lower",
             "rsi",
             "season",
+            "trend_strength",
             "signal",
             "confidence",
             "confidence_band",
@@ -328,6 +329,7 @@ class TestGetIndicatorHistory:
             "accumulation_distribution",
         }
         assert set(point["tide"]) == {"trend", "weekly_macd_histogram_slope"}
+        assert set(point["trend_strength"]) == {"atr", "plus_di", "minus_di", "adx"}
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
         # ~100-bar deviation-average warm-up window, so every point's bands are still null --
         # see test_channel_bands_populated_after_sufficient_warm_up for the populated case.

@@ -3,7 +3,7 @@
   "title": "Add Average True Range (ATR) and the Directional System (+DI/-DI/ADX)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/stochastic.py",
@@ -15,23 +15,49 @@
   "checklist": [
     {
       "step": "Implement true_range(), atr(), plus_minus_dm(), plus_minus_di(), dx(), adx() in a new backend/app/indicators/directional_system.py (or split atr into its own module if that reads cleaner -- decide and record).",
-      "done": false
+      "done": true
     },
     {
       "step": "Hand-computed reference-value tests for each function (per add-indicator skill convention) -- at minimum a small hand-verifiable OHLC series with known TR/DM/DI/DX/ADX values worked out by hand, not just golden-output regression tests.",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose the new fields on the existing WaveScreen or a new screens.trend_strength object in GET /api/stocks/{ticker}/analysis and the indicator-history endpoint -- decide the shape and record as a decisions entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "Document the indicators in docs/Analyse.md's indicator table, citing this task.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "True Range/ATR live in a new backend/app/indicators/atr.py (true_range(), atr()); the four Directional-System functions (plus_minus_dm(), plus_minus_di(), dx(), adx()) live in a separate backend/app/indicators/directional_system.py, which imports true_range from atr.py rather than duplicating it.",
+      "rationale": "Every existing module in app/indicators/ is named for the single named indicator it implements (ema.py, macd.py, stochastic.py, rsi.py, obv.py, accumulation_distribution.py) -- a single directional_system.py housing an unrelated, independently-useful indicator (ATR, used elsewhere for stop distance/profit targets/entry depth per docs/ideas.md, not just as a Directional-System input) would break that one-file-per-concept convention and make ATR harder to find by name. Splitting also mirrors the OBV/A-D precedent (backend-indicator-obv-ad) of two related-but-distinct indicators getting their own files while composing shared logic via imports rather than inheritance or a shared base module. Rejected: one combined module (simpler import graph, but obscures ATR as its own indicator and breaks the established naming convention) and duplicating true_range() in both files (rejected outright -- the task's own description explicitly says the two 'should share one implementation', which docs/ideas.md itself calls out)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ATR, and the 13-day smoothing inside +DI/-DI/ADX, all use a plain/arithmetic rolling mean (pandas .rolling(period).mean()) applied independently to True Range and +DM/-DM (then the +DI/-DI ratio taken from those two independently-smoothed series) -- not Wilder's smoothed moving average (his original 1/period running-average variant), and not a rolling mean of the DM/TR ratio series itself.",
+      "rationale": "This mirrors the existing backend-indicator-rsi decision (rsi() also chose a plain rolling mean over Wilder's smoothing) for the same two reasons: the task's own description and docs/ideas.md's transcription of the book read as a plain 'N-day average'/'smoothed' with no explicit mention of exponential smoothing, and a simple rolling mean keeps the hand-computed reference-value tests (test_atr.py, test_directional_system.py) tractable without an additional EMA-seed convention to also hand-verify. Smoothing +DM/-DM and True Range independently before dividing (rather than smoothing the DM/TR ratio series itself, the other reading docs/ideas.md's ambiguous 'smoothed(DM/TR)' phrasing admits) is the standard, textbook Directional System construction and is what every reference implementation of +DI/-DI actually computes. Rejected: Wilder's smoothed moving average (not what this app's own source docs specify, and harder to hand-verify) and a rolling mean of the raw DM/TR ratio (a non-standard, unprecedented construction with no textual support)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "+DM/-DM use Wilder's standard, fully-specified rule: up_move = high - prior high, down_move = prior low - low; +DM = up_move only if up_move > down_move AND up_move > 0 (else 0), -DM mirrored. A tie (up_move == down_move, both positive) yields +DM = -DM = 0 for both directions, not credited to either.",
+      "rationale": "The task's own phrasing ('the portion of today's high-low range extending beyond yesterday's, signed by direction') is only fully specified once read as Wilder's original construction -- it doesn't by itself say what happens on a tie or an inside day, and Wilder's rule (whichever direction's extension strictly exceeds the other wins; neither wins on a tie) is the one unambiguous, universally-used answer. Rejected: crediting both directions on a tie (would make +DM and -DM simultaneously non-zero, contradicting the 'signed by direction' framing of a single net directional movement per bar) and treating a tie as +DM (an arbitrary directional preference with no textual support)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Exposed as a new nested indicators.trend_strength object ({atr, plus_di, minus_di, adx}, each independently nullable) on both GET /api/stocks/{ticker}/analysis and GET /api/stocks/{ticker}/indicators -- not under screens (neither the existing screens.wave nor a new screens.trend_strength), and not as four separate top-level indicators fields.",
+      "rationale": "Placement under indicators (not screens) follows the same precedent and reasoning as the backend-indicator-rsi task's own decision: screens is reserved for the four Triple Screen/Impulse gate outputs _determine_signal actually reads (docs/architecture/API.md), and this task's own description explicitly scopes out wiring ADX into gating logic as a separate methodology decision -- folding it into screens (even a new screens.trend_strength, the task's own suggested name) would misleadingly imply it participates in signal determination the way it doesn't. Nesting the four fields into one trend_strength object (rather than four separate top-level indicators fields, e.g. indicators.atr/indicators.plus_di/...) reflects that they're a tightly correlated, single-concept group computed from one shared pipeline (True Range -> DM -> DI -> DX -> ADX) with a shared warm-up story, unlike rsi/season/channel_upper/channel_lower (each independently meaningful, unrelated indicators) -- a nested object reads more clearly as 'the Directional System's own state' the same way screens.wave/screens.tide already group their own multi-field concepts. Each of the four leaf fields is independently nullable (not the whole object collapsing to null) since atr/plus_di/minus_di finish warming up well before adx (which needs a further 13-bar window on top of theirs) -- collapsing the whole object to null until every field is ready would needlessly discard already-valid atr/plus_di/minus_di values, unlike every other indicators field's own independent-nullability precedent."
     }
   ]
 }

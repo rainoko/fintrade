@@ -464,7 +464,7 @@ export interface components {
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
             /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
             divergence: components["schemas"]["DivergenceOut"] | null;
-            /** @description Latest-bar-only snapshot. For the same 9 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
+            /** @description Latest-bar-only snapshot. For the same 10 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             /** @description The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions). */
             kangaroo_tail: components["schemas"]["KangarooTailOut"] | null;
@@ -841,6 +841,8 @@ export interface components {
             stochastic_k?: number | null;
             /** @description Same definition/shape as AnalysisResponse.screens.tide, for this bar -- Screen 1 (Tide) recomputed from only the weekly data as-of this bar's own calendar week (see IndicatorHistoryResponse.points' own description), never held fixed at today's value. Never null: like AnalysisResponse.screens.tide, too little weekly history to compute a slope at all still resolves to a concrete NEUTRAL/'flat' result rather than an absent one (app.signals.triple_screen.evaluate_tide's own docstring). */
             tide: components["schemas"]["TideScreen"];
+            /** @description Same definition/shape as AnalysisResponse.indicators.trend_strength, for this bar -- a historical Directional System/ADX timeline. Always present as an object; its own atr/plus_di/minus_di/adx fields are independently nullable during their own (per-field) warm-up window, same as AnalysisResponse.indicators.trend_strength. */
+            trend_strength: components["schemas"]["TrendStrength"];
         };
         /** IndicatorHistoryResponse */
         IndicatorHistoryResponse: {
@@ -890,6 +892,8 @@ export interface components {
              * @description 'Indicator Seasons' (docs/Analyse.md, Elder ch. 32) -- a four-way classification of `macd_histogram`'s bar-over-bar slope combined with its position relative to its own zero centerline: Spring (rising, below -- best time to go long), Summer (rising, above -- crowd-recognized uptrend, take profits on longs into strength), Autumn (falling, above -- best time to go short), Winter (falling, below -- crowd-recognized downtrend, cover shorts into weakness). Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-seasons task). Null only when there are fewer than 2 daily bars available to compute a slope from.
              */
             season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
+            /** @description Directional System / ADX (docs/Analyse.md §4, Elder ch. 24) -- always present as an object, but every one of its own fields is independently nullable during its own warm-up window (see `TrendStrength`'s own field descriptions), the same shape convention as this `Indicators` object itself. Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-atr-adx task's own explicit scope note: Elder's usage rules for this data -- trade trend-following only while ADX rises, a 4-step rise off its own low 'rings a bell' on a new trend -- are a separate methodology decision, not indicator plumbing). */
+            trend_strength: components["schemas"]["TrendStrength"];
         };
         /** KangarooTailOut */
         KangarooTailOut: {
@@ -1167,6 +1171,29 @@ export interface components {
              * @enum {string}
              */
             weekly_macd_histogram_slope: "rising" | "falling" | "flat";
+        };
+        /** TrendStrength */
+        TrendStrength: {
+            /**
+             * Adx
+             * @description ADX (docs/Analyse.md §4, Elder ch. 24) -- `DX = 100 * |plus_di - minus_di| / (plus_di + minus_di)`, itself further smoothed over a trailing 13-day simple average (`app.indicators.directional_system.adx`). Elder's headline new-trend-detection tool: only trust trend-following logic while ADX is rising, and a rise of 4 steps off its own low point (e.g. 9 -> 13) specifically signals a new trend being born (docs/ideas.md) -- neither rule is evaluated by this app (computation + exposure only). Null for longer than `plus_di`/`minus_di`/`atr` -- needs a further 13-bar window of `DX` on top of their own warm-up, roughly twice as long overall.
+             */
+            adx?: number | null;
+            /**
+             * Atr
+             * @description Average True Range (docs/Analyse.md §4, Elder ch. 24) -- the 13-day simple/arithmetic rolling average of True Range (`max(high - low, |high - prev_close|, |low - prev_close|)`, `app.indicators.atr.true_range`), not Wilder's smoothed moving average (see `app.indicators.atr.atr`'s own docstring and the backend-indicator-atr-adx task's `decisions` entry). A volatility measure, not a directional one -- always >= 0. Null for the first 13 trading days of a ticker's history (needs 13 True Range values, itself needing a prior close). Computation + exposure only here -- not used for stop distance/profit targets/entry depth (docs/ideas.md's own numeric usage rules for this value), which is explicitly out of scope for the task that added this field.
+             */
+            atr?: number | null;
+            /**
+             * Minus Di
+             * @description -DI, mirrored from `plus_di` using -DM (the portion of today's low extending beyond yesterday's low) instead of +DM. Always >= 0. Elder's own trading rule (docs/ideas.md, out of scope for the task that added this field): trade long only while `plus_di > minus_di`, short only while the reverse. Null under the same condition as `plus_di`.
+             */
+            minus_di?: number | null;
+            /**
+             * Plus Di
+             * @description +DI (docs/Analyse.md §4, Elder ch. 24) -- the 13-day smoothed +DM (the portion of today's high extending beyond yesterday's high) as a percentage of similarly smoothed True Range (`app.indicators.directional_system.plus_minus_di`). Always >= 0. Null under the same warm-up condition as `atr` (needs the same 13-bar window over the same underlying True Range/+DM series).
+             */
+            plus_di?: number | null;
         };
         /** TriggerScreen */
         TriggerScreen: {
