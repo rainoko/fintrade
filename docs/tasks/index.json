@@ -1083,8 +1083,8 @@
       "id": "backend-market-data-extra-fields-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-market-data-extra-fields-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-data-extra-fields-followups.json"
     },
     {
       "id": "backend-insider-transaction-clusters",

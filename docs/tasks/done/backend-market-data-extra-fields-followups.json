@@ -1,10 +1,12 @@
 {
   "id": "backend-market-data-extra-fields-followups",
-  "title": "Extended market data — non-blocking review follow-ups",
+  "title": "Extended market data \u2014 non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
-  "depends_on": ["backend-market-data-extra-fields"],
+  "state": "done",
+  "depends_on": [
+    "backend-market-data-extra-fields"
+  ],
   "references": [
     "docs/tasks/done/backend-market-data-extra-fields.json#review",
     "https://github.com/rainoko/fintrade/pull/183"
@@ -29,5 +31,12 @@
     "pr_number": 192,
     "pr_url": "https://github.com/rainoko/fintrade/pull/192",
     "pushed_at": "2026-09-20T11:00:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T11:01:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/192",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Task-board-only PR (confirmed via git diff main...task/backend-market-data-extra-fields-followups --stat: only docs/tasks/backend-insider-transaction-clusters.json (new), this file, and docs/tasks/index.json changed) -- no application code, so no test/coverage/lint run needed and no browser walkthrough applies (no UI surface). Read this task's own checklist item wording myself: it literally says 'create/scope that detection task ... when it's next prioritized', which is an explicit scoping request, not an implementation request -- the PR's interpretation is correct and matches the codebase's established precedent (backend-divergence-detection, backend-kangaroo-tail-pattern, backend-support-resistance were each scoped as their own task after the underlying data became available). Read the new docs/tasks/backend-insider-transaction-clusters.json in full: depends_on backend-market-data-extra-fields (already done) is correct; area backend/signals + skill add-indicator matches the direct precedents (backend-divergence-detection, backend-kangaroo-tail-pattern use the same pair for pattern/cluster-detection work); the checklist genuinely captures both real judgment calls as decide-and-record items rather than glossing over them -- buy/sell classification from transaction_text's free text (including option-exercise/gift/tax-withholding/unparseable handling) and the rolling-window/distinct-insider clustering definition; remaining checklist items (implementation, hand-computed reference tests including an unparseable-text case, API/docs exposure without silently wiring into Screen/Impulse/Confidence/Portfolio-Risk) follow the same shape as the three precedent tasks. All references resolve (backend/app/data/base.py, backend/app/api/schemas.py, backend/app/data/yfinance_provider.py, docs/ideas.md exist; docs/Analyse.md#extended-data-earningsdividend-dates-short-interest-insider-transactions matches that doc's actual heading; both docs/tasks/done/...json references correctly point at already-done tasks). docs/tasks/index.json mirrors both tasks' state/path correctly, no drift. python3 scripts/validate_tasks.py passes clean (197 task files, no violations) against the branch as checked out. No new findings -- nothing filed as a new followups task this pass."
   }
 }
