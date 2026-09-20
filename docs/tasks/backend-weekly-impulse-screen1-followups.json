@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-weekly-impulse-screen1's PR review",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-weekly-impulse-screen1"],
   "references": [
     "docs/tasks/backend-weekly-impulse-screen1.json",
@@ -17,7 +17,7 @@
     },
     {
       "step": "Non-blocking, found during PR #187's retry-round re-review (pr-reviewer): frontend/src/features/stocks/components/PriceChart.tsx has two internal (non-user-facing) doc comments still describing Tide/Screen 1 in the superseded terms, missed by the round-1 fix's own grep sweep since neither contains the '13/26-week EMA'/'MACD-H slope and ... relationship' phrasing that sweep searched for. Line ~339: \"...which Tide (driven by a weekly MACD histogram slope, not a daily one) realistically never does.\" -- Tide is now driven by the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction together), not solely 'a weekly MACD histogram slope'; the comment's own conclusion (weekly-cadence trend changes rarely alternate every bar) still holds, but the parenthetical misstates the mechanism. Line ~757: \"EMA13/EMA26 as native Lightweight Charts line series (Screen 1's trend-following pair, per docs/Analyse.md §2/§4)\" -- EMA(26) no longer feeds Screen 1/Tide at all (per this task's own `decisions` entry and the corrected ema26Help copy in metricHelpContent.ts), so labeling the EMA13/EMA26 pair \"Screen 1's trend-following pair\" is now incorrect; the pair is still drawn on the chart for other legitimate reasons (value-zone shading, MACD's own EMA(26) input) but that's a different claim than the comment currently makes. Neither is user-visible (both are internal JSDoc-style comments), so non-blocking, but both should be reworded to match the corrected methodology.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [
@@ -26,6 +26,12 @@
       "recorded_by": "task-worker",
       "decision": "Fixed this checklist item's docstring staleness in the same task-worker pass that fixed backend-weekly-impulse-screen1's blocking frontend-copy finding (PR #187), rather than leaving it for a separate pass through this followups task.",
       "rationale": "The reviewer's own comment marked this non-blocking but said it was optional 'if convenient since you're already touching related methodology text' -- since fixing the blocking frontend Tide copy already required editing the same 'how is Tide scored/described' surface, fixing this one-line docstring quote alongside it was a small, low-risk addition rather than a separate task-board cycle. This task's own checklist item stays as the durable record that it happened, per CLAUDE.md's non-blocking-finding-stays-tracked convention -- this entry doesn't move it to done itself; state remains planned since backend-weekly-impulse-screen1 (its depends_on) hasn't reached done yet, and a human/orchestrator pass can close this task's remaining checklist (now empty) once that dependency lands."
+    },
+    {
+      "timestamp": "2026-09-20T09:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded both stale PriceChart.tsx comments to describe the weekly Impulse System (weekly EMA(13) direction + weekly MACD-Histogram direction together) instead of the superseded weekly-MACD-slope/EMA13-EMA26-pair description, and for the line ~757 comment, replaced the incorrect 'Screen 1's trend-following pair' label with the actual reasons EMA13/EMA26 are still drawn (value-zone shading between them, and EMA(26) feeding daily MACD) rather than deleting the mention of them.",
+      "rationale": "Both comments' own surrounding conclusions (weekly trend changes rarely alternate every bar; EMA13/EMA26 are still drawn on the chart) remained true and useful, so only the mechanism/label claims needed correcting, matching the reviewer's finding precisely rather than rewriting more than necessary. No behavior change -- doc-comment-only edit, verified with the frontend test suite (643 passing), tsc -b, and eslint, all clean."
     }
   ]
 }

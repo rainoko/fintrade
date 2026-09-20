@@ -1111,7 +1111,7 @@
       "id": "backend-weekly-impulse-screen1-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-weekly-impulse-screen1-followups.json"
     },
     {
