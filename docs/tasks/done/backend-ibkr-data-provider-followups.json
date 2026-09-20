@@ -3,7 +3,7 @@
   "title": "Optional IBKR data provider — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-data-provider"],
   "references": [
     "docs/tasks/backend-ibkr-data-provider.json",
@@ -55,21 +55,26 @@
     "pushed_at": "2026-09-20T10:45:32Z"
   },
   "review": {
-    "reviewed_at": "2026-09-20T10:40:53Z",
+    "reviewed_at": "2026-09-20T10:52:12Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/191",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "`_get_ibkr_provider_singleton`'s docstring (app/api/dependencies.py:53) claims `@lru_cache(maxsize=1)` 'gives thread-safe lazy-init for free' -- this is not accurate for what matters here. CPython's lru_cache only holds its internal lock around the cache dict/linked-list bookkeeping; it releases the lock before calling the wrapped function and re-acquires it after. On a cold cache, two threads that both observe a miss each independently execute the factory body (each constructing its own IBKRProvider/httpx.Client/throttle state) and each thread's call returns its own locally-computed instance, not necessarily the one that ends up cached -- reproduced empirically against the real functools.lru_cache (20 concurrent threads on a cold cache -> 20 factory-body executions, 20 distinct instances returned to callers), and independently confirmed by the code-review skill sub-agent. This is the same class of race PR #190's re-review opened this followup task to close; the fix narrows the window (the cache self-heals to one stable instance once the initial cold-cache burst resolves) but does not eliminate it, and the docstring overstates the guarantee. get_settings() gets away with the identical pattern only because a duplicated Settings object during that race window is harmless (no meaningful per-instance mutable state); IBKRProvider has exactly the per-instance state (HTTP client, scanner-params cache, run_scanner throttle) this task exists to protect. Needs an explicit threading.Lock-guarded double-checked-locking construction (or, at minimum, a corrected docstring that accurately describes a bounded/self-healing race window rather than full thread safety) before accept.",
+        "summary": "Re-review of the needs_work fix. `_get_ibkr_provider_singleton()` (app/api/dependencies.py:52-85) now uses genuine double-checked locking: fast-path read outside the lock, `with _ibkr_provider_singleton_lock:` re-check-then-construct inside it, global reassigned only after `IBKRProvider(...)` is fully constructed. Traced this by hand against CPython's actual semantics (GIL serializes STORE_GLOBAL/LOAD_GLOBAL, so no partially-constructed instance can ever be observed by another thread) -- correct, no TOCTOU gap. `_reset_ibkr_provider_singleton_for_tests()` goes through the same lock, so a reset can't race a concurrent construction either.",
         "file": "backend/app/api/dependencies.py",
-        "line": 53
+        "line": 52
       },
       {
-        "summary": "No new/updated test actually exercises concurrent access to _get_ibkr_provider_singleton -- test_enabled_reuses_the_same_singleton_across_calls calls get_ibkr_provider() twice sequentially on one thread, which would also pass under the pre-PR hand-rolled singleton and would not catch the race above. A concurrent regression test (two threads racing _get_ibkr_provider_singleton() on a cold cache, asserting `is` identity) is recommended once the lock-based fix lands.",
+        "summary": "Independently verified the new concurrency test is a reliable, non-flaky regression check rather than a test that could pass by luck: `thread_count=32` matches `ThreadPoolExecutor(max_workers=32)` so all 32 submitted tasks get real worker threads, and `threading.Barrier(32)` blocks every thread until all 32 have arrived before any calls `_get_ibkr_provider_singleton()` -- this does genuinely force simultaneous arrival at the check, not just interleaved-but-staggered calls. Ran it 30 times against the fixed implementation (0 failures). Then reproduced the task-worker's own claimed verification myself: temporarily patched the getter back to a lock-free check-then-set with an injected `time.sleep(0.01)` (widening the race window) and reran the test 5 times -- failed deterministically every time (distinct `is`-identities returned across threads), confirming the test actually catches the regression it targets rather than being a tautology. Restored the fix afterward; ruff/mypy clean.",
         "file": "backend/tests/unit/api/test_dependencies.py",
-        "line": 131
+        "line": 149
+      },
+      {
+        "summary": "Test-reset helper usage confirmed correct: the autouse fixture in test_dependencies.py (before+after every test in the module) is the only place in the tree that touches `_ibkr_provider_singleton`/`get_ibkr_provider` besides app code itself -- grepped the full backend tree and confirmed no other test file or route reaches this dependency yet, so no cross-test leak risk and the module-local (not conftest.py) fixture scope remains the right call, per the task's own decisions entry.",
+        "file": "backend/tests/unit/api/test_dependencies.py",
+        "line": 32
       }
     ],
-    "notes": "Verified items (2) get_settings() precedent match and (3) fixture reset correctness/scope from the review ask both check out as described in the PR's decisions -- no other test file or route currently reaches get_ibkr_provider, so the module-scoped (not conftest.py) autouse fixture has no current leak risk. Full backend suite (890 passed, 99.93% coverage), ruff, and mypy all pass on the changed files; frontend suite (672 passed, ~99.7% coverage) unaffected since no frontend files are touched. The one blocking item is (1): lru_cache is not actually race-free for this purpose, contrary to the docstring's claim -- see review.comments."
+    "notes": "Full backend suite: 891 passed, 99.93% coverage (well above the 90% gate). ruff and mypy clean on the changed files and the full backend tree (the only ruff findings anywhere are the same 7 pre-existing ones in test_stochastic.py/test_triple_screen.py already confirmed present on main and outside this diff's two touched files -- backend/app/api/dependencies.py, backend/tests/unit/api/test_dependencies.py). Frontend suite run for completeness even though this PR touches zero frontend files: 672 passed on a clean run (99.64% statement coverage); one earlier run showed a single timeout flake in PortfolioPage.test.tsx's 'adds a new position end to end' test under coverage-instrumented load, which passed both in isolation and on a full clean rerun -- a pre-existing, unrelated-to-this-diff flake, not tracked as a followup here since it has nothing to do with the IBKR provider area this task covers. No API route/schema touched, so no openapi.json regen needed (confirmed no diff). No UI surface in this PR (backend-only singleton fix, no route yet consumes get_ibkr_provider) -- browser walkthrough and the persisted e2e suite (steps 9/9a) are not applicable and were skipped accordingly. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added (threading is stdlib), so architecture-review doesn't apply either. All three of the original review's blocking-fix asks were independently re-verified myself (not just re-read from the PR's own claims): (1) the lock-based implementation is genuinely correct, (2) the new concurrency test is genuinely reliable and does catch the regression -- reproduced the broken-then-fixed cycle myself rather than trusting the task-worker's account, (3) the reset fixture has no leak risk. No blocking findings; no non-blocking findings either. Accepting."
   }
 }
