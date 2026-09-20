@@ -1069,7 +1069,7 @@
       "id": "backend-watchlist-breadth-proxy",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-watchlist-breadth-proxy.json"
     },
     {

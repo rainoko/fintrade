@@ -343,6 +343,46 @@ class WatchlistResponse(BaseModel):
     )
 
 
+class BreadthResponse(BaseModel):
+    tracked_ticker_count: int = Field(
+        description="Distinct tickers across the watchlist and portfolio combined (union, "
+        "deduplicated -- a ticker held in both counts once), i.e. the 'personal breadth' "
+        "universe size. This is a cheap, no-new-data-source approximation of true market "
+        "breadth (which needs a broad ticker universe this app doesn't have, e.g. the "
+        "S&P 500) -- see docs/Analyse.md's Personal breadth proxy section and "
+        "docs/ideas.md's ch. 34-36 entry for the practical-obstacle rationale."
+    )
+    bullish_count: int = Field(
+        description="Of the tracked tickers whose Screen 1 (Tide) trend could be computed "
+        "right now, how many are currently BULLISH."
+    )
+    bearish_count: int = Field(
+        description="Same as bullish_count, for BEARISH."
+    )
+    neutral_count: int = Field(
+        description="Same as bullish_count, for NEUTRAL."
+    )
+    unavailable_count: int = Field(
+        description="Tracked tickers whose Tide trend couldn't be computed right now "
+        "(unknown/delisted ticker, insufficient history, or the data provider being "
+        "unavailable) -- excluded from bullish_count/bearish_count/neutral_count and from "
+        "the percentages below, rather than guessed at, mirroring GET /api/watchlist's own "
+        "null-signal-on-failure convention."
+    )
+    bullish_pct: float = Field(
+        description="bullish_count as a percentage of (bullish_count + bearish_count + "
+        "neutral_count), rounded to 1 decimal place. 0.0 when that denominator is 0 (an "
+        "empty watchlist+portfolio, or every tracked ticker currently unavailable), rather "
+        "than an undefined/NaN value."
+    )
+    bearish_pct: float = Field(
+        description="Same as bullish_pct, for bearish_count."
+    )
+    neutral_pct: float = Field(
+        description="Same as bullish_pct, for neutral_count."
+    )
+
+
 class WatchlistItemIn(BaseModel):
     ticker: str = Field(
         min_length=1,

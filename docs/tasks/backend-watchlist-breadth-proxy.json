@@ -3,7 +3,7 @@
   "title": "\"Personal breadth\" proxy across watchlist/portfolio tickers",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/watchlist.py",
@@ -14,19 +14,48 @@
   "checklist": [
     {
       "step": "Implement the aggregate computation (count/% BULLISH/BEARISH/NEUTRAL Tide across the user's watchlist+portfolio tickers) as a new small endpoint or field.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide the refresh/caching behavior -- should this be computed fresh on every request (cheap, since it just aggregates already-computed per-ticker analyses) or cached -- and record.",
-      "done": false
+      "done": true
     },
     {
       "step": "Unit tests covering an empty watchlist, an all-bullish watchlist, and a mixed one.",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json/frontend types; document as an explicit approximation of true market breadth in docs/Analyse.md, citing the practical-obstacle rationale from docs/ideas.md.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New, small dedicated endpoint GET /api/watchlist/breadth (in app/api/routers/watchlist.py, alongside the existing GET/POST/DELETE /api/watchlist routes), returning a BreadthResponse (tracked_ticker_count, bullish_count/bearish_count/neutral_count, unavailable_count, bullish_pct/bearish_pct/neutral_pct) -- not a field bolted onto the existing GET /api/watchlist response.",
+      "rationale": "The aggregate spans both the watchlist AND the portfolio (union, deduplicated), per the task description ('across the user's current watchlist + portfolio tickers'), so it isn't a per-item field of the existing watchlist list response, which only ever returns watchlist rows. A separate endpoint also keeps GET /api/watchlist's own shape/cost unchanged for callers that don't need the aggregate. Placed under /api/watchlist/breadth (rather than a new top-level /api/breadth router, or /api/portfolio/breadth) because the consuming frontend task (frontend-breadth-widget) anchors the widget to the watchlist page, and app/api/routers/watchlist.py already imports and re-annotates PositionORM-adjacent signal logic patterns identical to what portfolio.py does -- adding one more small GET route there was simpler than standing up a new router file for a single endpoint."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Computed fresh on every request; no caching added at the aggregation layer.",
+      "rationale": "Matches GET /api/watchlist's and GET /api/portfolio's own existing convention -- neither caches the per-ticker analyse() result, only the underlying raw OHLCV fetch is cached (app.data.cache.CachedDataProvider). The aggregation itself (counting/summing over already-fetched, already-cheap analyse() calls) adds negligible cost on top of what GET /api/watchlist already does per request, so a second caching layer here would be complexity without a real performance need, and would risk showing a stale breadth count after the user edits their watchlist/portfolio or after the underlying OHLCV cache refreshes."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) is excluded from bullish_count/bearish_count/neutral_count and from the percentage denominators, and instead counted in a separate unavailable_count field; tracked_ticker_count still includes it.",
+      "rationale": "Mirrors GET /api/watchlist's own null-signal-on-failure convention (nulling the field rather than dropping the row or failing the whole request) -- here, silently excluding an unavailable ticker from tracked_ticker_count entirely would misrepresent the size of the universe being watched, while forcing it into one of the three trend buckets (e.g. defaulting to NEUTRAL) would fabricate a trend reading for a ticker that has none right now. Surfacing it as its own explicit count keeps the response honest about what could and couldn't be computed, at the cost of one extra field callers need to be aware of when computing their own denominator (which is why bullish_pct/bearish_pct/neutral_pct are pre-computed server-side against the correct computable-only denominator, rather than left for the client to derive from tracked_ticker_count and get wrong)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reuse the full app.signals.engine.analyse() pipeline per tracked ticker (via a new private _tide_trend helper in watchlist.py, reading only result.screens['tide']['trend']) rather than calling app.signals.triple_screen.evaluate_tide directly against the fetched weekly OHLCV.",
+      "rationale": "Consistent with this module's existing 'one place, testable once' principle (already stated in watchlist.py's module docstring for the BUY/SELL/HOLD signal itself): a second, narrower code path that fetches OHLCV and derives Tide on its own could silently drift from what GET /api/stocks/{ticker}/analysis's Tide says for the same ticker (e.g. if evaluate_tide's calling convention/default indicator wiring ever changes). The extra compute cost of running the rest of analyse() (Impulse, Wave, Trigger, confidence scoring) just to read one field back out is negligible per ticker and not a new provider call either way, since the daily+weekly OHLCV fetch analyse() needs is identical to what _compute_signal already does for the same ticker elsewhere in this same request cycle (for a ticker that's also on the watchlist)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-watchlist-breadth-proxy"
+  }
 }

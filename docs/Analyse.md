@@ -211,6 +211,13 @@ A held position should be flagged **SELL/reduce** if any of:
 - Price reaches the upper Autoenvelope/channel band with Impulse turning Red (profit-taking zone in an overbought state).
 - Tide flips from BULLISH to BEARISH on the weekly chart for a currently-long position.
 
+### Personal breadth proxy (watchlist/portfolio Tide aggregate)
+True market breadth (New High-New Low Index, % of stocks above their 50-day MA, the Advance/Decline line — Elder ch. 34-36) needs a broad ticker *universe* (e.g. the full S&P 500) to count new highs/lows or above-MA stocks across — this app only ever fetches data for tickers a user has explicitly added, never a broad market universe. Sourcing and refreshing such a universe was judged too heavy for the payoff at this app's current single-user scale (see `docs/ideas.md`'s ch. 34-36 entry, which weighs a real S&P 500 constituent list against this cheaper alternative).
+
+As a cheap, no-new-data-source approximation, `GET /api/watchlist/breadth` aggregates the same Screen 1 (Tide) trend already computed for every ticker on the user's own watchlist **and** portfolio (union, deduplicated) into a BULLISH/BEARISH/NEUTRAL count/percentage breakdown. Elder's own justification for tracking broad breadth at all — "general market trends are responsible for as much as half the movement in individual stocks" (ch. 34) — applies just as well at this smaller, personal scale, even though it isn't a substitute for the real thing: this is explicitly a **personal** breadth proxy, reflecting only the tickers this particular user happens to be tracking, not the market as a whole (see the `frontend-breadth-widget` task for how this distinction is surfaced to the user).
+
+No new provider calls are needed — every one of these tickers' OHLCV is already fetched/analyzed for its own signal on `GET /api/watchlist`/`GET /api/portfolio`. The aggregate is computed fresh on every request rather than cached, matching those endpoints' own convention (only the underlying OHLCV fetch is cached, via `app.data.cache.CachedDataProvider` — see the `backend-watchlist-breadth-proxy` task's `decisions`). A tracked ticker whose Tide can't be computed right now is excluded from the counts/percentages and reported separately (`unavailable_count`) rather than guessed at.
+
 ---
 
 ## 8. Data Requirements

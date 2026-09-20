@@ -1,10 +1,14 @@
-"""GET/POST/DELETE /api/watchlist (docs/architecture/API.md).
+"""GET/POST/DELETE /api/watchlist + GET /api/watchlist/breadth (docs/architecture/API.md).
 
 Each watched ticker is annotated with its live signal/confidence by calling the exact same
 `app.signals.engine.analyse()` that `GET /api/stocks/{ticker}/analysis` uses -- no
 separately-implemented "is this a buy" check, per this task's description ("one place,
 testable once"). See this task's `decisions` entry for the nullable-signal-on-failure and
 idempotent-duplicate-add choices.
+
+`GET /api/watchlist/breadth` (docs/tasks/backend-watchlist-breadth-proxy.json) is a
+different, aggregate view spanning both the watchlist and the portfolio -- see its own
+docstring below.
 """
 
 from datetime import UTC, datetime
@@ -13,10 +17,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
-from app.api.schemas import ErrorDetail, WatchlistItemIn, WatchlistItemOut, WatchlistResponse
+from app.api.schemas import (
+    BreadthResponse,
+    ErrorDetail,
+    WatchlistItemIn,
+    WatchlistItemOut,
+    WatchlistResponse,
+)
 from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
-from app.db.models import WatchlistItemORM
+from app.db.models import PositionORM, WatchlistItemORM
 from app.db.session import get_db
 from app.signals.engine import SignalResult, analyse
 
@@ -56,6 +66,32 @@ def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
         return None
 
     return analyse(ticker, daily_ohlcv, weekly_ohlcv)
+
+
+def _tide_trend(ticker: str, provider: DataProvider) -> str | None:
+    """Screen 1 (Tide) trend for `ticker` ('BULLISH' | 'BEARISH' | 'NEUTRAL'), or `None` if it
+    can't be computed right now -- same narrow `DataProviderError`-only catch as
+    `_compute_signal` above (and `app.api.routers.portfolio._compute_position_signal`), for
+    the same reason: a genuine bug in `analyse()` should still surface as a loud 500, not be
+    swallowed here.
+
+    Reuses the full `analyse()` pipeline rather than calling `app.signals.triple_screen.
+    evaluate_tide` directly, even though only `screens.tide.trend` is read from the result --
+    consistent with this module's own "one place, testable once" principle (module
+    docstring): no second, narrower code path that fetches OHLCV and derives Tide on its own,
+    which could silently drift from what `GET /api/stocks/{ticker}/analysis`'s Tide says for
+    the same ticker. No extra provider calls result either way, since every tracked ticker's
+    OHLCV is already being fetched for this same request's own per-ticker signal computation.
+    See this task's `decisions` entry."""
+    try:
+        daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
+    except DataProviderError:
+        return None
+
+    result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
+    trend: str = result.screens["tide"]["trend"]
+    return trend
 
 
 def _to_out(row: WatchlistItemORM, result: SignalResult | None) -> WatchlistItemOut:
@@ -99,6 +135,64 @@ def get_watchlist(
     )
     return WatchlistResponse(
         items=[_to_out(row, _compute_signal(row.ticker, provider)) for row in rows]
+    )
+
+
+@router.get(
+    "/breadth",
+    response_model=BreadthResponse,
+    operation_id="get_watchlist_breadth",
+    summary="'Personal breadth' -- Tide trend breakdown across the watchlist + portfolio",
+)
+def get_watchlist_breadth(
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> BreadthResponse:
+    """A cheap, no-new-data-source proxy for true market breadth (docs/Analyse.md's
+    "Personal breadth proxy" section, per docs/ideas.md's ch. 34-36 entry): counts/
+    percentages of BULLISH/BEARISH/NEUTRAL Screen 1 (Tide) trend across every distinct
+    ticker the user is tracking -- the union of the watchlist and portfolio, deduplicated so
+    a ticker held in both is only counted once.
+
+    Computed fresh on every request rather than cached at this aggregation layer, matching
+    `GET /api/watchlist`/`GET /api/portfolio`'s own convention -- see this task's
+    `decisions` entry. No new provider calls result: every one of these tickers' OHLCV is
+    already fetched/cached (`app.data.cache.CachedDataProvider`) for its own per-ticker
+    signal on those endpoints.
+
+    A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker,
+    insufficient history, or the data provider being unavailable) is counted in
+    `unavailable_count` and excluded from the BULLISH/BEARISH/NEUTRAL counts and
+    percentages, rather than guessed at -- mirroring `GET /api/watchlist`'s own
+    null-signal-on-failure convention. An empty watchlist+portfolio (or one where every
+    tracked ticker is currently unavailable) returns all-zero counts and 0.0 percentages,
+    not an error."""
+    watchlist_tickers = {row.ticker for row in db.query(WatchlistItemORM.ticker).all()}
+    portfolio_tickers = {row.ticker for row in db.query(PositionORM.ticker).all()}
+    tracked_tickers = watchlist_tickers | portfolio_tickers
+
+    bullish_count = bearish_count = neutral_count = unavailable_count = 0
+    for ticker in tracked_tickers:
+        trend = _tide_trend(ticker, provider)
+        if trend == "BULLISH":
+            bullish_count += 1
+        elif trend == "BEARISH":
+            bearish_count += 1
+        elif trend == "NEUTRAL":
+            neutral_count += 1
+        else:
+            unavailable_count += 1
+
+    computable = bullish_count + bearish_count + neutral_count
+    return BreadthResponse(
+        tracked_ticker_count=len(tracked_tickers),
+        bullish_count=bullish_count,
+        bearish_count=bearish_count,
+        neutral_count=neutral_count,
+        unavailable_count=unavailable_count,
+        bullish_pct=round(bullish_count / computable * 100, 1) if computable else 0.0,
+        bearish_pct=round(bearish_count / computable * 100, 1) if computable else 0.0,
+        neutral_pct=round(neutral_count / computable * 100, 1) if computable else 0.0,
     )
 
 
