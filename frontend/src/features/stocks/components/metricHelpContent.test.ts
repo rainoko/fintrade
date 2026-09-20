@@ -8,11 +8,14 @@ import type {
 } from '../../../api/stocks'
 import {
   accumulationDistributionHelp,
+  adxHelp,
+  atrHelp,
   bearPowerHelp,
   bullPowerHelp,
   channelHelp,
   confidenceHelp,
   countTideTrends,
+  directionalSystemHelp,
   divergenceHelp,
   ema13Help,
   ema26Help,
@@ -1041,6 +1044,153 @@ describe('metricHelpContent', () => {
       const message = obvHelp.interpretValue(points)
       expect(message).toContain('OBV has stayed flat over the 1 bar currently shown')
       expect(message).toContain('It is currently at its own highest point over this window.')
+    })
+  })
+
+  describe('directionalSystemHelp / adxHelp / atrHelp (frontend-trend-strength-chart)', () => {
+    function buildPoint(
+      date: string,
+      trendStrength: Partial<{
+        atr: number | null
+        plus_di: number | null
+        minus_di: number | null
+        adx: number | null
+      }> = {},
+      emaOverride?: number,
+    ): IndicatorHistoryPoint {
+      return {
+        date,
+        tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+        ema_13: emaOverride ?? 100,
+        ema_26: 98,
+        macd_histogram: 0.5,
+        bull_power: 1,
+        bear_power: -1,
+        obv: 5000.0,
+        accumulation_distribution: 1200.0,
+        trend_strength: {
+          atr: 3.8,
+          plus_di: 26.0,
+          minus_di: 18.5,
+          adx: 20.0,
+          ...trendStrength,
+        },
+        signal: 'HOLD',
+        confidence: 0,
+        confidence_band: 'Low',
+      }
+    }
+
+    it('explains +DI/-DI, ADX, and ATR, each citing docs/Analyse.md/docs/ideas.md', () => {
+      expect(directionalSystemHelp.definition).toMatch(/extending beyond the prior day/)
+      expect(directionalSystemHelp.elderContext).toMatch(/trade long only/)
+      expect(adxHelp.definition).toMatch(/DX = 100/)
+      expect(adxHelp.elderContext).toMatch(/rings a bell/)
+      expect(atrHelp.definition).toMatch(/13-day simple average of True Range/)
+      expect(atrHelp.elderContext).toMatch(/at least 1 ATR/)
+    })
+
+    it('reports +DI/-DI as unavailable while either is still warming up', () => {
+      expect(directionalSystemHelp.interpretValue(undefined, undefined)).toBe(
+        'Currently unavailable for this ticker -- both need a 13-day warm-up window over True Range/+DM/-DM.',
+      )
+      expect(directionalSystemHelp.interpretValue(26.0, null)).toBe(
+        'Currently unavailable for this ticker -- both need a 13-day warm-up window over True Range/+DM/-DM.',
+      )
+    })
+
+    it('reports a tie as neither direction dominating', () => {
+      expect(directionalSystemHelp.interpretValue(20.0, 20.0)).toBe(
+        'Currently tied at 20.0 -- neither direction currently dominates.',
+      )
+    })
+
+    it('names +DI as leading (favoring long setups) when it is higher', () => {
+      const message = directionalSystemHelp.interpretValue(28.5, 15.3)
+      expect(message).toContain('+DI leads')
+      expect(message).toContain('long setups only')
+    })
+
+    it('names -DI as leading (favoring short setups) when it is higher', () => {
+      const message = directionalSystemHelp.interpretValue(15.3, 28.5)
+      expect(message).toContain('-DI leads')
+      expect(message).toContain('short setups only')
+    })
+
+    it('reports ADX as unavailable for an empty points array', () => {
+      expect(adxHelp.interpretValue([])).toBe(
+        "Currently unavailable for this ticker -- ADX needs roughly twice +DI/-DI/ATR's own warm-up window (a further 13-bar smoothing of DX on top of theirs).",
+      )
+    })
+
+    it('describes ADX with no prior bar to compare against for a single-point window', () => {
+      const points = [buildPoint('2026-09-02', { adx: 20.0 })]
+      const message = adxHelp.interpretValue(points)
+      expect(message).toContain('with no prior bar shown to compare against')
+    })
+
+    it("describes ADX sitting at its own recent low as a lull", () => {
+      const points = [
+        buildPoint('2026-09-01', { adx: 25.0 }),
+        buildPoint('2026-09-02', { adx: 20.0 }),
+      ]
+      const message = adxHelp.interpretValue(points)
+      expect(message).toContain('falling from the prior bar')
+      expect(message).toContain('sitting at its own low point')
+    })
+
+    it("describes ADX risen 4+ points off its own recent low as ringing Elder's bell", () => {
+      const points = [
+        buildPoint('2026-09-01', { adx: 20.0 }),
+        buildPoint('2026-09-02', { adx: 24.0 }),
+      ]
+      const message = adxHelp.interpretValue(points)
+      expect(message).toContain('rising from the prior bar')
+      expect(message).toContain('risen 4.0 points')
+      expect(message).toContain('at or beyond Elder')
+    })
+
+    it("describes ADX risen less than 4 points off its own recent low as short of Elder's bell", () => {
+      const points = [
+        buildPoint('2026-09-01', { adx: 20.0 }),
+        buildPoint('2026-09-02', { adx: 22.0 }),
+      ]
+      const message = adxHelp.interpretValue(points)
+      expect(message).toContain('risen 2.0 points')
+      expect(message).toContain("short of Elder's own 4-point")
+    })
+
+    it('excludes still-warming-up ADX values when finding the recent low', () => {
+      const points = [
+        buildPoint('2026-09-01', { adx: null }),
+        buildPoint('2026-09-02', { adx: 20.0 }),
+        buildPoint('2026-09-03', { adx: 20.0 }),
+      ]
+      const message = adxHelp.interpretValue(points)
+      expect(message).toContain('flat versus the prior bar')
+    })
+
+    it('reports ATR as unavailable for an empty points array', () => {
+      expect(atrHelp.interpretValue([])).toBe(
+        'Currently unavailable for this ticker -- ATR needs 13 prior True Range values (itself needing a prior close) before it warms up.',
+      )
+    })
+
+    it("states the current ATR value as a percentage of EMA(13) and the 1-ATR stop-distance rule", () => {
+      const points = [buildPoint('2026-09-02', { atr: 4.2 }, 210.0)]
+      const message = atrHelp.interpretValue(points)
+      expect(message).toContain('Currently 4.20 as of 2026-09-02')
+      expect(message).toContain('2.0% of')
+      expect(message).toContain('closer than 1 ATR (4.20) from entry')
+    })
+
+    it('omits a point with a still-warming-up ATR value from the series', () => {
+      const points = [
+        buildPoint('2026-09-01', { atr: null }, 200.0),
+        buildPoint('2026-09-02', { atr: 4.2 }, 210.0),
+      ]
+      const message = atrHelp.interpretValue(points)
+      expect(message).toContain('Currently 4.20 as of 2026-09-02')
     })
   })
 })

@@ -1,0 +1,27 @@
+{
+  "id": "frontend-trend-strength-chart-followups",
+  "title": "Follow-ups from frontend-trend-strength-chart PR review (#176)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-trend-strength-chart"],
+  "references": [
+    "docs/tasks/done/frontend-trend-strength-chart.json",
+    "https://github.com/rainoko/fintrade/pull/176"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #176 (frontend-trend-strength-chart), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "ATR's `interpretValue` (metricHelpContent.ts's atrHelp) expresses ATR as a percentage of the current bar's EMA(13) rather than raw close, since `IndicatorHistoryPoint` has no close field -- explicitly disclosed in the text itself ('used here as a stand-in for current price level'), so not misleading, but EMA(13) lags actual price (especially right after a gap or in a fast-moving market), so the displayed percentage can meaningfully diverge from a true ATR-as-%-of-price reading. Consider adding a raw `close`/`price` field to `IndicatorHistoryPoint` (backend schema + openapi.json regeneration) so this reads as an accurate percentage-of-price rather than percentage-of-EMA13, or explicitly re-evaluate whether the approximation is good enough to keep permanently.",
+      "done": false
+    },
+    {
+      "step": "This task's own `decisions` entry for not extending `IndicatorsPanel.tsx` with +DI/-DI/ADX/ATR stat cards explicitly calls that 'a reasonable, defensible follow-up' since (unlike OBV/A-D) each trend_strength field is a meaningful single-bar value. Decide whether to actually add those stat cards (with their own MetricHelp current-value framing, distinct from the chart legend's) or explicitly decide not to and close this out.",
+      "done": false
+    },
+    {
+      "step": "metricHelpContent.test.ts covers adxHelp's 'rings a bell' 4-point threshold and warm-up/null-exclusion behavior, but no test actually exercises the `ADX_RECENT_LOW_LOOKBACK_BARS = 20` trailing-window truncation itself -- every existing test uses short point arrays (<=3 points) where `.slice(-20)` never truncates anything. Add a test with >20 points where the true minimum ADX value falls outside the trailing 20-bar window, asserting the reported 'recent low' is the in-window minimum, not the all-time minimum.",
+      "done": false
+    }
+  ]
+}

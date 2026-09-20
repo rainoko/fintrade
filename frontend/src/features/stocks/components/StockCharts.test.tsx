@@ -64,6 +64,7 @@ describe('StockCharts', () => {
               bear_power: -1.1,
               stochastic_k: 55.0,
               force_index_2ema: 1000.0,
+              trend_strength: { atr: 3.8, plus_di: 26.0, minus_di: 18.5, adx: 20.0 },
               signal: 'HOLD',
               confidence: 0,
               confidence_band: 'Low',

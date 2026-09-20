@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { HistoryInterval } from '../../../api/stocks'
 import OscillatorChart from './OscillatorChart'
 import PriceChart, { DEFAULT_INTERVAL, DEFAULT_RANGE } from './PriceChart'
+import TrendStrengthChart from './TrendStrengthChart'
 import VolumeIndicatorsChart from './VolumeIndicatorsChart'
 
 export interface StockChartsProps {
@@ -12,10 +13,11 @@ export interface StockChartsProps {
 /**
  * Composes the candlestick `PriceChart` (OHLCV + EMA13/EMA26 + BUY/SELL
  * signal overlay) with `OscillatorChart` (historical Stochastic %K/Force
- * Index/MACD Histogram) and `VolumeIndicatorsChart` (historical OBV/A-D,
- * frontend-volume-indicators-chart) beneath it, keeping all three panes on
- * the exact same range/interval selection — the "separate synced panel
- * beneath the price chart" this task's description calls for.
+ * Index/MACD Histogram), `VolumeIndicatorsChart` (historical OBV/A-D,
+ * frontend-volume-indicators-chart), and `TrendStrengthChart` (historical
+ * +DI/-DI/ADX/ATR, frontend-trend-strength-chart) beneath it, keeping all
+ * four panes on the exact same range/interval selection — the "separate
+ * synced panel beneath the price chart" this task's description calls for.
  *
  * `PriceChart` still owns its own range/interval `ToggleButtonGroup`
  * controls and local state (unchanged — see its own doc comment); this
@@ -53,6 +55,7 @@ export default function StockCharts({ ticker }: StockChartsProps) {
       />
       <OscillatorChart ticker={ticker} range={range} enabled={interval === 'daily'} />
       <VolumeIndicatorsChart ticker={ticker} range={range} enabled={interval === 'daily'} />
+      <TrendStrengthChart ticker={ticker} range={range} enabled={interval === 'daily'} />
     </Stack>
   )
 }

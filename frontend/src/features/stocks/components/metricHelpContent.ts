@@ -860,3 +860,114 @@ export const tideRegionHelp = {
     return `Across the ${total} bars currently shown: ${pct(bullish)}% Bullish, ${pct(bearish)}% Bearish, ${pct(neutral)}% Neutral. Today's (rightmost) background is ${latestLabel}.`
   },
 }
+
+// ---------------------------------------------------------------------------
+// TrendStrengthChart.tsx (frontend-trend-strength-chart)
+// ---------------------------------------------------------------------------
+
+/**
+ * How many trailing bars count as "recent" when looking for ADX's own low
+ * point for the "rings a bell" rule below -- about a month of trading days.
+ * Elder's own text (docs/ideas.md) gives the *shape* of the rule (a rise of
+ * 4 steps off ADX's own low point, e.g. 9 -> 13) but no explicit window over
+ * which "its own low point" should be searched -- long enough that a
+ * months-old trough isn't mistaken for "recent," short enough that this
+ * reads as the *current* lull, not the whole history's minimum. A genuine
+ * judgment call (see this task's `decisions` entry), not something either
+ * doc pins down numerically.
+ */
+const ADX_RECENT_LOW_LOOKBACK_BARS = 20
+
+interface AdxSeriesEntry {
+  date: string
+  value: number
+}
+
+function adxSeries(points: readonly IndicatorHistoryPoint[]): AdxSeriesEntry[] {
+  const series: AdxSeriesEntry[] = []
+  for (const point of points) {
+    const adx = point.trend_strength?.adx
+    if (isKnown(adx)) {
+      series.push({ date: point.date, value: adx })
+    }
+  }
+  return series
+}
+
+export const directionalSystemHelp = {
+  metricLabel: '+DI / -DI (13)',
+  definition:
+    "The Directional System's two directional components (docs/Analyse.md §4 row 16, Elder ch. 24): +DI is the 13-day smoothed portion of each day's high extending beyond the prior day's high, expressed as a percentage of similarly smoothed True Range; -DI mirrors it using each day's low extending beyond the prior day's low. Both always >= 0.",
+  elderContext:
+    "Elder's own trading rule (docs/ideas.md) -- trade long only while +DI > -DI, short only while the reverse -- is not evaluated by this app's own BUY/SELL/HOLD signal or confidence score (computation + exposure only, per the backend-indicator-atr-adx task's explicit scope note). Plotted on the same pane as ADX (below), since all three share the same underlying smoothed True Range/+DM/-DM computation and the same 0-100-ish scale.",
+  interpretValue(
+    plusDi: number | null | undefined,
+    minusDi: number | null | undefined,
+  ): string {
+    if (!isKnown(plusDi) || !isKnown(minusDi)) {
+      return 'Currently unavailable for this ticker -- both need a 13-day warm-up window over True Range/+DM/-DM.'
+    }
+    if (plusDi === minusDi) {
+      return `Currently tied at ${plusDi.toFixed(1)} -- neither direction currently dominates.`
+    }
+    const leader = plusDi > minusDi ? '+DI' : '-DI'
+    const bias = plusDi > minusDi ? 'long' : 'short'
+    return `Currently +DI ${plusDi.toFixed(1)} vs -DI ${minusDi.toFixed(1)} -- ${leader} leads, so Elder's own rule would favor watching for ${bias} setups only right now (this app's own signal doesn't gate on this).`
+  },
+}
+
+export const adxHelp = {
+  metricLabel: 'ADX (13)',
+  definition:
+    'Average Directional Index (docs/Analyse.md §4 row 16, Elder ch. 24): DX = 100 x |+DI - -DI| / (+DI + -DI), itself further smoothed over a trailing 13-day average. Measures trend STRENGTH only -- regardless of direction -- not which way price is moving.',
+  elderContext:
+    "Elder's headline new-trend-detection tool (docs/ideas.md): trust trend-following logic only while ADX is rising -- a falling ADX means increasing whipsaw risk regardless of its absolute level. ADX sitting below both DI lines marks a lull (the longer it stays there, the stronger the eventual move); a rise of 4 steps off its own recent low point (e.g. 9 -> 13) specifically 'rings a bell' on a new trend being born. None of this is evaluated by this app's own signal/confidence computation -- computation + exposure only.",
+  interpretValue(points: readonly IndicatorHistoryPoint[]): string {
+    const series = adxSeries(points)
+    if (series.length === 0) {
+      return "Currently unavailable for this ticker -- ADX needs roughly twice +DI/-DI/ATR's own warm-up window (a further 13-bar smoothing of DX on top of theirs)."
+    }
+    const current = series[series.length - 1]
+    const prior = series.length > 1 ? series[series.length - 2] : null
+    const directionClause = prior
+      ? current.value > prior.value
+        ? 'rising from the prior bar'
+        : current.value < prior.value
+          ? 'falling from the prior bar'
+          : 'flat versus the prior bar'
+      : 'with no prior bar shown to compare against'
+    const window = series.slice(-ADX_RECENT_LOW_LOOKBACK_BARS)
+    const low = window.reduce((min, entry) => (entry.value < min.value ? entry : min))
+    const riseFromLow = current.value - low.value
+    const bellClause =
+      current.value <= low.value
+        ? ` It is currently sitting at its own low point over the last ${window.length} bar${window.length === 1 ? '' : 's'} shown -- a lull; watch for it to start climbing.`
+        : riseFromLow >= 4
+          ? ` It has risen ${riseFromLow.toFixed(1)} points off its own recent low of ${low.value.toFixed(1)} (${low.date}) -- at or beyond Elder's own 4-point "rings a bell" threshold for a new trend being born.`
+          : ` It has risen ${riseFromLow.toFixed(1)} points off its own recent low of ${low.value.toFixed(1)} (${low.date}) -- short of Elder's own 4-point "rings a bell" threshold for a new trend being born.`
+    return `Currently ${current.value.toFixed(1)} as of ${current.date}, ${directionClause}.${bellClause} Elder's own rule: trust trend-following logic only while ADX is rising.`
+  },
+}
+
+export const atrHelp = {
+  metricLabel: 'ATR (13)',
+  definition:
+    "Average True Range (docs/Analyse.md §4 row 16, Elder ch. 24): the 13-day simple average of True Range (max(high - low, |high - prior close|, |low - prior close|)) -- a volatility measure in the ticker's own price units, always >= 0.",
+  elderContext:
+    "Unlike +DI/-DI/ADX (also part of the Directional System, same 13-day warm-up family), ATR says nothing about direction or trend strength -- only how much this ticker typically moves per day right now. Elder's own numeric usage rules (docs/ideas.md, not evaluated by this app): a protective stop should sit at least 1 ATR from entry (closer sits inside normal daily noise and risks getting stopped out by randomness, not a real reversal); profit targets are commonly staged at +1/+2/+3 ATR; a single day's move beyond +-3 ATR is rare/extreme and tends to mean-revert. Computation + exposure only -- this app doesn't compute stop distance or profit targets from ATR today.",
+  interpretValue(points: readonly IndicatorHistoryPoint[]): string {
+    const series: { date: string; atr: number; price: number }[] = []
+    for (const point of points) {
+      const atr = point.trend_strength?.atr
+      if (isKnown(atr) && isKnown(point.ema_13)) {
+        series.push({ date: point.date, atr, price: point.ema_13 })
+      }
+    }
+    if (series.length === 0) {
+      return 'Currently unavailable for this ticker -- ATR needs 13 prior True Range values (itself needing a prior close) before it warms up.'
+    }
+    const latest = series[series.length - 1]
+    const pctOfPrice = (latest.atr / latest.price) * 100
+    return `Currently ${latest.atr.toFixed(2)} as of ${latest.date} -- about ${pctOfPrice.toFixed(1)}% of this ticker's EMA(13) (${latest.price.toFixed(2)}, used here as a stand-in for current price level since this endpoint has no raw close field). Elder's own rule of thumb: a protective stop placed closer than 1 ATR (${latest.atr.toFixed(2)}) from entry sits inside this ticker's normal day-to-day noise.`
+  },
+}
