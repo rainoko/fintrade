@@ -1027,8 +1027,8 @@
       "id": "backend-channel-envelope-exposure-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-channel-envelope-exposure-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-channel-envelope-exposure-followups.json"
     },
     {
       "id": "backend-profit-target",

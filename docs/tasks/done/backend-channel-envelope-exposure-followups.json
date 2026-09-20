@@ -1,0 +1,37 @@
+{
+  "id": "backend-channel-envelope-exposure-followups",
+  "title": "Backend channel/Autoenvelope exposure -- non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-channel-envelope-exposure"],
+  "references": [
+    "docs/tasks/backend-channel-envelope-exposure.json#review",
+    "https://github.com/rainoko/fintrade/pull/146"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #146 (backend-channel-envelope-exposure), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "app/signals/engine.py's TestAnalyseHistoryPerformance class (backend/tests/unit/signals/test_engine.py) asserts, via a wraps= spy, that ema/macd_components/stochastic_oscillator/force_index are each computed exactly once per analyse_history() call regardless of bar count -- the whole point of the precompute-and-slice pattern PR #146 itself extended to channel_upper/channel_lower (see that task's second decisions entry). PR #146 did not add an analogous spy-based test asserting autoenvelope() is likewise called exactly once (not once per bar) inside analyse_history(); manual inspection of the code confirms the call site is correctly placed outside the per-bar loop (backend/app/signals/engine.py's channel_bands_full = autoenvelope(daily_close, mid=ema_13_full) line, computed once, then sliced via .iloc[:i+1] per bar), so this is a test-coverage symmetry gap, not a live bug -- but a future refactor could silently reintroduce a per-bar autoenvelope() call without any test catching it. Add a mocker.spy/wraps= assertion (assert_count == 1) for autoenvelope, mirroring the existing ema/macd/stochastic/force_index assertions in that same test class.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-channel-envelope-exposure-followups",
+    "pr_number": 179,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/179",
+    "pushed_at": "2026-09-20T05:46:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T05:49:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/179",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified the new wraps=/patch spy test (test_autoenvelope_computed_once_regardless_of_bar_count) mirrors the sibling ema/macd/stochastic/force_index assertions in TestAnalyseHistoryPerformance exactly, and traced app/signals/engine.py's two autoenvelope call sites (the unconditional precompute in analyse_history() vs analyse()'s guarded fallback, which is never hit since channel_upper/channel_lower are always passed per bar) to confirm the assertion is genuinely falsifiable, not tautological -- a reintroduced per-bar call would push call_count to 1+len(daily_ohlcv), not 1. Backend suite: 803 passed, 99.92% coverage (no regression, above the 90% gate). ruff/mypy clean on the touched file; a pre-existing, unrelated 7-finding ruff gap in test_stochastic.py/test_triple_screen.py was confirmed byte-identical to main and out of scope for this PR. No API/schema or frontend changes (openapi.json untouched) -- no browser walkthrough or e2e run needed, PR has no UI surface. code-review skill run against the diff found no correctness or reuse/simplification issues. scripts/validate_tasks.py clean. No new non-blocking findings; no followups task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T05:52:26Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app: 803 passed, 99.92% coverage, matching pr-reviewer's numbers exactly; ruff/mypy clean on both engine.py and the new test file; scripts/validate_tasks.py clean. Read engine.py's two autoenvelope() call sites directly (line 761 in analyse_history's unconditional per-history precompute vs line 485 in analyse()'s `if channel_upper is None or channel_lower is None` fallback, which analyse_history's per-bar loop never triggers since it always passes channel_upper_full/channel_lower_full.iloc slices) and confirmed the wraps= spy on the shared module-level `autoenvelope` name would catch a per-bar regression (call_count would become 1+len(daily_ohlcv), not 1)."
+  }
+}
