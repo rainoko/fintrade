@@ -236,6 +236,11 @@ export interface paths {
          *     before `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that
          *     actually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally
          *     anyway (see that function's own docstring and this task's `decisions` entry).
+         *
+         *     `profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md §7)
+         *     is only ever computed for a fresh BUY `signal` -- see that module's own docstring and the
+         *     `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
+         *     stop formula rules out a symmetric SELL-side reward:risk ratio.
          */
         get: operations["get_stock_analysis"];
         put?: never;
@@ -468,6 +473,8 @@ export interface components {
             indicators: components["schemas"]["Indicators"];
             /** @description The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions). */
             kangaroo_tail: components["schemas"]["KangarooTailOut"] | null;
+            /** @description Suggested profit target + reward:risk ratio for this ticker's CURRENT signal (docs/Analyse.md §7, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). Only ever non-null when `signal` is 'BUY': this app's protective-stop formula (and its whole portfolio model) is explicitly long-only, so there's no symmetric short-side stop to pair with a SELL-side reward:risk ratio -- see the backend-profit-target task's `decisions` entry. Also null for a BUY when neither target technique currently produces a candidate (e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above current price). */
+            profit_target?: components["schemas"]["ProfitTargetOut"] | null;
             screens: components["schemas"]["Screens"];
             /**
              * Signal
@@ -1024,6 +1031,40 @@ export interface components {
              * @description (current_price - avg_cost_basis) / avg_cost_basis, as a percentage. Null under the same condition as current_price.
              */
             unrealized_pnl_pct?: number | null;
+        };
+        /** ProfitTargetOut */
+        ProfitTargetOut: {
+            /**
+             * Distance To Stop
+             * @description Current close minus the same protective-stop value docs/Analyse.md §7's SafeZone formula would compute for this ticker right now (`app.portfolio.risk.stop_from_price_action`) -- the trade's per-share risk if entered at today's close. Can be <= 0 in the rare case today's close is already at or below that stop.
+             */
+            distance_to_stop: number;
+            /**
+             * Distance To Target
+             * @description `price` minus current close -- the trade's per-share potential reward if entered at today's close. Always > 0 by construction (both target techniques only ever produce a price above current close).
+             */
+            distance_to_target: number;
+            /**
+             * Meets Minimum Reward Risk
+             * @description Whether reward_risk_ratio >= 2.0 -- Elder's own explicit minimum ('potential reward should be at least 2x the risk... it seldom pays to risk a dollar to make a dollar', docs/ideas.md ch. 53). False (never null) when reward_risk_ratio itself is null, since an undefined ratio can't meet the bar either -- this is the explicit 'flag, don't silently hide' signal docs/ideas.md calls for, not something a client has to derive itself from the raw ratio.
+             */
+            meets_minimum_reward_risk: boolean;
+            /**
+             * Price
+             * @description Suggested profit target price for this fresh BUY signal (docs/Analyse.md §7, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). See `source` for which of the two techniques below produced this number.
+             */
+            price: number;
+            /**
+             * Reward Risk Ratio
+             * @description distance_to_target / distance_to_stop. Null when distance_to_stop <= 0 (an undefined ratio -- see distance_to_stop's own description), not a fabricated number.
+             */
+            reward_risk_ratio?: number | null;
+            /**
+             * Source
+             * @description Which technique produced `price`: 'channel' -- ch. 58's own Tradebill formula, current close + 30% of today's Autoenvelope/channel height (same channel `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose); 'support_resistance' -- the nearest `support_resistance_zones` level above current close. Whichever of the two is TIGHTER (closer to current close) is used -- see the backend-profit-target task's `decisions` entry for why the more conservative target is preferred over a fixed preference order.
+             * @enum {string}
+             */
+            source: "channel" | "support_resistance";
         };
         /** RiskPosition */
         RiskPosition: {

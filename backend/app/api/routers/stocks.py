@@ -16,6 +16,7 @@ from app.api.schemas import (
     Indicators,
     KangarooTailOut,
     OHLCVBar,
+    ProfitTargetOut,
     Screens,
     SupportResistanceZone,
     TideScreen,
@@ -31,6 +32,7 @@ from app.indicators.accumulation_distribution import (
     accumulation_distribution as compute_accumulation_distribution,
 )
 from app.indicators.obv import obv as compute_obv
+from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.signals.divergence import Divergence
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
 from app.signals.kangaroo_tail import KangarooTail
@@ -264,6 +266,21 @@ def _kangaroo_tail_to_schema(tail: KangarooTail) -> KangarooTailOut:
     )
 
 
+def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:
+    """Maps `app.portfolio.profit_target.ProfitTarget` (the domain type) onto `ProfitTargetOut`
+    (the API schema) -- same boundary-mapping pattern as `_zone_to_schema`/`_divergence_to_
+    schema`/`_kangaroo_tail_to_schema` above (no `pd.Timestamp` fields here, so this one is a
+    straight 1:1 field copy)."""
+    return ProfitTargetOut(
+        price=target.price,
+        source=target.source,
+        distance_to_stop=target.distance_to_stop,
+        distance_to_target=target.distance_to_target,
+        reward_risk_ratio=target.reward_risk_ratio,
+        meets_minimum_reward_risk=target.meets_minimum_reward_risk,
+    )
+
+
 @router.get(
     "/{ticker}/analysis",
     response_model=AnalysisResponse,
@@ -297,7 +314,12 @@ def get_analysis(
     unsettled-latest-bar condition) dropped via `app.signals.engine.drop_malformed_daily_bars`
     before `as_of` is derived from it, so `as_of` reflects the same freshest *real* bar that
     actually drove `analyse()` -- not a malformed bar `analyse()` itself excludes internally
-    anyway (see that function's own docstring and this task's `decisions` entry)."""
+    anyway (see that function's own docstring and this task's `decisions` entry).
+
+    `profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md §7)
+    is only ever computed for a fresh BUY `signal` -- see that module's own docstring and the
+    `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
+    stop formula rules out a symmetric SELL-side reward:risk ratio."""
     ticker = ticker.upper()
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
@@ -320,6 +342,20 @@ def get_analysis(
     # on every one of `analyse_history()`'s up-to-thousands of per-bar calls for no consumer --
     # see this task's `decisions` entry.
     zones = detect_support_resistance_zones(daily_ohlcv)
+    # BUY-only (see app.portfolio.profit_target's module docstring and this task's `decisions`
+    # entry for why) -- reuses `zones` above and `result.indicators["channel_upper"/"channel_
+    # lower"]` rather than recomputing either, matching this endpoint's existing
+    # compute-once-share pattern.
+    profit_target = (
+        suggest_profit_target(
+            daily_ohlcv,
+            zones,
+            channel_upper=result.indicators["channel_upper"],
+            channel_lower=result.indicators["channel_lower"],
+        )
+        if result.signal == "BUY"
+        else None
+    )
 
     latest_bar = daily_ohlcv.index[-1] if len(daily_ohlcv) > 0 else weekly_ohlcv.index[-1]
     as_of = latest_bar.date() if hasattr(latest_bar, "date") else latest_bar
@@ -348,6 +384,7 @@ def get_analysis(
         kangaroo_tail=(
             _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
         ),
+        profit_target=_profit_target_to_schema(profit_target) if profit_target is not None else None,
     )
 
 

@@ -65,14 +65,18 @@ def _get_analysis(provider: _StubProvider, ticker: str = "AAPL"):
         app.dependency_overrides.pop(get_data_provider, None)
 
 
-def _buy_daily_ohlcv() -> pd.DataFrame:
-    # 20 days of a gentle uptrend, then a 5-day steep selloff on elevated volume (an oversold
-    # pullback), then one more day rallying sharply back above the prior day's high (the
-    # Trigger) -- copied from test_engine.py's test_end_to_end_buy_after_pullback_and_trigger.
-    closes = [100 + i * 0.5 for i in range(20)]
+def _buy_daily_ohlcv(uptrend_days: int = 20) -> pd.DataFrame:
+    # `uptrend_days` days of a gentle uptrend, then a 5-day steep selloff on elevated volume
+    # (an oversold pullback), then one more day rallying sharply back above the prior day's
+    # high (the Trigger) -- copied from test_engine.py's
+    # test_end_to_end_buy_after_pullback_and_trigger, with `uptrend_days` (default 20,
+    # matching the original fixture exactly) made overridable so TestProfitTarget below can
+    # extend the prefix past the Autoenvelope channel's ~100-bar warm-up window while keeping
+    # the exact same BUY-triggering tail shape.
+    closes = [100 + i * 0.5 for i in range(uptrend_days)]
     closes += [closes[-1] - 3 * i for i in range(1, 6)]
     closes.append(closes[-1] + 8.0)
-    volumes = [1_000_000] * 24 + [9_000_000, 3_000_000]
+    volumes = [1_000_000] * (uptrend_days + 4) + [9_000_000, 3_000_000]
     return pd.DataFrame(
         {
             "open": closes,
@@ -296,6 +300,11 @@ class TestGetAnalysis:
         # needs more history than this 26-bar fixture has) -- see TestDivergenceField below
         # for the populated case.
         assert body["divergence"] is None
+        # profit_target needs either a channel (this fixture is far too short) or a
+        # qualifying support/resistance zone above current price (also absent here, per
+        # support_resistance_zones' own emptiness above) -- see TestProfitTarget below for
+        # the populated case.
+        assert body["profit_target"] is None
 
     def test_malformed_latest_daily_bar_is_excluded_not_nulled(self) -> None:
         """Regression test for the real, observed yfinance condition this task fixes: the
@@ -400,6 +409,10 @@ class TestGetAnalysis:
         assert body["screens"]["wave"]["showed_rally_in_lookback"] is True
         assert body["screens"]["wave"]["showed_pullback_in_lookback"] is False
         assert len(body["confidence_breakdown"]) == 5
+        # profit_target is BUY-only (this app's protective-stop formula is long-only, with
+        # no symmetric SELL-side stop to pair a reward:risk ratio against -- see
+        # app.portfolio.profit_target's module docstring).
+        assert body["profit_target"] is None
 
     def test_hold_signal_has_zero_confidence_and_empty_breakdown(self) -> None:
         provider = _StubProvider(
@@ -419,6 +432,7 @@ class TestGetAnalysis:
         assert body["screens"]["tide"]["trend"] == "NEUTRAL"
         assert body["screens"]["wave"]["showed_pullback_in_lookback"] is None
         assert body["screens"]["wave"]["showed_rally_in_lookback"] is None
+        assert body["profit_target"] is None
 
     def test_ticker_is_uppercased(self) -> None:
         provider = _StubProvider(
@@ -557,3 +571,48 @@ class TestSupportResistanceZones:
         assert false_breakout["breakout_date"] == daily.index[48].date().isoformat()
         assert false_breakout["reentry_date"] == daily.index[49].date().isoformat()
         assert false_breakout["extreme_price"] == pytest.approx(120.0)
+
+
+class TestProfitTarget:
+    """Integration coverage for profit_target's end-to-end wiring (app.portfolio.profit_target
+    .suggest_profit_target -> _profit_target_to_schema -> AnalysisResponse.profit_target) --
+    the target-selection algorithm itself is exhaustively unit-tested against hand-derived
+    values in tests/unit/test_portfolio_profit_target.py; these tests only need to prove this
+    route actually calls it (BUY-only) and serializes the result correctly."""
+
+    def test_populated_for_a_buy_signal_with_sufficient_history_for_a_channel(self) -> None:
+        # Same BUY-triggering tail as _buy_daily_ohlcv()'s default, prefixed with enough extra
+        # uptrend days to clear the Autoenvelope channel's ~100-bar warm-up window -- so this
+        # is a genuine BUY signal with a real (non-null) channel to derive a target from, and
+        # (per TestSupportResistanceZones' own fixtures, which need deliberately-repeated
+        # touches this monotonic prefix never produces) no qualifying support/resistance zone,
+        # so the channel technique is unambiguously what's exercised here.
+        daily = _buy_daily_ohlcv(uptrend_days=100)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["signal"] == "BUY"
+        assert body["support_resistance_zones"] == []
+        assert body["indicators"]["channel_upper"] is not None
+        assert body["indicators"]["channel_lower"] is not None
+
+        profit_target = body["profit_target"]
+        assert profit_target is not None
+        assert profit_target["source"] == "channel"
+        current_price = daily["close"].iloc[-1]
+        channel_height = body["indicators"]["channel_upper"] - body["indicators"]["channel_lower"]
+        assert profit_target["price"] == pytest.approx(current_price + 0.30 * channel_height, abs=1e-6)
+        assert profit_target["distance_to_target"] == pytest.approx(profit_target["price"] - current_price, abs=1e-6)
+        assert profit_target["distance_to_target"] > 0
+        # This fixture's channel-derived target sits much closer to current price than its
+        # protective stop does, so the ratio genuinely fails the 2:1 rule -- exercising the
+        # "flag, don't silently hide" path end to end.
+        assert profit_target["reward_risk_ratio"] is not None
+        assert profit_target["reward_risk_ratio"] == pytest.approx(
+            profit_target["distance_to_target"] / profit_target["distance_to_stop"], abs=1e-6
+        )
+        assert profit_target["reward_risk_ratio"] < 2.0
+        assert profit_target["meets_minimum_reward_risk"] is False

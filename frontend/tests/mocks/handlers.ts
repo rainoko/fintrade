@@ -109,6 +109,16 @@ const analysisFixture: AnalysisResponse = {
       false_breakout: null,
     },
   ],
+  // BUY-only (per docs/Analyse.md §7 / the backend-profit-target task) -- non-null here since
+  // this fixture's own `signal` is 'BUY'.
+  profit_target: {
+    price: 245.0,
+    source: 'channel',
+    distance_to_stop: 9.3,
+    distance_to_target: 18.6,
+    reward_risk_ratio: 2.0,
+    meets_minimum_reward_risk: true,
+  },
 }
 
 function buildHistoryFixture(ticker: string, interval: HistoryInterval): HistoryResponse {
