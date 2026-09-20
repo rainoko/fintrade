@@ -25,5 +25,11 @@
       "alternatives_considered": "Rejected fixing only summer (the one flagged as failing even the 3:1 UI-component floor) and leaving spring/winter at ~3.3:1: that would satisfy the checklist's literal minimum but leave three of four season colors still failing the text-contrast bar their actual usage (Chip label text) is held to, undermining the fix's purpose."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge-followups",
+    "pr_number": 200,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/200",
+    "pushed_at": "2026-09-20T13:55:29Z"
+  }
 }
