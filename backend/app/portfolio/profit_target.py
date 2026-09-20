@@ -37,7 +37,7 @@ from typing import Literal
 
 import pandas as pd
 
-from app.portfolio.risk import stop_from_price_action
+from app.portfolio.risk import stop_from_price_action, validate_daily_ohlcv_columns
 from app.signals.support_resistance import Zone
 
 TargetSource = Literal["channel", "support_resistance"]
@@ -124,8 +124,12 @@ def suggest_profit_target(
       per-share risk if entered at current price. Can be <= 0 in the rare case current price is
       already at or below that stop.
     - `distance_to_target`: the chosen target price minus current price -- the trade's
-      per-share potential reward. Always > 0 by construction (both candidate techniques only
-      ever produce a price above current price).
+      per-share potential reward. Non-negative by construction (both candidate techniques only
+      ever produce a price at or above current price) -- strictly positive for every realistic
+      input, but not a strict invariant the code actually enforces: the channel-derived target
+      degenerates to exactly current price (`distance_to_target == 0`) in the fully degenerate
+      case where the Autoenvelope's rolling average deviation is exactly 0 across the whole
+      lookback window (`channel_upper == channel_lower`).
     - `reward_risk_ratio`: `distance_to_target / distance_to_stop`, or `None` when
       `distance_to_stop <= 0` (an undefined ratio, not a fabricated number).
     - `meets_minimum_reward_risk`: whether `reward_risk_ratio >= 2.0`, Elder's own explicit
@@ -141,10 +145,16 @@ def suggest_profit_target(
 
     Raises:
         ValueError: if `daily_ohlcv` is non-empty but missing a required column (`low`/
-            `close`), propagated from `stop_from_price_action`.
+            `close`) -- validated up front via `app.portfolio.risk
+            .validate_daily_ohlcv_columns`, the same check `stop_from_price_action` itself
+            would otherwise run, so a malformed-but-non-empty frame fails here with this
+            documented error before `current_price`'s own `daily_ohlcv["close"]` read below
+            ever runs (previously that read could raise a bare `KeyError` instead, for a frame
+            missing `close` specifically -- see this task's `decisions` entry).
     """
     if daily_ohlcv.empty:
         return None
+    validate_daily_ohlcv_columns(daily_ohlcv)
     current_price = float(daily_ohlcv["close"].iloc[-1])
 
     candidates: list[tuple[float, TargetSource]] = []
@@ -167,7 +177,10 @@ def suggest_profit_target(
     # The TIGHTER (closer to current price) candidate wins -- see this module's own docstring.
     price, source = min(candidates, key=lambda candidate: abs(candidate[0] - current_price))
 
-    stop = stop_from_price_action(daily_ohlcv, short_ema=short_ema)
+    # columns_validated=True: validate_daily_ohlcv_columns(daily_ohlcv) above already checked
+    # the identical low/close requirement -- avoids a redundant second pass, mirroring
+    # app.portfolio.exits.evaluate_exit_flags's own convention.
+    stop = stop_from_price_action(daily_ohlcv, short_ema=short_ema, columns_validated=True)
     distance_to_stop = current_price - stop
     distance_to_target = price - current_price
     reward_risk_ratio = distance_to_target / distance_to_stop if distance_to_stop > 0 else None

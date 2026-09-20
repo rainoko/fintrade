@@ -121,6 +121,23 @@ class TestSupportResistanceTighterTarget:
         assert target is not None
         assert target.source == "channel"
 
+    def test_a_support_labeled_zone_above_current_price_still_qualifies(self) -> None:
+        """`_nearest_resistance_price` filters by each zone's own price POSITION relative to
+        current price, not by its `role` label -- a `role='support'` zone that happens to sit
+        above current price (role and position rarely coincide, but the code deliberately
+        doesn't rely on that coincidence, per this module's own docstring and this task's
+        `decisions` entry) must still be picked up as a candidate."""
+        target = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV,
+            zones=[_zone(lower=109.0, upper=111.0, role="support")],
+            channel_upper=None,
+            channel_lower=None,
+        )
+
+        assert target is not None
+        assert target.source == "support_resistance"
+        assert target.price == pytest.approx(109.0, abs=1e-9)
+
     def test_nearest_of_multiple_qualifying_zones_is_used(self) -> None:
         target = suggest_profit_target(
             _STOP_FIXTURE_DAILY_OHLCV,
@@ -190,3 +207,18 @@ class TestNoCandidateOrEmptyInput:
         )
 
         assert target is None
+
+    def test_non_empty_frame_missing_close_column_raises_value_error_not_key_error(self) -> None:
+        """A non-empty `daily_ohlcv` missing `close` must raise the documented `ValueError`
+        (validated up front via `app.portfolio.risk.validate_daily_ohlcv_columns`), not a bare
+        `KeyError` from `current_price`'s own column read -- see this task's `decisions`
+        entry."""
+        daily_ohlcv = pd.DataFrame({"low": [99.0, 100.0]})
+
+        with pytest.raises(ValueError, match="close"):
+            suggest_profit_target(
+                daily_ohlcv,
+                zones=[],
+                channel_upper=110.0,
+                channel_lower=100.0,
+            )

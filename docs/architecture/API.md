@@ -398,6 +398,8 @@ Removes a ticker from the watchlist. `204 No Content` on success, `404` if the t
 
 A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) is counted in `unavailable_count` and excluded from the BULLISH/BEARISH/NEUTRAL counts and the percentages — mirroring `GET /api/watchlist`'s own null-signal-on-failure convention rather than guessing. An empty watchlist+portfolio (or one where every tracked ticker is currently unavailable) returns all-zero counts and `0.0` percentages, not an error. Computed fresh on every request, not cached at this aggregation layer — see the `backend-watchlist-breadth-proxy` task's `decisions`.
 
+`bullish_pct`/`bearish_pct`/`neutral_pct` are each rounded independently to 1 decimal place, so they don't always sum to exactly 100.0 (an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) — a client rendering all three should not assume they total 100, and shouldn't "fix" the display by silently adjusting one bucket. See `docs/Analyse.md`'s Personal breadth proxy section.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.

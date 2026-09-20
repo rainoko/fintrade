@@ -957,8 +957,15 @@
       "id": "backend-swing-point-detector-followups",
       "area": "backend/signals",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-swing-point-detector-followups.json"
+    },
+    {
+      "id": "backend-swing-point-detector-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-swing-point-detector-followups.json"
+      "path": "docs/tasks/backend-swing-point-detector-followups-followups.json"
     },
     {
       "id": "backend-divergence-detection",
@@ -1111,8 +1118,8 @@
       "id": "backend-watchlist-breadth-proxy-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-watchlist-breadth-proxy-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-watchlist-breadth-proxy-followups.json"
     },
     {
       "id": "backend-weekly-impulse-screen1",
@@ -1383,8 +1390,8 @@
     {
       "id": "backend-profit-target-followups",
       "area": "backend/signals",
-      "state": "planned",
-      "path": "docs/tasks/backend-profit-target-followups.json",
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target-followups.json",
       "skill": null
     },
     {

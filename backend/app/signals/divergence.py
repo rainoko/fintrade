@@ -54,7 +54,7 @@ from typing import Literal, cast
 
 import pandas as pd
 
-from app.signals.swing_points import SwingPoint, swing_highs, swing_lows
+from app.signals.swing_points import SwingPoint, find_swing_points, swing_highs, swing_lows
 
 DivergenceKind = Literal["bullish", "bearish"]
 DivergenceIndicator = Literal["macd_histogram", "stochastic", "rsi"]
@@ -609,9 +609,16 @@ def build_divergence_swing_cache(
     """Builds a ``DivergenceSwingCache`` for ``price`` (typically a ticker's full daily close
     series) -- one swing-point pass in each direction, shared by every later
     ``confirmed_divergence_as_of`` call regardless of how many indicators/bars it's asked
-    about."""
-    lows = swing_lows(price, window=window)
-    highs = swing_highs(price, window=window)
+    about.
+
+    Calls ``find_swing_points`` once and partitions the single result by ``kind``, rather than
+    ``swing_lows``/``swing_highs`` (each of which independently reruns the full scan and then
+    filters -- see ``docs/tasks/backend-swing-point-detector-followups.json``'s ``decisions``
+    entry): this function is exactly the "caller wanting both sides" case that duplication
+    matters for, since it always needs both."""
+    all_points = find_swing_points(price, window=window)
+    lows = [p for p in all_points if p.kind == "low"]
+    highs = [p for p in all_points if p.kind == "high"]
     return DivergenceSwingCache(
         price=price,
         lows=lows,

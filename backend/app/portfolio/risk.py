@@ -84,6 +84,15 @@ def stop_from_price_action(
     swing_low = float(window["low"].min())
 
     if short_ema is None:
+        # Recomputes EMA(13) from scratch when no caller-supplied `short_ema` is passed --
+        # e.g. `app.portfolio.profit_target.suggest_profit_target` never passes one today,
+        # even though `app.signals.engine.analyse` already computes the identical EMA(13)
+        # series moments earlier in that same request (as `result.indicators["ema_13"]`,
+        # exposed only as a latest scalar, not the full series). Negligible cost at current
+        # data sizes -- worth sharing via a `short_ema` argument (mirroring how
+        # `app.portfolio.exits.evaluate_exit_flags` already accepts one) if `analyse()` ever
+        # exposes the full series to callers. See
+        # docs/tasks/backend-profit-target-followups.json's `decisions` entry.
         short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
     downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
     volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())

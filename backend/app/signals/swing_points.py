@@ -19,8 +19,13 @@ extrema *within a single series* -- a price series (e.g. ``close``) or an indica
 (MACD-Histogram, Stochastic %K, RSI, OBV) -- and compare THAT SAME series's own value at two
 such extrema. There is no separate high/low-vs-close split to make (an indicator series has no
 "wick" of its own), so support_resistance's column-split logic doesn't fit this use case, and
-extracting a shared implementation was rejected -- see this task's ``decisions`` entry for the
-full comparison.
+extracting a shared implementation of either module's own post-processing was rejected -- see
+this task's ``decisions`` entry for the full comparison. The two modules DO now share a
+smaller, lower-level primitive -- ``app.signals._swing_extremes.rolling_extreme_masks``, the
+vectorized "is bar i tied with its window's own max/min" comparison each module's loop
+delegates to -- see ``docs/tasks/backend-swing-point-detector-followups.json``'s ``decisions``
+entry for why that narrower extraction was worth it where generalizing either module's own
+post-processing wasn't.
 
 **Swing-point definition** (this module's contract): bar ``i`` is a swing HIGH if its value is
 the maximum of the ``2*window + 1``-bar window centered on it (mirrored via minimum for a swing
@@ -52,6 +57,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 import pandas as pd
+
+from app.signals._swing_extremes import rolling_extreme_masks
 
 SwingKind = Literal["high", "low"]
 
@@ -104,16 +111,20 @@ def find_swing_points(series: pd.Series, *, window: int = _DEFAULT_WINDOW) -> li
     if n < 2 * window + 1:
         return []
 
+    # Vectorized centered-rolling comparison (see app.signals._swing_extremes) rather than a
+    # manual per-bar loop -- `require_full_window=True` reproduces this module's NaN contract
+    # exactly: `rolling(..., min_periods=span)` is NaN at a position unless every bar in its
+    # window is non-NaN, so a candidate whose window touches a NaN naturally compares False
+    # against both masks below, with no separate `.isna().any()` check needed.
+    span = 2 * window + 1
+    is_high, is_low = rolling_extreme_masks(series, span, require_full_window=True)
+
     raw: list[tuple[int, float, SwingKind]] = []
     for i in range(window, n - window):
-        local = series.iloc[i - window : i + window + 1]
-        if local.isna().any():
-            continue
-        value = series.iloc[i]
-        if value == local.max():
-            raw.append((i, float(value), "high"))
-        if value == local.min():
-            raw.append((i, float(value), "low"))
+        if is_high.iloc[i]:
+            raw.append((i, float(series.iloc[i]), "high"))
+        if is_low.iloc[i]:
+            raw.append((i, float(series.iloc[i]), "low"))
 
     return _merge_plateau_runs(raw, series.index)
 

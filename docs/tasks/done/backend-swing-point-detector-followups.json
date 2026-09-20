@@ -1,0 +1,91 @@
+{
+  "id": "backend-swing-point-detector-followups",
+  "title": "Swing-point detector \u2014 non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-swing-point-detector"
+  ],
+  "references": [
+    "docs/tasks/done/backend-swing-point-detector.json#review",
+    "https://github.com/rainoko/fintrade/pull/153"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #153 (backend-swing-point-detector), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md \u00a72's module-layout tree wasn't updated to list the new app/signals/swing_points.py module under signals/, the same recurring gap already flagged (still unresolved) as a non-blocking follow-up on the prior backend-support-resistance PR (#147) for support_resistance.py. Add both to the tree in the same pass.",
+      "done": true
+    },
+    {
+      "step": "Plateau/tie merging (app/signals/swing_points.py's _merge_plateau_runs) collapses a run of identical-value bars to a SwingPoint at the run's middle bar, which shifts the reported extreme's date away from wherever it actually first/last occurred within the run. Very unlikely to matter for continuous float price/indicator series (an exact tie across multiple consecutive bars is rare outside synthetic data), but the future backend-divergence-detection task implements Kerry Lovvorn's empirical '20-40 bars apart' spacing rule (docs/ideas.md, MACD-Histogram divergence idea) off these dates -- that task should explicitly confirm the middle-bar convention doesn't distort spacing measurement (or note why it doesn't matter in practice) rather than silently inheriting the assumption.",
+      "done": true
+    },
+    {
+      "step": "Reuse: the task's decisions entry evaluated two alternatives for avoiding duplication with app.signals.support_resistance._find_swing_points (generalizing that function to accept a DataFrame-or-Series, and a scipy.signal.argrelextrema-based rewrite) and rejected both, but didn't consider a third, narrower option -- extracting just the low-level 'is bar i a local extreme over a full non-NaN window' comparison as a small shared primitive that both modules' genuinely different post-processing (support_resistance's high/low-vs-close touch selection; swing_points's plateau merging) could each layer on top of. Would remove ~15 lines of duplicated core-loop logic between the two modules without forcing either caller into the other's shape. Worth considering next time support_resistance.py is touched.",
+      "done": true
+    },
+    {
+      "step": "Minor efficiency: swing_highs() and swing_lows() (app/signals/swing_points.py) each independently run the full find_swing_points() pass (computing both kinds and merging plateau runs for both) and then filter by kind. A caller wanting both (plausible for a divergence detector) does the full pass twice. Trivial at typical daily-bar series lengths, but worth a shared-computation path if a hot-path caller ever needs both sides.",
+      "done": true
+    },
+    {
+      "step": "Style/efficiency: find_swing_points's core scan uses a manual Python loop with a fresh series.iloc[...] slice + .max()/.min()/.isna().any() per candidate bar (O(n*window)) instead of the vectorized centered-rolling idiom (series.rolling(2*window+1, center=True).max()/.min()) already used elsewhere in this codebase (e.g. app/indicators/stochastic.py, app/signals/engine.py). Not a correctness issue at typical daily-bar lengths, but makes this module the odd one out stylistically and the slower path over longer/intraday series.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted a shared, vectorized primitive (app.signals._swing_extremes.rolling_extreme_masks) used by both app.signals.swing_points.find_swing_points and app.signals.support_resistance._find_swing_points, replacing each module's own manual per-bar `.iloc[...]` slice + `.max()`/`.min()` loop with a single `series.rolling(span, center=True).max()`/`.min()` pass plus a boolean-mask lookup in the (still-separate) loop that applies each module's own post-processing. This closes checklist items 3 and 5 together: the narrower 'is bar i a local extreme' primitive the review suggested turned out to compose naturally with the vectorized rolling rewrite the review separately suggested for swing_points.py alone, so both were done in one pass rather than choosing between them.",
+      "rationale": "A `require_full_window` flag lets each caller keep its own, previously-established NaN contract exactly: swing_points.py needs a fully non-NaN window (min_periods=span, matching the old explicit `.isna().any()` check -- verified this is the exact same result via the module's own NaN-handling test cases), while support_resistance.py's original loop relied on Series.max()/.min()'s default skipna=True over a NaN-containing window (min_periods=1 reproduces that identically). Rejected changing support_resistance.py's NaN behavior to match swing_points.py's stricter one 'while I'm in there' -- that module's own review/tests never exercised NaN and its docstring already documents an 'already cleaned of malformed bars' precondition, so tightening it now would be an unreviewed, unasked-for behavior change riding along on an unrelated followups PR, not a genuine part of this task."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the swing_highs()+swing_lows() double-pass (checklist item 4) at its one real call site -- app.signals.divergence.build_divergence_swing_cache, which genuinely needs both sides of the same price series -- by calling find_swing_points() once there and partitioning the result by `kind` locally, rather than changing swing_points.py's public API (e.g. adding a new combined-return function).",
+      "rationale": "The checklist item was framed as speculative ('worth a shared-computation path if a hot-path caller ever needs both sides'), but build_divergence_swing_cache already is exactly that caller -- confirmed by reading app/signals/divergence.py, not assumed. Fixing it at the call site is the minimal, lowest-risk change: it doesn't touch swing_points.py's tested public contract (swing_highs/swing_lows remain simple filters, still used correctly elsewhere in divergence.py where only one side is needed), and it's covered by the existing build_divergence_swing_cache test suite (all passing unchanged, since the returned lows/highs are identical either way -- only the number of full passes over the series changed). Rejected adding a new public 'find both, pre-partitioned' function to swing_points.py itself as premature API surface for a need this one caller already satisfies without it."
+    },
+    {
+      "timestamp": "2026-09-20T16:28:57Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented as part of a batched PR alongside backend-watchlist-breadth-proxy-followups and backend-profit-target-followups (single branch task/backend-followups-batch-2, single PR), per explicit dispatch instruction to batch these three small followup tasks rather than opening three separate PRs.",
+      "rationale": "All three touch disjoint, non-conflicting areas of the backend (app/signals/swing_points.py+support_resistance.py+divergence.py; app/api/routers/watchlist.py; app/portfolio/profit_target.py+risk.py), so bundling carries no real merge-conflict or review-scope risk, and keeps three small, already-fully-scoped non-blocking-followup tasks from generating three near-simultaneous PRs for the same reviewer/merger pipeline to churn through."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-followups-batch-2",
+    "pr_number": 206,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "pushed_at": "2026-09-20T16:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T16:35:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The new app.signals._swing_extremes.rolling_extreme_masks primitive is behavior-preserving: fuzz-verified (200+ randomized trials including NaN/tie/plateau cases) against the old manual per-bar loop for both swing_points.py's require_full_window=True contract and support_resistance.py's require_full_window=False contract -- identical results in every trial. divergence.py's single-pass find_swing_points()+partition also verified equivalent to the old swing_lows()+swing_highs() double-pass.",
+        "file": "backend/app/signals/_swing_extremes.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's \u00a72 module-layout tree wasn't updated to list the new app/signals/_swing_extremes.py module -- the same recurring doc-completeness gap this task's own checklist previously flagged for swing_points.py/support_resistance.py, now recurring for the module this PR itself introduces. Tracked as backend-swing-point-detector-followups-followups.",
+        "file": "docs/architecture/Backend.md",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (flagged by code-review): app.signals.support_resistance._find_swing_points calls rolling_extreme_masks twice (once for highs, once for lows), and each call computes both a rolling max and a rolling min but discards one -- 4 rolling passes where 2 would do. Not a correctness issue, an avoidable efficiency cost introduced by this refactor. Tracked as backend-swing-point-detector-followups-followups.",
+        "file": "backend/app/signals/support_resistance.py",
+        "line": 160
+      }
+    ],
+    "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage, well above the 90% gate) and ruff+mypy (clean on every file this PR touches; 7 pre-existing ruff findings on main in files this PR doesn't touch, confirmed not a regression). No frontend changes -- no browser walkthrough/e2e run needed, explicitly noted. Hand-verified this task's shared rolling_extreme_masks primitive against all three call sites (swing_points.py, support_resistance.py, divergence.py) via randomized fuzz testing for NaN handling, plateau ties, and window boundaries -- no drift found. verify-elder-signal: this is a pure internal refactor of shared swing-detection infrastructure plus a profit-target validation-ordering fix; no Tide/Wave/Trigger/Impulse/Confidence/2%-6%-rule computation changed, no methodology drift. No conflict found between this task's shared primitive and backend-profit-target-followups' profit_target.py changes (support_resistance.py's public Zone-producing behavior is numerically unchanged). All checklist items done, decisions recorded for every judgment call. Two non-blocking findings filed as backend-swing-point-detector-followups-followups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:40:38Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (929 passed, 99.94% coverage) and ruff/mypy (mypy clean; ruff's 7 findings confirmed all in files this PR doesn't touch) -- matches pr-reviewer's reported numbers exactly. Read the full diff myself across all 20 changed files. Independently fuzz-tested rolling_extreme_masks with 500 of my own randomized trials (both require_full_window modes, plateau-heavy and NaN-injected series) against the old per-module manual-loop implementations -- 0 mismatches -- plus 4 explicit edge cases (plateau tie, center-NaN, off-center-NaN skipna, span-longer-than-series). Confirmed divergence.py's single-pass rewrite is a pure filter-by-kind identical to the old swing_lows()+swing_highs() double-pass. Re-ran scripts/export_openapi.py and got no diff, confirming openapi.json is genuinely in sync. Ran scripts/validate_tasks.py: no board violations. All three task JSONs verified at their correct docs/tasks/done/ paths per index.json."
+  }
+}
