@@ -98,6 +98,62 @@
         "title": "AnalysisResponse",
         "type": "object"
       },
+      "BreadthResponse": {
+        "properties": {
+          "bearish_count": {
+            "description": "Same as bullish_count, for BEARISH.",
+            "title": "Bearish Count",
+            "type": "integer"
+          },
+          "bearish_pct": {
+            "description": "Same as bullish_pct, for bearish_count.",
+            "title": "Bearish Pct",
+            "type": "number"
+          },
+          "bullish_count": {
+            "description": "Of the tracked tickers whose Screen 1 (Tide) trend could be computed right now, how many are currently BULLISH.",
+            "title": "Bullish Count",
+            "type": "integer"
+          },
+          "bullish_pct": {
+            "description": "bullish_count as a percentage of (bullish_count + bearish_count + neutral_count), rounded to 1 decimal place. 0.0 when that denominator is 0 (an empty watchlist+portfolio, or every tracked ticker currently unavailable), rather than an undefined/NaN value.",
+            "title": "Bullish Pct",
+            "type": "number"
+          },
+          "neutral_count": {
+            "description": "Same as bullish_count, for NEUTRAL.",
+            "title": "Neutral Count",
+            "type": "integer"
+          },
+          "neutral_pct": {
+            "description": "Same as bullish_pct, for neutral_count.",
+            "title": "Neutral Pct",
+            "type": "number"
+          },
+          "tracked_ticker_count": {
+            "description": "Distinct tickers across the watchlist and portfolio combined (union, deduplicated -- a ticker held in both counts once), i.e. the 'personal breadth' universe size. This is a cheap, no-new-data-source approximation of true market breadth (which needs a broad ticker universe this app doesn't have, e.g. the S&P 500) -- see docs/Analyse.md's Personal breadth proxy section and docs/ideas.md's ch. 34-36 entry for the practical-obstacle rationale.",
+            "title": "Tracked Ticker Count",
+            "type": "integer"
+          },
+          "unavailable_count": {
+            "description": "Tracked tickers whose Tide trend couldn't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) -- excluded from bullish_count/bearish_count/neutral_count and from the percentages below, rather than guessed at, mirroring GET /api/watchlist's own null-signal-on-failure convention.",
+            "title": "Unavailable Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tracked_ticker_count",
+          "bullish_count",
+          "bearish_count",
+          "neutral_count",
+          "unavailable_count",
+          "bullish_pct",
+          "bearish_pct",
+          "neutral_pct"
+        ],
+        "title": "BreadthResponse",
+        "type": "object"
+      },
       "ClosedTradeOut": {
         "properties": {
           "buy_grade_pct": {
@@ -1980,6 +2036,28 @@
           }
         },
         "summary": "Add a ticker to the watchlist",
+        "tags": [
+          "watchlist"
+        ]
+      }
+    },
+    "/api/watchlist/breadth": {
+      "get": {
+        "description": "A cheap, no-new-data-source proxy for true market breadth (docs/Analyse.md's\n\"Personal breadth proxy\" section, per docs/ideas.md's ch. 34-36 entry): counts/\npercentages of BULLISH/BEARISH/NEUTRAL Screen 1 (Tide) trend across every distinct\nticker the user is tracking -- the union of the watchlist and portfolio, deduplicated so\na ticker held in both is only counted once.\n\nComputed fresh on every request rather than cached at this aggregation layer, matching\n`GET /api/watchlist`/`GET /api/portfolio`'s own convention -- see this task's\n`decisions` entry. No new provider calls result: every one of these tickers' OHLCV is\nalready fetched/cached (`app.data.cache.CachedDataProvider`) for its own per-ticker\nsignal on those endpoints.\n\nA tracked ticker whose Tide can't be computed right now (unknown/delisted ticker,\ninsufficient history, or the data provider being unavailable) is counted in\n`unavailable_count` and excluded from the BULLISH/BEARISH/NEUTRAL counts and\npercentages, rather than guessed at -- mirroring `GET /api/watchlist`'s own\nnull-signal-on-failure convention. An empty watchlist+portfolio (or one where every\ntracked ticker is currently unavailable) returns all-zero counts and 0.0 percentages,\nnot an error.",
+        "operationId": "get_watchlist_breadth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreadthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "'Personal breadth' -- Tide trend breakdown across the watchlist + portfolio",
         "tags": [
           "watchlist"
         ]

@@ -323,6 +323,25 @@ Adding a ticker that's already watched is a **no-op**: the existing entry (origi
 
 Removes a ticker from the watchlist. `204 No Content` on success, `404` if the ticker isn't on the watchlist.
 
+### `GET /api/watchlist/breadth`
+
+"Personal breadth" — a cheap, no-new-data-source proxy for true market breadth (Analyse.md's Personal breadth proxy section, per `docs/ideas.md`'s ch. 34-36 entry). Counts/percentages of BULLISH/BEARISH/NEUTRAL Screen 1 (Tide) trend across every distinct ticker the user is tracking (the union of the watchlist and portfolio, deduplicated).
+
+```json
+{
+  "tracked_ticker_count": 4,
+  "bullish_count": 2,
+  "bearish_count": 1,
+  "neutral_count": 1,
+  "unavailable_count": 0,
+  "bullish_pct": 50.0,
+  "bearish_pct": 25.0,
+  "neutral_pct": 25.0
+}
+```
+
+A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) is counted in `unavailable_count` and excluded from the BULLISH/BEARISH/NEUTRAL counts and the percentages — mirroring `GET /api/watchlist`'s own null-signal-on-failure convention rather than guessing. An empty watchlist+portfolio (or one where every tracked ticker is currently unavailable) returns all-zero counts and `0.0` percentages, not an error. Computed fresh on every request, not cached at this aggregation layer — see the `backend-watchlist-breadth-proxy` task's `decisions`.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
@@ -332,6 +351,7 @@ Removes a ticker from the watchlist. `204 No Content` on success, `404` if the t
 - Duplicate position add for the same ticker → merges into the existing position (see `POST /api/portfolio/positions` above), not a `409`/`422` reject.
 - Duplicate watchlist add for the same ticker → no-op, returns the existing entry unchanged (see `POST /api/watchlist` above), not a `409`/`422` reject.
 - `DELETE /api/watchlist/{ticker}` for a ticker not on the watchlist → `404`.
+- A tracked ticker (watchlist or portfolio) whose Tide can't be computed → counted in `GET /api/watchlist/breadth`'s `unavailable_count`, not a failed request (see `GET /api/watchlist/breadth` above).
 - A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).
 
 ## Contract Snapshot & Parallel Development

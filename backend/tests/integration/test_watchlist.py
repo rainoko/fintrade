@@ -20,7 +20,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.db.models import WatchlistItemORM
+from app.db.models import PositionORM, WatchlistItemORM
 from app.db.session import get_db
 from app.main import app
 
@@ -54,13 +54,54 @@ def _hold_weekly_ohlcv() -> pd.DataFrame:
     )
 
 
+def _bullish_weekly_ohlcv() -> pd.DataFrame:
+    # 40 weeks of accelerating 5%/week growth -- BULLISH tide. Copied from
+    # test_stocks_analysis.py's _buy_weekly_ohlcv.
+    weekly_closes = [100 * (1.05**i) for i in range(40)]
+    return pd.DataFrame(
+        {
+            "open": weekly_closes,
+            "high": [c * 1.01 for c in weekly_closes],
+            "low": [c * 0.99 for c in weekly_closes],
+            "close": weekly_closes,
+            "volume": 1_000_000,
+        },
+        index=pd.date_range("2025-01-01", periods=40, freq="W", name="date"),
+    )
+
+
+def _bearish_weekly_ohlcv() -> pd.DataFrame:
+    # Mirror image of _bullish_weekly_ohlcv -- BEARISH tide. Copied from
+    # test_stocks_analysis.py's _sell_weekly_ohlcv.
+    weekly_closes = [1000 * (0.9**i) for i in range(40)]
+    return pd.DataFrame(
+        {
+            "open": weekly_closes,
+            "high": [c * 1.01 for c in weekly_closes],
+            "low": [c * 0.99 for c in weekly_closes],
+            "close": weekly_closes,
+            "volume": 1_000_000,
+        },
+        index=pd.date_range("2025-01-01", periods=40, freq="W", name="date"),
+    )
+
+
 class _StubProvider:
-    """A minimal DataProvider stand-in: returns a fixed HOLD-shaped daily/weekly frame for
+    """A minimal DataProvider stand-in: returns a fixed HOLD-shaped daily frame plus a
+    per-ticker weekly frame (HOLD-shaped/NEUTRAL-tide by default, or whatever `weekly`
+    supplies for that ticker -- e.g. `_bullish_weekly_ohlcv()`/`_bearish_weekly_ohlcv()`) for
     every ticker in `computable`, or raises a fixed exception for every ticker in `failing`."""
 
-    def __init__(self, *, computable: set[str] | None = None, failing: dict[str, Exception] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        computable: set[str] | None = None,
+        failing: dict[str, Exception] | None = None,
+        weekly: dict[str, pd.DataFrame] | None = None,
+    ) -> None:
         self._computable = computable or set()
         self._failing = failing or {}
+        self._weekly = weekly or {}
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing:
@@ -70,7 +111,7 @@ class _StubProvider:
     def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing:
             raise self._failing[ticker]
-        return _hold_weekly_ohlcv()
+        return self._weekly.get(ticker, _hold_weekly_ohlcv())
 
 
 def _make_client(db_session: Session, provider: _StubProvider) -> TestClient:
@@ -271,3 +312,105 @@ class TestDeleteWatchlistItem:
 
         assert response.status_code == 404
         assert "ZZZZ" in response.json()["detail"]
+
+
+class TestGetWatchlistBreadth:
+    """GET /api/watchlist/breadth -- see this task's `decisions` entry for why this reuses
+    the full `analyse()` pipeline (via `_tide_trend`) rather than calling `evaluate_tide`
+    directly, and for the fresh-every-request (no aggregation-layer caching) choice."""
+
+    def test_empty_watchlist_and_portfolio_returns_all_zero(self, client: TestClient) -> None:
+        response = client.get("/api/watchlist/breadth")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "tracked_ticker_count": 0,
+            "bullish_count": 0,
+            "bearish_count": 0,
+            "neutral_count": 0,
+            "unavailable_count": 0,
+            "bullish_pct": 0.0,
+            "bearish_pct": 0.0,
+            "neutral_pct": 0.0,
+        }
+
+    def test_all_bullish_watchlist(self, db_session: Session) -> None:
+        db_session.add_all(
+            [
+                WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()),
+                WatchlistItemORM(ticker="MSFT", added_at=pd.Timestamp("2026-01-02").to_pydatetime()),
+            ]
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            computable={"AAPL", "MSFT"},
+            weekly={"AAPL": _bullish_weekly_ohlcv(), "MSFT": _bullish_weekly_ohlcv()},
+        )
+        test_client = _client_with_provider(db_session, provider)
+
+        response = test_client.get("/api/watchlist/breadth")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["tracked_ticker_count"] == 2
+        assert body["bullish_count"] == 2
+        assert body["bearish_count"] == 0
+        assert body["neutral_count"] == 0
+        assert body["unavailable_count"] == 0
+        assert body["bullish_pct"] == 100.0
+        assert body["bearish_pct"] == 0.0
+        assert body["neutral_pct"] == 0.0
+
+    def test_mixed_watchlist_and_portfolio_with_an_unavailable_ticker(
+        self, db_session: Session
+    ) -> None:
+        # AAPL: BULLISH weekly, watchlist-only. MSFT: BEARISH weekly, portfolio-only.
+        # GOOG: HOLD/NEUTRAL weekly (the provider's default), on *both* watchlist and
+        # portfolio -- exercises the union/dedup (counted once, not twice). ZZZZ: fails to
+        # fetch -- counted as unavailable_count, excluded from the percentages.
+        db_session.add_all(
+            [
+                WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()),
+                WatchlistItemORM(ticker="GOOG", added_at=pd.Timestamp("2026-01-02").to_pydatetime()),
+                WatchlistItemORM(ticker="ZZZZ", added_at=pd.Timestamp("2026-01-03").to_pydatetime()),
+            ]
+        )
+        db_session.add_all(
+            [
+                PositionORM(
+                    id="pos-1",
+                    ticker="MSFT",
+                    quantity=10,
+                    avg_cost_basis=100.0,
+                    entry_date=pd.Timestamp("2026-01-01").date(),
+                ),
+                PositionORM(
+                    id="pos-2",
+                    ticker="GOOG",
+                    quantity=5,
+                    avg_cost_basis=50.0,
+                    entry_date=pd.Timestamp("2026-01-01").date(),
+                ),
+            ]
+        )
+        db_session.commit()
+        provider = _StubProvider(
+            computable={"AAPL", "GOOG", "MSFT"},
+            failing={"ZZZZ": TickerNotFoundError("ZZZZ")},
+            weekly={"AAPL": _bullish_weekly_ohlcv(), "MSFT": _bearish_weekly_ohlcv()},
+        )
+        test_client = _client_with_provider(db_session, provider)
+
+        response = test_client.get("/api/watchlist/breadth")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["tracked_ticker_count"] == 4  # AAPL, GOOG, MSFT, ZZZZ -- GOOG counted once
+        assert body["bullish_count"] == 1
+        assert body["bearish_count"] == 1
+        assert body["neutral_count"] == 1
+        assert body["unavailable_count"] == 1
+        # Percentages are of the 3 computable tickers, not all 4 tracked.
+        assert body["bullish_pct"] == pytest.approx(33.3)
+        assert body["bearish_pct"] == pytest.approx(33.3)
+        assert body["neutral_pct"] == pytest.approx(33.3)

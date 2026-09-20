@@ -1069,8 +1069,15 @@
       "id": "backend-watchlist-breadth-proxy",
       "area": "backend/api",
       "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/backend-watchlist-breadth-proxy.json"
+    },
+    {
+      "id": "backend-watchlist-breadth-proxy-followups",
+      "area": "backend/api",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-watchlist-breadth-proxy.json"
+      "path": "docs/tasks/backend-watchlist-breadth-proxy-followups.json"
     },
     {
       "id": "backend-weekly-impulse-screen1",
