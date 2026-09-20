@@ -6,7 +6,10 @@
     "ghcr.io/devcontainers/features/node:2.1.0": { "version": "22" },
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    // Only needed to run the optional IBKR Client Portal Gateway locally
+    // (docs/architecture/Backend.md §8) — nothing else in the app requires Java.
+    "ghcr.io/devcontainers/features/java:1": { "version": "25" }
   },
   "remoteUser": "vscode",
   "workspaceFolder": "/workspaces/fintrade",
