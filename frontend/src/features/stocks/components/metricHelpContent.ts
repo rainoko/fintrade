@@ -11,6 +11,7 @@ import type {
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
+import { sortClustersByRecentWindowEnd } from '../../../utils/insiderClusters'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
 /**
@@ -1162,9 +1163,7 @@ export const insiderClustersHelp = {
     if (clusters.length === 0) {
       return "No qualifying cluster (3+ distinct insiders trading the same direction within a rolling 30-day window) currently detected among this ticker's filings."
     }
-    const sorted = clusters
-      .slice()
-      .sort((a, b) => (a.window_end_date < b.window_end_date ? 1 : -1))
+    const sorted = sortClustersByRecentWindowEnd(clusters)
     const clusterClauses = sorted.map((cluster) => {
       const directionLabel = cluster.direction === 'buy' ? 'Buy' : 'Sell'
       // `transaction_count` is never singular -- `InsiderClusterOut.insiders`
