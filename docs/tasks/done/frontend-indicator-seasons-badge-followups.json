@@ -1,0 +1,63 @@
+{
+  "id": "frontend-indicator-seasons-badge-followups",
+  "title": "Follow-ups from PR #161 review (frontend-indicator-seasons-badge)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-indicator-seasons-badge"],
+  "references": [
+    "docs/tasks/done/frontend-indicator-seasons-badge.json",
+    "https://github.com/rainoko/fintrade/pull/161"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #161 (frontend-indicator-seasons-badge), tracked here so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "theme.palette.season.summer (#f9a825) fails WCAG contrast against the white card background it's rendered on (common/SeasonBadge paints the raw season color as outlined-Chip text/icon color, no getContrastText adjustment): computed contrast ratio ~1.97:1, well below the 3:1 minimum for UI components/graphical objects and the 4.5:1 minimum for normal text. spring (#43a047, 3.3:1) and winter (#5e92c7, 3.28:1) are also below the 4.5:1 text threshold though closer to the 3:1 bar; autumn (#b8622e, 4.35:1) passes. Darken summer (and consider spring/winter) enough to clear at least 3:1 against white while keeping it visually distinct from theme.palette.signal.*, and re-run the theme.test.ts color-distinctness guard.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Darkened all four season colors (spring #43a047->#368139, summer #f9a825->#a06504, autumn #b8622e->#ae5c2b, winter #5e92c7->#3d75af) to clear the stricter 4.5:1 WCAG AA normal-text contrast ratio against white, not just the 3:1 UI-component floor the checklist named as the minimum bar.",
+      "rationale": "common/SeasonBadge paints the season color as both the Chip's label text color and its icon color, with the label being real text at a normal (small Chip) size -- WCAG's 4.5:1 normal-text threshold is the applicable one here, not the more lenient 3:1 that only covers graphical objects/UI component boundaries (borders, focus rings) with no text. Fixing only summer to clear 3:1 while leaving spring/winter at ~3.3:1 would still fail the text-contrast bar for three of the four colors; picking one consistent 4.5:1 target for all four (autumn already passed it, so this doesn't regress it) keeps the palette internally consistent rather than leaving an arbitrary per-color bar. Preserved each color's original hue and saturation (HSL lightness reduction only, via binary search to just clear the target ratio with a small safety margin -- targeted ~4.8:1 actual, comfortably above 4.5:1 to survive any float/rounding edge cases) so the four colors remain recognizably 'spring green / summer gold / autumn rust / winter frost-blue' rather than becoming an unrelated new palette; verified by hand-computed WCAG relative-luminance/contrast-ratio arithmetic (added as a reusable theme.test.ts guard) that all four now sit at >=4.5:1 against white, and that none collides with signal.buy/sell/hold, riskBreach.main, divergence.main, or kangarooTail.main.",
+      "alternatives_considered": "Rejected fixing only summer (the one flagged as failing even the 3:1 UI-component floor) and leaving spring/winter at ~3.3:1: that would satisfy the checklist's literal minimum but leave three of four season colors still failing the text-contrast bar their actual usage (Chip label text) is held to, undermining the fix's purpose."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge-followups",
+    "pr_number": 200,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/200",
+    "pushed_at": "2026-09-20T13:55:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T14:04:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/200",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently recomputed WCAG relative-luminance/contrast-ratio arithmetic (own Python implementation of the W3C formula) for all four old and new season colors against white. Results match the PR's claimed numbers exactly: old spring 3.303:1, summer 1.971:1, autumn 4.353:1, winter 3.275:1 (summer/spring/winter genuinely fail 4.5:1, autumn already passed); new spring 4.821:1, summer 4.819:1, autumn 4.810:1, winter 4.814:1 (all comfortably clear 4.5:1). No blocking issue.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 116
+      },
+      {
+        "summary": "Independently verified theme.test.ts's new channelToLinear/relativeLuminance/contrastRatio helpers correctly implement the WCAG 2.x formula (sRGB->linear piecewise gamma curve, 0.2126/0.7152/0.0722 luminance weights, (L1+0.05)/(L2+0.05) contrast ratio) -- my own from-scratch Python port of the same formula produces identical results to the TypeScript version's expected outputs. No bug in the test's math.",
+        "file": "frontend/src/theme/theme.test.ts",
+        "line": 9
+      },
+      {
+        "summary": "Non-blocking, arguable finding (tracked as a follow-up task, not blocking this PR): darkening season.spring to #368139 to clear the 4.5:1 contrast floor moved it perceptually very close to signal.buy (#2e7d32) -- Euclidean RGB distance dropped from ~46 (old spring) to ~11.4 (new spring), because spring and signal.buy already shared nearly identical hue (~122-123deg) and saturation (~41-46%) before this PR, and the only thing separating them was lightness, which this fix compressed from an 11pp gap to a 2.4pp gap. Raw swatches rendered side by side are close to visually indistinguishable. theme.test.ts's existing season-vs-signal distinctness guard only checks exact hex-string inequality, so it didn't catch this near-miss, and the PR's own decision entry's collision claim was verified the same way. Mitigated in the actual UI by common/SeasonBadge's outlined-Chip style + icon + 'Informational -- not a signal' caption differing from SignalBadge/the Impulse chip's filled style, which is why this doesn't block. See follow-up task frontend-indicator-seasons-badge-followups-followups.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 117
+      }
+    ],
+    "notes": "Full review: frontend vitest suite 686/686 passing, coverage 99.64% statements / 98.94% branches (backend unchanged by this PR: 921/921 passing, 99.94% coverage). ruff/mypy/eslint/tsc all clean on both sides. This PR touches only frontend/src/theme/theme.ts, frontend/src/theme/theme.test.ts, and task-board JSON -- no API route/schema change (openapi.json check N/A), no new module/dependency/layer (architecture-review N/A), area is frontend/pages/stocks not backend/signals or backend/portfolio (verify-elder-signal N/A), and no new/changed frontend components (component-placement check N/A). Browser walkthrough performed against a manually-started dev stack (Playwright driven via a throwaway node script, since no Playwright MCP tool was available in this session and chromium-cli wasn't installed) -- viewed MSFT (Summer season + GREEN impulse) and AAPL (Autumn season) stock-detail pages: SeasonBadge renders correctly, colors read as reasonably seasonal/distinguishable, no console errors, no failed network requests. Also ran the persisted e2e suite (make e2e): all 16 specs across 5 files (dashboard, navigation, portfolio, stock-analysis, watchlist) passed. The checklist's single item was correctly closed and its decision entry meets CLAUDE.md's decision-memory bar (records the alternative -- fixing only summer -- and why it was rejected)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T14:08:36Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend vitest (686/686 passing), coverage (99.64% statements / 98.94% branches, matching pr-reviewer exactly), tsc -b --noEmit (clean), and eslint (clean). Skimmed the full diff (theme.ts, theme.test.ts, task-board JSON incl. index.json mirror and the done/ file move, and the new followups task) myself. Independently recomputed WCAG contrast ratios in Python for all four new season colors against white: spring 4.8209, summer 4.8188, autumn 4.8105, winter 4.8143 -- all match pr-reviewer's claimed numbers and clear 4.5:1. Read theme.test.ts's channelToLinear/relativeLuminance/contrastRatio helpers and confirmed the sRGB gamma curve, 0.2126/0.7152/0.0722 luminance weights, and (L1+0.05)/(L2+0.05) ratio formula are correct per WCAG 2.x. Non-blocking spring/signal.buy near-collision finding is real but genuinely tracked in a new followup task and mitigated by SeasonBadge's distinct chip style, so it doesn't change the merge verdict."
+  }
+}

@@ -104,11 +104,20 @@ export const theme = createTheme({
     // conflicting signal on the same page. Loosely seasonal (green sprout /
     // gold sun / amber-brown leaf / pale blue frost) rather than
     // finance-conventional, since that's the whole visual point here.
+    //
+    // Each hex is darkened (same hue/saturation as the original design,
+    // lower lightness) from its original frontend-indicator-seasons-badge
+    // value so it clears WCAG AA's 4.5:1 text contrast ratio against the
+    // white card background `common/SeasonBadge` paints it directly onto as
+    // both label text color and icon color (no `getContrastText` adjustment
+    // -- see that component's outlined-Chip styling). The originals computed
+    // to spring 3.30:1, summer 1.97:1, autumn 4.35:1, winter 3.28:1; these
+    // compute to >=4.5:1 for all four (frontend-indicator-seasons-badge-followups).
     season: {
-      spring: '#43a047',
-      summer: '#f9a825',
-      autumn: '#b8622e',
-      winter: '#5e92c7',
+      spring: '#368139',
+      summer: '#a06504',
+      autumn: '#ae5c2b',
+      winter: '#3d75af',
     },
     // Kangaroo Tail markers (PriceChart.tsx, frontend-kangaroo-tail-markers)
     // -- deliberately its own color, distinct from every other marker/line
