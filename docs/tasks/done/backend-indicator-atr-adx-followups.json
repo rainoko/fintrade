@@ -43,5 +43,10 @@
       }
     ],
     "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No API/schema changes -- openapi.json correctly untouched. Backend-only diff -- no frontend/UI surface, so no browser walkthrough or e2e run (explicitly noted, not silently skipped). No conflicts found between this task's engine.py change and the divergence.py/kangaroo_tail.py changes in the same PR -- disjoint modules, only engine.py imports/calls the touched indicator functions."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy on the diff's touched files -- mypy clean; the 7 ruff findings that show up repo-wide are pre-existing on origin/main (confirmed by checking out origin/main's backend/ and re-running ruff) in files this PR never touches. Traced engine.py's analyse()/analyse_history() diff myself: daily_true_range is computed once only when atr/plus_di/minus_di need computing from scratch and fed into both compute_atr()/plus_minus_di(), and atr()/plus_minus_di() fall back to recomputing true_range() internally (identical to pre-change behavior) whenever the new keyword isn't supplied -- confirmed no other call site outside engine.py passes it."
   }
 }

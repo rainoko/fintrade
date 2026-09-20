@@ -50,5 +50,10 @@
       }
     ],
     "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No conflicts with the other three tasks' changes in this batch -- engine.py's True Range sharing and kangaroo_tail.py's isinstance guard touch disjoint code paths from divergence.py. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy (mypy clean; pre-existing ruff findings unrelated to this PR). Hand-traced the RSI fix and its regression test: _evaluate_pair now branches on indicator_name == \"rsi\" explicitly passing _RSI_OVERSOLD/_RSI_OVERBOUGHT; test_rsi_beyond_reference_line_uses_rsi_constants_not_stochastic monkeypatches those constants to 20.0/80.0 (unchanged Stochastic stays 30.0/70.0) and uses a second extreme of 21.0, which only reads beyond_reference_line=True under the fix (21 >= 20) and False under the pre-fix shared-default bug (21 < 30) -- genuinely fails on a regression, not tautological. Reviewed the confirmed_divergence_as_of docstring addition documenting the plateau-tie leak; documenting rather than fixing is a reasonable call given the task's own checklist offered both as valid resolutions and a real fix would widen swing_points.py's public contract."
   }
 }

@@ -42,5 +42,10 @@
       }
     ],
     "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy (mypy clean; the 7 ruff findings are pre-existing on origin/main, unrelated to this PR's files). Read the test_portfolio_closed_trades.py diff myself: it's a docstring-only change, no assertion logic touched, correctly describing that a per-row revert would leave the monkeypatched counters at 0 (never invoked through the router's own bindings) rather than 2 -- confirms this was wording-only, not a masked functional gap."
   }
 }

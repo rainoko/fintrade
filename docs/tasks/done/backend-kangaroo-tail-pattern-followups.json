@@ -50,5 +50,10 @@
       }
     ],
     "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No conflicts with the other three tasks' changes in this batch. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy (mypy clean; pre-existing ruff findings unrelated to this PR). Read both kangaroo_tail.py's build_kangaroo_tail_cache guard and divergence.py's _evaluate_pair guard (divergence.py lines ~329-338) side by side: same isinstance(position, int) check after Index.get_loc, same # pragma: no cover with matching unreachable-given-unique-index rationale; kangaroo_tail.py's version filters tails/confirmed_positions in lockstep instead of returning None outright, appropriate since it builds a cache of many tails rather than evaluating one pair."
   }
 }
