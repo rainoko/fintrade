@@ -3,7 +3,7 @@
   "title": "Support/resistance zones — non-blocking review follow-up from PR #164",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-support-resistance-followups"],
   "references": [
     "docs/tasks/backend-support-resistance-followups.json#review",
@@ -35,5 +35,12 @@
     "pr_number": 199,
     "pr_url": "https://github.com/rainoko/fintrade/pull/199",
     "pushed_at": "2026-09-20T13:41:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T13:47:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/199",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite (921 passed, support_resistance.py at 100% line/branch coverage, overall 99.94% vs 90% gate), ruff/mypy clean on the changed file (7 pre-existing ruff findings elsewhere in the backend test tree are outside this diff, confirmed via git diff main...HEAD). Read app/signals/support_resistance.py end to end and confirmed the new test genuinely exercises the cheap-score/rank/truncate/expensive-build split; verified this concretely by mutating the source (dropping the last_touch_date tie-break, and truncating candidates before scoring) and re-running the test -- both mutations correctly fail it, then reverted cleanly. Independently hand-reconstructed the fixture's expected top-15 in a standalone script (not reusing the test's own reasoning) and it matches the real function's output exactly: tiers A (k17-19) and B (k10-16) fully kept, only the 5 latest of tier C (k5-9) kept, k0-4 correctly dropped. The resistance-only and skip-major-length simplifications are reasonable -- the sort key is role-agnostic and major-length classification is independently covered by TestStrengthScoringHelpers. No production signal logic changed; cross-checked test's category thresholds and max_zones=15 against docs/Analyse.md Row 9 (Elder ch. 18) -- no drift. No API/schema or frontend touched, so OpenAPI snapshot check and browser/e2e walkthrough don't apply (explicitly skipped, not silently omitted). Task board validated clean. No blocking or new non-blocking findings."
   }
 }
