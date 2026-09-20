@@ -1,0 +1,21 @@
+{
+  "id": "backend-weekly-impulse-screen1-followups-followups",
+  "title": "Non-blocking follow-up from PR #188 review (backend-weekly-impulse-screen1-followups)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-weekly-impulse-screen1-followups"],
+  "references": [
+    "docs/tasks/backend-weekly-impulse-screen1-followups.json",
+    "https://github.com/rainoko/fintrade/pull/188",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "docs/Analyse.md#screen-1-tide"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #188 (backend-weekly-impulse-screen1-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. PR #188 itself was accepted -- this finding is pre-existing (predates PR #188, missed by earlier grep sweeps for stale Tide/Screen-1 wording) and out of scope for PR #188's own diff, so it didn't block it.",
+  "checklist": [
+    {
+      "step": "frontend/src/features/stocks/components/metricHelpContent.ts's valueZoneHelp.elderContext (around line 583) still says \"This exact EMA13/EMA26 pair already drives the Tide (Screen 1), the Impulse System gate, and the Elder-Ray baseline elsewhere on this page (docs/Analyse.md §2-4)\" -- this is stale and now factually wrong: per the `backend-weekly-impulse-screen1` methodology correction (and the already-corrected `ema26Help.elderContext` right below it in the same file, which explicitly says EMA(26) 'no longer feeds the Tide directly'), Tide/Screen 1 is driven by the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction), not by the EMA13/EMA26 level pair. This text is user-facing (rendered via the `MetricHelp` affordance on the price chart's Value Zone legend entry, `PriceChart.tsx` line ~1809), so it's more visible than the two internal JSDoc comments PR #188 itself fixed. Reword to match `ema26Help`'s corrected framing -- e.g. that EMA13/EMA26 still feed the Impulse System's daily gate indirectly (EMA(13) is one of the two Impulse inputs; EMA(26) is MACD's slower input) and the Elder-Ray baseline, but no longer drive the Tide/Screen 1 decision itself.",
+      "done": false
+    }
+  ]
+}

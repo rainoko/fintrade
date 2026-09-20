@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-weekly-impulse-screen1's PR review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-weekly-impulse-screen1"],
   "references": [
     "docs/tasks/backend-weekly-impulse-screen1.json",
@@ -39,5 +39,33 @@
     "pr_number": 188,
     "pr_url": "https://github.com/rainoko/fintrade/pull/188",
     "pushed_at": "2026-09-20T09:25:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T09:23:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/188",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed via `git diff main...task/backend-weekly-impulse-screen1-followups --stat` that only the task JSON, index.json, and PriceChart.tsx changed, and the PriceChart.tsx diff is comment-text-only (no JSX/logic/prop changes) -- no behavior change.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx"
+      },
+      {
+        "summary": "Read the reworded comments (line ~339, ~757-762) against `evaluate_tide`/`evaluate_impulse` (backend/app/signals/triple_screen.py, backend/app/signals/impulse.py) and docs/Analyse.md §2/§3: both now accurately describe Tide/Screen 1 as the weekly Impulse System color (weekly EMA(13) bar-over-bar direction + weekly MACD-Histogram bar-over-bar direction together), matching the code and doc exactly. The line ~757 comment's replacement claim (EMA13/EMA26 still drawn for value-zone shading and because EMA(26) feeds daily MACD, not because they drive Screen 1/Tide) is also accurate.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx"
+      },
+      {
+        "summary": "Broad repo-wide grep for stale Tide/Screen-1 wording ('13-week'/'26-week EMA', 'trend-following pair', 'driven by...MACD...slope') turned up one more stale reference this PR didn't touch: metricHelpContent.ts's `valueZoneHelp.elderContext` (~line 583) still says the EMA13/EMA26 pair 'already drives the Tide (Screen 1)', contradicting the already-corrected `ema26Help.elderContext` a few lines above it in the same file. This is user-facing (rendered via MetricHelp on the Value Zone legend entry), unlike the two internal JSDoc comments this PR fixed. Out of scope for this PR's own diff (pre-existing, not introduced here), so non-blocking for PR #188 itself -- filed as a new checklist item on backend-weekly-impulse-screen1-followups-followups.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 583
+      },
+      {
+        "summary": "Frontend vitest: 643 passed (one PortfolioPage.test.tsx timeout on the first full run reproduced as a flake -- passed cleanly both in isolation and on re-run of the full suite; unrelated to this PR's files). Coverage 99.63%/98.91%/99.7%/99.7% (stmts/branches/funcs/lines), well above the 90% gate. Backend ruff+mypy clean (untouched by this PR, confirmed as a baseline check). Frontend eslint and `tsc -b --noEmit` both clean. code-review skill (medium effort) found no correctness/reuse/simplification issues. No API/schema changes, so the OpenAPI-snapshot check doesn't apply.",
+        "file": "frontend/src/pages/PortfolioPage.test.tsx"
+      },
+      {
+        "summary": "No browser walkthrough or e2e suite run: this PR's diff is strictly internal JSDoc/doc-comment text (no JSX, no rendered strings, no props, no logic) plus task-board bookkeeping -- there is no user-visible surface for this specific change to exercise, so step 9/9a's UI walkthrough doesn't apply here (skipped explicitly, not silently omitted)."
+      }
+    ],
+    "notes": "Accepted. Small, low-risk doc-comment-only PR exactly as described: both reworded PriceChart.tsx comments verified accurate against the actual evaluate_tide/evaluate_impulse implementation and docs/Analyse.md §2/§3, and against the corrected ema13Help/ema26Help copy in the same feature area. Tests, coverage, static analysis, and code-review are all clean. One new non-blocking finding (stale valueZoneHelp.elderContext copy, pre-existing and outside this PR's diff) filed as a checklist item on the new backend-weekly-impulse-screen1-followups-followups task rather than blocking this PR."
   }
 }
