@@ -7,6 +7,7 @@ import type { components } from './types'
 export type WatchlistResponse = components['schemas']['WatchlistResponse']
 export type WatchlistItemIn = components['schemas']['WatchlistItemIn']
 export type WatchlistItemOut = components['schemas']['WatchlistItemOut']
+export type BreadthResponse = components['schemas']['BreadthResponse']
 
 /**
  * `GET /api/watchlist` — every watched ticker, annotated with its current
@@ -35,4 +36,15 @@ export function removeWatchlistItem(ticker: string): Promise<void> {
   return request<void>(`/api/watchlist/${encodeURIComponent(ticker)}`, {
     method: 'DELETE',
   })
+}
+
+/**
+ * `GET /api/watchlist/breadth` — "personal breadth": counts/percentages of
+ * BULLISH/BEARISH/NEUTRAL Screen 1 (Tide) trend across the union of the
+ * watchlist and portfolio tickers (deduplicated). An explicit, honestly
+ * framed proxy for true market breadth, not the real thing — see
+ * docs/Analyse.md's "Personal breadth proxy" section (API.md).
+ */
+export function getWatchlistBreadth(): Promise<BreadthResponse> {
+  return request<BreadthResponse>('/api/watchlist/breadth')
 }

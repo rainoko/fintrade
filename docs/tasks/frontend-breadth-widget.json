@@ -3,7 +3,7 @@
   "title": "Watchlist \"personal breadth\" indicator widget",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-watchlist-breadth-proxy"
   ],
@@ -15,15 +15,41 @@
   "checklist": [
     {
       "step": "Design and implement the breadth widget on the watchlist page.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp/inline content explicitly framing this as a personal-watchlist proxy, not true market breadth, with a one-line explanation of why (no broad-universe data source, per docs/ideas.md).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:37:34Z",
+      "recorded_by": "task-worker",
+      "decision": "New feature component `PersonalBreadthCard` under `features/watchlist/components/` (not `components/common/`), rendered directly on `WatchlistPage` above the existing `WatchlistTable`, owning its own `useWatchlistBreadth` (`GET /api/watchlist/breadth`) fetch/loading/error state -- following the exact same pattern as `features/portfolio/components/RiskSummaryCard.tsx` on the Dashboard page (a feature card that owns its own query and is composed directly into a thin page).",
+      "rationale": "Every value this widget renders (a tracked ticker, a Screen 1/Tide trend count) is a Triple Screen/watchlist domain concept, not a generic display primitive, so it fails Frontend.md \u00a73's common/-vs-feature placement test for `components/common/` the same way RiskSummaryCard/SellFlaggedPositionsCard do -- it composes existing common/ primitives (StatCard, MetricHelp, EmptyState, ErrorState, LoadingState) rather than duplicating any of their behavior. Rejected alternative: bolting the widget's markup directly into WatchlistPage.tsx itself, which would violate Frontend.md \u00a73's 'pages stay thin, no business logic' rule the same way DashboardPage avoids inlining RiskSummaryCard's own logic."
+    },
+    {
+      "timestamp": "2026-09-20T00:37:34Z",
+      "recorded_by": "task-worker",
+      "decision": "No Storybook story added for `PersonalBreadthCard`.",
+      "rationale": "The add-frontend-feature skill's own Storybook requirement (Frontend.md \u00a74) is scoped to `components/common/` components -- confirmed by precedent: `RiskSummaryCard.tsx` and `SellFlaggedPositionsCard.tsx` (the two closest analogues, same 'feature card that owns its own query' shape) have colocated tests but no `.stories.tsx` file. `PersonalBreadthCard` isn't a domain-agnostic display primitive callers pass props into (it fetches its own data internally), so a story would need MSW-mocked network state Storybook doesn't provide out of the box here, the same reason those two cards don't have one either. Its every state (loading, error, empty, mixed breakdown, all-unavailable, singular-count wording) is instead covered directly in `PersonalBreadthCard.test.tsx` against MSW-mocked responses."
+    },
+    {
+      "timestamp": "2026-09-20T00:37:34Z",
+      "recorded_by": "task-worker",
+      "decision": "`watchlistKeys.breadth` (`['watchlist', 'breadth']`) nests under `watchlistKeys.all`, so `useAddWatchlistItem`/`useRemoveWatchlistItem`'s existing `invalidateQueries({ queryKey: watchlistKeys.all })` also refetches the breadth query via TanStack Query's prefix-matching invalidation. A portfolio-side edit (adding/removing a position on the Portfolio page) is deliberately *not* wired to invalidate this query, even though the breadth denominator spans the watchlist+portfolio union.",
+      "rationale": "Mirrors `portfolioKeys.risk`'s own nesting rationale (features/portfolio/hooks/queryKeys.ts) for the watchlist-side edits, which are the common case for a widget placed on the Watchlist page itself. Cross-invalidating from `useAddPosition`/`useDeletePosition` (in `features/portfolio/hooks/`) would require either that feature importing `watchlistKeys` (a feature-to-feature dependency Frontend.md's module layout doesn't otherwise have anywhere) or a new shared cross-feature query-key module -- both heavier than accepting that the breadth widget can be up to `staleTime` (60s, `main.tsx`'s global QueryClient default, already the accepted staleness window used by e.g. `useStockAnalysis`) stale after a portfolio-only edit made on a different page. Rejected alternative: a standalone top-level `['breadth']` query key not nested under either feature's prefix, which would lose the free invalidation-on-watchlist-edit behavior entirely for no benefit."
+    },
+    {
+      "timestamp": "2026-09-20T00:37:34Z",
+      "recorded_by": "task-worker",
+      "decision": "Widget layout: a heading ('Personal Breadth (Watchlist + Portfolio)') with a `MetricHelp` balloon, three `StatCard`s (Bullish/Bearish/Neutral, each showing count + percentage), an `EmptyState` when nothing is tracked yet, and a small caption footnote naming `unavailable_count` when it's non-zero -- rather than a single-sentence widget matching the task description's literal example ('9 of 15 watchlist tickers are currently BULLISH').",
+      "rationale": "The backend's response spans three trend buckets (BULLISH/BEARISH/NEUTRAL) plus an explicit unavailable count, not just a single BULLISH fraction -- showing only the BULLISH count would silently discard the BEARISH/NEUTRAL breakdown and the honesty-relevant unavailable-ticker signal the backend task deliberately added (rather than guessing or dropping unavailable tickers). Reused `StatCard` (already used identically by RiskSummaryCard/DashboardPage) rather than inventing a new stat-tile component, per the skill's 'check for an existing common/ component before building a new one' step. The dynamic sentence form ('X of Y tracked tickers are currently BULLISH...') from the task description instead lives in the `MetricHelp` balloon's `valueInterpretation` (`personalBreadthHelp.ts`), where it's paired with the full BULLISH/BEARISH/NEUTRAL/unavailable breakdown plus the honest personal-proxy framing, rather than being the widget's only visible content."
     }
   ]
 }

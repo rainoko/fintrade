@@ -14,6 +14,7 @@ import type {
   IndicatorHistoryResponse,
 } from '../../src/api/stocks'
 import type {
+  BreadthResponse,
   WatchlistItemIn,
   WatchlistItemOut,
   WatchlistResponse,
@@ -49,6 +50,10 @@ import type {
 // ticker -> null price" convention above.
 // Sentinel watchlist tickers:
 //   any ticker not present in the in-memory watchlist store -> 404 (DELETE)
+// GET /api/watchlist/breadth: any tracked (watchlist or portfolio) ticker
+// not present in `mockTickerTideTrends` below counts as `unavailable_count`
+// (Tide couldn't be computed right now), the same convention as
+// mockTickerSignals' own "no entry -> null signal" rule above.
 
 const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
@@ -249,6 +254,22 @@ const mockTickerSignals: Record<
   AAPL: { signal: 'BUY', confidence: 72, confidence_band: 'High' },
   MSFT: { signal: 'HOLD', confidence: 45, confidence_band: 'Medium' },
   TSLA: { signal: 'SELL', confidence: 30, confidence_band: 'Low' },
+}
+
+// Mock Screen 1 (Tide) trend backing GET /api/watchlist/breadth
+// (frontend-breadth-widget) — a separate table from mockTickerSignals above
+// since a ticker's Tide trend and its overall BUY/SELL/HOLD signal are
+// distinct concepts (the latter also depends on Screen 2/3 and Impulse) and
+// the real backend's own `_tide_trend` helper is independent of
+// `_compute_signal`'s BUY/SELL/HOLD result. One of each trend value, plus a
+// ticker deliberately left out (any ticker not present here, e.g. 'ZZZZ' or
+// the stocks.ts error-case sentinels) mirrors the real endpoint's
+// `unavailable_count` case (Tide couldn't be computed right now) rather
+// than needing its own sentinel.
+const mockTickerTideTrends: Record<string, 'BULLISH' | 'BEARISH' | 'NEUTRAL'> = {
+  AAPL: 'BULLISH',
+  MSFT: 'NEUTRAL',
+  TSLA: 'BEARISH',
 }
 
 // Core, always-known fields for a stored position — deliberately excludes
@@ -569,6 +590,52 @@ export const handlers: HttpHandler[] = [
 
   http.get('/api/watchlist', () => {
     const response: WatchlistResponse = { items: watchlistItems.map(enrichWatchlistItem) }
+    return HttpResponse.json(response)
+  }),
+
+  // GET /api/watchlist/breadth (frontend-breadth-widget): aggregates the
+  // union of the in-memory watchlist + portfolio stores' tickers, mirroring
+  // the real backend's own dedup-then-count-Tide-trend logic
+  // (app.api.routers.watchlist.get_watchlist_breadth) against
+  // mockTickerTideTrends above rather than mockTickerSignals (see that
+  // table's own comment for why the two are kept separate).
+  http.get('/api/watchlist/breadth', () => {
+    const trackedTickers = new Set<string>([
+      ...watchlistItems.map((item) => item.ticker),
+      ...positions.map((position) => position.ticker),
+    ])
+
+    let bullishCount = 0
+    let bearishCount = 0
+    let neutralCount = 0
+    let unavailableCount = 0
+    for (const ticker of trackedTickers) {
+      const trend = mockTickerTideTrends[ticker]
+      if (trend === 'BULLISH') {
+        bullishCount += 1
+      } else if (trend === 'BEARISH') {
+        bearishCount += 1
+      } else if (trend === 'NEUTRAL') {
+        neutralCount += 1
+      } else {
+        unavailableCount += 1
+      }
+    }
+
+    const computable = bullishCount + bearishCount + neutralCount
+    const pct = (count: number) =>
+      computable === 0 ? 0 : Math.round((count / computable) * 1000) / 10
+
+    const response: BreadthResponse = {
+      tracked_ticker_count: trackedTickers.size,
+      bullish_count: bullishCount,
+      bearish_count: bearishCount,
+      neutral_count: neutralCount,
+      unavailable_count: unavailableCount,
+      bullish_pct: pct(bullishCount),
+      bearish_pct: pct(bearishCount),
+      neutral_pct: pct(neutralCount),
+    }
     return HttpResponse.json(response)
   }),
 
