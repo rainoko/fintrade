@@ -929,7 +929,7 @@
       "id": "backend-indicator-atr-adx-followups",
       "area": "backend/indicators",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-indicator-atr-adx-followups.json"
     },
     {
@@ -971,7 +971,7 @@
       "id": "backend-divergence-detection-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-divergence-detection-followups.json"
     },
     {
@@ -1006,7 +1006,7 @@
       "id": "backend-kangaroo-tail-pattern-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-kangaroo-tail-pattern-followups.json"
     },
     {
@@ -1069,7 +1069,7 @@
       "id": "backend-trade-grading-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-grading-followups-followups.json"
     },
     {

@@ -3,7 +3,7 @@
   "title": "A-trade grading followups -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-grading-followups"],
   "references": [
     "docs/tasks/backend-trade-grading-followups.json#review",
@@ -23,5 +23,12 @@
       "decision": "Reworded only the test's own docstring in backend/tests/integration/test_portfolio_closed_trades.py to state the counters would read 0 (never invoked through the router's own drop_malformed_daily_bars/autoenvelope bindings on a revert), not 2. Left docs/tasks/done/backend-trade-grading-followups.json's historical decision-entry rationale untouched.",
       "rationale": "The checklist item itself flags the decision-entry edit as optional ('decisions are historical record and don't strictly need editing'), and that task is already done/merged -- editing a done task's own decisions array to retroactively correct wording would blur the distinction between 'what was believed true at the time' and 'what's true now', which is exactly what the historical-record framing in CLAUDE.md's decision-memory section is for. The test docstring is the one place a future reader would actually consult while debugging a real assertion failure, so that's where the fix needs to land; this task's own file (visible from docs/tasks/index.json) is the durable record of the correction for anyone who does want the fuller context. Implemented as part of a batched PR alongside backend-indicator-atr-adx-followups, backend-divergence-detection-followups, and backend-kangaroo-tail-pattern-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request)."
     }
-  ]
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-followups-batch-1",
+    "pr_number": 205,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }

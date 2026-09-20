@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-kangaroo-tail-pattern PR review",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-kangaroo-tail-pattern"],
   "references": [
     "docs/tasks/backend-kangaroo-tail-pattern.json",
@@ -28,5 +28,11 @@
       "rationale": "Chose the isinstance-guard fix (matching app.signals.divergence's existing precedent line-for-line) over the checklist's alternative suggestion (having _evaluate_candidate pass the confirming bar's already-known position+1 directly) because the alternative would require adding a new field to the KangarooTail dataclass (or a parallel return value) to carry that position out of _evaluate_candidate to build_kangaroo_tail_cache, rippling into every existing KangarooTail(...) construction site across app/signals/kangaroo_tail.py and both test files -- a larger, riskier change for a defensive fix whose triggering condition (a non-unique daily-bar index) isn't reachable from this app's own current call paths, same as divergence.py's own get_loc guard. Chose to correct the comment + add the missing decision here (on the followups task) rather than editing docs/tasks/done/backend-kangaroo-tail-pattern.json's own decisions array retroactively -- that task is done/merged, and backfilling its historical decisions array with a call that wasn't actually recorded at the time would misrepresent when the decision was actually made; this followups task's own decisions array is the accurate place to record it, and the code comment now points here instead of to a nonexistent citation. Implemented as part of a batched PR alongside backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, and backend-divergence-detection-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-followups-batch-1",
+    "pr_number": 205,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }

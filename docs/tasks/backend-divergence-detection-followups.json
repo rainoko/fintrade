@@ -3,7 +3,7 @@
   "title": "Divergence detection — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-divergence-detection"],
   "references": [
     "docs/tasks/backend-divergence-detection.json#review",
@@ -28,5 +28,11 @@
       "rationale": "Item 1 was a real, cheaply-fixable correctness bug with a clear regression test available, so it was fixed outright. Item 2's underlying condition (an exact multi-bar float tie in a real price/indicator series) is vanishingly rare in practice -- the checklist item's own two suggested resolutions were 'tighten the check' OR 'document the gap', explicitly presented as equally acceptable; tightening it correctly would require app.signals.swing_points to additionally expose each merged SwingPoint's own last-raw-candidate position (not just its reported middle-bar position) as part of its public contract, a real API-surface change to a module several other pieces of this app depend on (support_resistance's own comparison already establishes swing_points.py's contract is meant to be stable/predictable for every later divergence-detection task) -- not something to make casually inside a small batched-followups PR alongside three unrelated tasks. Documenting the mechanism precisely (so a future task can implement the tightened check with full context, or a reviewer can judge the risk is still acceptable) resolves the checklist item's actual goal -- making sure this gap isn't silently forgotten -- without that risk. Implemented as part of a batched PR alongside backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, and backend-kangaroo-tail-pattern-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request)."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-followups-batch-1",
+    "pr_number": 205,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }
