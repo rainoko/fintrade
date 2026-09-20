@@ -1,0 +1,20 @@
+{
+  "id": "backend-weekly-impulse-screen1-followups",
+  "title": "Non-blocking follow-ups from backend-weekly-impulse-screen1's PR review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-weekly-impulse-screen1"],
+  "references": [
+    "docs/tasks/backend-weekly-impulse-screen1.json",
+    "https://github.com/rainoko/fintrade/pull/187"
+  ],
+  "description": "Tracked, non-blocking findings from pr-reviewer's review of PR #187 (backend-weekly-impulse-screen1, the Screen 1/Tide weekly-Impulse methodology correction). See that PR's review comment and docs/tasks/backend-weekly-impulse-screen1.json's review.comments for full context.",
+  "checklist": [
+    {
+      "step": "backend/app/signals/confidence.py::score_tide_alignment's docstring quotes docs/Analyse.md §6's old wording verbatim ('100% if slope & EMA agree strongly; 50% if mixed; 0% if tide contradicts') even though backend-weekly-impulse-screen1 updated that table's actual text to describe the weekly-Impulse-color-based scoring. Behavior is unaffected (the mechanical BULLISH/NEUTRAL/BEARISH -> 1.0/0.5/0.0 mapping is still correct), but the docstring is now a stale quote of doc text that no longer exists in docs/Analyse.md -- update it to match the corrected §6 wording.",
+      "done": false
+    }
+  ],
+  "decisions": []
+}

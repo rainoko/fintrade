@@ -3,7 +3,7 @@
   "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/signals/impulse.py",
@@ -85,5 +85,28 @@
     "pr_number": 187,
     "pr_url": "https://github.com/rainoko/fintrade/pull/187",
     "pushed_at": "2026-09-20T08:36:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T08:45:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/187",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Backend signal-computation change is correct and well-verified (hand-checked the ch. 39 primary-source quote in docs/ideas.md, confirmed evaluate_impulse is genuinely timeframe-agnostic by reading it, confirmed the daily Impulse gate in _determine_signal is untouched and decoupled via a real unmocked end-to-end test, hand-verified the flat-price tie-to-BEARISH edge case, grepped the whole repo for dangling ema_26 references, confirmed backend/openapi.json is description-only, ran the full backend suite (847 passed, 99.93% coverage) and all 16 Playwright e2e specs). BLOCKING: this PR's own 'frontend copy left stale' decisions entry is real and I confirmed it live in the running app -- the Tide (Screen 1) MetricHelp tooltip on /stocks/AAPL still tells users Tide is 'Driven by the weekly MACD-Histogram (12,26,9) slope... Confirmed by the 13-week/26-week EMA relationship... Neutral when the slope and EMA relationship disagree', which is now factually false (evaluate_tide no longer reads EMA(26) at all, and NEUTRAL now means weekly Impulse BLUE, an EMA(13)-direction-vs-MACD-H-direction disagreement, not an EMA13-vs-EMA26 level disagreement). Same staleness confirmed in frontend/src/features/stocks/components/metricHelpContent.ts:87-89 (tide_alignment confidence help), metricHelpContent.ts:323 (MACD-Histogram help), and signalExplanation.ts:116 (the dynamically-generated, specific, now-incorrect reason shown for a NEUTRAL tide). Given this app's core value proposition is explaining a signal's own methodology to the user, and this is the exact PR that changed that methodology, shipping the old explanation is a real correctness gap, not a nice-to-have -- treating as blocking rather than a tracked follow-up.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 181
+      },
+      {
+        "summary": "Also stale: frontend/src/features/stocks/components/signalExplanation.ts's NEUTRAL-tide explanation text.",
+        "file": "frontend/src/features/stocks/components/signalExplanation.ts",
+        "line": 116
+      },
+      {
+        "summary": "Non-blocking: backend/app/signals/confidence.py::score_tide_alignment's docstring quotes docs/Analyse.md §6's old wording verbatim ('100% if slope & EMA agree strongly; 50% if mixed...') even though this PR updated that table's actual text -- behavior is unaffected (the mechanical BULLISH/NEUTRAL/BEARISH -> 1.0/0.5/0.0 mapping is still correct), but the docstring is now a stale quote of doc text that no longer exists. Tracked on backend-weekly-impulse-screen1-followups.",
+        "file": "backend/app/signals/confidence.py",
+        "line": 80
+      }
+    ],
+    "notes": "Verified via a real browser walkthrough (started make dev, screenshotted the actual Tide MetricHelp tooltip on /stocks/AAPL) that the stale-frontend-copy gap the implementer's own decisions entry flagged is a real, user-visible correctness issue, not just a documentation nit -- escalated from the deferred/out-of-scope framing in that decisions entry to a blocking finding. Everything else (backend logic, tests, OpenAPI, skill-doc, Analyse.md) reviewed to the same depth as PR #160/#185 and found correct. Full backend suite (847 passed, 99.93% coverage), frontend suite (99.6%+, unchanged), ruff/mypy/eslint/tsc all clean, all 16 e2e specs passed."
   }
 }
