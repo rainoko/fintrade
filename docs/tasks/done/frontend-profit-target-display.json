@@ -1,0 +1,117 @@
+{
+  "id": "frontend-profit-target-display",
+  "title": "Display the suggested profit target and reward:risk ratio",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-profit-target"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/SignalSummary.tsx",
+    "frontend/src/features/portfolio/components",
+    "docs/ideas.md"
+  ],
+  "description": "Display the new profit target + reward:risk ratio (backend-profit-target) alongside the existing signal and protective stop, on both the stock detail page and open positions in the portfolio view. Visually flag (not just numerically show) any signal whose reward:risk ratio fails the 2:1 sanity rule, since Elder treats this as close to a hard no-trade rule ('it seldom pays to risk a dollar to make a dollar'). Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the target/reward:risk display, integrated near the existing signal/stop display rather than as a disconnected new section.",
+      "done": true
+    },
+    {
+      "step": "Implement a clear visual treatment for a reward:risk ratio that fails the 2:1 rule (not just a plain number that looks the same as a passing one).",
+      "done": true
+    },
+    {
+      "step": "MetricHelp content explaining how the target was derived (channel/value-zone vs. nearest support/resistance, whichever applies) for THIS specific signal, and the 2:1 rule's rationale.",
+      "done": true
+    },
+    {
+      "step": "Tests covering both the portfolio and stock-detail placements; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Stock-detail placement: `ProfitTargetDisplay` (features/stocks/components/) is rendered inline in `SignalSummary`'s existing top Stack row, next to the Signal badge and Confidence gauge, not as a separate new section/card on `StockDetailPage`.",
+      "rationale": "`AnalysisResponse.profit_target` is a property of the CURRENT signal (docs/Analyse.md §7's own framing: 'a suggested target for a fresh BUY signal'), and `SignalSummary` is already the one place that renders every current-signal-derived value (signal, confidence, confidence breakdown) -- adding a disconnected new page section for one more signal-derived field would fragment that single source of truth for no benefit, and the task's own checklist explicitly asks for integration 'near the existing signal/stop display rather than as a disconnected new section'. `StockDetailPage` itself has no protective-stop display at all (that concept needs a held `Position`, which only exists in the portfolio view) -- confirmed by reading `StockDetailPage.tsx`/`RiskPanel.tsx` before implementing, so 'alongside signal and protective stop' resolves to two different real placements: signal on the stock-detail page (`SignalSummary`), protective stop + signal + now profit target together in the portfolio view (`RiskPanel`).",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Portfolio placement: added a new 'Profit Target' column to `RiskPanel` (next to the existing Protective Stop/Signal columns), backed by a new per-row component `PositionProfitTargetCell` that calls `GET /api/stocks/{ticker}/analysis` itself (via a new `usePositionProfitTarget` hook), gated to only fire when that row's own cross-referenced signal (the same `signalByTicker` map `RiskPanel`'s existing Signal column already builds from the `positions` prop) is `'BUY'` -- not added to `PositionsTable`, and not requested as a new backend field on `RiskPosition`/`PositionOut`.",
+      "rationale": "`backend-profit-target`'s own `decisions` entry explicitly chose NOT to expose `profit_target` on `GET /api/portfolio`/`GET /api/portfolio/risk`, reasoning that a fresh-entry target concept is a scope mismatch for an already-held position's risk view, and explicitly noted 'a frontend that wants this for an open position can call GET /api/stocks/{ticker}/analysis for that ticker directly' as the intended, deliberately-deferred path -- this task is exactly that follow-through, not a reason to request a backend contract change. `RiskPanel` (not `PositionsTable`) is the right host because it already shows Protective Stop -- Elder's target/reward:risk figures are only meaningful paired with a stop distance, and the task's own description explicitly asks for this 'alongside the existing signal and protective stop'. Gating the fetch on `signal === 'BUY'` (rather than fetching for every row unconditionally) avoids firing an analysis request whose only interesting field (`profit_target`) is contractually guaranteed null for every other signal (docs/Analyse.md §7) -- a real held portfolio can have many non-BUY positions, and this app already has an established precedent of avoiding needless fetches (`useStockAnalysis`'s own `enabled`/`staleTime` guards). Rejected alternatives: (a) requesting `profit_target` be added to `RiskPosition` after all -- rejected as re-opening a judgment call `backend-profit-target` already made and documented, with no new information changing that reasoning; (b) fetching unconditionally for every row regardless of signal -- rejected as wasted network calls for a field guaranteed absent; (c) adding the column to `PositionsTable` instead of/in addition to `RiskPanel` -- rejected since `PositionsTable` has no protective-stop figure to pair the reward:risk ratio's risk leg against, and duplicating the same fetch/render logic on both tables was judged unnecessary given the task's own explicit 'alongside protective stop' framing.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New `common/RewardRiskBadge` component (ratio + meetsMinimum -> colored ':1' label, with a warning icon only when failing) rather than folding this into `common/RiskPercent` or inlining the styling directly in each feature component.",
+      "rationale": "`RiskPercent` already exists for exactly this 'value + breached boolean -> colored' shape, but its polarity is inverted (higher=worse there; here, LOWER than 2:1 is the failure) and its formatting is a percentage, not a ':1' ratio -- generalizing it with a direction flag was judged more confusing than a second small, single-purpose component, especially since `RiskPercent`'s own doc comment already documents why it deliberately doesn't reuse `PercentChange` for the same kind of polarity-mismatch reason (PR #66's review). Made `common/` (not feature-scoped) since, like `SignalBadge`/`RiskPercent` themselves, it takes only plain primitives (`ratio: number | null`, `meetsMinimum: boolean`) with no awareness of `ProfitTargetOut`, a position, or a signal -- it's reused verbatim by both the stock-detail (`ProfitTargetDisplay`) and portfolio (`PositionProfitTargetCell`) placements, guaranteeing the pass/fail visual treatment itself can never drift between the two even though the two feature-level wrapper components around it are separate (see the next decision below). Gets its own warning icon (not just a color change) specifically because the task's own checklist calls for a treatment 'not just a plain number that looks the same as a passing one' -- color alone is also a weaker, less accessible signal than color+icon together.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`profitTargetHelp` (the MetricHelp content object) is defined TWICE -- once in `features/stocks/components/metricHelpContent.ts`, once in `features/portfolio/components/metricHelpContent.ts` -- with near-identical but independently-written text, rather than one shared export imported across features.",
+      "rationale": "This mirrors an existing, explicit precedent already established in this codebase: `features/portfolio/components/metricHelpContent.ts`'s own top-of-file doc comment states it is 'a separate file under features/portfolio/ rather than added to the stocks one' for exactly this kind of per-feature registry split, and no feature in this codebase currently imports another feature's component/hook/metricHelpContent registry (grepped for cross-feature imports before implementing -- none exist; every cross-feature-looking reference found was a doc comment, not an actual import). The two versions genuinely differ in one substantive way beyond wording: the portfolio version's `interpretValue` additionally accepts a `null` `signal` (a held position whose own signal couldn't be computed at all, `PositionOut.signal`'s real nullable case) as a third distinct null-cause, which `AnalysisResponse.signal` on the stock-detail page never needs since that field is never null -- so a single shared function would need an extra branch only one of its two call sites can ever reach. Rejected alternatives: (a) import the stocks-feature version from the portfolio feature -- rejected as the first cross-feature *behavioral* import in this codebase (a `metricHelpContent.ts` registry, unlike `api/stocks.ts`'s plain typed fetch functions or `features/*/hooks/queryKeys.ts`'s plain key-factory objects, is closer to feature-owned content than shared infrastructure) and inconsistent with the already-established one-registry-per-feature convention; (b) move both into a new shared, domain-agnostic location -- rejected since the content is explicitly NOT domain-agnostic (it cites Elder chapters/docs/Analyse.md sections by name), failing Frontend.md §3's own common/ placement test.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`usePositionProfitTarget` (features/portfolio/hooks/) imports `stocksKeys` from `features/stocks/hooks/queryKeys.ts` -- a deliberate, narrow exception to Frontend.md §3's 'features own their hooks' rule, and (together with the plain `getStockAnalysis`/`ApiError` imports from `api/stocks.ts`/`api/client.ts`, which are already shared, not feature-owned) the one cross-feature import this task adds.",
+      "rationale": "Reusing the exact `stocksKeys.analysis(ticker)` key (rather than a hand-duplicated literal array `['stocks', 'analysis', ticker]`) means a ticker the user has already opened on its own Stock Detail page (or that `PriceChart.tsx` has already fetched for its own support/resistance overlay -- an existing, documented dedup precedent in Frontend.md §5) shares that exact cached response instead of firing a second identical request, and guarantees the two can never silently drift apart the way a hand-duplicated key literal could if `queryKeys.ts`'s own shape ever changed. `queryKeys.ts` is a plain, side-effect-free exported config object (a key-factory, not a hook, component, or anything stateful) -- qualitatively different from importing another feature's actual hook/component logic (which this task does NOT do; `usePositionProfitTarget` is its own hook, colocated under `features/portfolio/hooks/`, calling the shared `api/stocks.ts#getStockAnalysis` function directly rather than delegating to `features/stocks/hooks/useStockAnalysis.ts`). Rejected alternatives: (a) duplicate the literal key array instead of importing `stocksKeys` -- rejected as exactly the kind of silent-drift risk this app avoids elsewhere (its own `decisions` culture), for a config object with zero actual coupling cost to import; (b) import and reuse `features/stocks/hooks/useStockAnalysis.ts` directly instead of writing a new `usePositionProfitTarget` -- rejected since that hook has no way to convey why it's being called from a different feature/context, and 'features own their hooks... keeps a feature's data layer next to the components that use it' argues for `RiskPanel`'s own fetch concern living under `features/portfolio/hooks/`, with only the underlying key/fetch-function shared.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T05:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A `PositionProfitTargetCell` analysis-fetch error (network failure, 404/503/etc.) is folded into the exact same 'unavailable' rendering/help-text branch as 'BUY signal but neither target technique currently produces a candidate' -- not a distinct fourth message naming the fetch failure specifically.",
+      "rationale": "A held position's own ticker/history has, by construction, already been successfully fetched at least once for this same portfolio session (its `PositionOut.signal`/`current_price` are already populated, which is how `RiskPanel` even knows to attempt a BUY-gated fetch at all) -- a transient failure of this specific extra analysis call is a genuinely rare, non-primary-path case, and a fourth distinct message would need its own new `profitTargetHelp` branch/wording used nowhere else in this app's established null-cause taxonomy (not-a-BUY / BUY-with-no-candidate / signal-unknown). Simplicity was preferred over completeness here given how narrow the case is; the resulting message ('neither technique currently produces a candidate') is not actively misleading for a fetch failure, just slightly less specific than it could be. Noted as a candidate minor follow-up rather than blocking this task on it.",
+      "context": null
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-profit-target-display",
+    "pr_number": 178,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/178",
+    "pushed_at": "2026-09-20T05:22:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T05:35:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/178",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Portfolio-side per-row fetch (PositionProfitTargetCell -> usePositionProfitTarget) is correctly gated to BUY-only positions -- verified in PositionProfitTargetCell.test.tsx's 'without fetching when the position signal is not BUY' test and confirmed live in a browser walkthrough (a HOLD position renders an immediate em dash, no 'Checking...' transient, no network request). Not an N+1 storm since it's bounded by BUY-position count, matching backend-profit-target's own deliberate deferral of adding profit_target to GET /api/portfolio/risk. Non-blocking follow-up filed: each BUY row still recomputes a full analysis response just to read one field, with no batching -- worth reconsidering if portfolios grow large.",
+        "file": "frontend/src/features/portfolio/hooks/usePositionProfitTarget.ts",
+        "line": 34
+      },
+      {
+        "summary": "common/RewardRiskBadge confirmed genuinely generic (ratio: number | null, meetsMinimum: boolean, decimals?: number -- no ProfitTargetOut/position/signal awareness), has its own Storybook story and unit tests; common/ placement is correct, mirroring RiskPercent's precedent. Non-blocking finding filed: its aria-label hardcodes 'Below the 2:1 minimum' text despite the doc comment's claim of being reusable for any minimum threshold.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 69
+      },
+      {
+        "summary": "Duplicated profitTargetHelp across features/stocks/components/metricHelpContent.ts and features/portfolio/components/metricHelpContent.ts matches the existing file-level 'one registry per feature, no cross-feature registry import' precedent, and the interpretValue divergence (portfolio needs a third null-signal branch) is genuine. However this is the first case of the same-named entry being duplicated with near-identical content across the two files (no other entry has a same-named counterpart), and the `definition` string turns out to be 100% byte-identical between the two copies -- not blocking, but a real drift risk. Non-blocking follow-up filed to consider factoring the identical text into a shared constant.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 41
+      },
+      {
+        "summary": "Null-handling confirmed correct against docs/Analyse.md §7 (BUY-only; null for non-BUY and for a BUY with no candidate; 2:1 ratio always computed and flagged, never used to filter the signal) via unit tests and a live browser walkthrough -- every null case renders an explained em dash + MetricHelp, never a silent omission.",
+        "file": "frontend/src/features/stocks/components/ProfitTargetDisplay.tsx",
+        "line": 38
+      }
+    ],
+    "notes": "gh pr checkout 178 (clean tree, no stash needed). Backend unaffected by this frontend-only PR but re-run for completeness: pytest --cov=app --cov-fail-under=90 -> 802 passed, 99.92% coverage; ruff/mypy clean. Frontend: yarn vitest run --coverage -> 610 passed (61 files), 99.62%/98.86%/99.69%/99.69% (statements/branches/functions/lines), all new files at 100%; yarn lint clean; ./node_modules/.bin/tsc -b --noEmit run directly per this review's specific ask -- clean. Dispatched the code-review skill (medium effort) in the background; it returned three non-blocking findings, all independently corroborated during my own reading of the diff (folded into review.comments above and the frontend-profit-target-display-followups task). No backend/API route or schema touched by this PR, so no backend/openapi.json regeneration was required. Browser walkthrough: organically hit only HOLD signals against ~30 tickers on both the live-data and FixtureDataProvider ('fixture' mode) backends, so drove a real Chromium instance via @playwright/test (already a frontend devDependency) with network-route interception supplying deterministic BUY/HOLD and passing/failing-ratio AnalysisResponse fixtures -- functionally equivalent to a Playwright MCP walkthrough. Confirmed: stock-detail BUY+passing (green 2.0:1, no icon), BUY+failing (red 0.9:1 + warning-triangle icon), HOLD ('Profit Target: -- ' + MetricHelp); portfolio RiskPanel showing a BUY row's target+badge and a HOLD row's plain em dash with no fetch fired for it; MetricHelp popovers render the correct current-value interpretation text; no console errors, no failed (>=400) network responses in any scenario. Also ran the persisted e2e suite (make e2e, step 9a) against a fresh fixture-mode stack: all 16 specs across 5 files (dashboard, navigation, portfolio, stock-analysis, watchlist) passed, no regression. All checklist items done with a corresponding decisions entry or direct implementation; no undecided 'decide X' item found. Posted as a COMMENTED-type gh pr review (never approve/request-changes), filed docs/tasks/frontend-profit-target-display-followups.json for the three non-blocking findings, and moved this task's file to docs/tasks/done/ with index.json updated in the same commit. No pre-existing pr_decision to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T05:40:50Z",
+    "verdict": "merge",
+    "notes": "Re-ran everything myself on the checked-out branch (already clean, no stash needed): backend pytest --cov=app --cov-fail-under=90 -> 802 passed, 99.92% coverage, matching pr-reviewer exactly. Frontend yarn vitest run --coverage -> 610 passed (61 files), 99.62%/98.86%/99.69%/99.69%, matching exactly; ./node_modules/.bin/tsc -b --noEmit clean. Read the full diff (git diff origin/main...HEAD, 22 files) myself, not just the summary. Verified (a) the RiskPanel fetch gating by reading usePositionProfitTarget.ts and PositionProfitTargetCell.tsx directly: isBuy = signal === 'BUY' is passed as usePositionProfitTarget's enabled arg, which sets useQuery's enabled: enabled && ticker.length > 0 -- genuinely BUY-gated, confirmed by PositionProfitTargetCell.test.tsx's 'without fetching when the position signal is not BUY' test asserting a mocked 500 handler for that ticker is never hit. Verified (b) RewardRiskBadge.tsx's actual props (ratio: number | null, meetsMinimum: boolean, decimals?: number) carry no ProfitTargetOut/position/signal awareness -- genuinely generic; the one real gap (hardcoded 'Below the 2:1 minimum' aria-label despite the doc comment's reusability claim) is real but narrow (accessibility text only, no functional impact on either current caller) and is already tracked in frontend-profit-target-display-followups.json's checklist, so non-blocking was the right call. Checked gh pr view 178 for human comments/reviews -- none found (only the automated raino-agent COMMENTED review). No task-JSON drift found. Accept holds; nothing found that pr-reviewer missed or underweighted."
+  }
+}

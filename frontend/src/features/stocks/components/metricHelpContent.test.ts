@@ -4,6 +4,7 @@ import type {
   HistoryResponse,
   IndicatorHistoryPoint,
   KangarooTailOut,
+  ProfitTargetOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
 import {
@@ -25,6 +26,7 @@ import {
   kangarooTailHelp,
   macdHistogramHelp,
   obvHelp,
+  profitTargetHelp,
   rsiHelp,
   seasonHelp,
   signalHelp,
@@ -82,6 +84,64 @@ describe('metricHelpContent', () => {
       expect(confidenceHelp.interpretValue(72.4, 'High')).toBe(
         'Currently 72% -- High confidence.',
       )
+    })
+  })
+
+  describe('profitTargetHelp.interpretValue', () => {
+    const target: ProfitTargetOut = {
+      price: 245.0,
+      source: 'channel',
+      distance_to_stop: 9.3,
+      distance_to_target: 18.6,
+      reward_risk_ratio: 2.0,
+      meets_minimum_reward_risk: true,
+    }
+
+    it('explains a null signal (couldn’t be computed) distinctly from a definite non-BUY signal', () => {
+      expect(profitTargetHelp.interpretValue(null, null)).toMatch(
+        /couldn’t be computed/,
+      )
+    })
+
+    it('explains a non-BUY signal by name', () => {
+      expect(profitTargetHelp.interpretValue(null, 'SELL')).toBe(
+        'Not applicable -- a profit target is only ever computed for a fresh BUY signal; this ticker is currently SELL.',
+      )
+    })
+
+    it('explains a BUY signal with no current candidate', () => {
+      expect(profitTargetHelp.interpretValue(null, 'BUY')).toMatch(
+        /Currently unavailable for this BUY signal/,
+      )
+    })
+
+    it('names the channel technique and reward:risk ratio, and confirms it clears the 2:1 minimum', () => {
+      const text = profitTargetHelp.interpretValue(target, 'BUY')
+      expect(text).toContain('Currently 245.00, from the channel/Tradebill formula')
+      expect(text).toContain('Reward:risk ratio 2.0:1')
+      expect(text).toContain('This clears Elder’s 2:1 minimum.')
+    })
+
+    it('names the support/resistance technique and flags a ratio that fails the 2:1 minimum', () => {
+      const text = profitTargetHelp.interpretValue(
+        {
+          ...target,
+          source: 'support_resistance',
+          reward_risk_ratio: 0.9,
+          meets_minimum_reward_risk: false,
+        },
+        'BUY',
+      )
+      expect(text).toContain('nearest detected support/resistance zone')
+      expect(text).toContain('This FAILS Elder’s 2:1 minimum')
+    })
+
+    it('explains an undefined ratio (stop distance <= 0) instead of a fabricated number', () => {
+      const text = profitTargetHelp.interpretValue(
+        { ...target, reward_risk_ratio: null, meets_minimum_reward_risk: false },
+        'BUY',
+      )
+      expect(text).toMatch(/reward:risk ratio is undefined right now/)
     })
   })
 

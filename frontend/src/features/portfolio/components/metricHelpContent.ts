@@ -1,3 +1,5 @@
+import type { ProfitTargetOut } from '../../../api/stocks'
+
 /**
  * Help content for the "A-trade" grade metrics shown on `TradeJournalPanel`
  * (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7) — same registry
@@ -21,6 +23,54 @@
  * not "no interpretation available" the way e.g. IndicatorsPanel's
  * `isKnown` guard treats a stale/malformed latest bar.
  */
+
+/**
+ * Profit target + reward:risk ratio help for `PositionProfitTargetCell`
+ * (`RiskPanel`'s Profit Target column, `frontend-profit-target-display`,
+ * docs/Analyse.md §7). A parallel entry to `features/stocks/components/
+ * metricHelpContent.ts`'s own `profitTargetHelp` -- same registry-per-
+ * feature convention this file's own top-of-file comment already
+ * documents, not a cross-feature import, so this file's `interpretValue`
+ * additionally handles a signal of `null` (a held position whose own
+ * signal couldn't be computed at all, `PositionOut.signal`'s own null-on-
+ * failure case) as a THIRD distinct null-target cause alongside "not a
+ * fresh BUY" and "BUY but no current candidate" -- a case the stock-detail
+ * page's `AnalysisResponse.signal` never needs, since that field is never
+ * null.
+ */
+export const profitTargetHelp = {
+  metricLabel: 'Profit Target',
+  definition:
+    'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of today’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.',
+  elderContext:
+    'Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to this same position’s protective stop shown alongside it ("it seldom pays to risk a dollar to make a dollar", ch. 53, docs/Analyse.md §7) -- shown here as a reward:risk ratio, always computed and flagged rather than silently hidden when it fails. BUY-only: this app’s protective-stop formula (and its whole portfolio model) is explicitly long-only, so there’s no symmetric SELL-side target/ratio. A held position’s own profit target reflects what a FRESH entry at today’s price would target -- not a re-evaluation of the price this position was originally bought at.',
+  interpretValue(
+    profitTarget: ProfitTargetOut | null,
+    signal: 'BUY' | 'SELL' | 'HOLD' | null,
+  ): string {
+    if (signal === null) {
+      return 'Not applicable right now -- this position’s own current signal couldn’t be computed (its price or history fetch failed), so a profit target can’t be either.'
+    }
+    if (signal !== 'BUY') {
+      return `Not applicable -- a profit target is only ever computed for a fresh BUY signal; this position’s ticker is currently ${signal}.`
+    }
+    if (!profitTarget) {
+      return 'Currently unavailable for this BUY signal -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above the current price.'
+    }
+    const sourceLabel =
+      profitTarget.source === 'channel'
+        ? 'the channel/Tradebill formula (current price + 30% of today’s Autoenvelope/channel height)'
+        : 'the nearest detected support/resistance zone above current price'
+    const ratioClause =
+      profitTarget.reward_risk_ratio == null
+        ? 'The reward:risk ratio is undefined right now, since today’s close is already at or below the computed protective stop.'
+        : `Reward:risk ratio ${profitTarget.reward_risk_ratio.toFixed(1)}:1 (potential reward ${profitTarget.distance_to_target.toFixed(2)}/share vs. risk ${profitTarget.distance_to_stop.toFixed(2)}/share to the protective stop).`
+    const meetsClause = profitTarget.meets_minimum_reward_risk
+      ? 'This clears Elder’s 2:1 minimum.'
+      : 'This FAILS Elder’s 2:1 minimum -- he treats that as close to a hard no-trade rule, not just a caution.'
+    return `Currently ${profitTarget.price.toFixed(2)}, from ${sourceLabel}. ${ratioClause} ${meetsClause}`
+  },
+}
 
 export const buyGradeHelp = {
   metricLabel: 'Buy Grade',

@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { ConfidenceBreakdownItem, Screens } from '../../../api/stocks'
+import type { ConfidenceBreakdownItem, ProfitTargetOut, Screens } from '../../../api/stocks'
 import { renderWithTheme } from '../../../../tests/renderWithTheme'
 import SignalSummary from './SignalSummary'
 
@@ -52,6 +52,24 @@ const holdNeutralScreens: Screens = {
   trigger: { fired: false, reference: 'not_applicable' },
 }
 
+const passingProfitTarget: ProfitTargetOut = {
+  price: 245.0,
+  source: 'channel',
+  distance_to_stop: 9.3,
+  distance_to_target: 18.6,
+  reward_risk_ratio: 2.0,
+  meets_minimum_reward_risk: true,
+}
+
+const failingProfitTarget: ProfitTargetOut = {
+  price: 235.0,
+  source: 'support_resistance',
+  distance_to_stop: 9.3,
+  distance_to_target: 8.6,
+  reward_risk_ratio: 0.9,
+  meets_minimum_reward_risk: false,
+}
+
 const holdMissingWaveScreens: Screens = {
   tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
   impulse: 'GREEN',
@@ -74,6 +92,7 @@ describe('SignalSummary', () => {
         confidenceBand="High"
         confidenceBreakdown={breakdown}
         screens={buyScreens}
+        profitTarget={null}
       />,
     )
 
@@ -100,6 +119,7 @@ describe('SignalSummary', () => {
         confidenceBand="Low"
         confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0 }]}
         screens={sellScreens}
+        profitTarget={null}
       />,
     )
 
@@ -119,6 +139,7 @@ describe('SignalSummary', () => {
         confidenceBand="High"
         confidenceBreakdown={[{ component: 'tide_alignment', weight: 0.3, score: 0.5 }]}
         screens={holdNeutralScreens}
+        profitTarget={null}
       />,
     )
 
@@ -133,6 +154,7 @@ describe('SignalSummary', () => {
         confidenceBand="Medium"
         confidenceBreakdown={[{ component: 'future_component', weight: 0.5, score: 0.5 }]}
         screens={holdNeutralScreens}
+        profitTarget={null}
       />,
     )
 
@@ -148,6 +170,7 @@ describe('SignalSummary', () => {
         confidenceBand="Medium"
         confidenceBreakdown={[]}
         screens={holdNeutralScreens}
+        profitTarget={null}
       />,
     )
 
@@ -164,6 +187,7 @@ describe('SignalSummary', () => {
         confidenceBand="High"
         confidenceBreakdown={breakdown}
         screens={buyScreens}
+        profitTarget={null}
       />,
     )
 
@@ -184,6 +208,7 @@ describe('SignalSummary', () => {
         confidenceBand="Medium"
         confidenceBreakdown={breakdown}
         screens={sellScreens}
+        profitTarget={null}
       />,
     )
 
@@ -204,6 +229,7 @@ describe('SignalSummary', () => {
         confidenceBand="Low"
         confidenceBreakdown={[]}
         screens={holdNeutralScreens}
+        profitTarget={null}
       />,
     )
 
@@ -221,6 +247,7 @@ describe('SignalSummary', () => {
         confidenceBand="Low"
         confidenceBreakdown={[]}
         screens={holdMissingWaveScreens}
+        profitTarget={null}
       />,
     )
 
@@ -243,6 +270,7 @@ describe('SignalSummary', () => {
         confidenceBand="High"
         confidenceBreakdown={breakdown}
         screens={buyScreens}
+        profitTarget={null}
       />,
     )
 
@@ -268,5 +296,94 @@ describe('SignalSummary', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Currently BUY/)).not.toBeInTheDocument()
+  })
+
+  it('renders the profit target price and a passing reward:risk badge for a fresh BUY', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+        screens={buyScreens}
+        profitTarget={passingProfitTarget}
+      />,
+    )
+
+    expect(screen.getByText('Target $245.00')).toBeInTheDocument()
+    expect(screen.getByText('2.0:1')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Below the 2:1 minimum')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Profit Target help' }))
+    expect(
+      screen.getByText(/Currently 245.00, from the channel\/Tradebill formula/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/This clears Elder’s 2:1 minimum\./)).toBeInTheDocument()
+  })
+
+  it('visually flags a profit target whose reward:risk ratio fails the 2:1 rule', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+        screens={buyScreens}
+        profitTarget={failingProfitTarget}
+      />,
+    )
+
+    expect(screen.getByText('Target $235.00')).toBeInTheDocument()
+    expect(screen.getByText('0.9:1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Below the 2:1 minimum')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Profit Target help' }))
+    expect(
+      screen.getByText(/This FAILS Elder’s 2:1 minimum/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an explained em dash for a HOLD signal, since profit_target is BUY-only', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="HOLD"
+        confidence={0}
+        confidenceBand="Low"
+        confidenceBreakdown={[]}
+        screens={holdNeutralScreens}
+        profitTarget={null}
+      />,
+    )
+
+    expect(screen.getByText('Profit Target: —')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Profit Target help' }))
+    expect(
+      screen.getByText(/Not applicable -- a profit target is only ever computed for a fresh BUY signal; this ticker is currently HOLD\./),
+    ).toBeInTheDocument()
+  })
+
+  it('shows an explained em dash for a fresh BUY with no current target candidate', async () => {
+    const user = userEvent.setup()
+    renderWithTheme(
+      <SignalSummary
+        signal="BUY"
+        confidence={72}
+        confidenceBand="High"
+        confidenceBreakdown={breakdown}
+        screens={buyScreens}
+        profitTarget={null}
+      />,
+    )
+
+    expect(screen.getByText('Profit Target: —')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Profit Target help' }))
+    expect(
+      screen.getByText(/Currently unavailable for this BUY signal -- neither technique/),
+    ).toBeInTheDocument()
   })
 })

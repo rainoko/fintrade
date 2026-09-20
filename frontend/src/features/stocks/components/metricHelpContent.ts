@@ -1,9 +1,11 @@
 import type {
+  AnalysisResponse,
   DivergenceOut,
   FalseBreakoutOut,
   HistoryResponse,
   IndicatorHistoryPoint,
   KangarooTailOut,
+  ProfitTargetOut,
   SupportResistanceZone,
 } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
@@ -122,6 +124,48 @@ export const confidenceComponentHelp: Record<
 /** Looks up help content for a `confidence_breakdown` row by its `component` field, or `undefined` for a not-yet-documented future component name (same fallback posture `humanizeSnakeCase`'s `labelMap` already takes for this exact field). */
 export function getConfidenceComponentHelp(component: string) {
   return confidenceComponentHelp[component]
+}
+
+// ---------------------------------------------------------------------------
+// Profit target (SignalSummary.tsx, frontend-profit-target-display; also
+// used by features/portfolio/components/PositionProfitTargetCell.tsx --
+// features/portfolio/components/metricHelpContent.ts has its own parallel
+// entry rather than importing this one, per that file's own established
+// "one registry per feature, not a cross-feature import" convention.)
+// ---------------------------------------------------------------------------
+
+export const profitTargetHelp = {
+  metricLabel: 'Profit Target',
+  definition:
+    'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of today’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.',
+  elderContext:
+    'Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to the same protective stop this app already computes ("it seldom pays to risk a dollar to make a dollar", ch. 53, docs/Analyse.md §7) -- shown here as a reward:risk ratio, always computed and flagged rather than silently hidden when it fails. BUY-only: this app’s protective-stop formula (and its whole portfolio model) is explicitly long-only, so there’s no symmetric SELL-side target/ratio.',
+  interpretValue(
+    profitTarget: ProfitTargetOut | null,
+    signal: AnalysisResponse['signal'] | null,
+  ): string {
+    if (signal === null) {
+      return 'Not applicable right now -- this ticker’s own current signal couldn’t be computed, so a profit target can’t be either.'
+    }
+    if (signal !== 'BUY') {
+      return `Not applicable -- a profit target is only ever computed for a fresh BUY signal; this ticker is currently ${signal}.`
+    }
+    if (!profitTarget) {
+      return 'Currently unavailable for this BUY signal -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above the current price.'
+    }
+    const sourceLabel =
+      profitTarget.source === 'channel'
+        ? 'the channel/Tradebill formula (current price + 30% of today’s Autoenvelope/channel height)'
+        : 'the nearest detected support/resistance zone above current price'
+    const ratioClause =
+      profitTarget.reward_risk_ratio == null
+        ? 'The reward:risk ratio is undefined right now, since today’s close is already at or below the computed protective stop.'
+        : `Reward:risk ratio ${profitTarget.reward_risk_ratio.toFixed(1)}:1 (potential reward ${profitTarget.distance_to_target.toFixed(2)}/share vs. risk ${profitTarget.distance_to_stop.toFixed(2)}/share to the protective stop).`
+    const meetsClause = profitTarget.meets_minimum_reward_risk
+      ? 'This clears Elder’s 2:1 minimum.'
+      : 'This FAILS Elder’s 2:1 minimum -- he treats that as close to a hard no-trade rule, not just a caution.'
+    return `Currently ${profitTarget.price.toFixed(2)}, from ${sourceLabel}. ${ratioClause} ${meetsClause}`
+  },
 }
 
 // ---------------------------------------------------------------------------

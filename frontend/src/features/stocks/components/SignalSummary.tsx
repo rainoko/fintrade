@@ -18,6 +18,7 @@ import {
   getConfidenceComponentHelp,
   signalHelp,
 } from './metricHelpContent'
+import ProfitTargetDisplay from './ProfitTargetDisplay'
 import SignalExplanationContent from './SignalExplanationContent'
 
 export interface SignalSummaryProps {
@@ -30,6 +31,14 @@ export interface SignalSummaryProps {
    * click-to-explain "why this signal" balloon (see `signalExplanation.ts`).
    */
   screens: Screens
+  /**
+   * `GET /api/stocks/{ticker}/analysis`'s `profit_target` -- suggested
+   * target price + reward:risk ratio for the current signal
+   * (`frontend-profit-target-display`, docs/Analyse.md §7). Rendered via
+   * `ProfitTargetDisplay`, inline alongside the signal/confidence badges
+   * rather than as a disconnected new page section.
+   */
+  profitTarget: AnalysisResponse['profit_target']
 }
 
 // Human-readable label per known confidence_breakdown component name
@@ -80,6 +89,12 @@ function formatPercent(fraction: number): string {
  * the component name, not a corner overlay -- a table cell has no useful
  * "corner") explaining what that weighted component measures and how its
  * score/weight combination contributed to the total.
+ *
+ * `profit_target` (the suggested target price + reward:risk ratio for the
+ * current signal, docs/Analyse.md §7) is rendered inline in the same top
+ * row via `ProfitTargetDisplay` -- integrated next to the existing signal/
+ * confidence display rather than as a disconnected new section, per the
+ * `frontend-profit-target-display` task's own checklist.
  */
 export default function SignalSummary({
   signal,
@@ -87,6 +102,7 @@ export default function SignalSummary({
   confidenceBand,
   confidenceBreakdown,
   screens,
+  profitTarget,
 }: SignalSummaryProps) {
   const columns: DataTableColumn<ConfidenceBreakdownItem>[] = [
     {
@@ -153,6 +169,7 @@ export default function SignalSummary({
             )}
           />
         </Stack>
+        <ProfitTargetDisplay profitTarget={profitTarget ?? null} signal={signal} />
       </Stack>
 
       <Typography variant="subtitle2" color="text.secondary">

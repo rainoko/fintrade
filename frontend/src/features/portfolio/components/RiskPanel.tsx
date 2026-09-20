@@ -16,6 +16,7 @@ import StatCard from '../../../components/common/StatCard/StatCard'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency } from '../../../utils/format'
 import ExitFlagChips from './ExitFlagChips'
+import PositionProfitTargetCell from './PositionProfitTargetCell'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 import { totalRiskHelp } from './totalRiskHelp'
 
@@ -35,6 +36,12 @@ export interface RiskPanelProps {
  * (docs/architecture/API.md#get-apiportfoliorisk, docs/Analyse.md §7).
  * Feature component (not `common/`) since every field it renders — protective
  * stop, position risk, exit flags — is a portfolio-risk domain concept.
+ *
+ * The Profit Target column (`PositionProfitTargetCell`,
+ * `frontend-profit-target-display`) sits next to Protective Stop for the
+ * same reason the Signal column above sits next to it too: a held
+ * position's suggested target/reward:risk ratio is shown alongside its
+ * existing stop/risk figures, not as a disconnected new section.
  */
 export default function RiskPanel({ positions }: RiskPanelProps) {
   const theme = useTheme()
@@ -128,6 +135,22 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
         const signal = signalByTicker.get(row.ticker)
         return signal == null ? '—' : <SignalBadge signal={signal} />
       },
+    },
+    {
+      // Synthetic column, same convention as the Signal column above:
+      // `RiskPosition` has no `profit_target` field of its own (see
+      // `PositionProfitTargetCell`'s own doc comment for why), so this
+      // reuses another of `RiskPosition`'s own otherwise-column-key-unused
+      // fields purely for DataTable's required unique `key` typing.
+      key: 'two_percent_rule_breached',
+      header: 'Profit Target',
+      align: 'right',
+      render: (row) => (
+        <PositionProfitTargetCell
+          ticker={row.ticker}
+          signal={signalByTicker.get(row.ticker) ?? null}
+        />
+      ),
     },
   ]
 
