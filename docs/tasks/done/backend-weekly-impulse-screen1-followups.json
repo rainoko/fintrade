@@ -67,5 +67,10 @@
       }
     ],
     "notes": "Accepted. Small, low-risk doc-comment-only PR exactly as described: both reworded PriceChart.tsx comments verified accurate against the actual evaluate_tide/evaluate_impulse implementation and docs/Analyse.md §2/§3, and against the corrected ema13Help/ema26Help copy in the same feature area. Tests, coverage, static analysis, and code-review are all clean. One new non-blocking finding (stale valueZoneHelp.elderContext copy, pre-existing and outside this PR's diff) filed as a checklist item on the new backend-weekly-impulse-screen1-followups-followups task rather than blocking this PR."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T09:26:16Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...task/backend-weekly-impulse-screen1-followups --stat` confirms only task-board JSON/index.json and PriceChart.tsx changed, and PriceChart.tsx's diff is comment-text-only. Read both reworded comments (line ~339, ~757) against evaluate_tide (triple_screen.py) and evaluate_impulse (impulse.py) myself -- both accurately describe Tide/Screen 1 as the weekly Impulse System color (weekly EMA(13) bar-over-bar direction + weekly MACD-Histogram bar-over-bar direction, both required to agree for GREEN/RED), and confirmed EMA(26) no longer feeds Tide (triple_screen.py:192-194) while still feeding daily MACD (macd_components' default slow=26) and the chart's value-zone shading (valueZoneTop/Bottom = max/min of ema13/ema26 in PriceChart.tsx). Re-ran frontend suite myself: 643/643 passed (no flake this run), `tsc -b --noEmit` clean, eslint clean, matching pr-reviewer's numbers. Also spot-checked the new backend-weekly-impulse-screen1-followups-followups.json follow-up task: metricHelpContent.ts:583's valueZoneHelp.elderContext genuinely still says the EMA13/EMA26 pair 'already drives the Tide (Screen 1)', confirmed stale against the already-corrected ema26Help.elderContext a few lines above -- finding is real and correctly filed as non-blocking (pre-existing, outside this PR's diff) rather than blocking PR #188."
   }
 }
