@@ -85,5 +85,10 @@
       }
     ],
     "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage) and ruff+mypy clean on all files this PR touches. No frontend changes -- no browser walkthrough/e2e run needed. Confirmed no conflict with backend-swing-point-detector-followups' shared rolling_extreme_masks primitive: profit_target.py consumes support_resistance.Zone objects, and support_resistance.py's zone-producing behavior was verified numerically unchanged by that refactor (fuzz-tested). All checklist items done, decisions recorded for every judgment call (EMA(13) dedup left as a documented comment rather than a signal-engine API change, correctly scoped as out-of-proportion for a followups task)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:40:38Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (929 passed, 99.94% coverage) and ruff/mypy (clean on this task's files). Read profit_target.py/risk.py diffs and both new tests myself -- confirmed validate_daily_ohlcv_columns is now called before the current_price['close'] read (genuinely fixes the KeyError-vs-ValueError ordering) and that the new role='support'-above-price test exercises _nearest_resistance_price's position-based (not role-based) filter as claimed."
   }
 }

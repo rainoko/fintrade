@@ -86,5 +86,10 @@
       }
     ],
     "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage) and ruff+mypy clean on all files this PR touches. No frontend changes -- no browser walkthrough/e2e run needed. All checklist items done, decisions recorded for every judgment call (rounding-sum kept as doc note not remainder-derivation; docs/Analyse.md section placement kept under \u00a77 with cross-reference added). No blocking findings, no non-blocking findings specific to this task beyond what's already recorded on backend-swing-point-detector-followups-followups (which is scoped to the swing-detection refactor, not this task)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:40:38Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (929 passed, 99.94% coverage) and ruff/mypy (clean on this task's files). Read watchlist.py, schemas.py, docs/Analyse.md, and docs/architecture/API.md diffs myself -- confirmed _tide_trend now genuinely delegates to _compute_signal (same DataProviderError-only catch), confirmed the 'reused when warm' cache-claim rewording and rounding-sum doc notes match actual code behavior, and confirmed backend/openapi.json is in sync by re-running scripts/export_openapi.py (no diff)."
   }
 }
