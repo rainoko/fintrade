@@ -7,6 +7,7 @@ import type {
   SupportResistanceZone,
 } from '../../../api/stocks'
 import {
+  accumulationDistributionHelp,
   bearPowerHelp,
   bullPowerHelp,
   channelHelp,
@@ -20,6 +21,7 @@ import {
   impulseHelp,
   kangarooTailHelp,
   macdHistogramHelp,
+  obvHelp,
   rsiHelp,
   seasonHelp,
   signalHelp,
@@ -959,6 +961,84 @@ describe('metricHelpContent', () => {
       const message = tideRegionHelp.interpretValue(points)
       expect(message).toContain('100% Bullish, 0% Bearish, 0% Neutral')
       expect(message).toContain("Today's (rightmost) background is Bullish (green)")
+    })
+  })
+
+  describe('obvHelp / accumulationDistributionHelp (frontend-volume-indicators-chart)', () => {
+    function buildPoint(date: string, obv: number, accumulationDistribution: number): IndicatorHistoryPoint {
+      return {
+        date,
+        tide: { trend: 'NEUTRAL', weekly_macd_histogram_slope: 'flat' },
+        ema_13: 100,
+        ema_26: 98,
+        macd_histogram: 0.5,
+        bull_power: 1,
+        bear_power: -1,
+        obv,
+        accumulation_distribution: accumulationDistribution,
+        signal: 'HOLD',
+        confidence: 0,
+        confidence_band: 'Low',
+      }
+    }
+
+    it('explains what OBV is and Elder\'s two divergence/trading-range reading styles', () => {
+      expect(obvHelp.definition).toMatch(/running cumulative total/)
+      expect(obvHelp.elderContext).toMatch(/divergence/)
+      expect(obvHelp.elderContext).toMatch(/trading-range/)
+      expect(obvHelp.elderContext).toMatch(/ahead of/)
+    })
+
+    it('explains what A/D is and how it differs from OBV and Elder-Ray', () => {
+      expect(accumulationDistributionHelp.definition).toMatch(/close - open/)
+      expect(accumulationDistributionHelp.elderContext).toMatch(/Elder-Ray/)
+    })
+
+    it('reports "unavailable" for an empty points array', () => {
+      expect(obvHelp.interpretValue([])).toBe('Currently unavailable for this ticker.')
+      expect(accumulationDistributionHelp.interpretValue([])).toBe(
+        'Currently unavailable for this ticker.',
+      )
+    })
+
+    it("states the raw value together with the 'means nothing on its own' caveat, never the raw value alone", () => {
+      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const message = obvHelp.interpretValue(points)
+      expect(message).toContain('Currently 10500 as of 2026-09-02')
+      expect(message).toContain("means nothing on its own")
+    })
+
+    it('describes a rising OBV currently at its own window high', () => {
+      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const message = obvHelp.interpretValue(points)
+      expect(message).toContain('OBV has risen over the 2 bars currently shown')
+      expect(message).toContain('It is currently at its own highest point over this window.')
+    })
+
+    it('describes a falling A/D currently at its own window low', () => {
+      const points = [buildPoint('2026-09-01', 5000, 1200), buildPoint('2026-09-02', 10500, 900)]
+      const message = accumulationDistributionHelp.interpretValue(points)
+      expect(message).toContain('A/D has fallen over the 2 bars currently shown')
+      expect(message).toContain('It is currently at its own lowest point over this window.')
+    })
+
+    it('describes a flat series and names the window high/low when the latest bar is neither', () => {
+      const points = [
+        buildPoint('2026-08-30', 5000, 1200),
+        buildPoint('2026-08-31', 8000, 1200),
+        buildPoint('2026-09-01', 3000, 1200),
+        buildPoint('2026-09-02', 5000, 1200),
+      ]
+      const message = obvHelp.interpretValue(points)
+      expect(message).toContain('OBV has stayed flat over the 4 bars currently shown')
+      expect(message).toContain('its own high was 8000 (2026-08-31) and low was 3000 (2026-09-01)')
+    })
+
+    it('handles a single-bar window without a plural mismatch', () => {
+      const points = [buildPoint('2026-09-02', 5000, 1200)]
+      const message = obvHelp.interpretValue(points)
+      expect(message).toContain('OBV has stayed flat over the 1 bar currently shown')
+      expect(message).toContain('It is currently at its own highest point over this window.')
     })
   })
 })

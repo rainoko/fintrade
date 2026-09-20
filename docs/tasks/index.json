@@ -1125,7 +1125,7 @@
       "id": "frontend-volume-indicators-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-volume-indicators-chart.json"
     },
     {

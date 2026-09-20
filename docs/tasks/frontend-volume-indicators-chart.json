@@ -3,7 +3,7 @@
   "title": "New chart panel: On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-indicator-obv-ad"
   ],
@@ -15,15 +15,51 @@
   "checklist": [
     {
       "step": "Implement the new panel with OBV and A/D as separate cumulative line series.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp content explicitly warning that the absolute level is meaningless (depends on the data's start date) and explaining what to actually look for (pattern of highs/lows vs. price).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV/A-D are surfaced in a brand-new component, `frontend/src/features/stocks/components/VolumeIndicatorsChart.tsx`, rendered as its own panel beneath `OscillatorChart` (wired into `StockCharts.tsx` with the same range/enabled mirroring), not as additional series folded into `OscillatorChart.tsx` itself.",
+      "rationale": "Every existing series on `OscillatorChart.tsx` is a Screen-2 (the Wave) input, and that component's own doc comment already scopes it explicitly to 'historical oscillator pane for Screen 2' -- Stochastic/RSI are 0-100 bounded oscillators, Force Index is the Wave's own oscillator field, and MACD Histogram is the Impulse System's slope input. OBV/A-D are neither bounded oscillators nor Screen/Impulse inputs at all: they are unbounded *cumulative* running totals, purely informational (never read by signal/confidence, per docs/Analyse.md §4 and the backend-indicator-obv-ad task), and conceptually distinct enough that folding them into a component named/scoped around 'the Wave' would blur that distinction for a user reading the page. A new file also avoids growing an already-large component (486 lines before this task) with two more unrelated series. Rejected: adding OBV/A-D as a 5th/6th series+pane to `OscillatorChart.tsx` (rejected per the scoping mismatch above) and a new tab/accordion section requiring extra navigation (rejected as inconsistent with how every other historical-indicator panel on this page is already always-visible, stacked beneath the price chart)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV and A/D each get their own separate Lightweight Charts pane (0 and 1) within `VolumeIndicatorsChart`'s single chart instance, rather than sharing one pane/y-axis the way Stochastic and RSI do.",
+      "rationale": "Stochastic/RSI share a pane specifically because their identical 0-100 bound makes direct visual comparison the point (frontend-rsi-oscillator-chart's own decision). OBV and A/D have no such shared bound: OBV credits a bar's *entire* volume to one side, while A/D credits only the fraction implied by where the close landed within that bar's own high-low range (at most the same magnitude as OBV's contribution that day, typically much smaller) -- over a long cumulative history the two series' absolute scales can diverge by an order of magnitude or more, which would flatten whichever series is smaller into an unreadable near-flat line on a shared axis. This mirrors `OscillatorChart.tsx`'s own existing Force-Index-vs-MACD-Histogram pane split for the identical 'different scale -> own pane' reason. No zero-baseline reference line was added on either pane (unlike Force Index/MACD Histogram): both series are constructed to start at exactly 0 on their first plotted bar by convention (see backend-indicator-obv-ad's own first-bar/zero-range decisions), so a 'zero' price line here would only mark each series' own arbitrary starting point, not a meaningful sign-based threshold the way it does for Force Index/MACD Histogram, whose sign is itself a buying/selling cue."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV/A-D's `MetricHelp` current-value interpretation (`obvHelp.interpretValue`/`accumulationDistributionHelp.interpretValue` in `metricHelpContent.ts`) states the raw latest value together with an explicit 'this number means nothing on its own' caveat every time (never the raw value alone), then describes the actually-meaningful thing: whether the series has risen/fallen/stayed flat across the currently displayed window, and whether the latest bar sits at that window's own high or low (naming the window's high/low with dates otherwise) -- computed from the exact same `points` array the chart plots from.",
+      "rationale": "This task's own description requires the chart/legend to actively avoid inviting a raw-number misreading, not just define the indicator abstractly -- every other `metricHelpContent.ts` entry's `interpretValue` states 'Currently N' as a normal, comparable reading, which would be actively wrong here per docs/Analyse.md §4's own framing ('absolute level is meaningless... only its pattern of highs/lows and divergence against price matters'). Reusing the exact windowed `points` array the chart itself renders (rather than a separate full-history computation) guarantees the help text can never describe a trend the chart doesn't actually show. Rejected: omitting a current-value interpretation entirely (rejected -- the task explicitly asks for one 'where meaningful,' and a rising/falling-plus-window-extreme reading IS meaningful, unlike the raw number) and computing a percentage change (rejected -- both series can legitimately cross zero or start near zero, making a percentage baseline unstable/misleading in a way an absolute rise/fall description isn't)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No divergence overlay against OBV/A-D was added in this task, and no new Storybook story was added for `VolumeIndicatorsChart.tsx`.",
+      "rationale": "Divergence detection against OBV/A-D was explicitly scoped OUT of the backend-indicator-obv-ad task as a separate follow-up (it depends on `app.signals.swing_points` being run against these two series, which hasn't happened yet -- `DivergenceOut.indicator` only covers `macd_histogram`/`stochastic`/`rsi` today) -- adding a frontend overlay for a backend capability that doesn't exist yet is out of this task's scope; this task's own checklist only calls for the raw series + explanatory help content. No Storybook story: `VolumeIndicatorsChart.tsx` is a `features/stocks/components/` feature-specific chart component wired to a live TanStack Query hook, the same category `PriceChart`/`OscillatorChart`/`StockCharts` already fall into without their own stories (per Frontend.md §4, the Storybook requirement is scoped to `components/common/`) -- consistent with frontend-rsi-oscillator-chart's identical decision for the same reason."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV's line uses `theme.palette.primary.main` (blue), A/D's uses `theme.palette.secondary.main` (purple) -- reusing the same two theme colors `OscillatorChart.tsx` already uses for Stochastic/RSI, rather than introducing a new palette entry.",
+      "rationale": "`VolumeIndicatorsChart` is its own separate chart instance/legend with no other colored series or markers to clash with (unlike the kangaroo-tail/divergence colors, which needed to be visually distinct from several other already-present marker types sharing `PriceChart`'s single chart) -- reusing the existing primary/secondary pair keeps the two lines clearly distinguishable from each other without requiring a new palette decision for a two-line chart that doesn't need one."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-volume-indicators-chart",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }
