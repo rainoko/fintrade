@@ -82,5 +82,11 @@
       "decision": "Live-gateway behavior (the actual browser-based interactive login flow, real API response shapes beyond what's documented in docs/ideas.md, and any undocumented quirks) is unverified in this implementation and deferred to manual testing by the user against a real running gateway.",
       "rationale": "This is a known, accepted limitation of implementing against a spec rather than a live service, not a blocker -- no sandboxed/CI environment (including this implementation session) has an IBKR account, a running Client Portal Gateway, or the ability to complete IBKR's explicitly-non-automatable interactive browser login. Every test in tests/unit/data/test_ibkr_provider.py mocks HTTP at the IBKRProvider._request boundary against the documented request/response shapes rather than a live gateway, per this task's own description and docs/architecture/Testing.md's 'no live network calls' rule. See docs/architecture/Backend.md's IBKR section, which states this same caveat for a human reader."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-data-provider",
+    "pr_number": 190,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/190",
+    "pushed_at": "2026-09-20T10:06:35Z"
+  }
 }
