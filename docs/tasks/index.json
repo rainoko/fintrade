@@ -1230,8 +1230,8 @@
       "id": "frontend-breadth-widget-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-breadth-widget-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-breadth-widget-followups.json"
     },
     {
       "id": "frontend-methodology-explainer",

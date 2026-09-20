@@ -3,7 +3,7 @@
   "title": "Personal Breadth widget -- non-blocking review follow-ups",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-breadth-widget"],
   "references": [
     "docs/tasks/frontend-breadth-widget.json#review",
@@ -47,5 +47,12 @@
     "pr_number": 172,
     "pr_url": "https://github.com/rainoko/fintrade/pull/172",
     "pushed_at": "2026-09-20T01:33:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T01:44:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/172",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (746 passed, 99.92% cov) and frontend vitest (536 passed, statements 99.55%/branches 98.66%) both pass well above the 90% gate; no coverage regression. ruff, mypy, eslint, tsc -b --noEmit all clean on both sides. code-review skill (medium effort) found zero issues. Hand-checked the fixed ternary (`bullishCount === 1 ? 'is' : 'are'`) against bullishCount=0/1/>1 crossed with computable equal-to and different-from bullishCount -- correct ('is' only for exactly one BULLISH ticker, 'are' otherwise, independent of the computable denominator) in every case, matching docs/Analyse.md's plain-English framing (no methodology rule at stake, this is presentation text). Mentally reverted the fix (restoring `computable === 1 ? 'is' : 'are'`) against both new tests: the computable=4/bullishCount=1 test would flip to 'are' (wrong, test expects 'is') and the computable=1/bullishCount=0 test would flip to 'is' (wrong, test expects 'are') -- both new tests genuinely catch the original bug. `gh pr diff --name-only` confirms only the two watchlist frontend files plus the two task-board JSON files changed -- no backend/API/schema touched, so no openapi.json regeneration was needed. No new module/component/dependency added (architecture-review and the components/common/-vs-feature placement check in step 7a don't apply here -- personalBreadthHelp.ts and PersonalBreadthCard.test.tsx are pre-existing files being edited, not new components). Browser walkthrough: started backend (fixture provider) + frontend dev servers, drove the Watchlist page with a real Chromium browser (not just RTL) -- added 3 tickers then removed down to 1, opening the Personal Breadth help popover at each step; live-rendered text read '0 of 3 computable tickers (0.0%) are currently BULLISH...' and '0 of 1 computable ticker (0.0%) are currently BULLISH...', correctly using 'are' for a zero bullish count independent of the computable denominator (3 vs 1) -- confirms the fix works end to end, not just in the mocked unit tests. Fixture data never produced a bullish_count of 1 to observe the 'is' branch live, but that combination is already covered by the new component tests plus my hand-check above. Two console 404s appeared only from my own test script's cleanup DELETE calls firing after the page had already navigated away -- not an application bug. e2e-test skill: `make e2e` ran all 4 spec files / 16 tests, all passed, no console errors. No checklist item here is phrased as 'decide X' needing a decisions entry beyond the two already recorded, both of which have proper rationale. No non-blocking findings -- nothing to file as a follow-up task."
   }
 }
