@@ -36,5 +36,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "JSON-only task-closure PR. Confirmed via `git diff main...task/backend-force-index-refinements-followups --stat` that only docs/tasks/backend-force-index-refinements-followups.json and docs/tasks/index.json changed -- no source diff. Independently read backend/app/signals/triple_screen.py's _is_force_index_spike (lines 262-266) and confirmed the multiplier selection is already the direct form `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`, matching the task's decision entry and PR #185's own review notes. Commit ae3007c's message on main also explicitly documents this same fix landing as part of the is_force_index_reversal_spike baseline-guard fix. Ran the full backend suite as a sanity check (no code changed): 850 passed, 99.93% coverage, well above the 90% gate. No static analysis needed since no source changed. No UI surface -- browser walkthrough and e2e suite not applicable. No blocking findings; no new non-blocking findings to track."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T08:18:13Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...task/backend-force-index-refinements-followups --stat` confirms only the task-board JSON files changed (no source diff). Read backend/app/signals/triple_screen.py's _is_force_index_spike myself (lines 259-266) and confirmed the multiplier ternary is genuinely already the direct form (`... if negative else ...`), not the double-negative pattern the checklist flagged. Re-ran the full backend suite myself: 850 passed, 99.93% coverage, matching pr-reviewer's reported numbers exactly."
   }
 }
