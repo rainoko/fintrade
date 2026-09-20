@@ -44,6 +44,9 @@ def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     return CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
 
 
+_ibkr_provider_singleton: IBKRProvider | None = None
+
+
 def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
     """The optional IBKR Client Portal Web API provider (docs/tasks/
     backend-ibkr-data-provider.json) -- hourly bars + the market scanner, entirely
@@ -56,17 +59,24 @@ def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
     every existing route keeps working identically whether or not this returns `None`,
     since nothing yet depends on this provider (see this task's `decisions` entry for
     why: this task's own checklist scopes it to the provider class itself, not a new
-    consuming endpoint). A generator (rather than a plain return) so the constructed
-    `IBKRProvider`'s own HTTP client gets closed at the end of the request when this
-    *is* enabled, via FastAPI's dependency-cleanup protocol for `yield`-based
-    dependencies.
+    consuming endpoint).
+
+    Unlike `get_data_provider` above, this does **not** construct a fresh `IBKRProvider`
+    per request: a process-wide singleton is created once (lazily, on first use while
+    enabled) and reused across every subsequent call, never closed at the end of a
+    request. `IBKRProvider`'s scanner-params TTL cache and `run_scanner` 1-req/sec
+    throttle are both in-memory instance state -- a per-request instance (closed at the
+    end of every request) would silently defeat both, providing zero cross-request rate
+    -limit protection despite the class's own design assuming one instance persists
+    across calls (see this task's followups entry). The singleton's HTTP client is
+    intentionally never closed here; it lives for the app process's lifetime, same as
+    e.g. a module-level SQLAlchemy engine would.
     """
     if not get_settings().ibkr_enabled:
         yield None
         return
 
-    provider = IBKRProvider(base_url=get_settings().ibkr_base_url)
-    try:
-        yield provider
-    finally:
-        provider.close()
+    global _ibkr_provider_singleton
+    if _ibkr_provider_singleton is None:
+        _ibkr_provider_singleton = IBKRProvider(base_url=get_settings().ibkr_base_url)
+    yield _ibkr_provider_singleton

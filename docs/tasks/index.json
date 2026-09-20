@@ -1139,7 +1139,7 @@
       "id": "backend-ibkr-data-provider",
       "area": "backend/data",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-data-provider.json"
     },
     {

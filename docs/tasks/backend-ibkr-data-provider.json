@@ -3,7 +3,7 @@
   "title": "Optional IBKR Client Portal Web API data provider (hourly bars + market scanner)",
   "area": "backend/data",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/data/base.py",
@@ -81,13 +81,19 @@
       "recorded_by": "task-worker",
       "decision": "Live-gateway behavior (the actual browser-based interactive login flow, real API response shapes beyond what's documented in docs/ideas.md, and any undocumented quirks) is unverified in this implementation and deferred to manual testing by the user against a real running gateway.",
       "rationale": "This is a known, accepted limitation of implementing against a spec rather than a live service, not a blocker -- no sandboxed/CI environment (including this implementation session) has an IBKR account, a running Client Portal Gateway, or the ability to complete IBKR's explicitly-non-automatable interactive browser login. Every test in tests/unit/data/test_ibkr_provider.py mocks HTTP at the IBKRProvider._request boundary against the documented request/response shapes rather than a live gateway, per this task's own description and docs/architecture/Testing.md's 'no live network calls' rule. See docs/architecture/Backend.md's IBKR section, which states this same caveat for a human reader."
+    },
+    {
+      "timestamp": "2026-09-20T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed both blocking findings from pr-reviewer's needs_work verdict on PR #190: (1) run_scanner's client-side 1-req/sec throttle check now runs before _require_available's real GET /iserver/auth/status call, not after -- so a caller retrying within the same second makes zero HTTP requests, matching IBKRRateLimitedError's documented contract. (2) get_hourly_bars's full-page/short-page pagination decision now compares the raw response's row count (len(payload['data'])) against _MAX_BARS_PER_PAGE, not len(page_bars) (the post-_parse_bars, malformed-row-filtered count) -- a single malformed row in an otherwise-full page no longer stops pagination early. Also fixed both non-blocking follow-ups while in this area (get_ibkr_provider now reuses a process-wide IBKRProvider singleton instead of a fresh instance per request, so the scanner-params cache/run_scanner throttle actually persist across requests once a route consumes it; docs/architecture/Backend.md §3's httpx row now mentions IBKRProvider's production use) -- see backend-ibkr-data-provider-followups.json's own decisions entry for why that task's state was left 'planned' rather than flipped to 'done' here.",
+      "rationale": "Both fixes were verified with new regression tests (test_throttled_second_call_makes_no_http_request asserts the mocked httpx.Client is never invoked on a throttled call; test_full_page_with_one_malformed_row_still_paginates asserts a raw 1,000-row page with one malformed row still triggers a second paginated call) plus the full backend suite (890 passed, 99.93% coverage) and clean ruff/mypy on every file this PR touches. Considered leaving the two non-blocking follow-ups for a later PR (they were explicitly optional per the dispatch instruction) but fixed them anyway since both touch files already open in this diff (app/api/dependencies.py, docs/architecture/Backend.md) and doing so now avoids a near-duplicate follow-up PR re-touching the same lines moments later."
     }
   ],
   "git": {
     "branch": "task/backend-ibkr-data-provider",
     "pr_number": 190,
     "pr_url": "https://github.com/rainoko/fintrade/pull/190",
-    "pushed_at": "2026-09-20T10:06:35Z"
+    "pushed_at": "2026-09-20T10:18:39Z"
   },
   "review": {
     "reviewed_at": "2026-09-20T10:12:43Z",

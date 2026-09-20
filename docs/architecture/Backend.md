@@ -76,7 +76,7 @@ backend/
 | `sqlalchemy` + `alembic` | Persistence + migrations |
 | `pydantic` | Request/response validation, settings |
 | `pytest`, `pytest-cov`, `pytest-mock` | Testing (see [Testing.md](Testing.md)) |
-| `httpx` (via FastAPI `TestClient`) | API integration tests |
+| `httpx` | API integration tests (via FastAPI `TestClient`), and `IBKRProvider`'s real production HTTP client against the local IB Gateway (§8) |
 
 ## 4. Indicator Engine Notes
 

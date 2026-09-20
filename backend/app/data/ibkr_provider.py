@@ -248,6 +248,7 @@ class IBKRProvider:
                 params["startTime"] = start_time
 
             payload = self._request("GET", "/iserver/marketdata/history", params=params)
+            raw_row_count = len(payload.get("data") or []) if isinstance(payload, dict) else 0
             page_bars = _parse_bars(payload)
             if not page_bars:
                 break
@@ -257,7 +258,12 @@ class IBKRProvider:
                 collected[bar.timestamp] = bar
 
             earliest = min(bar.timestamp for bar in page_bars)
-            if earliest <= cutoff or len(page_bars) < _MAX_BARS_PER_PAGE or not new_bars:
+            # The full-page/short-page decision below is deliberately based on the raw
+            # response's row count, not `len(page_bars)` (the post-`_parse_bars` count,
+            # which drops malformed rows) -- otherwise a single malformed row in an
+            # otherwise-full page would make this look like a short/final page and stop
+            # pagination early, silently truncating history with no error surfaced.
+            if earliest <= cutoff or raw_row_count < _MAX_BARS_PER_PAGE or not new_bars:
                 # Reached the requested lookback window, the source has no more bars
                 # further back than this page, or this page brought back nothing new
                 # (a non-advancing cursor -- stop rather than loop without progress).
@@ -306,13 +312,19 @@ class IBKRProvider:
                 own last `run_scanner` call (see this class's own docstring, and
                 `IBKRRateLimitedError`'s).
         """
-        self._require_available()
+        # The cheap client-side throttle check runs FIRST, before `_require_available`
+        # (which itself makes a real `GET /iserver/auth/status` HTTP call) -- otherwise a
+        # caller retrying within the same second would still pay for a real HTTP round
+        # trip on every call before ever reaching the rate-limit check, defeating the
+        # whole "no network round-trip" point of `IBKRRateLimitedError` (see its own
+        # docstring).
         now = self._clock()
         if self._last_scanner_run_at is not None:
             elapsed = now - self._last_scanner_run_at
             if elapsed < _SCANNER_RUN_MIN_INTERVAL_SECONDS:
                 raise IBKRRateLimitedError(retry_after=_SCANNER_RUN_MIN_INTERVAL_SECONDS - elapsed)
 
+        self._require_available()
         payload = self._request("POST", "/iserver/scanner/run", json=scan_config)
         self._last_scanner_run_at = self._clock()
         return _parse_scanner_results(payload)

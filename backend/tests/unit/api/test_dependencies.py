@@ -79,7 +79,13 @@ class TestGetIbkrProvider:
         with pytest.raises(StopIteration):
             next(generator)
 
-    def test_enabled_yields_a_configured_provider_and_closes_it_on_cleanup(self, monkeypatch) -> None:
+    def test_enabled_yields_a_configured_provider_and_leaves_it_open_on_cleanup(self, monkeypatch) -> None:
+        """Unlike `get_data_provider`, the yielded `IBKRProvider` is a process-wide
+        singleton that outlives the request -- it must NOT be closed once the generator
+        is driven past its `yield` (there's no `finally: provider.close()` here), since
+        closing it every request would discard the in-memory scanner-params cache and
+        `run_scanner` throttle state that's the whole point of reusing one instance."""
+        monkeypatch.setattr("app.api.dependencies._ibkr_provider_singleton", None)
         monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "true")
         monkeypatch.setenv("FINTRADE_IBKR_BASE_URL", "https://localhost:5001/v1/api")
         get_settings.cache_clear()
@@ -91,9 +97,26 @@ class TestGetIbkrProvider:
             assert isinstance(provider, IBKRProvider)
             assert provider._base_url == "https://localhost:5001/v1/api"
 
-            # Drive the generator past its yield to run the `finally: provider.close()`
-            # cleanup FastAPI would trigger at the end of a request.
+            # The generator still ends (FastAPI still drives it past the yield at the
+            # end of a request), just with nothing to clean up.
             with pytest.raises(StopIteration):
                 next(generator)
+        finally:
+            get_settings.cache_clear()
+
+    def test_enabled_reuses_the_same_singleton_across_calls(self, monkeypatch) -> None:
+        """Two separate dependency resolutions (i.e. two separate requests) must reuse
+        the same `IBKRProvider` instance, not construct a fresh one each time -- this is
+        what actually makes the scanner-params cache and run_scanner throttle protect
+        anything across requests."""
+        monkeypatch.setattr("app.api.dependencies._ibkr_provider_singleton", None)
+        monkeypatch.setenv("FINTRADE_IBKR_ENABLED", "true")
+        get_settings.cache_clear()
+
+        try:
+            first = next(get_ibkr_provider())
+            second = next(get_ibkr_provider())
+
+            assert first is second
         finally:
             get_settings.cache_clear()

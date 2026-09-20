@@ -174,6 +174,35 @@ class TestGetHourlyBars:
         assert "startTime" in second_call_kwargs["params"]
         assert len(bars) == 1001
 
+    def test_full_page_with_one_malformed_row_still_paginates(self, mocker) -> None:
+        """A raw page of exactly 1,000 rows (a genuinely full page, meaning more history
+        may exist further back) that includes one malformed row must still trigger a
+        second page -- the full/short-page decision has to be based on the RAW response
+        row count, not `len(page_bars)` (the count AFTER `_parse_bars` drops the
+        malformed row down to 999). Using the post-parse count would make this look like
+        a short/final page and silently truncate history with no error surfaced."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        raw_rows = [self._bar_at(hours_ago=i) for i in range(999)]
+        raw_rows.append({"t": 1_700_000_000_000})  # malformed: missing o/h/l/c/v
+        assert len(raw_rows) == 1000  # a genuinely full raw page
+        first_page = {"data": raw_rows}
+        second_page = {"data": [self._bar_at(hours_ago=1000)]}
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[first_page, second_page],
+        )
+
+        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=60)
+
+        assert request.call_count == 2
+        second_call_kwargs = request.call_args_list[1].kwargs
+        assert "startTime" in second_call_kwargs["params"]
+        # 999 parsed from the first page (the malformed row dropped) + 1 from the second.
+        assert len(bars) == 1000
+
     def test_stops_once_cutoff_reached_without_a_second_page(self, mocker) -> None:
         """A full 1,000-bar page spans ~41.6 days -- already past a 1-day lookback
         cutoff -- so pagination must stop after this one page despite it being full,
@@ -432,6 +461,30 @@ class TestRunScanner:
         with pytest.raises(IBKRRateLimitedError) as exc_info:
             provider.run_scanner({})
         assert exc_info.value.retry_after == pytest.approx(0.5)
+
+    def test_throttled_second_call_makes_no_http_request(self, mocker) -> None:
+        """The client-side throttle check must run BEFORE any network call -- including
+        the `_require_available` gateway-status check `run_scanner` itself makes -- per
+        `IBKRRateLimitedError`'s own documented 'no network round-trip' contract. Unlike
+        `test_second_call_within_one_second_raises_rate_limited` above (which mocks
+        `get_gateway_status` directly, hiding whether it was ever called), this mocks the
+        underlying `httpx.Client` so a real call to `get_gateway_status`'s
+        `GET /iserver/auth/status` would be observable."""
+        clock = _FakeClock()
+        mock_response = mocker.Mock(status_code=200)
+        mock_response.json.return_value = {"authenticated": True, "contracts": []}
+        mock_client = mocker.Mock()
+        mock_client.request.return_value = mock_response
+        provider = IBKRProvider(client=mock_client, clock=clock)
+
+        provider.run_scanner({})
+        mock_client.request.reset_mock()  # only care about calls made by the 2nd run_scanner
+        clock.advance(0.5)
+
+        with pytest.raises(IBKRRateLimitedError):
+            provider.run_scanner({})
+
+        mock_client.request.assert_not_called()
 
     def test_call_after_one_second_succeeds(self, mocker) -> None:
         clock = _FakeClock()
