@@ -1,0 +1,20 @@
+{
+  "id": "backend-force-index-refinements-followups",
+  "title": "Force Index refinements — non-blocking review follow-up from PR #185",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-force-index-refinements"],
+  "references": [
+    "docs/tasks/done/backend-force-index-refinements.json#review",
+    "https://github.com/rainoko/fintrade/pull/185"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #185 (backend-force-index-refinements), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`_is_force_index_spike`'s new asymmetric-multiplier selection (`backend/app/signals/triple_screen.py`, around the `multiplier = (... if not negative else ...)` expression at the end of the function) uses a double-negative (`not negative` / `else`) ternary. This is a minor style inconsistency with the sign-selection code a few lines above it in the same function, which explicitly comments that it deliberately avoids exactly this pattern ('Signed multiplier rather than an `if negative: ... else: ...` pair of sign checks... instead of forcing a reader through... double-negative branches'). Rewriting as `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH` would read more directly and match the function's own stated convention. Purely a readability nit -- verified correct via hand-computed test values, not a behavior bug. Fixed opportunistically in PR #185 itself (as part of fixing the blocking is_force_index_reversal_spike baseline-window bug in the same file) rather than as a separate change here.",
+      "done": true
+    }
+  ],
+  "decisions": []
+}

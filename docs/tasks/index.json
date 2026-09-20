@@ -1111,8 +1111,15 @@
       "id": "backend-force-index-refinements",
       "area": "backend/signals",
       "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/backend-force-index-refinements.json"
+    },
+    {
+      "id": "backend-force-index-refinements-followups",
+      "area": "backend/signals",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-force-index-refinements.json"
+      "path": "docs/tasks/backend-force-index-refinements-followups.json"
     },
     {
       "id": "backend-ibkr-data-provider",

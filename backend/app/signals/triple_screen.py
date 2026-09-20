@@ -15,7 +15,29 @@ STOCHASTIC_OVERBOUGHT = 70.0
 # Force Index "spike" detection window/multiplier -- see this task's `decisions` entry
 # on docs/tasks/screen2-wave.json for why these values (not pinned by Analyse.md §2/§4).
 _FORCE_INDEX_SPIKE_WINDOW = 13
-_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER = 1.0
+# Asymmetric stdev multipliers per direction -- see docs/tasks/backend-force-index-refinements.json's
+# `decisions` entry. Elder ch. 30 states this pair of signals is *not* equally reliable: "markets
+# recoil from down spikes but not from up spikes... spikes that point down reflect intense fear,
+# which doesn't persist for very long. Spikes that point up reflect excessive enthusiasm and greed,
+# which can persist for quite a long time." The bullish/OVERSOLD_PULLBACK path (a down-spike, fear
+# exhausting itself) keeps the original 1.0x threshold; the bearish/OVERBOUGHT_RALLY path (an
+# up-spike, greed that can persist) requires a statistically stricter 1.5x -- a deliberately
+# stricter, not merely different, bar, since Elder's claim is specifically that the bearish/sell
+# side of this pair is the less trustworthy one.
+_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH = 1.0
+_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH = 1.5
+
+# Elder ch. 30's distinct "5 times or more its usual depth" short-term reversal signal (down-spike
+# only -- see `is_force_index_reversal_spike`'s docstring and this task's `decisions` entry for why
+# this is a second, separate signal from `_is_force_index_spike` above rather than a revision of it).
+# "Usual depth" = the trailing window's own mean absolute 2-EMA Force Index magnitude, immediately
+# preceding (not including) the candidate spike bar, so the spike itself can't inflate its own
+# baseline. Window length (13) reuses the same convention as `_FORCE_INDEX_SPIKE_WINDOW` and the
+# 13-period EMA Force Index already uses for trend confirmation (docs/Analyse.md §2/§4) -- the book
+# gives no explicit window for "usual", so this keeps the app's one existing Force-Index-baseline
+# convention rather than introducing an unrelated second one.
+_FORCE_INDEX_REVERSAL_DEPTH_WINDOW = 13
+_FORCE_INDEX_REVERSAL_DEPTH_MULTIPLIER = 5.0
 
 # Screen 1 (Tide): minimum weekly MACD-Histogram step, expressed as a
 # fraction of the latest weekly close, required to call the histogram
@@ -191,9 +213,15 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     one in a downtrend) is the Screen 2 buy/sell cue, but gives no numeric definition of
     "spike" -- see this task's `decisions` entry on docs/tasks/screen2-wave.json for the
     chosen definition: the latest value must (a) have the requested sign, and (b) exceed
-    one standard deviation of the trailing `_FORCE_INDEX_SPIKE_WINDOW`-bar Force Index
-    magnitude, i.e. be a statistically outsized move relative to this stock's own recent
-    volume-weighted momentum, not merely any negative/positive tick.
+    a multiple of one standard deviation of the trailing `_FORCE_INDEX_SPIKE_WINDOW`-bar
+    Force Index magnitude, i.e. be a statistically outsized move relative to this stock's
+    own recent volume-weighted momentum, not merely any negative/positive tick. The
+    multiplier is *asymmetric* by direction (`_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH`
+    vs `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`) -- see their definitions above and
+    the `decisions` entry on docs/tasks/backend-force-index-refinements.json for why the
+    bearish/overbought-rally (up-spike) case requires a statistically stricter bar than the
+    bullish/oversold-pullback (down-spike) case, per Elder ch. 30's explicit claim that
+    down-spikes reliably predict rallies while up-spikes don't as reliably predict declines.
 
     Returns False (not a spike) if there isn't enough history yet to compute the rolling
     standard deviation, or if that standard deviation is zero (a perfectly flat recent
@@ -231,7 +259,62 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
     if pd.isna(rolling_std) or rolling_std == 0:
         return False
 
-    return bool(abs(latest) > _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER * rolling_std)
+    multiplier = (
+        _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH
+        if negative
+        else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH
+    )
+    return bool(abs(latest) > multiplier * rolling_std)
+
+
+def is_force_index_reversal_spike(force_index_2ema: pd.Series) -> bool:
+    """True if the latest 2-EMA Force Index value is a down-spike "5 times or more its usual
+    depth" -- Elder ch. 30's distinct short-term reversal signal (docs/ideas.md, pp. 112-116),
+    not the Screen 2 oversold-pullback/overbought-rally classification `_is_force_index_spike`
+    feeds (see this task's `decisions` entry on docs/tasks/backend-force-index-refinements.json
+    for why these are two separate functions/signals rather than one revised threshold: ch. 30's
+    rule is a standalone reaction-timing cue usable independent of Screen 2's tide-gated wave
+    classification, with its own much simpler, explicitly-quantified "5x" definition rather than
+    Screen 2's statistically-derived one-stdev threshold).
+
+    Public (not module-private), unlike `_is_force_index_spike`, because it's a general
+    "is this a reversal-magnitude spike" capability a future caller can use directly, mirroring
+    why `macd_histogram_slope` (above) was promoted out of a private helper -- see this task's
+    `decisions` entry.
+
+    Down-spikes (a negative latest value) only -- ch. 30 is explicit that the mirror-image
+    "up-spike predicts a decline" version of this rule "doesn't work well", since down-spikes
+    reflect fear (short-lived, reliably followed by a recoil rally) while up-spikes reflect
+    greed (can persist for a long time, not a reliable reversal cue). This function therefore
+    always returns False for a non-negative latest value -- there is deliberately no `negative`
+    parameter (unlike `_is_force_index_spike`), since fabricating a symmetric "positive reversal
+    spike" check would assert a claim the book explicitly disclaims.
+
+    "Usual depth" is the mean absolute Force Index magnitude over the trailing
+    `_FORCE_INDEX_REVERSAL_DEPTH_WINDOW` bars immediately *preceding* the latest bar (excluding
+    it), so a large spike can't inflate its own baseline and mask itself. Returns False if there
+    isn't yet a full window of history to compute that baseline, or if the baseline is zero (a
+    perfectly flat recent Force Index, where any nonzero spike would trivially "exceed" it).
+
+    Only ever reads the trailing `_FORCE_INDEX_REVERSAL_DEPTH_WINDOW + 1` bars of
+    `force_index_2ema` (the candidate spike bar plus its baseline window) -- same O(1)-per-call
+    slicing rationale as `_is_force_index_spike` above.
+    """
+    latest = force_index_2ema.iloc[-1]
+    if pd.isna(latest) or latest >= 0:
+        return False
+
+    baseline_window = force_index_2ema.iloc[
+        -(_FORCE_INDEX_REVERSAL_DEPTH_WINDOW + 1) : -1
+    ]
+    if baseline_window.count() < _FORCE_INDEX_REVERSAL_DEPTH_WINDOW:
+        return False
+
+    baseline_mean_abs = baseline_window.abs().mean()
+    if pd.isna(baseline_mean_abs) or baseline_mean_abs == 0:
+        return False
+
+    return bool(abs(latest) >= _FORCE_INDEX_REVERSAL_DEPTH_MULTIPLIER * baseline_mean_abs)
 
 
 def evaluate_wave(
