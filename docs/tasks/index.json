@@ -1223,8 +1223,8 @@
       "id": "frontend-channel-overlay-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-channel-overlay-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-channel-overlay-followups.json"
     },
     {
       "id": "frontend-profit-target-display",
