@@ -3,7 +3,7 @@
   "title": "New chart panel: Directional System (+DI/-DI/ADX) and ATR",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-indicator-atr-adx"
   ],
@@ -68,5 +68,11 @@
       "decision": "No new Storybook story was added for `TrendStrengthChart.tsx`, and no new Playwright e2e spec was added.",
       "rationale": "`TrendStrengthChart.tsx` is a `features/stocks/components/` feature-specific chart component wired to a live TanStack Query hook, the same category `PriceChart`/`OscillatorChart`/`VolumeIndicatorsChart` already fall into without their own stories (Frontend.md §4 scopes the Storybook requirement to `components/common/`) -- consistent with `frontend-volume-indicators-chart`'s identical decision for the same reason. No e2e spec: consistent with the same precedent (and `frontend-rsi-oscillator-chart` before it) of not adding a new e2e spec per new historical-indicator chart addition; unit/component tests (`TrendStrengthChart.test.tsx`, `metricHelpContent.test.ts`) cover this feature's own behavior, and `StockCharts.test.tsx`'s shared indicators fixture was updated to include a `trend_strength` value so the composed page's existing tests continue to exercise a realistic response shape."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trend-strength-chart",
+    "pr_number": 176,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/176",
+    "pushed_at": "2026-09-20T04:11:18Z"
+  }
 }
