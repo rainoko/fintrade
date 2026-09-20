@@ -1,0 +1,19 @@
+{
+  "id": "backend-daily-homework-self-test",
+  "title": "'Am I ready to trade?' daily psychological readiness self-test",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
+  ],
+  "description": "Ch. 57's 5-question psychological readiness self-test (how do I feel physically / how did I trade yesterday / have I done my trade planning / how is my mood / how busy is my schedule), each scored 0/1/2, summed 0-10, color-coded per the book's own bands (<=4 red = don't trade, 5-6 yellow = trade cautiously, 7-8 green, 9-10 yellow again). Purely subjective, no market data, no provider calls -- the cheapest, most self-contained piece of ch. 57. Store one entry per calendar day. Scoped to just this self-test, not the broader 17-line market-context homework spreadsheet from the same chapter (that needs new/unavailable data sources and is a separate, larger idea).",
+  "checklist": [
+    { "step": "Add a data model + endpoint(s) to record and retrieve a daily 5-question self-test score, one entry per calendar day (per user, if the app has any per-user concept -- otherwise one global entry per day, matching how the rest of this single-user app works).", "done": false },
+    { "step": "Implement the book's own color-banding thresholds (<=4 red, 5-6 yellow, 7-8 green, 9-10 yellow) as a pure function over the summed score.", "done": false },
+    { "step": "Decide whether 'how did I trade yesterday' auto-populates from yesterday's closed_trades realized P&L (a reasonable, cheap enhancement over Elder's own manual-recall version) or stays a fully manual input, and record the rationale.", "done": false },
+    { "step": "Unit tests covering each score band boundary (4/5, 6/7, 8/9) and the auto-population behavior if implemented.", "done": false },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "frontend-ibkr-status-indicator",
+  "title": "Surface IBKR gateway connection status in the UI",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-ibkr-status-endpoint"],
+  "references": [
+    "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
+  ],
+  "description": "IBKR's gateway connection state (connected/not authenticated/gateway down/disabled) is currently invisible anywhere in the app, even though the backend now exposes it via GET /api/ibkr/status. Surface it somewhere visible.",
+  "checklist": [
+    { "step": "Decide and record where this surfaces in the app (app shell/header, a settings-style page, or the dashboard) -- this app has no existing settings page, so this decision has real placement implications.", "done": false },
+    { "step": "Build a small status indicator component consuming GET /api/ibkr/status via a TanStack Query hook.", "done": false },
+    { "step": "Component tests for each gateway state (disabled, available, gateway_unreachable, not_authenticated).", "done": false }
+  ]
+}

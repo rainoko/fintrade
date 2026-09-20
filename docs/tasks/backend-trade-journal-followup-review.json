@@ -1,0 +1,19 @@
+{
+  "id": "backend-trade-journal-followup-review",
+  "title": "Two-months-later trade follow-up review workflow",
+  "area": "backend/db",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
+  ],
+  "description": "Ch. 59 Section E: Elder treats reviewing every closed trade again about two months after exit as one of the Trade Journal's three core benefits, not optional -- reopening the trade with the benefit of hindsight and writing what it teaches. This app has nothing like a 'trades due for follow-up review' surface today. Add fields to record a follow-up review and a way to find trades that are due for one.",
+  "checklist": [
+    { "step": "Add nullable follow_up_notes (text) and follow_up_reviewed_at (timestamp) fields to ClosedTradeORM/ClosedTradeOut.", "done": false },
+    { "step": "Add an endpoint or query parameter to list closed trades due for follow-up review (exit_date roughly two months ago, follow_up_reviewed_at still null) -- decide and record the exact window definition (e.g. exit_date between 8 and 10 weeks ago).", "done": false },
+    { "step": "Add an endpoint to record a follow-up review (sets follow_up_notes and follow_up_reviewed_at for a given closed trade).", "done": false },
+    { "step": "Unit tests covering a trade inside the due window, outside it (too recent and too old), and before/after being reviewed.", "done": false },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+  ]
+}

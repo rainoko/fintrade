@@ -1,0 +1,19 @@
+{
+  "id": "frontend-daily-homework-page",
+  "title": "'Am I ready to trade?' daily self-test form",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-daily-homework-self-test"],
+  "references": [
+    "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
+  ],
+  "description": "A small daily form for the ch. 57 psychological readiness self-test, showing the color-coded (red/yellow/green) summary score, backed by backend-daily-homework-self-test.",
+  "checklist": [
+    { "step": "Build a form for the 5 questions with the book's own 0/1/2 answer options (feeling physically, yesterday's trading result, planning done, mood, schedule busyness).", "done": false },
+    { "step": "Show the summed score with the book's own color-banding (<=4 red, 5-6 yellow, 7-8 green, 9-10 yellow).", "done": false },
+    { "step": "Wire to the backend endpoint via a TanStack Query hook.", "done": false },
+    { "step": "Decide page placement (a new standalone route vs. part of an existing page/dashboard) and record.", "done": false },
+    { "step": "Component tests covering each color band.", "done": false }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "frontend-trade-grade-letter-display",
+  "title": "Show the letter grade (A/B/C/D) in the Trade Journal",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-trade-grade-letter"],
+  "references": [
+    "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+    "docs/ideas.md#letter-grade-scores-abcd-not-just-raw-grade-percentages"
+  ],
+  "description": "TradeJournalPanel.tsx currently only renders raw grade percentages, with its own code comment explaining the letter grade was deliberately left out pending a documented threshold decision. backend-trade-grade-letter now provides that. Show the new letter grade alongside the existing percentage in TradeJournalPanel's grade cells.",
+  "checklist": [
+    { "step": "Render the letter grade in GradeCell alongside the existing percentage.", "done": false },
+    { "step": "Update/add component tests for the new letter display, covering each letter grade.", "done": false },
+    { "step": "Remove or update GradeCell's existing code comment that explained why the letter grade was previously left out, now that it's implemented.", "done": false }
+  ]
+}

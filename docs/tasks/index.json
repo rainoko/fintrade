@@ -1442,6 +1442,174 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/frontend-indicator-seasons-badge-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-indicator-history-performance",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-indicator-history-performance.json"
+    },
+    {
+      "id": "backend-trade-strategy-tagging",
+      "area": "backend/portfolio",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-strategy-tagging.json"
+    },
+    {
+      "id": "backend-trailing-profit-stop",
+      "area": "backend/portfolio",
+      "skill": "verify-elder-signal",
+      "state": "planned",
+      "path": "docs/tasks/backend-trailing-profit-stop.json"
+    },
+    {
+      "id": "backend-profit-target-weekly-channel",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target-weekly-channel.json"
+    },
+    {
+      "id": "backend-profit-target-open-position",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target-open-position.json"
+    },
+    {
+      "id": "backend-ibkr-status-endpoint",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-status-endpoint.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-tickle-keepalive.json"
+    },
+    {
+      "id": "backend-ibkr-symbol-resolution",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-symbol-resolution.json"
+    },
+    {
+      "id": "backend-ibkr-bar-interval-param",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-bar-interval-param.json"
+    },
+    {
+      "id": "backend-trade-grade-letter",
+      "area": "backend/portfolio",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-grade-letter.json"
+    },
+    {
+      "id": "backend-daily-homework-self-test",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-daily-homework-self-test.json"
+    },
+    {
+      "id": "backend-trade-journal-entry-notes",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-journal-entry-notes.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review",
+      "area": "backend/db",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-journal-followup-review.json"
+    },
+    {
+      "id": "backend-close-position-manual-exit",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-close-position-manual-exit.json"
+    },
+    {
+      "id": "backend-cftc-cot-data",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-cftc-cot-data.json"
+    },
+    {
+      "id": "backend-trade-apgar",
+      "area": "backend/portfolio",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-apgar.json"
+    },
+    {
+      "id": "frontend-close-position-dialog",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-close-position-dialog.json"
+    },
+    {
+      "id": "frontend-position-risk-columns",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-position-risk-columns.json"
+    },
+    {
+      "id": "frontend-trade-grade-letter-display",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-grade-letter-display.json"
+    },
+    {
+      "id": "frontend-ibkr-status-indicator",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-ibkr-status-indicator.json"
+    },
+    {
+      "id": "frontend-daily-homework-page",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-daily-homework-page.json"
+    },
+    {
+      "id": "frontend-trade-journal-entry-notes",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-journal-entry-notes.json"
+    },
+    {
+      "id": "frontend-trade-journal-followup-review",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-journal-followup-review.json"
+    },
+    {
+      "id": "frontend-trade-apgar",
+      "area": "frontend/pages/portfolio",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-apgar.json"
     }
   ]
 }

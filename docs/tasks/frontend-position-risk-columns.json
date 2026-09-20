@@ -1,0 +1,19 @@
+{
+  "id": "frontend-position-risk-columns",
+  "title": "Surface protective_stop/profit_target on the positions table and stock detail page",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "frontend/src/features/portfolio/components/PositionsTable.tsx",
+    "frontend/src/pages/StockDetailPage.tsx",
+    "docs/ideas.md#surface-suggested-stop-lossprofit-target-more-prominently-for-open-positions"
+  ],
+  "description": "The backend already computes protective_stop and profit_target, but they're not visible where a user would naturally look: PositionsTable.tsx (the primary 'what do I own' view) has no stop/target columns at all -- both only exist in the separate RiskPanel further down the page. StockDetailPage.tsx has zero position-awareness -- viewing a ticker you actually hold shows the same generic analysis as any other ticker, with no 'you're in this at $X, your stop is $Y' context.",
+  "checklist": [
+    { "step": "Add protective_stop and profit_target columns to PositionsTable.", "done": false },
+    { "step": "Add a 'you hold this position' context panel/banner to the stock detail page when the viewed ticker is in the user's portfolio, showing entry price, current stop, and target.", "done": false },
+    { "step": "Component tests for both surfaces, including the no-position case on the stock detail page (banner correctly absent).", "done": false }
+  ]
+}
