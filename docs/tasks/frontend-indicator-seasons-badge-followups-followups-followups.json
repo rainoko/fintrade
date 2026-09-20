@@ -24,5 +24,11 @@
       "rationale": "Three prior rounds of this followup chain each had someone assert a contrast/distance number the next reviewer had to recompute and found wrong -- the task explicitly asked for independent re-verification before any change, so verifying first (and finding the ~4.35:1 figure accurate) was necessary before deciding whether a color change was even warranted, rather than trusting the description. Picking a lightness with real margin above both the 4.5:1 floor (4.71:1 chosen, not a borderline 4.51:1) and the 15 ΔE76 floor (18.6 minimum remaining, not a borderline 15.1) avoids leaving a value that could silently regress back under either floor from a future rounding change or reviewer's differently-rounded recomputation -- the exact failure mode that caused this three-round chain in the first place."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge-followups-followups-followups",
+    "pr_number": 202,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/202",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  }
 }
