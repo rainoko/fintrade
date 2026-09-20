@@ -1,0 +1,100 @@
+{
+  "id": "frontend-fundamental-data-panel",
+  "title": "Display earnings/dividend dates, short interest, and insider transactions",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-market-data-extra-fields"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components",
+    "docs/ideas.md"
+  ],
+  "description": "Surface the newly-exposed earnings/dividend dates, short interest, and insider-transaction data (backend-market-data-extra-fields) on the stock detail page as a new panel. The earnings-date warning is the highest-value piece -- Elder's own rationale is explicit ('a nasty earnings surprise can do serious damage to your position... can jump straight past any stop level') -- so it should be visually prominent, not buried, when a position or a fresh BUY signal falls within the warning window. Handle the Stooq-fallback unavailability case explicitly (show 'unavailable' distinctly from 'checked, nothing found') rather than a silent blank. Per the project's established explanatory pattern (common/InfoBalloon, common/MetricHelp, metricHelpContent.ts, signalExplanation.ts, docs/tasks/frontend-stock-detail-metric-help.json), every new visual element this task adds must be explainable, not just displayed: a help affordance (reuse MetricHelp where it fits) that states what the metric/signal is, how it relates to Dr. Elder's methodology, and, where meaningful, an explanation of the CURRENT value shown -- not a static definition alone. Add an entry to metricHelpContent.ts's registry rather than inventing a parallel explanation mechanism.",
+  "checklist": [
+    {
+      "step": "Design the panel layout (earnings/dividend dates, short interest metrics, recent insider transactions) and the prominent earnings-warning treatment for positions/signals within the warning window.",
+      "done": true
+    },
+    {
+      "step": "Implement, handling the 'data unavailable on this provider path' case explicitly and distinctly from 'no data found.'",
+      "done": true
+    },
+    {
+      "step": "MetricHelp content explaining each field (what short-percent-of-float and days-to-cover mean and why a squeeze matters for a BUY; why 3+ insider buys/sells in a month is treated as meaningful but a single transaction isn't).",
+      "done": true
+    },
+    {
+      "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New `FundamentalDataPanel` (features/stocks/components/) is rendered directly below `SignalSummary` on `StockDetailPage`, ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts` -- not appended after the existing panels, and not placed inside `SignalSummary` itself.",
+      "rationale": "The task's own description calls the earnings-date warning 'the highest-value piece... should be visually prominent, not buried.' Appending the panel after ScreensPanel/IndicatorsPanel/StockCharts (the natural 'next new section' spot) would put the warning below several screenfuls of content on a typical viewport. Placing it directly under the signal/confidence summary keeps it above the fold on first load while staying a distinct component (not merged into SignalSummary itself, which already has its own single responsibility -- signal/confidence/profit-target -- and no knowledge of fundamentals data)."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The earnings-within-14-days warning banner is a plain MUI `Alert severity=\"warning\"`, not a reuse of `components/common/RiskBreachBanner`.",
+      "rationale": "RiskBreachBanner exists and is domain-agnostic (just an icon + message), so it was the first thing considered for reuse per the add-frontend-feature skill's step 2 duplication check. Its own doc comment and `theme.ts`'s `riskBreach` palette comment are explicit, though, that the color is deliberately reserved for the portfolio 2%/6% risk-rule breach specifically ('distinct from `signal.sell` so a risk breach banner never reads as \"this is a SELL signal\" -- it's a portfolio-level warning, not a per-stock signal'). Reusing that exact palette/component for an unrelated warning (an earnings date, not a risk-rule breach) would blur a distinction this codebase already established on purpose. A plain MUI `Alert` (already used elsewhere, e.g. `AddPositionDialog.tsx`) gives the same visual severity without repurposing a component whose color/semantics are pinned to a different meaning."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The earnings-warning banner condition is `earnings_within_warning_days` alone (the backend's own 14-day flag), not narrowed to 'only when signal is a fresh BUY or a held position exists' as the task description's phrasing ('when a position or a fresh BUY signal falls within the warning window') might suggest.",
+      "rationale": "This task is scoped to the stock detail page (area: frontend/pages/stocks) for an arbitrary looked-up ticker, which has no notion of 'is this currently a portfolio position' -- that's `features/portfolio/`'s domain, and wiring position awareness into this page would be meaningfully expanded scope beyond what the checklist asks for. The underlying risk Elder describes (an earnings gap defeating a protective stop) is just as real context for anyone considering, or currently holding, this ticker regardless of the page's own signal computation reaching BUY -- backend-market-data-extra-fields's own `earnings_within_warning_days` field is already signal-independent by design (it's computed from wall-clock `date.today()`, not gated on `signal`). Showing it unconditionally whenever the flag is true is the simpler, more broadly useful behavior and avoids duplicating signal-aware logic SignalSummary already owns."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Insider transactions are rendered raw via `common/DataTable` (one row per filing, most-recent-first, exactly as the API returns them) with no client-side buy/sell classification or cluster detection -- `insiderTransactionsHelp`'s `interpretValue` states the filing count and Elder's 3+-within-a-month cluster threshold as an explanatory note, not a computed verdict.",
+      "rationale": "Mirrors the backend's own explicit decision (backend-market-data-extra-fields task) to expose insider transactions raw and defer cluster detection as a separate follow-up -- `transaction_text` is free-text yfinance prose ('Sale at price 220.00 - 225.00...') with no structured direction field to classify from without parsing it, which is exactly the scope that task's own decisions entry deferred. Computing a client-side cluster count here would both duplicate that deferred backend work in the wrong layer (detection logic belongs server-side, consistent with divergence/kangaroo-tail/support-resistance precedent) and risk a classification that disagrees with whatever the eventual backend cluster-detection task computes. The MetricHelp entry still explains the threshold Elder describes (ch. 37) so a reader knows what to look for themselves, satisfying the task's own checklist wording ('why 3+ insider buys/sells in a month is treated as meaningful but a single transaction isn't') without inventing unreviewed classification logic."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`unavailable_reason === 'fallback_provider_active'` renders a distinct dashed-border card (same visual convention `ScreensPanel.tsx`'s Indicator Season card already established for 'informational, not the normal case') stating the cause explicitly, in place of the normal StatCard/short-interest/insider-table layout -- not a per-field '(unavailable)' annotation sprinkled through the normal layout.",
+      "rationale": "The checklist calls for 'unavailable' to read distinctly from 'checked, nothing found,' and the backend's own `ExtendedDataOut.unavailable_reason` field description frames this as a structural, whole-object condition ('every field above is then null/empty, meaning not checked, unsupported by the active provider') rather than a per-field annotation -- every field is null/empty together in this state, so there is nothing meaningful left to show in the normal per-field layout anyway. A single explanatory card reusing the same dashed-border 'not a normal result' visual language already established elsewhere in this page is simpler and reads more clearly than threading an unavailable-vs-null distinction through six separate StatCard/table cells that would all say the same thing."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`FundamentalDataPanel` treats `extendedData` as `ExtendedDataOut | null | undefined` and renders nothing (`return null`) when it's absent, even though the backend schema (`AnalysisResponse.extended_data`) is a non-optional, always-present field.",
+      "rationale": "Several of `StockDetailPage.test.tsx`'s existing tests (the SELL/HOLD/season/lowercase-normalization cases, predating this task) hand-roll a partial `AnalysisResponse` JSON fixture via `HttpResponse.json({...})` that omits several optional-in-practice fields entirely, including (now) `extended_data` -- MSW doesn't validate the mocked response against the OpenAPI schema, so this compiles and runs fine, but would leave `extendedData` `undefined` at runtime for exactly those tests. Rather than rewriting every one of those pre-existing tests just to add a field this task's own scope doesn't require touching, the panel takes the same defensive posture `IndicatorsPanel.tsx`'s `formatValue` already documents toward a generated type it treats as optimistic, not a runtime guarantee -- gracefully rendering nothing rather than crashing. A real backend response always supplies the field, so this defensive branch is unreachable in production, only in this specific test-fixture-completeness gap."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-fundamental-data-panel",
+    "pr_number": 184,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/184",
+    "pushed_at": "2026-09-20T07:25:36Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T07:35:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/184",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the `extendedData: ExtendedDataOut | null | undefined` defensive guard decision: `AnalysisResponse.extended_data` is confirmed required/non-nullable in backend/app/api/schemas.py, backend/openapi.json, and the generated frontend/src/api/types.ts. However this does NOT mask a TypeScript error the way a stale-fixture case per PR #173/#156/#171 would -- confirmed `yarn tsc -b --noEmit` is clean with or without the guard, because the 4 StockDetailPage.test.tsx fixtures that omit `extended_data` (SELL/HOLD/season/lowercase-normalize cases, predating this task) are untyped inline `HttpResponse.json({...})` literals never checked against `AnalysisResponse` -- unlike the properly-typed `frontend/tests/mocks/handlers.ts`'s `analysisFixture: AnalysisResponse` (which PR #156's own blocking finding was about, and which this PR correctly keeps updated). The guard is therefore case (a): harmless, and in fact currently functionally necessary to keep those 4 pre-existing tests from throwing at runtime, not something routing around a compile-time requirement. Non-blocking finding filed as a follow-up: consider updating those 4 fixtures instead of carrying the guard long-term.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 89
+      },
+      {
+        "summary": "Raw insider-transactions display confirmed non-overclaiming: `insiderTransactionsHelp`'s definition/elderContext/interpretValue all explicitly state this app shows filings raw with no buy/sell classification or cluster detection, mirroring the backend's own deferred scope (backend-market-data-extra-fields decisions). The >=3-filings note reads as 'worth reading before treating this as a cluster,' not an asserted verdict. Verified live via a MetricHelp popover screenshot during the browser walkthrough.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 1108
+      }
+    ],
+    "notes": "Full review: backend pytest (839 passed, 99.93% coverage) and frontend vitest (642/643 passed on first run -- 1 PortfolioPage.test.tsx timeout confirmed a pre-existing flake unrelated to this PR by isolated rerun, passed on rerun; 99.63%/98.91%/99.7%/99.7% stmt/branch/fn/line coverage) both clear the 90% gate. Static analysis clean: backend ruff + mypy, frontend eslint + `yarn tsc -b --noEmit` (run standalone per request, zero errors). code-review skill (medium effort) found zero correctness/reuse/simplification issues across FundamentalDataPanel.tsx, metricHelpContent.ts, StockDetailPage.tsx, and DataTable.tsx's sort handling of the new nullable columns. Frontend component placement (step 7a): FundamentalDataPanel correctly lives under features/stocks/components/ (every field is ticker-specific/domain-tied to AnalysisResponse), reuses common/DataTable, common/StatCard, common/MetricHelp rather than duplicating them -- no misplacement finding. No backend/route/schema change in this PR, so openapi.json staleness doesn't apply (already current from PR #183, extended_data confirmed required there too). Browser walkthrough (backend+frontend dev servers, route-intercepted AnalysisResponse fixtures): golden path (earnings-warning banner + short interest + insider table, screenshot captured), unavailable-provider edge case (distinct dashed-border card, no earnings banner, screenshot captured), and a no-warning/empty-insider-transactions case, plus a MetricHelp popover interaction -- zero console errors, zero failed network requests in all cases. e2e-test skill: `make e2e`, all 16 specs across 5 files passed, including stock-analysis.spec.ts's PR-added fundamental-data-panel assertions against the fixture provider's all-null extended_data case. No checklist item phrased as 'decide X' lacks a decisions entry -- all judgment calls (placement, Alert-vs-RiskBreachBanner reuse, warning-condition scope, raw-vs-classified insider transactions, unavailable-state treatment, the defensive guard itself) are recorded with rationale. No pre-existing pr_decision to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T07:39:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (839 passed, 99.93% coverage) and frontend yarn tsc -b --noEmit (clean) plus vitest run --coverage (642/643 passed, 99.63%/98.91%/99.7%/99.7% coverage; the 1 PortfolioPage.test.tsx timeout reproduced as a pass in isolation, confirming the pre-existing flake). Read the full diff (git diff main...task/frontend-fundamental-data-panel, 11 files). Confirmed AnalysisResponse.extended_data is genuinely required/non-nullable (backend/app/api/schemas.py:274, `ExtendedDataOut = Field(...)`, no Optional/default). Independently read all 4 StockDetailPage.test.tsx fixtures pr-reviewer cited (SELL/HOLD/season/lowercase-normalize, ~lines 109/153/195/331): each is an untyped inline HttpResponse.json({...}) literal with no AnalysisResponse annotation, unlike tests/mocks/handlers.ts's properly-typed `const analysisFixture: AnalysisResponse = {...}` -- confirms the fixtures bypass tsc's type check rather than tsc missing a real error. Also confirmed the guard masks no other tsc error: StockDetailPage.tsx passes the required ExtendedDataOut value into a prop typed ExtendedDataOut | null | undefined, which is always legal TS regardless of the guard. Accept holds."
+  }
+}

@@ -4,6 +4,7 @@ import type {
   FalseBreakoutOut,
   HistoryResponse,
   IndicatorHistoryPoint,
+  InsiderTransactionOut,
   KangarooTailOut,
   ProfitTargetOut,
   SupportResistanceZone,
@@ -1013,5 +1014,124 @@ export const atrHelp = {
     const latest = series[series.length - 1]
     const pctOfPrice = (latest.atr / latest.price) * 100
     return `Currently ${latest.atr.toFixed(2)} as of ${latest.date} -- about ${pctOfPrice.toFixed(1)}% of this ticker's EMA(13) (${latest.price.toFixed(2)}, used here as a stand-in for current price level since this endpoint has no raw close field). Elder's own rule of thumb: a protective stop placed closer than 1 ATR (${latest.atr.toFixed(2)}) from entry sits inside this ticker's normal day-to-day noise.`
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Fundamental data panel (FundamentalDataPanel.tsx,
+// frontend-fundamental-data-panel) -- `extended_data` (earnings/dividend
+// dates, short interest, insider transactions, backend-market-data-extra-
+// fields). Purely informational: confirmed never read by signal/confidence
+// computation (see that task's own review notes) -- every `elderContext`
+// below says so explicitly, the same "detection/exposure only" disclosure
+// pattern `obvHelp`/`atrHelp`/`adxHelp` above already use for their own
+// not-wired-into-the-signal indicators.
+// ---------------------------------------------------------------------------
+
+export const earningsDateHelp = {
+  metricLabel: 'Earnings Date',
+  definition:
+    "This ticker's next scheduled quarterly earnings report date (yfinance's `Ticker.calendar`, 'Earnings Date' -- Yahoo sometimes reports a multi-day estimate window; the earliest day of that window is shown here).",
+  elderContext:
+    'Elder ch. 58 is explicit about why this matters even though it never enters the signal/confidence computation: "a nasty earnings surprise can do serious damage to your position... it can jump straight past any stop level." A protective stop only protects against an ordinary overnight gap -- it cannot protect against a large gap on an earnings surprise, since the stop order simply fills at whatever price the market opens at, past the stop level. This app flags the 14-calendar-day window before a scheduled report (`earnings_within_warning_days`) as a period worth extra caution for a fresh entry, or extra awareness for an existing position -- purely informational context, not a block on the signal itself.',
+  interpretValue(earningsDate: string | null, withinWarningDays: boolean): string {
+    if (!earningsDate) {
+      return 'No upcoming earnings date currently on record for this ticker.'
+    }
+    if (withinWarningDays) {
+      return `${earningsDate} -- within the next 14 days. Elder's own advice: avoid opening a fresh position this close to a report, and remember an existing position's protective stop offers no real protection against an overnight earnings-surprise gap.`
+    }
+    return `${earningsDate} -- more than 14 days out, outside this app's 14-day earnings warning window.`
+  },
+}
+
+export const exDividendDateHelp = {
+  metricLabel: 'Ex-Dividend Date',
+  definition:
+    "The next date this ticker trades without its upcoming dividend attached (yfinance's `Ticker.calendar`, 'Ex-Dividend Date') -- a buyer on or after this date does not receive the upcoming payout, and the share price typically drops by roughly the dividend amount at the open that day as a mechanical (not technical) effect.",
+  elderContext:
+    "Not part of the Triple Screen/Impulse/confidence-scoring methodology (docs/Analyse.md) -- shown here purely as calendar context, e.g. so a small price drop around this date reads as an expected mechanical effect rather than a bearish technical signal.",
+  interpretValue(exDividendDate: string | null): string {
+    if (!exDividendDate) {
+      return 'No ex-dividend date currently scheduled for this ticker.'
+    }
+    return `${exDividendDate}.`
+  },
+}
+
+export const shortInterestHelp = {
+  metricLabel: 'Short Interest',
+  definition:
+    "How many shares of this ticker are currently sold short and not yet bought back (`shares_short`), plus two ratios derived from it: `short_ratio` ('days to cover' -- shares short divided by average daily volume) and `short_percent_of_float` (shares short as a fraction of the freely tradeable float) (yfinance's `Ticker.info`, Elder ch. 37 pp.146-148).",
+  elderContext:
+    'Elder reads heavy short interest as potential fuel for a rally, not just a bearish crowd signal: every short seller eventually has to buy back the shares they borrowed, so the more of the float is sold short, the more forced buying pressure a rally can trigger on the way up -- a short squeeze. Days-to-cover is the practical measure of how much fuel that is: a higher number means it would take short sellers more trading days to cover if they all tried at once, i.e. slower, more painful covering once a squeeze starts. This matters specifically for a fresh BUY setup this app already flagged on technical grounds -- elevated short interest is extra upside pressure on top of that setup, not a substitute for it. Not wired into the signal or confidence score -- informational context only.',
+  interpretValue(
+    sharesShort: number | null,
+    shortRatio: number | null,
+    shortPercentOfFloat: number | null,
+    floatShares: number | null,
+  ): string {
+    if (
+      sharesShort === null &&
+      shortRatio === null &&
+      shortPercentOfFloat === null &&
+      floatShares === null
+    ) {
+      return 'Currently unavailable for this ticker -- not reported by this data source.'
+    }
+    const parts: string[] = []
+    if (sharesShort !== null) {
+      parts.push(`${sharesShort.toLocaleString()} shares short`)
+    }
+    if (shortPercentOfFloat !== null) {
+      parts.push(`${(shortPercentOfFloat * 100).toFixed(1)}% of float`)
+    }
+    if (shortRatio !== null) {
+      parts.push(`${shortRatio.toFixed(1)} days to cover`)
+    }
+    if (floatShares !== null) {
+      parts.push(`float of ${floatShares.toLocaleString()} shares`)
+    }
+    // `parts` always has at least one entry here -- the early return above already
+    // handles the only case where all four inputs are null.
+    const summary = parts.join(', ')
+    const squeezeNote =
+      shortPercentOfFloat === null
+        ? ''
+        : shortPercentOfFloat >= 0.1
+          ? ' This is an elevated short-percent-of-float (>=10%) -- meaningful squeeze fuel if this ticker rallies on a fresh BUY setup, since short sellers eventually have to buy back their borrowed shares.'
+          : ' A modest short-percent-of-float (<10%) -- limited extra squeeze fuel either way.'
+    return `Currently ${summary}.${squeezeNote}`
+  },
+}
+
+export const insiderTransactionsHelp = {
+  metricLabel: 'Insider Transactions',
+  definition:
+    "Recent officer/director buy/sell filings for this ticker (yfinance's `Ticker.insider_transactions`), shown raw and most-recent-first, exactly as yfinance itself reports each filing's free-text description.",
+  elderContext:
+    "Elder ch. 37 treats insider trading as a real but secondary signal, most meaningful in clusters: three or more purchases (or three or more sales) by different insiders within about a month is worth noting; a single transaction alone usually isn't, since an insider sells for many ordinary reasons unrelated to their view of the company (taxes, diversification, a pre-scheduled 10b5-1 plan). This app currently exposes the raw filings only -- it does not parse each filing's free-text description into a structured buy/sell direction, or automatically detect a qualifying cluster (a stated follow-up; see the backend-market-data-extra-fields task's `decisions` entry). Read the transaction text yourself and look for repeated filings within a similar window before treating this as a signal.",
+  interpretValue(transactions: readonly InsiderTransactionOut[]): string {
+    if (transactions.length === 0) {
+      return 'No insider transactions currently reported for this ticker.'
+    }
+    const mostRecentDate = transactions.find((t) => t.start_date !== null)?.start_date
+    const dateClause = mostRecentDate ? `, most recent filing dated ${mostRecentDate}` : ''
+    const clusterNote =
+      transactions.length >= 3
+        ? " Three or more filings are shown -- worth reading each one's own direction/text before treating this as a cluster, since this app doesn't classify or count buys vs. sells automatically."
+        : " Fewer than Elder's own 3-filing cluster threshold -- on its own, not usually treated as a meaningful signal."
+    return `${transactions.length} filing${transactions.length === 1 ? '' : 's'} shown${dateClause}.${clusterNote}`
+  },
+}
+
+export const fundamentalDataUnavailableHelp = {
+  metricLabel: 'Fundamental Data',
+  definition:
+    'Earnings/dividend dates, short interest, and recent insider transactions for this ticker (yfinance-only fields with no Stooq equivalent).',
+  elderContext:
+    'The fallback (Stooq) market data provider has no equivalent for any of this data at all (docs/architecture/Backend.md, backend-market-data-extra-fields task). This is a structural "unsupported by the currently active provider" condition, shown distinctly from a genuine "checked yfinance, found nothing for this ticker" result -- the two mean very different things and shouldn\'t both collapse into a blank panel.',
+  interpretValue(): string {
+    return 'Currently unavailable -- the fallback (Stooq) provider is active for this ticker right now, and has no equivalent for earnings/dividend dates, short interest, or insider transactions. Not the same as "checked, nothing found" -- this data simply was never checked while the fallback provider is serving requests.'
   },
 }
