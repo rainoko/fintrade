@@ -1293,8 +1293,15 @@
       "id": "frontend-methodology-explainer",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-methodology-explainer.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-methodology-explainer.json"
+    },
+    {
+      "id": "frontend-methodology-explainer-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-methodology-explainer-followups.json"
     },
     {
       "id": "backend-trade-history-table-followups",
