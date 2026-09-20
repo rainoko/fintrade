@@ -936,7 +936,7 @@
       "id": "backend-indicator-obv-ad",
       "area": "backend/indicators",
       "skill": "add-indicator",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-indicator-obv-ad.json"
     },
     {

@@ -3,7 +3,7 @@
   "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/force_index.py",
@@ -48,5 +48,28 @@
       "decision": "OBV's undefined first-bar direction (no prior close to compare against) is mapped to a 0 contribution (np.sign(close.diff()).fillna(0.0)), not to the alternative convention of seeding the running total with the first bar's own raw volume. Similarly, A/D's zero-range bars (high == low, making close-open)/(high-low) a 0/0 division) are mapped to a 0 contribution via .where(range != 0, other=0.0), not left as NaN.",
       "rationale": "Both series are cumulative (pd.Series.cumsum()), and NaN is 'sticky' under cumsum -- a single undefined day would otherwise poison every later cumulative total for the rest of the series, unlike a non-cumulative oscillator (e.g. app.indicators.stochastic.stochastic_oscillator, which safely leaves a zero-range bar's %K as NaN via plain division, since that NaN only affects that one bar). 0 was chosen over volume[0]-as-seed for OBV because the app's own framing ('only the pattern of highs/lows and divergence matters, absolute level is meaningless') makes the starting anchor arbitrary either way, and 0 is the more literal reading of 'add/subtract volume based on direction, with an undefined first direction contributing nothing' rather than implicitly asserting the first bar's own volume was itself bullish. Rejected: leaving these NaN (breaks every subsequent cumulative value, unlike every other indicator's warm-up-then-clean pattern in this app) and seeding OBV[0]=volume[0] (an equally arbitrary, but less literal, convention)."
     }
-  ]
+  ],
+  "review": {
+    "reviewed_at": "2026-09-20T02:15:49Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/173",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Making obv/accumulation_distribution required (non-nullable) fields on IndicatorHistoryPoint breaks the frontend build: `yarn tsc -b --noEmit` fails with 6 TS2739 errors ('missing the following properties ... accumulation_distribution, obv') because three pre-existing test files construct IndicatorHistoryPoint-shaped literals without the two new fields. frontend/tests/mocks/handlers.ts's shared fixture was correctly updated, but these three files build their own separate local fixtures that were missed. vitest itself still passes (it doesn't type-check), so this was only caught by running tsc directly, not by the test suite. Blocking: static analysis is a hard gate per CLAUDE.md/pr-reviewer's process.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.test.tsx",
+        "line": 132
+      },
+      {
+        "summary": "Same missing-fields TS2739 error as OscillatorChart.test.tsx:132/147/180, at two more literal sites.",
+        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
+        "line": 264
+      },
+      {
+        "summary": "Same missing-fields TS2739 error as above, one more site.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.test.ts",
+        "line": 908
+      }
+    ],
+    "notes": "Everything else checks out: backend suite 759 passed/99.92% coverage, frontend suite 536 passed/99%+ coverage (no regression, both well above the 90% gate); backend ruff+mypy clean; frontend eslint clean. code-review skill (independent background pass) converged on the exact same single finding and raised nothing else. Hand-verified the obv and accumulation_distribution reference-value fixtures independently (recomputed both by hand from the fixture inputs, matched the committed pytest.approx assertions exactly) -- both formulas match Elder ch. 29's standard OBV/A-D definitions. Confirmed via grep across backend/app/ that obv/accumulation_distribution are referenced nowhere outside app/indicators/{obv,accumulation_distribution}.py, app/api/schemas.py, and app/api/routers/stocks.py -- genuinely never read by _determine_signal, confidence.py, or analyse()/analyse_history()'s screens, matching the task's own decisions entry and docs/Analyse.md's new §4 rows. The two edge-case decisions (OBV's undefined first-bar direction and A/D's zero-range-bar division both mapped to a 0 contribution instead of NaN, to avoid NaN poisoning the cumsum) are reasonable and correctly implemented -- verified against both indicator modules' code and their dedicated unit tests (test_first_bar_is_not_nan, test_zero_range_bar_contributes_zero_not_nan). backend/openapi.json regenerated and matches frontend/src/api/types.ts (re-ran scripts/export_openapi.py from a clean checkout -- zero diff); both have the new required obv/accumulation_distribution fields with schema descriptions per CLAUDE.md's API documentation standard. No new module/dependency/layer added (architecture-review not triggered); no frontend component added or changed (only frontend/src/api/types.ts and frontend/tests/mocks/handlers.ts touched), so the components/common/-vs-feature placement check (step 7a) doesn't apply. Browser walkthrough performed against the stock detail page (GET /api/stocks/{ticker}/indicators already has frontend consumers -- OscillatorChart/PriceChart): golden path (AAPL, 1Y range) renders the full analysis panel, price chart, and oscillator panels correctly with obv/accumulation_distribution present in the API response, zero console/network errors; edge case (unknown ticker ZZZZZZ) shows the expected 404/not-found handling, only the expected 404 network entries. Also ran the persisted e2e suite (make e2e): all 16 specs across 5 files passed, including stock-analysis.spec.ts's 1Y/max-range and unknown-ticker specs which exercise this same endpoint. Noted in passing: GET /api/stocks/{ticker}/indicators?range=1y took ~42s against the live yfinance provider in this dev environment; confirmed via a direct curl comparison that this is pre-existing live-network latency in my local walkthrough setup (not caused by this PR's O(1) vectorized obv/ad cumsum additions, and not reproducible at all against the fixture provider, where the same request is fast) -- not filed as a follow-up since it isn't this PR's issue and the underlying analyse_history performance question is already tracked and resolved by the api-stocks-indicator-history-followups task chain. No checklist item phrased as 'decide X' was left undecided -- the response-shape decision and the two edge-case-mapping decisions are both recorded with rationale and rejected alternatives, meeting CLAUDE.md's decision-memory bar. No non-blocking findings beyond the one blocking tsc issue above, so no <id>-followups task was created this round."
+  }
 }
