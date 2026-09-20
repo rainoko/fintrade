@@ -1,0 +1,61 @@
+{
+  "id": "frontend-trend-strength-chart-followups",
+  "title": "Follow-ups from frontend-trend-strength-chart PR review (#176)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-trend-strength-chart"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-trend-strength-chart.json",
+    "https://github.com/rainoko/fintrade/pull/176"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #176 (frontend-trend-strength-chart), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "ATR's `interpretValue` (metricHelpContent.ts's atrHelp) expresses ATR as a percentage of the current bar's EMA(13) rather than raw close, since `IndicatorHistoryPoint` has no close field -- explicitly disclosed in the text itself ('used here as a stand-in for current price level'), so not misleading, but EMA(13) lags actual price (especially right after a gap or in a fast-moving market), so the displayed percentage can meaningfully diverge from a true ATR-as-%-of-price reading. Consider adding a raw `close`/`price` field to `IndicatorHistoryPoint` (backend schema + openapi.json regeneration) so this reads as an accurate percentage-of-price rather than percentage-of-EMA13, or explicitly re-evaluate whether the approximation is good enough to keep permanently.",
+      "done": true
+    },
+    {
+      "step": "This task's own `decisions` entry for not extending `IndicatorsPanel.tsx` with +DI/-DI/ADX/ATR stat cards explicitly calls that 'a reasonable, defensible follow-up' since (unlike OBV/A-D) each trend_strength field is a meaningful single-bar value. Decide whether to actually add those stat cards (with their own MetricHelp current-value framing, distinct from the chart legend's) or explicitly decide not to and close this out.",
+      "done": true
+    },
+    {
+      "step": "metricHelpContent.test.ts covers adxHelp's 'rings a bell' 4-point threshold and warm-up/null-exclusion behavior, but no test actually exercises the `ADX_RECENT_LOW_LOOKBACK_BARS = 20` trailing-window truncation itself -- every existing test uses short point arrays (<=3 points) where `.slice(-20)` never truncates anything. Add a test with >20 points where the true minimum ADX value falls outside the trailing 20-bar window, asserting the reported 'recent low' is the in-window minimum, not the all-time minimum.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Re-evaluated the ATR-as-%-of-EMA(13) approximation (atrHelp.interpretValue) and decided to keep it rather than adding a raw close/price field to IndicatorHistoryPoint. Implemented as part of a batched PR (task/frontend-followups-batch-1) alongside four other small stocks-page follow-up tasks.",
+      "rationale": "Adding a raw close field is backend scope (schemas.py + routers/stocks.py + openapi.json regeneration + regenerated frontend types) well beyond this batch's frontend-only footprint, and risks conflicting with sibling followup tasks touching the same generated-types surface. The approximation is already explicitly disclosed in the help text itself ('used here as a stand-in for current price level since this endpoint has no raw close field'), so a reader is never misled about what the percentage actually measures -- only its precision is affected, and only right after a gap or in a fast-moving market. Deferred rather than done now; a future task can add the close field if the imprecision proves to matter in practice."
+    },
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Decided NOT to add +DI/-DI/ADX/ATR stat cards to IndicatorsPanel.tsx.",
+      "rationale": "This task's own prior `decisions` entry already called the stat-card addition 'a reasonable, defensible follow-up', not a required one. Adding it properly (per the checklist item's own framing) would need new MetricHelp entries with a 'current-value' framing distinct from adxHelp/atrHelp's existing chart-legend versions (which take a historical `points` array, not a single latest value, for their own 'recent low'/'% of price' framing) -- new registry entries, new StatCard wiring, and new tests, which is a meaningfully larger change than the other items in this batch and not clearly worth the duplication risk (this same batch's frontend-profit-target-display-followups independently flags cross-registry duplication as something to actively avoid). TrendStrengthChart.tsx and its own MetricHelp affordances already surface these four values' current readings adequately."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-followups-batch-1",
+    "pr_number": 207,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "pushed_at": "2026-09-20T16:55:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:23:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups, frontend-profit-target-display-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. This task's own change (the new metricHelpContent.test.ts test exercising ADX_RECENT_LOW_LOOKBACK_BARS=20's trailing-window truncation) was hand-verified: 25-bar fixture with a true all-time low (1.0) outside the trailing 20-bar window and a true in-window low (15.0, first occurring at the window's own first bar) -- confirmed the assertion correctly reports the in-window low, not the all-time low. Full frontend suite (690 tests) and backend suite (929 tests) pass, coverage 99.72%/99.94% respectively (gate 90%). eslint/tsc/mypy clean; ruff findings on main are pre-existing in backend test files untouched by this PR. No findings specific to this task's own change."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:28:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend suite (690/690 passed, 99.72% line coverage) and backend suite (929/929 passed, 99.94% coverage), tsc -b --noEmit and eslint both clean -- all matching pr-reviewer's reported figures. Read the full diff (git diff main...task/frontend-followups-batch-1) across all 5 batched tasks, including this one's new ADX_RECENT_LOW_LOOKBACK_BARS=20 trailing-window test, and confirmed it genuinely exercises truncation (25-bar fixture, true all-time low outside the 20-bar window)."
+  }
+}

@@ -1,4 +1,8 @@
 import type { ProfitTargetOut } from '../../../api/stocks'
+import {
+  PROFIT_TARGET_DEFINITION,
+  PROFIT_TARGET_ELDER_CONTEXT_SUFFIX,
+} from '../../../utils/profitTargetHelpText'
 
 /**
  * Help content for the "A-trade" grade metrics shown on `TradeJournalPanel`
@@ -40,10 +44,8 @@ import type { ProfitTargetOut } from '../../../api/stocks'
  */
 export const profitTargetHelp = {
   metricLabel: 'Profit Target',
-  definition:
-    'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of today’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.',
-  elderContext:
-    'Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to this same position’s protective stop shown alongside it ("it seldom pays to risk a dollar to make a dollar", ch. 53, docs/Analyse.md §7) -- shown here as a reward:risk ratio, always computed and flagged rather than silently hidden when it fails. BUY-only: this app’s protective-stop formula (and its whole portfolio model) is explicitly long-only, so there’s no symmetric SELL-side target/ratio. A held position’s own profit target reflects what a FRESH entry at today’s price would target -- not a re-evaluation of the price this position was originally bought at.',
+  definition: PROFIT_TARGET_DEFINITION,
+  elderContext: `Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to this same position’s protective stop shown alongside it ${PROFIT_TARGET_ELDER_CONTEXT_SUFFIX} A held position’s own profit target reflects what a FRESH entry at today’s price would target -- not a re-evaluation of the price this position was originally bought at.`,
   interpretValue(
     profitTarget: ProfitTargetOut | null,
     signal: 'BUY' | 'SELL' | 'HOLD' | null,

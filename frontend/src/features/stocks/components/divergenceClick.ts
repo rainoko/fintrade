@@ -1,4 +1,4 @@
-import type { MouseEventParams, Time } from 'lightweight-charts'
+import type { MouseEventParams, SeriesMarkerBarPosition, Time } from 'lightweight-charts'
 import type { DivergenceOut } from '../../../api/stocks'
 import { timeToDateString } from '../../../utils/chart'
 
@@ -79,4 +79,37 @@ export function isDivergenceInRange(
     divergence.second_extreme_date >= firstDate &&
     divergence.second_extreme_date <= lastDate
   )
+}
+
+/**
+ * The marker `text`/`position` pair for a divergence overlay, shared between
+ * `PriceChart.tsx`'s `buildDivergencePriceOverlay` (which marks the two
+ * *price* swing points) and `OscillatorChart.tsx`'s
+ * `buildDivergenceIndicatorOverlay` (which marks the two *indicator*
+ * readings) -- both charts mark the exact same divergence at the exact same
+ * two dates, so the label wording and up/down marker placement convention
+ * must stay identical between them. Post-review fix (frontend-divergence-
+ * markers-followups): previously copy-pasted verbatim in both files, which
+ * the PR that added this overlay had already avoided for the one other
+ * genuinely shared piece of divergence logic (`clickedDivergenceExtreme`
+ * above) -- factored out here alongside it so a future change to the label
+ * text or the up/down convention can't leave the two charts silently out of
+ * sync.
+ *
+ * `position` is a `SeriesMarkerBarPosition` ('belowBar' for a bullish
+ * divergence -- marking the swing LOW the divergence is built from --
+ * 'aboveBar' for a bearish one, marking the swing HIGH), specifically NOT
+ * the wider `SeriesMarkerPosition` union (which also includes a price-
+ * relative position, requiring its own `price` field `SeriesMarker<Time>`
+ * doesn't have for a bar-relative marker) -- both callers pass this
+ * straight through to their own `SeriesMarker<Time>` objects.
+ */
+export function divergenceMarkerLabelAndPosition(divergence: DivergenceOut): {
+  label: string
+  position: SeriesMarkerBarPosition
+} {
+  return {
+    label: divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence',
+    position: divergence.kind === 'bullish' ? 'belowBar' : 'aboveBar',
+  }
 }

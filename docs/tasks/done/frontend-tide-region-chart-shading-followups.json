@@ -1,0 +1,51 @@
+{
+  "id": "frontend-tide-region-chart-shading-followups",
+  "title": "Non-blocking follow-up from PR #169 review (frontend-tide-region-chart-shading)",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-tide-region-chart-shading"
+  ],
+  "references": [
+    "docs/tasks/frontend-tide-region-chart-shading.json",
+    "https://github.com/rainoko/fintrade/pull/169"
+  ],
+  "description": "Tracked non-blocking findings from pr-reviewer's review of PR #169 (frontend-tide-region-chart-shading), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. Distinct from the PR's own blocking finding (buildTideRegionSegments never extending the trailing boundary of the LAST segment, so a solo 1-bar final segment renders no fill), which stays on frontend-tide-region-chart-shading itself and must be fixed before that PR can be accepted.",
+  "checklist": [
+    {
+      "step": "tideRegionHelp.interpretValue (frontend/src/features/stocks/components/metricHelpContent.ts, ~line 762-777) rounds the Bullish/Bearish/Neutral percentages of the currently visible bars independently (Math.round per count), so the three displayed percentages don't always sum to 100% -- e.g. a 3-bar 1/1/1 split reads '33% Bullish, 33% Bearish, 33% Neutral' (99% total). Cosmetic, but worth fixing (e.g. compute two shares directly and derive the third as the remainder to 100%) since a careful reader will notice the numbers don't add up.",
+      "done": true
+    },
+    {
+      "step": "buildTideRegionSegments's backward-cascade loop (frontend/src/features/stocks/components/PriceChart.tsx, ~line 364, added by the PR #169 needs_work fix in commit 60d99d3) has an `if (!previousOwnLast) break` guard that is unreachable dead code given the loop's own invariants -- a segment can only ever be popped once (as `previous`), always before it could become an unshift target in a later iteration, so `previous.data.at(-1)` can never be undefined there (confirmed by fuzz-testing every 2-symbol trend sequence up to length 10 in the PR #169 re-review). Not a functional bug, but worth removing or replacing with a comment/assertion explaining why it's structurally unreachable, since as written it reads like it guards a real edge case that doesn't actually exist at that point -- the real (documented) unhandled edge case is segments[0] under-sizing, not this branch.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed tideRegionHelp.interpretValue to round only Bullish/Bearish directly and derive Neutral as the remainder to 100%, so the three percentages always sum to exactly 100. Replaced buildTideRegionSegments's unreachable `if (!previousOwnLast) break` guard with a non-null assertion plus a comment explaining exactly why it's structurally unreachable, rather than removing the check silently. Implemented as part of a batched PR (task/frontend-followups-batch-1) alongside four other small stocks-page follow-up tasks.",
+      "rationale": "Both fixes were exactly as scoped by the review findings, with no open design question. Kept the dead-code guard's reasoning as an explicit comment (rather than a bare removal) since the finding's own text warns a future maintainer might otherwise reintroduce a similar-looking guard thinking it protects a real case -- the comment preserves that context. Deriving Neutral as a remainder (rather than, say, largest-remainder rounding across all three) was the exact fix the review finding itself suggested, and is the simplest approach that guarantees the sum-to-100 invariant."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-followups-batch-1",
+    "pr_number": 207,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "pushed_at": "2026-09-20T16:55:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:23:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-trend-strength-chart-followups, frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-profit-target-display-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. This task's own percentage-sum fix (tideRegionHelp.interpretValue rounding Bullish/Bearish directly and deriving Neutral as the remainder) was confirmed to read from the exact same windowed dataset (`selectVisibleIndicatorPoints`, keyed off `bars[0].date`/`bars[bars.length-1].date`) the chart-drawing effect (`buildTideRegionSegments`) actually shades from -- this PR only changed the rounding math, not the data source, so no new legend/chart mismatch was introduced. Live browser walkthrough (AAPL stock detail page, Tide Background MetricHelp popover) confirmed the fix live: '45% Bullish, 20% Bearish, 35% Neutral' sums to exactly 100%. The unreachable-guard-to-assertion change (buildTideRegionSegments) is a comment/type-narrowing change only, no behavior change. Full frontend suite (690 tests, 99.72% coverage) and backend suite (929 tests, 99.94% coverage) pass; eslint/tsc/mypy clean. No findings specific to this task's own change."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:28:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend suite (690/690 passed, 99.72% line coverage) and backend suite (929/929 passed, 99.94% coverage), tsc -b --noEmit and eslint both clean. Read the tideRegionHelp.interpretValue diff: pctBullish/pctBearish rounded directly, pctNeutral derived as 100-minus-both, which algebraically guarantees a sum of exactly 100 for any input -- correct fix. Also read the buildTideRegionSegments unreachable-guard-to-assertion change, a comment/type-narrowing-only change with no behavior difference."
+  }
+}

@@ -12,6 +12,10 @@ import type {
 } from '../../../api/stocks'
 import { humanizeSnakeCase } from '../../../utils/format'
 import { sortClustersByRecentWindowEnd } from '../../../utils/insiderClusters'
+import {
+  PROFIT_TARGET_DEFINITION,
+  PROFIT_TARGET_ELDER_CONTEXT_SUFFIX,
+} from '../../../utils/profitTargetHelpText'
 import { TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE } from './tideNeutralCause'
 
 /**
@@ -139,10 +143,8 @@ export function getConfidenceComponentHelp(component: string) {
 
 export const profitTargetHelp = {
   metricLabel: 'Profit Target',
-  definition:
-    'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of today’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.',
-  elderContext:
-    'Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to the same protective stop this app already computes ("it seldom pays to risk a dollar to make a dollar", ch. 53, docs/Analyse.md §7) -- shown here as a reward:risk ratio, always computed and flagged rather than silently hidden when it fails. BUY-only: this app’s protective-stop formula (and its whole portfolio model) is explicitly long-only, so there’s no symmetric SELL-side target/ratio.',
+  definition: PROFIT_TARGET_DEFINITION,
+  elderContext: `Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to the same protective stop this app already computes ${PROFIT_TARGET_ELDER_CONTEXT_SUFFIX}`,
   interpretValue(
     profitTarget: ProfitTargetOut | null,
     signal: AnalysisResponse['signal'] | null,
@@ -483,11 +485,19 @@ export const rsiHelp = {
  * no points at all) reports "unavailable" the same way every other
  * `interpretValue` here does for a not-yet-available metric.
  *
- * `atExtreme` compares by array reference (`entry === highest`/`=== lowest`),
- * not by re-comparing `.value`, since `highest`/`lowest`/`last` are all
- * references into the same filtered `series` array -- reference equality is
- * exact (no risk of a tied value at a different date matching instead) and
- * avoids a second floating-point comparison.
+ * The "is the latest bar currently at its own high/low" check compares
+ * `.value`, not array reference: post-review fix (frontend-volume-
+ * indicators-chart-followups) -- `highest`/`lowest` are found via a strict
+ * `>`/`<` `reduce`, so when an earlier bar in the window ties the latest
+ * bar's own value exactly, `reduce` keeps the EARLIER occurrence (a `>`
+ * comparison never replaces the running max/min on a tie) and `last` ends up
+ * a different array entry than `highest`/`lowest` even though its value is
+ * identical. A reference-equality check (`last === highest`) would then fall
+ * into the "not at either extreme" branch and misstate the window's own
+ * high/low for a tie case that's actually a (joint) extreme. Comparing
+ * `.value` instead correctly treats an exact tie with the latest bar as
+ * "currently at its own high/low", regardless of which array entry `reduce`
+ * happened to keep.
  */
 function cumulativeVolumeSeriesInterpretation(
   label: string,
@@ -511,9 +521,9 @@ function cumulativeVolumeSeriesInterpretation(
         ? 'fallen'
         : 'stayed flat'
   const extremeClause =
-    last === highest
+    last.value === highest.value
       ? ' It is currently at its own highest point over this window.'
-      : last === lowest
+      : last.value === lowest.value
         ? ' It is currently at its own lowest point over this window.'
         : ` Over this window its own high was ${highest.value.toFixed(0)} (${highest.date}) and low was ${lowest.value.toFixed(0)} (${lowest.date}).`
   return `Currently ${last.value.toFixed(0)} as of ${last.date} -- this raw number means nothing on its own (it depends entirely on how far back this ticker's history happens to start, not on anything about the ticker itself). What actually matters is the shape: ${label} has ${direction} over the ${series.length} bar${series.length === 1 ? '' : 's'} currently shown.${extremeClause} Compare this pattern's own highs/lows against price's own highs/lows on the chart above -- a new price high/low without a matching new ${label} high/low is a divergence worth noting.`
@@ -907,9 +917,20 @@ export const tideRegionHelp = {
     if (points.length === 0) {
       return 'Currently unavailable for this ticker.'
     }
-    const { bullish, bearish, neutral } = countTideTrends(points)
+    const { bullish, bearish } = countTideTrends(points)
     const total = points.length
-    const pct = (count: number) => Math.round((count / total) * 100)
+    // Post-review fix (frontend-tide-region-chart-shading-followups):
+    // rounding all three percentages independently (`Math.round` per count)
+    // could make the three displayed numbers not sum to 100% -- e.g. a
+    // 3-bar 1/1/1 split would read "33%/33%/33%" (99% total). Instead only
+    // Bullish/Bearish are rounded directly; Neutral is derived as the
+    // remainder to 100%, so the three always sum to exactly 100 (the
+    // standard "largest remainder"-style fix for this class of rounding
+    // bug), at the cost of Neutral occasionally absorbing an extra rounding
+    // point rather than reading as its own independently-rounded share.
+    const pctBullish = Math.round((bullish / total) * 100)
+    const pctBearish = Math.round((bearish / total) * 100)
+    const pctNeutral = 100 - pctBullish - pctBearish
     const latestTrend = points[points.length - 1].tide.trend
     const latestLabel =
       latestTrend === 'BULLISH'
@@ -917,7 +938,7 @@ export const tideRegionHelp = {
         : latestTrend === 'BEARISH'
           ? 'Bearish (red)'
           : 'Neutral (amber)'
-    return `Across the ${total} bars currently shown: ${pct(bullish)}% Bullish, ${pct(bearish)}% Bearish, ${pct(neutral)}% Neutral. Today's (rightmost) background is ${latestLabel}.`
+    return `Across the ${total} bars currently shown: ${pctBullish}% Bullish, ${pctBearish}% Bearish, ${pctNeutral}% Neutral. Today's (rightmost) background is ${latestLabel}.`
   },
 }
 

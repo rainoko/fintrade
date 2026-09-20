@@ -121,12 +121,25 @@ function buildVolumeIndicatorsSeriesData(
  * MACD Histogram.
  *
  * No zero-baseline reference line on either pane (unlike Force Index/MACD
- * Histogram): both series are constructed to start at exactly 0 on the
- * first plotted bar (see the backend-indicator-obv-ad task's `decisions`
- * entry for the first-bar/zero-range edge-case rationale), so a "zero"
- * price line here would just mark the series' own arbitrary starting point,
- * not a meaningful sign-based threshold the way it does for Force
- * Index/MACD Histogram (whose sign is itself a buying/selling cue).
+ * Histogram). Post-review correction (frontend-volume-indicators-chart-
+ * followups): an earlier version of this comment claimed both series "are
+ * constructed to start at exactly 0 on the first plotted bar" -- true only
+ * of the ticker's absolute first historical bar (`range=max`), NOT of the
+ * first bar of whatever `range` window is currently requested/displayed.
+ * `backend/app/api/routers/stocks.py` computes `obv`/`accumulation_
+ * distribution` over the ticker's entire untrimmed daily history and only
+ * slices the result by `from_index` for the requested range, so the default
+ * 1y range's own first plotted bar routinely carries an arbitrary large
+ * running total already accumulated from years of earlier history (e.g.
+ * confirmed live: `GET /api/stocks/AAPL/indicators?range=1y` returns
+ * `obv=164800429500.0` on its very first point, nowhere near 0). The
+ * practical conclusion still holds for an independent reason, though: even
+ * for the one range where a series genuinely does start at 0 (`range=max`),
+ * a "zero" price line would only mark that series' own arbitrary starting
+ * point, not a meaningful sign-based threshold the way it does for Force
+ * Index/MACD Histogram (whose sign is itself a buying/selling cue) -- OBV/
+ * A-D's sign has no such meaning at all, since it's just "cumulative total
+ * relative to wherever the running sum happened to start."
  *
  * No divergence overlay against OBV/A-D here — the backend-indicator-obv-ad
  * task explicitly scoped divergence detection against these two series to a

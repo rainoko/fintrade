@@ -64,6 +64,8 @@ describe('StockCharts', () => {
               bear_power: -1.1,
               stochastic_k: 55.0,
               force_index_2ema: 1000.0,
+              obv: 12345000.0,
+              accumulation_distribution: 6789000.0,
               trend_strength: { atr: 3.8, plus_di: 26.0, minus_di: 18.5, adx: 20.0 },
               signal: 'HOLD',
               confidence: 0,
@@ -143,6 +145,66 @@ describe('StockCharts', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
+    )
+  })
+
+  // Follow-up (frontend-volume-indicators-chart-followups): the standalone
+  // VolumeIndicatorsChart.test.tsx already exercises the component in
+  // isolation, but nothing previously asserted it's actually wired
+  // correctly (range/enabled props) inside the composed StockCharts page,
+  // the way this file already did for OscillatorChart above -- a future
+  // edit that silently broke the StockCharts->VolumeIndicatorsChart wiring
+  // (e.g. swapping range/enabled props between panes) wouldn't have been
+  // caught by either suite. Mirrors the two OscillatorChart tests above.
+  it('mirrors the price chart range selection into the volume indicators pane', async () => {
+    const user = userEvent.setup()
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('price-chart-canvas')).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+    )
+    expect(lastIndicatorsRange).toBe('1y')
+
+    const rangeGroup = screen.getByRole('group', { name: 'Price history range' })
+    await user.click(within(rangeGroup).getByRole('button', { name: '3M' }))
+
+    await waitFor(() => expect(lastIndicatorsRange).toBe('3m'))
+    // The volume indicators pane re-fetched and re-rendered for the new
+    // range rather than staying stuck on the old one.
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+    )
+  })
+
+  it('hides the volume indicators pane (with an explanatory message) once Weekly interval is selected, and restores it on Daily', async () => {
+    const user = userEvent.setup()
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
+    )
+
+    const intervalGroup = screen.getByRole('group', { name: 'Price history interval' })
+    await user.click(within(intervalGroup).getByRole('button', { name: 'Weekly' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Volume indicators (OBV, A/D) are only available for the Daily interval.',
+        ),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
+
+    await user.click(within(intervalGroup).getByRole('button', { name: 'Daily' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
     )
   })
 })

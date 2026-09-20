@@ -24,6 +24,19 @@ export interface RewardRiskBadgeProps {
   meetsMinimum: boolean
   /** Decimal places for the ratio itself. Defaults to 1. */
   decimals?: number
+  /**
+   * The `aria-label` announced on the warning icon shown when
+   * `meetsMinimum` is false. Defaults to `"Below the 2:1 minimum"`, this
+   * app's own one current usage (Elder's 2:1 profit-target rule,
+   * docs/Analyse.md §7). Post-review fix: this used to be hardcoded
+   * unconditionally to that same 2:1 wording even though this component's
+   * own doc comment already claims to "stay usable for any 'value vs. a
+   * minimum' reward:risk case, not just this one field" -- a hardcoded
+   * label would have announced the wrong number to screen readers for any
+   * future caller computing `meetsMinimum` against a different threshold.
+   * Override this whenever `meetsMinimum` isn't specifically the 2:1 rule.
+   */
+  failureAriaLabel?: string
 }
 
 /**
@@ -46,6 +59,7 @@ export default function RewardRiskBadge({
   ratio,
   meetsMinimum,
   decimals = 1,
+  failureAriaLabel = 'Below the 2:1 minimum',
 }: RewardRiskBadgeProps) {
   const theme = useTheme()
 
@@ -66,7 +80,7 @@ export default function RewardRiskBadge({
         <WarningAmberIcon
           fontSize="small"
           style={{ color: theme.palette.riskBreach.main }}
-          aria-label="Below the 2:1 minimum"
+          aria-label={failureAriaLabel}
         />
       )}
       <Typography component="span" style={{ color, fontWeight: meetsMinimum ? 400 : 700 }}>

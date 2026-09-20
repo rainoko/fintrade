@@ -34,4 +34,17 @@ describe('RewardRiskBadge', () => {
 
     expect(screen.getByText('2.35:1')).toBeInTheDocument()
   })
+
+  it('respects a custom failureAriaLabel for a different minimum threshold (post-review follow-up)', () => {
+    renderWithTheme(
+      <RewardRiskBadge
+        ratio={1.3}
+        meetsMinimum={false}
+        failureAriaLabel="Below the 3:1 minimum"
+      />,
+    )
+
+    expect(screen.queryByLabelText('Below the 2:1 minimum')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Below the 3:1 minimum')).toBeInTheDocument()
+  })
 })

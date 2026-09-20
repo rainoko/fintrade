@@ -1,0 +1,66 @@
+{
+  "id": "frontend-profit-target-display-followups",
+  "title": "Profit target + reward:risk display \u2014 non-blocking review follow-ups",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-profit-target-display"
+  ],
+  "references": [
+    "docs/tasks/frontend-profit-target-display.json#review",
+    "https://github.com/rainoko/fintrade/pull/178"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #178 (frontend-profit-target-display), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "RiskPanel's Profit Target column fires one full GET /api/stocks/{ticker}/analysis request per BUY-signal position (PositionProfitTargetCell -> usePositionProfitTarget) purely to read profit_target -- every other field in that response (indicators, screens, confidence breakdown, divergence, kangaroo-tail, support/resistance zones) is discarded. This is correctly gated to BUY-only rows (verified: no fetch for a non-BUY row) and matches backend-profit-target's own deliberate deferral of adding profit_target to GET /api/portfolio/risk, so it isn't a bug -- but it scales linearly with a portfolio's BUY-position count with no batching, and each of those requests recomputes the full signal engine for that ticker. Worth reconsidering next time RiskPanel or GET /api/portfolio/risk is touched: either a lighter-weight endpoint/field exposing just profit_target for a set of tickers, or a batched fetch.",
+      "done": true
+    },
+    {
+      "step": "common/RewardRiskBadge hardcodes its warning aria-label to \"Below the 2:1 minimum\" (RewardRiskBadge.tsx), even though its own doc comment claims the component is generic and 'stays usable for any \"value vs. a minimum\" reward:risk case, not just this one field'. If a future caller ever reuses this component with a different minimum threshold, a failing badge would announce the wrong number to screen readers. Either parameterize the aria-label (e.g. an optional `minimumLabel`/`minimum` prop) or narrow the doc comment's generality claim to match what the component actually does today.",
+      "done": true
+    },
+    {
+      "step": "profitTargetHelp's `definition` string is copied byte-for-byte identical between features/stocks/components/metricHelpContent.ts and features/portfolio/components/metricHelpContent.ts (only `elderContext`/`interpretValue` differ meaningfully -- the portfolio version needs an extra null-signal branch). This is the first case in this codebase of the same-named MetricHelp entry being duplicated with near-identical content across two per-feature registries (no other entry, e.g. buyGradeHelp/sellGradeHelp/tradeGradeHelp, has a same-named counterpart in the other file), so the existing 'one registry per feature, no cross-feature registry import' precedent doesn't fully cover this specific case. Worth reconsidering whether the identical `definition` (and the shared portion of `elderContext`) should be factored into a shared, non-exported string constant imported by both files, to remove the risk of the two silently drifting apart on a future edit to the Elder ch.53/58 citation or the 2:1 wording -- without violating the file-level convention that feature registries aren't imported across features.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Left the per-BUY-position full-analysis-fetch pattern (item 1) as-is for now, rather than building a lighter-weight endpoint or batched fetch. Implemented item 2 by adding an optional `failureAriaLabel` prop to RewardRiskBadge (defaulting to the existing 'Below the 2:1 minimum' text), rather than narrowing the doc comment's generality claim. Implemented item 3 by extracting the identical `definition` string and the identical suffix portion of `elderContext` into a new `frontend/src/utils/profitTargetHelpText.ts` (a domain-agnostic `src/utils/` location, not either feature folder), imported by both features/stocks and features/portfolio's metricHelpContent.ts. Implemented as part of a batched PR (task/frontend-followups-batch-1) alongside four other small stocks-page follow-up tasks.",
+      "rationale": "Item 1 is explicitly framed by the finding itself as 'worth reconsidering NEXT TIME RiskPanel or GET /api/portfolio/risk is touched' -- a deliberate deferral, not an actionable fix now -- and building a new lighter-weight endpoint is backend scope well beyond this batch's frontend-only footprint, plus a real design decision (a new endpoint shape, or a batched-fetch client-side cache) that deserves its own task rather than a rushed addition here. Item 2's parameterization (rather than narrowing the doc comment) was chosen because it actually delivers on the doc comment's existing generality claim instead of walking it back, and is a small, backward-compatible optional-prop addition (default value preserves every existing call site's behavior unchanged). Item 3's shared-constant approach in `src/utils/` (rather than one file importing the other) was chosen specifically to satisfy the finding's own explicit constraint ('without violating the file-level convention that feature registries aren't imported across features') -- `src/utils/` is already established in this codebase as the domain-agnostic, cross-feature location (format.ts, chart.ts, insiderClusters.ts), so this follows existing precedent rather than inventing a new one. Only the fully-identical `definition` and the fully-identical suffix half of `elderContext` were factored out; the parts that differ meaningfully between the two files (the opening clause naming what the reward is measured against, and the portfolio-only fresh-entry-framing sentence) were deliberately left local to each registry."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-followups-batch-1",
+    "pr_number": 207,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "pushed_at": "2026-09-20T16:55:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:23:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RewardRiskBadge.tsx's new `failureAriaLabel` prop parameterizes the warning icon's `aria-label` content, but doesn't fix the pre-existing (not introduced by this PR) reason that label is never actually announced to a screen reader: MUI's `SvgIcon` defaults `aria-hidden=\"true\"` whenever no `titleAccess` prop is supplied, and neither the old nor the new code passes one -- confirmed live (MU stock detail page): the rendered DOM has both `aria-hidden=\"true\"` and `aria-label=\"...\"` simultaneously on the same `<svg>`, and `aria-hidden=\"true\"` removes it from the accessibility tree regardless of the label. Non-blocking (pre-existing gap, not a regression); tracked as frontend-profit-target-display-followups-followups.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 80
+      },
+      {
+        "summary": "The new frontend/src/utils/profitTargetHelpText.ts is domain-specific content (Elder ch.58/53 citations, Autoenvelope/protective-stop terminology) placed in `utils/`, which Frontend.md \u00a73 documents as for domain-agnostic helpers -- a defensible, well-reasoned call given it's genuinely shared by exactly two feature registries and the alternative (one registry importing the other) is the established anti-pattern, but arguable enough to be worth an explicit doc note or a reconsidered location. Non-blocking; tracked as frontend-profit-target-display-followups-followups.",
+        "file": "frontend/src/utils/profitTargetHelpText.ts",
+        "line": null
+      }
+    ],
+    "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-trend-strength-chart-followups, frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. Live browser walkthrough (MU, a BUY-signal ticker) confirmed the RewardRiskBadge renders correctly with the warning icon and '0.3:1' ratio below the 2:1 minimum on the stock detail page's ProfitTargetDisplay. The profitTargetHelpText.ts extraction was verified to produce byte-identical concatenated definition/elderContext strings to the pre-PR hardcoded versions in both features/stocks and features/portfolio's metricHelpContent.ts (confirmed via the full metricHelpContent.test.ts suites passing unchanged, which don't assert against the raw definition/elderContext strings directly but do exercise interpretValue against them). Full frontend suite (690 tests, 99.72% coverage) and backend suite (929 tests, 99.94% coverage) pass; eslint/tsc/mypy clean. Two non-blocking findings above, both isolated to this task's own change; filed as docs/tasks/frontend-profit-target-display-followups-followups.json rather than blocking acceptance, since neither is a regression (both are narrow/pre-existing-adjacent) and both have real tradeoffs on the other side (an established, if imperfect, precedent for each)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:28:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend suite (690/690 passed, 99.72% line coverage) and backend suite (929/929 passed, 99.94% coverage), tsc -b --noEmit and eslint both clean. Diffed profitTargetHelpText.ts's PROFIT_TARGET_DEFINITION/PROFIT_TARGET_ELDER_CONTEXT_SUFFIX against both features/stocks and features/portfolio's metricHelpContent.ts usages: the reconstructed strings are byte-identical to the pre-PR hardcoded text. Confirmed frontend-profit-target-display-followups-followups.json exists with the two non-blocking findings (RewardRiskBadge aria-hidden gap, utils/ placement) correctly tracked as a planned follow-up rather than dropped."
+  }
+}
