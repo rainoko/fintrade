@@ -23,5 +23,11 @@
       "decision": "Extracted the comparator into a new frontend/src/utils/insiderClusters.ts (`sortClustersByRecentWindowEnd`), with its own colocated unit test, rather than colocating it inside metricHelpContent.ts as the checklist step's parenthetical suggested.",
       "rationale": "frontend/src/utils/ already holds exactly this shape of small, single-purpose, independently-tested cross-component helper (signColor.ts, format.ts, chart.ts), including a prior instance of this same pattern -- signColor.ts's own doc comment records it was extracted from duplicated inline logic for the same reason. Colocating in metricHelpContent.ts would have made FundamentalDataPanel.tsx import a sort helper from a file whose own module doc describes it as MetricHelp registry content, coupling two unrelated concerns for no benefit."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-insider-clusters-badge-followups",
+    "pr_number": 196,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/196",
+    "pushed_at": "2026-09-20T12:25:19Z"
+  }
 }
