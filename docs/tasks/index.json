@@ -1034,7 +1034,7 @@
       "id": "backend-profit-target",
       "area": "backend/signals",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-profit-target.json"
     },
     {

@@ -3,7 +3,7 @@
   "title": "Compute a suggested profit target and reward:risk ratio for BUY/SELL signals",
   "area": "backend/signals",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-channel-envelope-exposure",
     "backend-support-resistance"
@@ -72,5 +72,11 @@
       "rationale": "Elder's own rule (docs/ideas.md ch. 53) is 'the nearest prior support/resistance level ABOVE current price' -- a statement about position, not about which side of a past breakout a zone is currently labeled as. `role` tracks a different, related concept (support_resistance's own role-flipping logic); in practice the two coincide for virtually every zone (a role only ever flips once price has already moved past it), but this function doesn't rely on that coincidence holding for every edge case support_resistance's own decisions already documents (e.g. a zone mid-way through its false-breakout confirmation window). Using `lower` (the near edge, the first price level reached climbing toward the zone from below) rather than the midpoint or `upper` mirrors the exact same near-the-edge-not-the-middle convention this app's own Zone.false_breakout.extreme_price already established for stop placement -- a target should be the level that's actually reached first, not a point already inside/through the zone.",
       "context": null
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-profit-target",
+    "pr_number": 177,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/177",
+    "pushed_at": "2026-09-20T04:45:44Z"
+  }
 }
