@@ -24,6 +24,18 @@ class Settings(BaseSettings):
     # `decisions` entry for the full rationale.
     data_provider_mode: Literal["live", "fixture"] = "live"
 
+    # Optional secondary IBKR Client Portal Web API provider (docs/tasks/
+    # backend-ibkr-data-provider.json, app.data.ibkr_provider.IBKRProvider) -- hourly
+    # bars + the market scanner, via a locally-run IB Gateway requiring a one-time
+    # interactive browser login IBKR explicitly does not support automating (see that
+    # module's own docstring). Defaults to disabled: no environment (dev, CI, or this
+    # task's own sandboxed implementation session) has such a gateway running, and the
+    # rest of the app must work identically either way -- see
+    # app.api.dependencies.get_ibkr_provider and docs/architecture/Backend.md's IBKR
+    # section for the opt-in setup steps.
+    ibkr_enabled: bool = False
+    ibkr_base_url: str = "https://localhost:5000/v1/api"
+
 
 @lru_cache
 def get_settings() -> Settings:

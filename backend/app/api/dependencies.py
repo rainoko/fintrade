@@ -8,6 +8,8 @@ api-portfolio-get task's `decisions` entry for why this lives here instead of
 inline in app/data/cache.py.
 """
 
+from collections.abc import Iterator
+
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from app.config import get_settings
 from app.data.base import DataProvider
 from app.data.cache import CachedDataProvider
 from app.data.fixture_provider import FixtureDataProvider
+from app.data.ibkr_provider import IBKRProvider
 from app.data.stooq_provider import StooqProvider
 from app.data.yfinance_provider import YFinanceProvider
 from app.db.session import get_db
@@ -39,3 +42,31 @@ def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     if get_settings().data_provider_mode == "fixture":
         return FixtureDataProvider()
     return CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
+
+
+def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
+    """The optional IBKR Client Portal Web API provider (docs/tasks/
+    backend-ibkr-data-provider.json) -- hourly bars + the market scanner, entirely
+    separate from `get_data_provider`'s primary/fallback `DataProvider` chain above,
+    since `IBKRProvider` doesn't implement that protocol (see its own module docstring
+    for why).
+
+    Yields `None` when `Settings.ibkr_enabled` is `False` (the default, and the only
+    value in any environment without a locally-running, authenticated IB Gateway) --
+    every existing route keeps working identically whether or not this returns `None`,
+    since nothing yet depends on this provider (see this task's `decisions` entry for
+    why: this task's own checklist scopes it to the provider class itself, not a new
+    consuming endpoint). A generator (rather than a plain return) so the constructed
+    `IBKRProvider`'s own HTTP client gets closed at the end of the request when this
+    *is* enabled, via FastAPI's dependency-cleanup protocol for `yield`-based
+    dependencies.
+    """
+    if not get_settings().ibkr_enabled:
+        yield None
+        return
+
+    provider = IBKRProvider(base_url=get_settings().ibkr_base_url)
+    try:
+        yield provider
+    finally:
+        provider.close()

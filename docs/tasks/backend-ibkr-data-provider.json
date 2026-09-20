@@ -3,7 +3,7 @@
   "title": "Optional IBKR Client Portal Web API data provider (hourly bars + market scanner)",
   "area": "backend/data",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/data/base.py",
@@ -16,27 +16,71 @@
   "checklist": [
     {
       "step": "Implement an IBKRProvider (or similarly named) class implementing whatever subset of DataProvider (or a new, separate protocol for hourly/scanner data specifically) makes sense -- decide and record whether this extends the existing DataProvider protocol or is a distinct interface, since its capabilities don't map 1:1 onto daily/weekly OHLCV.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement graceful detection of 'gateway not running' / 'gateway running but not authenticated' (distinguishable via /iserver/auth/status) and surface that state clearly to callers rather than raising an opaque error.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the historical-bars pagination needed to build up more than one 1,000-point call's worth of hourly history.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the scanner query + a sensible caching layer respecting the 1-req/15-min params limit and 1-req/sec run limit.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests using mocked HTTP responses matching the documented Web API shapes (not a live gateway) -- explicitly note in the task/PR that live-gateway behavior needs manual verification by the user, since no CI/sandboxed environment has an authenticated session.",
-      "done": false
+      "done": true
     },
     {
       "step": "Document setup instructions (gateway download/run/auth, matching the walkthrough already captured in this conversation) in docs/architecture/Backend.md or a new dedicated doc, and make this provider's use fully optional/feature-flagged so the app works exactly as today with no IBKR setup at all.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKRProvider (app/data/ibkr_provider.py) is a distinct class, not an implementation of the DataProvider protocol (app/data/base.py) -- it does not implement get_daily_ohlcv/get_weekly_ohlcv/get_extended_data at all.",
+      "rationale": "DataProvider's contract is per-ticker daily/weekly OHLCV plus extended per-ticker fields; IBKR's two capabilities in scope here (hourly bars for one contract id, and a market-scanner run returning a list of contracts) don't map onto that shape without misrepresenting what they actually do -- e.g. resampling hourly bars into a fake daily series to satisfy get_daily_ohlcv, or returning scanner results through a per-ticker method. Forcing the fit would also pull IBKRProvider into test_provider_contract.py's cross-provider interchangeability contract (app/data/base.py's whole point), which is wrong here since this provider is never interchangeable with yfinance/Stooq -- it's not a drop-in for the primary/fallback chain, it's an optional, narrower, separate capability. Considered and rejected: making DataProvider itself broader (adding optional hourly/scanner methods with NotImplementedError defaults) -- rejected because it would force StooqProvider/YFinanceProvider/FixtureDataProvider to also carry (or explicitly reject) methods with no real Stooq/yfinance equivalent, muddying a protocol that's deliberately kept to the three methods every implementation genuinely supports today."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "No new API route/endpoint was added, despite this task's `skill` being add-api-endpoint. IBKRProvider is wired only as far as a new `get_ibkr_provider()` FastAPI dependency (app/api/dependencies.py) that no router yet consumes.",
+      "rationale": "This task's own checklist (unlike, e.g., backend-market-data-extra-fields, which explicitly listed 'add a field to GET /api/stocks/{ticker}/analysis') never asks for a consuming endpoint -- its description frames this as an optional secondary provider that should leave 'the app work[ing] exactly as today with no IBKR setup at all', which a bare, unused capability class + dependency satisfies without inventing a consumer this task never scoped (what request/response shape a future hourly-bars or scanner-results endpoint should have is itself a real design question -- e.g. does the scanner response need conid-to-ticker resolution before it's useful to a frontend -- better left to a dedicated future task than guessed here). Regenerated backend/openapi.json after this change to confirm it: byte-for-byte identical, since nothing in the API schema/route surface changed."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "httpx moved from being only a dev/test dependency to also being a main runtime dependency of backend/pyproject.toml.",
+      "rationale": "IBKRProvider performs real HTTP calls against the gateway in production code (not just in tests), unlike YFinanceProvider (via the yfinance package) and StooqProvider (via stdlib urllib). httpx was already an installed transitive dependency (FastAPI's TestClient requires it) so this adds no new package to the environment, only moves where it's declared -- kept listed in the dev extra too since that's specifically what TestClient needs, independent of this provider."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "A single IBKRUnavailableError covers both 'gateway confirmed not available before any request was attempted' and 'a request itself failed' (transport error, non-200, unparseable body); a separate IBKRRateLimitedError covers only run_scanner's client-side 1-req/sec self-throttle.",
+      "rationale": "Every data-fetching method's contract is the same either way from a caller's perspective -- 'I couldn't get this data' -- so splitting 'not available' vs 'request failed' into two exception types would add a distinction no caller in this task's scope needs to make (get_gateway_status is the method callers use when they specifically want to distinguish gateway-down from not-authenticated before deciding whether to even try). IBKRRateLimitedError is kept separate because it's a genuinely different situation a caller might want to handle differently (retry shortly, using the exception's own retry_after) rather than treat as a hard failure -- conflating it with IBKRUnavailableError would lose that actionable signal."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "get_scanner_params() serves a stale-but-within-TTL cached result on every call inside the 15-minute window (never raises for 'called too soon'); run_scanner() instead raises IBKRRateLimitedError (with a retry_after) when called again inside 1 second of its own last call, rather than silently serving/blocking.",
+      "rationale": "The two documented rate limits have different semantics for this app's use: scanner params (the filter/instrument/location option lists) change rarely, so a 15-minute-stale copy is a perfectly good answer and there's no reason to ever make a caller wait or fail for it. A scan run's results are meaningfully time-sensitive (that's the whole point of a scanner), so there's no sensible cached value to silently return instead when called too soon -- surfacing the constraint as a typed, catchable exception (rather than a real time.sleep(), which would also make tests slow/flaky) lets a caller decide whether to retry after retry_after seconds or just skip this refresh cycle."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "get_hourly_bars takes an IBKR conid (contract id) directly, not a ticker symbol -- no symbol-to-conid resolution (e.g. via /iserver/secdef/search) is implemented.",
+      "rationale": "This task's description explicitly scopes the endpoints to /iserver/marketdata/history, /iserver/scanner/run(+/params), and /iserver/auth/status -- symbol resolution wasn't researched or confirmed as part of this task's own docs/ideas.md groundwork, and inventing an unverified extra endpoint's request/response shape would be exactly the kind of live-gateway guesswork this task's own description says to avoid. A future task wiring this provider into an actual ticker-driven feature (e.g. Screen 3 hourly-bar entry timing) will need conid resolution as a real, separate, addressable piece of work -- noted here rather than silently worked around."
+    },
+    {
+      "timestamp": "2026-09-20T10:05:10Z",
+      "recorded_by": "task-worker",
+      "decision": "Live-gateway behavior (the actual browser-based interactive login flow, real API response shapes beyond what's documented in docs/ideas.md, and any undocumented quirks) is unverified in this implementation and deferred to manual testing by the user against a real running gateway.",
+      "rationale": "This is a known, accepted limitation of implementing against a spec rather than a live service, not a blocker -- no sandboxed/CI environment (including this implementation session) has an IBKR account, a running Client Portal Gateway, or the ability to complete IBKR's explicitly-non-automatable interactive browser login. Every test in tests/unit/data/test_ibkr_provider.py mocks HTTP at the IBKRProvider._request boundary against the documented request/response shapes rather than a live gateway, per this task's own description and docs/architecture/Testing.md's 'no live network calls' rule. See docs/architecture/Backend.md's IBKR section, which states this same caveat for a human reader."
     }
   ]
 }
