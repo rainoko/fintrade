@@ -1,10 +1,12 @@
 {
   "id": "frontend-profit-target-display-followups",
-  "title": "Profit target + reward:risk display — non-blocking review follow-ups",
+  "title": "Profit target + reward:risk display \u2014 non-blocking review follow-ups",
   "area": "frontend/pages/stocks",
   "skill": null,
   "state": "testing",
-  "depends_on": ["frontend-profit-target-display"],
+  "depends_on": [
+    "frontend-profit-target-display"
+  ],
   "references": [
     "docs/tasks/frontend-profit-target-display.json#review",
     "https://github.com/rainoko/fintrade/pull/178"
@@ -34,8 +36,8 @@
   ],
   "git": {
     "branch": "task/frontend-followups-batch-1",
-    "pr_number": null,
-    "pr_url": null,
-    "pushed_at": null
+    "pr_number": 207,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "pushed_at": "2026-09-20T16:55:13Z"
   }
 }
