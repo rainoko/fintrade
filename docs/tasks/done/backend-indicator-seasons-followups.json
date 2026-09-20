@@ -3,7 +3,7 @@
   "title": "Indicator Seasons — non-blocking review follow-up from PR #159",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-indicator-seasons"],
   "references": [
     "docs/tasks/done/backend-indicator-seasons.json#review",
@@ -29,5 +29,12 @@
     "pr_number": 198,
     "pr_url": "https://github.com/rainoko/fintrade/pull/198",
     "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T13:29:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/198",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review, not a rubber stamp, given the fix pattern's risk of masking a real regression. (1) Independently read PortfolioPage.tsx/AddPositionDialog.tsx/useAddPosition.ts: plain controlled form, bare useMutation, no debounce/setTimeout, retries already disabled in renderWithProviders.tsx -- no unmocked slow op or N+1 to fix. Confirmed with --reporter=verbose that under a full-suite `yarn test:coverage` run the test genuinely takes 5271ms (vs 1747ms in isolation), while the next-slowest test in the whole suite under the same load is only 3327ms -- a real, reproducible, isolated outlier caused by genuinely more DOM/event work (whole PortfolioPage mounted + 4 userEvent.type() fields + 3 real MUI Dialog clicks), not a fixable inefficiency. (2) Confirmed the flake predates this PR: docs/tasks/done/backend-indicator-rsi.json and docs/tasks/done/frontend-trade-journal-followups.json's own review/pr_decision notes both independently hit the identical timeout on unrelated prior PRs that touched no frontend rendering logic. (3) Independently re-ran `yarn test:coverage` 5 times myself (not just trusting the implementer's 4 runs): 685/685 passing every time. Backend: 920 passed, 99.94% coverage. (4) Checked every other test's timing under the same full-coverage run for a similar undiagnosed flake -- none found; this test is the clear single outlier and no project-wide testTimeout override exists anywhere in the repo, confirming the fix is correctly scoped. Static analysis (ruff/mypy/eslint/tsc) all clean. code-review skill (medium effort): no correctness or reuse/simplification findings, pure timeout-arg change. scripts/validate_tasks.py: no violations. No app/signals or app/portfolio code touched, so the Elder-signal checklist doesn't apply (noted explicitly). No API/schema change, so no OpenAPI check applies. No new/changed frontend component, so the common/-vs-feature placement check doesn't apply. No UI-facing application code changed (test file only) -- browser walkthrough and persisted e2e suite explicitly do not apply here. No blocking findings; no new non-blocking findings, so no new follow-up task filed."
   }
 }
