@@ -3,7 +3,7 @@
   "title": "Optional IBKR data provider — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-data-provider"],
   "references": [
     "docs/tasks/backend-ibkr-data-provider.json",
@@ -29,6 +29,12 @@
     }
   ],
   "decisions": [
+    {
+      "timestamp": "2026-09-20T10:44:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced the `@lru_cache(maxsize=1)`-wrapped `_get_ibkr_provider_singleton()` (PR #191's own earlier fix, which pr-reviewer's needs_work review correctly flagged as not actually thread-safe) with an explicit `threading.Lock`-guarded double-checked-locking construction: a module-level `_ibkr_provider_singleton: IBKRProvider | None` global plus `_ibkr_provider_singleton_lock`, checked outside the lock (fast path once set), then re-checked inside the lock before constructing. Added a dedicated `_reset_ibkr_provider_singleton_for_tests()` helper (also lock-guarded) replacing the old `_get_ibkr_provider_singleton.cache_clear()` calls in tests/unit/api/test_dependencies.py's autouse fixture. Added a new regression test, `test_concurrent_first_requests_construct_only_one_singleton`, that races 32 threads (synchronized via a `threading.Barrier` so they call the getter as close to simultaneously as possible) against a cold singleton via `concurrent.futures.ThreadPoolExecutor` and asserts every thread got back the exact same (`is`-identical) instance.",
+      "rationale": "This is exactly the fix pr-reviewer's needs_work comment asked for. Verified the new test actually catches the regression it's meant to catch (not just a test that happens to pass either way): temporarily reverted the getter to a lock-free check-then-set with an injected `time.sleep(0.01)` to widen the race window (simulating the old broken lru_cache-era behavior), confirmed the new concurrency test failed deterministically against that broken version (non-identical instances returned across threads), then restored the fixed lock-based implementation and confirmed the test passes reliably (10 consecutive runs, no flakes). A hand-rolled spin-lock or `queue`-based approach was considered and rejected as unnecessary complexity over the standard double-checked-locking idiom with `threading.Lock`, which is the textbook fix for exactly this race and was also pr-reviewer's own explicit suggestion."
+    },
     {
       "timestamp": "2026-09-20T10:30:00Z",
       "recorded_by": "task-worker",
