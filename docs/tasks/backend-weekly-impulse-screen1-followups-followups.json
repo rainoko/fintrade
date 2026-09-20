@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #188 review (backend-weekly-impulse-screen1-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-weekly-impulse-screen1-followups"],
   "references": [
     "docs/tasks/backend-weekly-impulse-screen1-followups.json",
@@ -24,6 +24,12 @@
       "recorded_by": "task-worker",
       "decision": "Reworded valueZoneHelp.elderContext to state EMA(13)/EMA(26) no longer drive the Tide/Screen 1 directly (now the weekly Impulse System color), but that EMA(13) still feeds the daily Impulse System gate as one of its two inputs and both still feed the Elder-Ray baseline -- mirroring ema26Help.elderContext's corrected framing rather than dropping the Impulse-System mention entirely.",
       "rationale": "The checklist item's own suggested rewording kept an indirect Impulse System connection (EMA(13) is one of the two daily Impulse inputs) rather than removing all mention of it, which matches how ema26Help.elderContext (a few lines above) already frames the same pair post-correction -- keeping the two elderContext strings consistent in how they describe the same underlying fact was preferred over independently wording each one. No existing test asserted the stale copy verbatim, so no test needed updating beyond re-running the suite to confirm nothing else depended on it."
+    },
+    {
+      "timestamp": "2026-09-20T13:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Narrowed valueZoneHelp.elderContext's Elder-Ray reference to EMA(13) only ('EMA(13) alone is still the baseline Elder-Ray measures Bull/Bear Power against'), splitting the daily-Impulse-gate clause into EMA(13) feeding the gate directly and EMA(26) feeding that same gate's MACD-Histogram half -- rather than dropping EMA(26) from the sentence entirely.",
+      "rationale": "pr-reviewer's needs_work finding on PR #197 was correct: app/indicators/elder_ray.py's bull_power/bear_power only ever use ema_13, never ema_26 (docs/Analyse.md #4 row 5 confirms 'Elder-Ray (Bull/Bear Power) | Daily | EMA 13'), matching the already-correct sibling ema13Help.elderContext a few lines above. Kept EMA(26)'s genuinely accurate connection (it feeds the daily Impulse gate's MACD-Histogram input) rather than removing EMA(26) from the sentence altogether, since deleting it would lose real, correct information the reviewer explicitly said to keep. No test asserted the exact old wording verbatim, so no test file needed a corresponding edit -- confirmed by grep across frontend/src and frontend/tests before/after."
     }
   ],
   "git": {
