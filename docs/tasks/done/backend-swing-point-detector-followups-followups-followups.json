@@ -1,0 +1,47 @@
+{
+  "id": "backend-swing-point-detector-followups-followups-followups",
+  "title": "_swing_extremes.py: rolling_extreme_masks re-implements _rolling's min_periods logic instead of calling it -- non-blocking review follow-up (round 3)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-swing-point-detector-followups-followups"],
+  "references": [
+    "docs/tasks/backend-swing-point-detector-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/208",
+    "backend/app/signals/_swing_extremes.py"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #208 (batched: backend-swing-point-detector-followups-followups, frontend-methodology-explainer-followups, backend-trade-history-table-followups-followups, frontend-trade-journal-followups-followups, frontend-profit-target-display-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PR #208 added a private `_rolling(series, span, *, require_full_window)` helper to backend/app/signals/_swing_extremes.py (computing `min_periods = span if require_full_window else 1` then `series.rolling(span, center=True, min_periods=min_periods)`), and both new `rolling_max_mask`/`rolling_min_mask` correctly call it. But the pre-existing `rolling_extreme_masks` function was left with its own inline duplicate of the exact same two lines (`min_periods = span if require_full_window else 1; rolling = series.rolling(span, center=True, min_periods=min_periods)`) instead of also calling `_rolling(...)`. Not a correctness bug today -- backend/tests/unit/signals/test_swing_extremes.py's own cross-check tests (`pd.testing.assert_series_equal(combined_max, solo_max)` etc.) would actually catch a future divergence between the two implementations, since they compare `rolling_extreme_masks`'s output against `rolling_max_mask`/`rolling_min_mask`'s. But it's still two hand-written copies of the same window-construction logic in one small module that just added a shared helper for exactly this purpose -- a future change to `_rolling`'s NaN-handling contract (e.g. a new `min_periods` policy) would need to be applied in two places to stay consistent, relying on the test suite to notice rather than there being only one place to change. Have `rolling_extreme_masks` call `_rolling(series, span, require_full_window=require_full_window)` too, the same way its two new sibling functions do.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:58:40Z",
+      "recorded_by": "task-worker",
+      "decision": "rolling_extreme_masks now calls _rolling(series, span, require_full_window=require_full_window) instead of re-deriving min_periods/.rolling(...) inline, matching rolling_max_mask/rolling_min_mask.",
+      "rationale": "This is the exact change the followup asked for; verified byte-identical behavior via the existing test_swing_extremes.py cross-check tests (which compare rolling_extreme_masks's output against rolling_max_mask/rolling_min_mask) and the full backend suite (935 passed), plus ruff/mypy clean on the file. No alternative approach was considered -- the shared helper already exists and has the exact same contract."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-swing-point-detector-followups-followups-followups",
+    "pr_number": 209,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/209",
+    "pushed_at": "2026-09-20T17:58:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T18:00:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/209",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified via `git diff main...task/backend-swing-point-detector-followups-followups-followups --stat` that only backend/app/signals/_swing_extremes.py (plus task-JSON bookkeeping) changed. Confirmed rolling_extreme_masks's new call to _rolling(series, span, require_full_window=require_full_window) is byte-for-byte equivalent to the removed inline min_periods/.rolling(...) construction. Confirmed test_swing_extremes.py's existing cross-check tests (pd.testing.assert_series_equal comparing rolling_extreme_masks against rolling_max_mask/rolling_min_mask, for both require_full_window=True and False) genuinely exercise this code path and would catch a regression. Full backend suite: 935 passed, coverage 99.94% (gate 90%), _swing_extremes.py at 100%. mypy clean. ruff reports 7 pre-existing findings in unrelated test files (test_stochastic.py, test_triple_screen.py) that predate this PR and are untouched by this diff -- not blocking. No new findings; no new followups task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T18:02:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov (935 passed, 99.94% coverage, matching pr-reviewer) and ruff/mypy (mypy clean; ruff's 7 findings confirmed pre-existing -- `git diff origin/main...HEAD --stat -- backend/tests` is empty, so no test file changed in this PR). Read the diff myself: only backend/app/signals/_swing_extremes.py changed, replacing the two inline lines (`min_periods = span if require_full_window else 1; rolling = series.rolling(span, center=True, min_periods=min_periods)`) with `rolling = _rolling(series, span, require_full_window=require_full_window)`, and confirmed `_rolling`'s body (lines 15-17 of the file) is those exact same two statements -- genuinely behavior-preserving."
+  }
+}
