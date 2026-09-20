@@ -1,5 +1,6 @@
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
+import { signColor } from '../../../utils/signColor'
 
 export interface PercentChangeProps {
   /** Raw percentage value, e.g. 3.2 for +3.20%. Positive/negative/zero drive the color. */
@@ -16,12 +17,7 @@ export interface PercentChangeProps {
 export default function PercentChange({ value, decimals = 2 }: PercentChangeProps) {
   const theme = useTheme()
 
-  const color =
-    value > 0
-      ? theme.palette.success.main
-      : value < 0
-        ? theme.palette.error.main
-        : theme.palette.text.secondary
+  const color = signColor(theme, value)
 
   const sign = value > 0 ? '+' : ''
   const formatted = `${sign}${value.toFixed(decimals)}%`

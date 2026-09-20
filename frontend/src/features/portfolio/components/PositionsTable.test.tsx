@@ -75,6 +75,18 @@ describe('PositionsTable', () => {
     expect(within(zzzzRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
   })
 
+  it('sorts by current_price, with the null value sorting last', async () => {
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    await user.click(screen.getByRole('button', { name: 'Current Price' }))
+
+    const table = screen.getByRole('table')
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('AAPL')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('ZZZZ')).toBeInTheDocument()
+  })
+
   it('renders the empty state when there are no positions', () => {
     renderPositionsTable([])
 

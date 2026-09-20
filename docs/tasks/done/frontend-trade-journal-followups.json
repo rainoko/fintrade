@@ -1,0 +1,86 @@
+{
+  "id": "frontend-trade-journal-followups",
+  "title": "Trade journal follow-ups from PR #150 review",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-trade-journal"],
+  "references": [
+    "docs/tasks/done/frontend-trade-journal.json",
+    "https://github.com/rainoko/fintrade/pull/150"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #150 (frontend-trade-journal), recorded here so they aren't lost once the PR merges and the review comment scrolls out of view.",
+  "checklist": [
+    {
+      "step": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx's GradeCell bolds a grade at exactly the threshold (`gradePct >= goodThresholdPct`), but both the grade's own MetricHelp copy ('Elder considers a sell/buy grade over 50% \"very good\"') and backend/app/api/schemas.py's docstring describe the buy/sell-grade cutoff as strictly '>50%', not '>=50%'. A grade of exactly 50.0% renders bold (visually 'good') while the popover text it sits next to says 'over 50%' -- a genuine off-by-boundary mismatch, narrow edge case but worth aligning (either use a strict `>` comparison for the two 50%-anchored grades, or reword the copy to '50% or more').",
+      "done": true
+    },
+    {
+      "step": "components/common/SignedCurrency/SignedCurrency.tsx duplicates the exact sign-to-color three-way ternary (success/error/secondary) and the leading '+' construction already implemented in common/PercentChange -- worth extracting a small shared helper (e.g. a `signColor(value)` utility) so a future change to the app's gain/loss color convention only needs updating in one place, and so a third signed-value component doesn't copy-paste a third time.",
+      "done": true
+    },
+    {
+      "step": "TradeJournalPanel.tsx marks buy_grade_pct/sell_grade_pct/trade_grade_pct as not sortable, with a comment claiming 'DataTable's generic comparator has no defined ordering for a nullable percentage' -- but DataTable.tsx's own compareForSort already defines null-sorts-last behavior for exactly this case (nulls always sort after real values, per its own docstring), mirroring the same (also outdated) rationale already on PositionsTable.tsx's current_price column. These grade columns' underlying values are plain nullable numbers, so they could be marked sortable like the table's other nullable numeric columns -- worth revisiting both this column and the pre-existing PositionsTable precedent it copied.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-journal-followups",
+    "pr_number": 181,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/181",
+    "pushed_at": "2026-09-20T06:15:04Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the 50% boundary mismatch by making GradeCell's Buy Grade/Sell Grade columns use a strict `>` comparison (`strictlyAbove` prop, default false) instead of rewording the MetricHelp/backend copy from 'over 50%' to '50% or more'.",
+      "rationale": "The copy ('over 50%') already matches Elder's own wording and the backend schemas.py docstring exactly (both use '>50%'); changing the comparison to match the existing, methodology-grounded copy is a smaller, lower-risk change than rewording two independent copy sources (frontend MetricHelp + backend docstring) to match the code. Trade Grade's own threshold copy ('roughly 30%+') is already inclusive by its own wording, so it intentionally keeps the default `>=` behavior -- only the two 50%-anchored grades pass `strictlyAbove`."
+    },
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted the shared sign-to-color three-way ternary into `frontend/src/utils/signColor.ts` (a plain `(theme, value) => string` function, not a hook or a new common/ component), and had both `common/PercentChange` and `common/SignedCurrency` call it.",
+      "rationale": "A plain function (rather than a `useSignColor()` hook) keeps the call sites' existing `useTheme()` + one-line color derivation shape, needs no extra import of a hooks convention, and is trivially unit-testable on its own (added signColor.test.ts) without rendering a component. Placed under utils/ (alongside format.ts/chart.ts) rather than components/common/ since it renders nothing and has no props/story of its own -- it's a formatting-style utility, not a display component per Frontend.md's common/ vs utils/ distinction elsewhere in the codebase (e.g. formatCurrency)."
+    },
+    {
+      "timestamp": "2026-09-20T06:14:05Z",
+      "recorded_by": "task-worker",
+      "decision": "Marked TradeJournalPanel's buy_grade_pct/sell_grade_pct/trade_grade_pct columns AND PositionsTable's pre-existing current_price column as `sortable: true`, removing the outdated 'DataTable's generic comparator has no defined ordering for a nullable percentage' comments from both.",
+      "rationale": "DataTable's compareForSort operates on the raw `row[column.key]` value regardless of whether the column has a custom `render`, and already defines null-sorts-last ordering for exactly this nullable-number case (existing DataTable.test.tsx coverage). The checklist item explicitly flagged the PositionsTable precedent as worth revisiting too, since TradeJournalPanel's own (incorrect) comment had copied it; fixing only the newer copy would leave the same stale rationale on the older file it was copied from. Added a sort test to each panel confirming null-last ordering end to end (not just at the DataTable unit level)."
+    }
+  ],
+  "review": {
+    "reviewed_at": "2026-09-20T06:22:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/181",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the 50%/30% threshold change against backend/app/portfolio/grading.py's own docstrings directly (not just the PR description): buy_grade_pct/sell_grade_pct say '>50% is \"very good\"' (strict), trade_grade_pct says '>=30% is an \"A\" trade' (inclusive). The PR's `strictlyAbove` prop applied to Buy Grade/Sell Grade only, with Trade Grade left on the default inclusive `>=`, matches exactly. Also cross-checked frontend/src/features/portfolio/components/metricHelpContent.ts's copy ('over 50%' vs 'Roughly 30%+') -- consistent.",
+        "file": "backend/app/portfolio/grading.py",
+        "line": 51
+      },
+      {
+        "summary": "signColor.ts extraction confirmed behavior-preserving by diffing both call sites (PercentChange.tsx, SignedCurrency.tsx) against the original inline ternary -- identical success/error/secondary mapping. Placement under frontend/src/utils/ (alongside format.ts) rather than components/common/ is correct per Frontend.md's common/-vs-utils distinction: it renders nothing, takes no props, has no story -- a plain (theme, value) => string helper, not a domain or presentational component.",
+        "file": "frontend/src/utils/signColor.ts",
+        "line": 1
+      },
+      {
+        "summary": "Confirmed DataTable's compareForSort (frontend/src/components/common/DataTable/DataTable.tsx) sorts on the raw row value regardless of a column's custom render, and places null/undefined last unconditionally (not just in ascending direction). Verified live in a manual browser walkthrough (backend+frontend started with FINTRADE_DATA_PROVIDER_MODE=fixture) with real portfolio/trade-journal data: sorted PositionsTable by Current Price (one row null) and TradeJournalPanel by Buy Grade (one row's grades all null) in both directions -- the null row landed last every time, matching the docstring and this PR's claim.",
+        "file": "frontend/src/components/common/DataTable/DataTable.tsx",
+        "line": 74
+      },
+      {
+        "summary": "Non-blocking: TradeJournalPanel.test.tsx's new 'sorts by a nullable grade column, missing values last' test doesn't actually include a null value in the sorted column (buy_grade_pct is 40/90 for both fixture rows; only the unsorted sell_grade_pct/trade_grade_pct are null). The test only verifies ordinary ascending sort, not the null-last behavior its name claims, unlike PositionsTable.test.tsx's equivalent test which does use a real null in the sorted column. Confirmed via live browser walkthrough that the actual null-last behavior is correct for TradeJournalPanel too, so this is a test-coverage/test-honesty gap, not a functional bug. Filed as docs/tasks/frontend-trade-journal-followups-followups.json.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.test.tsx",
+        "line": 138
+      }
+    ],
+    "notes": "Full review: backend (807 tests, 99.92% coverage) and frontend (616 tests, 99.6%/98.9% line/branch coverage after re-running past one unrelated flaky timeout in PortfolioPage.test.tsx that passed in isolation and on a full re-run) both pass well above the 90% gate. ruff/mypy/eslint/`yarn tsc -b --noEmit` all clean. code-review skill (medium effort) found no correctness or reuse/simplification issues. Ran the persisted e2e suite (`make e2e`) -- all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed. This PR has no backend changes, so no OpenAPI snapshot check applies. No new frontend component was added (signColor.ts is a utility, not a component), so the frontend component-placement check (step 7a) doesn't apply beyond the utils/ placement already verified above. Did a live browser walkthrough (manually started backend+frontend with the fixture data provider, since no Playwright MCP tool was available in this session -- drove a headless Chromium instance directly via the frontend's own installed playwright-core package instead) covering: adding/deleting positions and closed trades, the trade-journal grade-cell bold/non-bold rendering at real (non-boundary) grade values matching the strict/inclusive threshold split, and sorting every newly-sortable column (Buy/Sell/Trade Grade, Current Price) in both directions including rows with null values. No console errors or failed network requests observed. One non-blocking test-coverage gap found and filed as a follow-up task; no blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T06:27:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (807 passed, 99.92% coverage) and frontend vitest --coverage (616 passed on a clean run, one flaky PortfolioPage.test.tsx timeout on the first run that passed on immediate re-run, matching pr-reviewer's own note) plus `yarn tsc -b --noEmit` (clean). Read backend/app/portfolio/grading.py directly: buy_grade_pct/sell_grade_pct docstrings say '>50% is very good' (strict) and trade_grade_pct says '>=30% is an A trade' (inclusive), matching GradeCell's strictlyAbove usage exactly (Buy/Sell Grade pass strictlyAbove, Trade Grade doesn't). Read DataTable.tsx's compareForSort directly: isMissing values are pushed to `aMissing ? 1 : -1` unconditionally regardless of direction, confirming genuine null-last sorting. Also confirmed the filed non-blocking TradeJournalPanel.test.tsx gap myself (both fixture rows' buy_grade_pct are 40/90, non-null) and that the full diff (signColor extraction, PositionsTable/TradeJournalPanel sortable columns, index.json/followups task bookkeeping) matches what review.comments describes."
+  }
+}

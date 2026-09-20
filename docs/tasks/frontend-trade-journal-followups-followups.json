@@ -1,0 +1,19 @@
+{
+  "id": "frontend-trade-journal-followups-followups",
+  "title": "Follow-ups from pr-reviewer's review of PR #181 (frontend-trade-journal-followups)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-trade-journal-followups"],
+  "references": [
+    "docs/tasks/done/frontend-trade-journal-followups.json",
+    "https://github.com/rainoko/fintrade/pull/181"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #181 (frontend-trade-journal-followups), recorded here so they aren't lost once the PR merges and the review comment scrolls out of view.",
+  "checklist": [
+    {
+      "step": "TradeJournalPanel.test.tsx's new 'sorts by a nullable grade column, missing values last' test doesn't actually exercise a null value in the column it sorts: both fixture rows have a non-null buy_grade_pct (40 and 90) -- only sell_grade_pct/trade_grade_pct (columns not being sorted in that test) are null. So the test only verifies ordinary ascending numeric sort, not the null-last claim its own name/comment makes for this call site (unlike PositionsTable.test.tsx's equivalent current_price sort test, which does use a real null in the sorted column). Manually verified in a live browser walkthrough that TradeJournalPanel's null-last sorting is in fact correct (a closed trade with all-null grades sorted to the last row in both ascending and descending order on Buy Grade) -- so this is a test-honesty/coverage gap, not a functional bug. Worth adding a genuine null case to that test (e.g. give one row a null buy_grade_pct) so the assertion matches what it claims to check.",
+      "done": false
+    }
+  ]
+}

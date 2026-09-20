@@ -1286,8 +1286,15 @@
       "id": "frontend-trade-journal-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followups.json"
+    },
+    {
+      "id": "frontend-trade-journal-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-trade-journal-followups.json"
+      "path": "docs/tasks/frontend-trade-journal-followups-followups.json"
     },
     {
       "id": "backend-indicator-seasons-followups",

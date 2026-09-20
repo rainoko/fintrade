@@ -50,17 +50,20 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     },
     { key: 'entry_date', header: 'Entry Date', sortable: true },
     {
-      // Not sortable: current_price/unrealized_pnl_pct can be null (a
-      // failed price fetch, API.md), and DataTable's generic comparator has
-      // no defined ordering for null vs. numeric values.
+      // Sortable: current_price/unrealized_pnl_pct can be null (a failed
+      // price fetch, API.md), but DataTable's own compareForSort already
+      // defines null-sorts-last ordering for exactly that case regardless
+      // of the column's custom `render` (frontend-trade-journal-followups).
       key: 'current_price',
       header: 'Current Price',
+      sortable: true,
       align: 'right',
       render: (row) => formatNullableCurrency(row.current_price),
     },
     {
       key: 'unrealized_pnl_pct',
       header: 'Unrealized P/L',
+      sortable: true,
       align: 'right',
       render: (row) =>
         row.unrealized_pnl_pct === null || row.unrealized_pnl_pct === undefined ? (

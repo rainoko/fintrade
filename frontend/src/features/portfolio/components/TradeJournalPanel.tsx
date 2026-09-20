@@ -37,13 +37,24 @@ function GradeCell({
   gradePct,
   help,
   goodThresholdPct,
+  strictlyAbove = false,
 }: {
   gradePct: number | null
   help: GradeHelp
   goodThresholdPct: number
+  /**
+   * Whether the "good" cutoff is a strict `>` rather than `>=`. Buy/Sell
+   * Grade's own MetricHelp copy and backend/app/api/schemas.py's docstring
+   * both describe their 50% anchor as strictly "over 50%" -- so a value of
+   * exactly 50.0% should render as the "not yet good" weight, not bold
+   * (frontend-trade-journal-followups). Trade Grade's "~30%+" copy is
+   * inclusive by its own wording, so it keeps the default `>=`.
+   */
+  strictlyAbove?: boolean
 }) {
   const theme = useTheme()
-  const isGood = gradePct !== null && gradePct >= goodThresholdPct
+  const isGood =
+    gradePct !== null && (strictlyAbove ? gradePct > goodThresholdPct : gradePct >= goodThresholdPct)
   const color = gradePct === null ? theme.palette.text.secondary : undefined
 
   return (
@@ -102,34 +113,40 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
     ),
   },
   {
-    // Not sortable: DataTable's generic comparator has no defined ordering
-    // for a nullable percentage against a rendered ReactNode column, same
-    // reasoning PositionsTable.tsx's own nullable current_price column
-    // applies.
+    // Sortable: the underlying value is a plain nullable number, and
+    // DataTable's own compareForSort already defines null-sorts-last
+    // ordering for exactly that case regardless of the column's custom
+    // `render` (frontend-trade-journal-followups; the same fix applies to
+    // PositionsTable.tsx's current_price column).
     key: 'buy_grade_pct',
     header: 'Buy Grade',
+    sortable: true,
     render: (row) => (
       <GradeCell
         gradePct={row.buy_grade_pct ?? null}
         help={buyGradeHelp}
         goodThresholdPct={BUY_SELL_GOOD_THRESHOLD_PCT}
+        strictlyAbove
       />
     ),
   },
   {
     key: 'sell_grade_pct',
     header: 'Sell Grade',
+    sortable: true,
     render: (row) => (
       <GradeCell
         gradePct={row.sell_grade_pct ?? null}
         help={sellGradeHelp}
         goodThresholdPct={BUY_SELL_GOOD_THRESHOLD_PCT}
+        strictlyAbove
       />
     ),
   },
   {
     key: 'trade_grade_pct',
     header: 'Trade Grade',
+    sortable: true,
     render: (row) => (
       <GradeCell
         gradePct={row.trade_grade_pct ?? null}
