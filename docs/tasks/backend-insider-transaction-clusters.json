@@ -59,5 +59,11 @@
       "decision": "The result is exposed as a new top-level AnalysisResponse.insider_clusters: list[InsiderClusterOut] field (sibling to extended_data), not nested inside ExtendedDataOut, and computed directly in get_analysis from extended.insider_transactions (same compute-once-in-the-handler pattern as support_resistance_zones/profit_target) -- not folded into app.signals.engine.analyse()/analyse_history() and not added to GET /api/stocks/{ticker}/indicators.",
       "rationale": "extended_data is this app's raw provider-facing exposure boundary (earnings/dividend dates, short interest, insider filings passed through close to yfinance's own shape); insider_clusters is a genuinely computed DETECTION result over that raw data, matching the established precedent that detection outputs -- support_resistance_zones, divergence, kangaroo_tail, profit_target -- are each their own top-level AnalysisResponse field rather than nested inside the raw data object they're derived from. Keeping it top-level also keeps ExtendedDataOut's own meaning stable (pure pass-through of what the provider reported) as a documentation/reasoning aid for future fields added to that object. Not added to GET /api/stocks/{ticker}/indicators (the per-bar historical endpoint) because insider filings aren't a per-daily-bar concept the way indicators are -- there's one current cluster state per ticker, not one per historical bar, so there's no meaningful 'value as of this past bar' to backfill; this mirrors support_resistance_zones's own precedent of /analysis-only exposure (backend-support-resistance's decisions) for the same reason. Purely informational: NOT wired into signal/confidence_breakdown/screens/portfolio risk anywhere -- matches every other detection field's own non-scope-creep precedent, verified via grep (no reference to insider_clusters/InsiderCluster anywhere in app/signals/confidence.py, app/signals/triple_screen.py, app/signals/impulse.py, or app/portfolio/risk.py)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-insider-transaction-clusters",
+    "pr_number": 193,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/193",
+    "pushed_at": "2026-09-20T11:16:04Z"
+  }
 }
