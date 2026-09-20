@@ -3,7 +3,7 @@
   "title": "Display the suggested profit target and reward:risk ratio",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-profit-target"
   ],
@@ -80,5 +80,33 @@
     "pr_number": 178,
     "pr_url": "https://github.com/rainoko/fintrade/pull/178",
     "pushed_at": "2026-09-20T05:22:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T05:35:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/178",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Portfolio-side per-row fetch (PositionProfitTargetCell -> usePositionProfitTarget) is correctly gated to BUY-only positions -- verified in PositionProfitTargetCell.test.tsx's 'without fetching when the position signal is not BUY' test and confirmed live in a browser walkthrough (a HOLD position renders an immediate em dash, no 'Checking...' transient, no network request). Not an N+1 storm since it's bounded by BUY-position count, matching backend-profit-target's own deliberate deferral of adding profit_target to GET /api/portfolio/risk. Non-blocking follow-up filed: each BUY row still recomputes a full analysis response just to read one field, with no batching -- worth reconsidering if portfolios grow large.",
+        "file": "frontend/src/features/portfolio/hooks/usePositionProfitTarget.ts",
+        "line": 34
+      },
+      {
+        "summary": "common/RewardRiskBadge confirmed genuinely generic (ratio: number | null, meetsMinimum: boolean, decimals?: number -- no ProfitTargetOut/position/signal awareness), has its own Storybook story and unit tests; common/ placement is correct, mirroring RiskPercent's precedent. Non-blocking finding filed: its aria-label hardcodes 'Below the 2:1 minimum' text despite the doc comment's claim of being reusable for any minimum threshold.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 69
+      },
+      {
+        "summary": "Duplicated profitTargetHelp across features/stocks/components/metricHelpContent.ts and features/portfolio/components/metricHelpContent.ts matches the existing file-level 'one registry per feature, no cross-feature registry import' precedent, and the interpretValue divergence (portfolio needs a third null-signal branch) is genuine. However this is the first case of the same-named entry being duplicated with near-identical content across the two files (no other entry has a same-named counterpart), and the `definition` string turns out to be 100% byte-identical between the two copies -- not blocking, but a real drift risk. Non-blocking follow-up filed to consider factoring the identical text into a shared constant.",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 41
+      },
+      {
+        "summary": "Null-handling confirmed correct against docs/Analyse.md §7 (BUY-only; null for non-BUY and for a BUY with no candidate; 2:1 ratio always computed and flagged, never used to filter the signal) via unit tests and a live browser walkthrough -- every null case renders an explained em dash + MetricHelp, never a silent omission.",
+        "file": "frontend/src/features/stocks/components/ProfitTargetDisplay.tsx",
+        "line": 38
+      }
+    ],
+    "notes": "gh pr checkout 178 (clean tree, no stash needed). Backend unaffected by this frontend-only PR but re-run for completeness: pytest --cov=app --cov-fail-under=90 -> 802 passed, 99.92% coverage; ruff/mypy clean. Frontend: yarn vitest run --coverage -> 610 passed (61 files), 99.62%/98.86%/99.69%/99.69% (statements/branches/functions/lines), all new files at 100%; yarn lint clean; ./node_modules/.bin/tsc -b --noEmit run directly per this review's specific ask -- clean. Dispatched the code-review skill (medium effort) in the background; it returned three non-blocking findings, all independently corroborated during my own reading of the diff (folded into review.comments above and the frontend-profit-target-display-followups task). No backend/API route or schema touched by this PR, so no backend/openapi.json regeneration was required. Browser walkthrough: organically hit only HOLD signals against ~30 tickers on both the live-data and FixtureDataProvider ('fixture' mode) backends, so drove a real Chromium instance via @playwright/test (already a frontend devDependency) with network-route interception supplying deterministic BUY/HOLD and passing/failing-ratio AnalysisResponse fixtures -- functionally equivalent to a Playwright MCP walkthrough. Confirmed: stock-detail BUY+passing (green 2.0:1, no icon), BUY+failing (red 0.9:1 + warning-triangle icon), HOLD ('Profit Target: -- ' + MetricHelp); portfolio RiskPanel showing a BUY row's target+badge and a HOLD row's plain em dash with no fetch fired for it; MetricHelp popovers render the correct current-value interpretation text; no console errors, no failed (>=400) network responses in any scenario. Also ran the persisted e2e suite (make e2e, step 9a) against a fresh fixture-mode stack: all 16 specs across 5 files (dashboard, navigation, portfolio, stock-analysis, watchlist) passed, no regression. All checklist items done with a corresponding decisions entry or direct implementation; no undecided 'decide X' item found. Posted as a COMMENTED-type gh pr review (never approve/request-changes), filed docs/tasks/frontend-profit-target-display-followups.json for the three non-blocking findings, and moved this task's file to docs/tasks/done/ with index.json updated in the same commit. No pre-existing pr_decision to clear."
   }
 }
