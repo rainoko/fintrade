@@ -18,6 +18,14 @@
     {
       "step": "docs/architecture/Backend.md §3's 'Key Dependencies' table still lists `httpx` with the purpose 'via FastAPI TestClient | API integration tests' only -- it wasn't updated to also reflect that `httpx` is now a main/production runtime dependency (app/data/ibkr_provider.py's `IBKRProvider` performs real HTTP calls with it, not just tests). Update the §3 table row to mention IBKRProvider's production use alongside the existing TestClient-testing purpose.",
       "done": true
+    },
+    {
+      "step": "app.api.dependencies.get_ibkr_provider()'s lazy singleton init (`if _ibkr_provider_singleton is None: _ibkr_provider_singleton = IBKRProvider(...)`) is a check-then-set on a plain module-level global with no lock, and FastAPI runs sync dependency generators in a worker thread pool -- two concurrent first-requests can both observe None and each construct their own IBKRProvider (each with independent scanner-params cache / run_scanner throttle state and its own un-closed httpx.Client), silently defeating exactly the cross-request rate-limit protection this singleton was introduced for. Consider a thread-safe lazy-init instead of hand-rolled double-checked locking -- e.g. an `@lru_cache(maxsize=1)`-wrapped factory, matching `get_settings()`'s own already-thread-safe pattern (backend/app/config.py) rather than reinventing it. Currently dormant (no route consumes get_ibkr_provider yet), found during PR #190's re-review (pr-reviewer, code-review skill sub-agent).",
+      "done": false
+    },
+    {
+      "step": "The module-global `_ibkr_provider_singleton` has no autouse test fixture resetting it between tests -- only the two tests that directly exercise get_ibkr_provider() remember to `monkeypatch.setattr(..., None)` first. A future test that reaches this dependency indirectly (e.g. hitting a real route through FastAPI's TestClient once one is added, rather than calling get_ibkr_provider() directly) would mutate the plain module attribute via application code's own `global` assignment -- monkeypatch's teardown only reverts changes made through monkeypatch itself, not a later in-process `global` mutation, so such a test could leak a stale IBKRProvider (bound to a previous test's base_url/mock client) into later tests in the same pytest session, non-deterministically depending on execution order. Consider an autouse fixture in tests/unit/api/test_dependencies.py (or conftest.py) that resets the singleton to None on teardown. Found during PR #190's re-review.",
+      "done": false
     }
   ],
   "decisions": [
