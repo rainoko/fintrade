@@ -110,6 +110,13 @@ describe('TradeJournalPanel', () => {
   })
 
   it('sorts by a nullable grade column, missing values last', async () => {
+    // A genuine null in the column actually being sorted (Buy Grade) --
+    // unlike this test's own prior version, which only varied
+    // sell_grade_pct/trade_grade_pct (columns not sorted here) and so never
+    // exercised the "missing values last" claim its own name/comment makes
+    // for this call site. Mirrors PositionsTable.test.tsx's equivalent
+    // current_price sort test, which does use a real null in the sorted
+    // column (docs/tasks/frontend-trade-journal-followups-followups.json).
     const user = userEvent.setup()
     mockClosedTrades({
       items: [
@@ -141,6 +148,20 @@ describe('TradeJournalPanel', () => {
           sell_grade_pct: null,
           trade_grade_pct: null,
         },
+        {
+          id: 'trade_c',
+          ticker: 'CCC',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          buy_grade_pct: null,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+        },
       ],
     })
 
@@ -150,9 +171,17 @@ describe('TradeJournalPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Buy Grade' }))
 
     const table = screen.getByRole('table', { name: 'Trade journal' })
-    const bodyRows = within(table).getAllByRole('row').slice(1)
-    expect(within(bodyRows[0]).getByText('AAA')).toBeInTheDocument()
-    expect(within(bodyRows[1]).getByText('BBB')).toBeInTheDocument()
+    const ascendingRows = within(table).getAllByRole('row').slice(1)
+    expect(within(ascendingRows[0]).getByText('AAA')).toBeInTheDocument()
+    expect(within(ascendingRows[1]).getByText('BBB')).toBeInTheDocument()
+    expect(within(ascendingRows[2]).getByText('CCC')).toBeInTheDocument()
+
+    // Descending should still keep the null (CCC) last, not first.
+    await user.click(screen.getByRole('button', { name: 'Buy Grade' }))
+    const descendingRows = within(table).getAllByRole('row').slice(1)
+    expect(within(descendingRows[0]).getByText('BBB')).toBeInTheDocument()
+    expect(within(descendingRows[1]).getByText('AAA')).toBeInTheDocument()
+    expect(within(descendingRows[2]).getByText('CCC')).toBeInTheDocument()
   })
 
   it('wires each grade cell’s MetricHelp to its own formula/value explanation', async () => {

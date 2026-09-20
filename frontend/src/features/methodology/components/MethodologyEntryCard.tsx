@@ -1,12 +1,50 @@
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Chip from '@mui/material/Chip'
+import Link from '@mui/material/Link'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import { Link as RouterLink } from 'react-router-dom'
 import { type MethodologyEntry, STATUS_META } from '../data/methodologyContent'
 
 export interface MethodologyEntryCardProps {
   entry: MethodologyEntry
+}
+
+/**
+ * Resolves a `MethodologyEntry.crossLinksTo` description to an actual
+ * in-app route, so the card can render it as a clickable link instead of
+ * plain prose (docs/tasks/frontend-methodology-explainer-followups.json's
+ * `decisions` entry). Every `crossLinksTo` string in `methodologyContent.ts`
+ * names its target page as its own leading segment ("Stock Detail page →
+ * ...", "Portfolio page → ...", "Watchlist page → ..."), so this is a
+ * simple, exhaustive prefix match rather than a separate structured field
+ * per entry.
+ *
+ * The Stock Detail page (`/stocks/:ticker`) needs a concrete ticker this
+ * page deliberately has no context for -- it explains the *methodology*
+ * independent of any one ticker (see methodologyContent.ts's own docstring)
+ * -- so a "Stock Detail page" cross-link routes to the Watchlist page
+ * instead: the nearest page that lets a reader pick a concrete ticker and
+ * continue on to Stock Detail from there, rather than a dead end. This is a
+ * deliberately modest version of the fuller "deep-link straight to the
+ * right ticker + auto-open the right MetricHelp popover" idea the review
+ * finding also raised -- that would need a "which ticker" answer this page
+ * has no source for, and a cross-page auto-open-popover mechanism that
+ * doesn't exist anywhere else in the app yet; left as a further follow-up
+ * rather than built here.
+ */
+function resolveCrossLinkPath(crossLinksTo: string): string | null {
+  if (crossLinksTo.startsWith('Stock Detail page')) {
+    return '/watchlist'
+  }
+  if (crossLinksTo.startsWith('Portfolio page')) {
+    return '/portfolio'
+  }
+  if (crossLinksTo.startsWith('Watchlist page')) {
+    return '/watchlist'
+  }
+  return null
 }
 
 /**
@@ -17,10 +55,12 @@ export interface MethodologyEntryCardProps {
  * explainer.json's description). `crossLinksTo`, when present, points a
  * reader at the live, per-value `common/MetricHelp` explanation for the
  * same thing elsewhere in the app, rather than this page duplicating that
- * interpretive text (see this task's `decisions` entry).
+ * interpretive text (see this task's `decisions` entry) -- rendered as an
+ * actual navigable link via `resolveCrossLinkPath` above, not just prose.
  */
 export default function MethodologyEntryCard({ entry }: MethodologyEntryCardProps) {
   const statusMeta = STATUS_META[entry.appStatus]
+  const crossLinkPath = entry.crossLinksTo ? resolveCrossLinkPath(entry.crossLinksTo) : null
 
   return (
     <Card variant="outlined" data-testid="methodology-entry-card">
@@ -54,7 +94,14 @@ export default function MethodologyEntryCard({ entry }: MethodologyEntryCardProp
 
         {entry.crossLinksTo && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            See it live: {entry.crossLinksTo}
+            See it live:{' '}
+            {crossLinkPath ? (
+              <Link component={RouterLink} to={crossLinkPath}>
+                {entry.crossLinksTo}
+              </Link>
+            ) : (
+              entry.crossLinksTo
+            )}
           </Typography>
         )}
       </CardContent>

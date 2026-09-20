@@ -70,6 +70,18 @@ export const STATUS_META: Record<MethodologyStatus, StatusMeta> = {
   },
 }
 
+/**
+ * Every `MethodologyStatus` value, in the same "most load-bearing first"
+ * order `STATUS_META` above is defined in -- derived from `STATUS_META`'s
+ * own key order rather than hand-duplicated as a second `string[]` literal
+ * in each consumer (`MethodologyPage.tsx`'s old `ALL_STATUSES`,
+ * `MethodologyStatusFilter.tsx`'s old `STATUS_ORDER`), so a future 5th
+ * status added to `MethodologyStatus`/`STATUS_META` can't silently be
+ * missing from either one (docs/tasks/frontend-methodology-explainer-
+ * followups.json's `decisions` entry).
+ */
+export const STATUS_ORDER: MethodologyStatus[] = Object.keys(STATUS_META) as MethodologyStatus[]
+
 export interface MethodologyEntry {
   id: string
   name: string

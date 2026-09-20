@@ -12,6 +12,33 @@ each caller still owns its own loop bounds (edge exclusion) and NaN-handling con
 import pandas as pd
 
 
+def _rolling(series: pd.Series, span: int, *, require_full_window: bool) -> pd.core.window.rolling.Rolling:
+    min_periods = span if require_full_window else 1
+    return series.rolling(span, center=True, min_periods=min_periods)
+
+
+def rolling_max_mask(series: pd.Series, span: int, *, require_full_window: bool) -> pd.Series:
+    """Boolean mask, aligned to ``series``'s own index, marking every position whose value
+    equals the MAX of the ``span``-bar window centered on it. See :func:`rolling_extreme_masks`
+    for the full ``require_full_window`` contract -- this is that function's max-only half,
+    for callers (``app.signals.support_resistance``) that only ever need one side and would
+    otherwise pay for computing (then discarding) the other.
+    """
+    rolling = _rolling(series, span, require_full_window=require_full_window)
+    return series == rolling.max()
+
+
+def rolling_min_mask(series: pd.Series, span: int, *, require_full_window: bool) -> pd.Series:
+    """Boolean mask, aligned to ``series``'s own index, marking every position whose value
+    equals the MIN of the ``span``-bar window centered on it. See :func:`rolling_extreme_masks`
+    for the full ``require_full_window`` contract -- this is that function's min-only half,
+    for callers (``app.signals.support_resistance``) that only ever need one side and would
+    otherwise pay for computing (then discarding) the other.
+    """
+    rolling = _rolling(series, span, require_full_window=require_full_window)
+    return series == rolling.min()
+
+
 def rolling_extreme_masks(
     series: pd.Series, span: int, *, require_full_window: bool
 ) -> tuple[pd.Series, pd.Series]:
@@ -33,6 +60,15 @@ def rolling_extreme_masks(
     window on both sides) -- this function only reports, at each position, whether that
     position's value ties the window's own extreme; it doesn't know where the "valid interior"
     a given caller cares about starts and ends.
+
+    Use this when BOTH masks of the SAME series are actually needed (``app.signals.swing_points``,
+    which reports a bar as a swing high AND separately checks it as a swing low against the
+    same series). A caller that only needs one side of a given series (e.g.
+    ``app.signals.support_resistance``, which computes a max-mask of ``highs`` and, independently,
+    a min-mask of a DIFFERENT series ``lows``) should call :func:`rolling_max_mask` /
+    :func:`rolling_min_mask` directly instead, so it isn't paying for a reduction (``.max()`` or
+    ``.min()``) whose result it then throws away -- see
+    ``docs/tasks/backend-swing-point-detector-followups-followups.json``'s ``decisions`` entry.
     """
     min_periods = span if require_full_window else 1
     rolling = series.rolling(span, center=True, min_periods=min_periods)

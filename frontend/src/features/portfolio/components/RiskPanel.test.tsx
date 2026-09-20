@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
@@ -322,5 +323,39 @@ describe('RiskPanel', () => {
     expect(screen.getByText('Loading risk data...')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+  })
+
+  it('opens the Total Risk help popover with the open-vs-realized breakdown text (totalRiskHelp)', async () => {
+    // Same PR #166 review-verified figures totalRiskHelp.test.ts hand-checks
+    // directly -- this test locks in that the real value flows through
+    // RiskPanel's own MetricHelp wiring, not just the helper in isolation
+    // (docs/tasks/backend-trade-history-table-followups-followups.json).
+    mockRisk({
+      total_open_risk_pct: 693.72,
+      realized_losses_this_month_pct: 691.79,
+      six_percent_rule_breached: true,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          protective_stop: 210.15,
+          position_risk_pct: 1.93,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+        },
+      ],
+    })
+
+    const user = userEvent.setup()
+    renderRiskPanel([aaplPosition])
+
+    await waitFor(() => expect(screen.getByText('693.72%')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Total Risk (Open + Realized) help' }))
+    expect(
+      screen.getByText(
+        "1.93% from open positions + 691.79% from this month's realized losses = 693.72% total.",
+      ),
+    ).toBeInTheDocument()
   })
 })

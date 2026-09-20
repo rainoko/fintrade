@@ -18,7 +18,17 @@ describe('RewardRiskBadge', () => {
 
     const el = screen.getByText('1.3:1')
     expect(el).toHaveStyle({ color: theme.palette.riskBreach.main, fontWeight: 700 })
-    expect(screen.getByLabelText('Below the 2:1 minimum')).toBeInTheDocument()
+    const icon = screen.getByLabelText('Below the 2:1 minimum')
+    expect(icon).toBeInTheDocument()
+    // Regression test (docs/tasks/frontend-profit-target-display-followups-
+    // followups.json): MUI's SvgIcon defaults `aria-hidden="true"` unless
+    // `titleAccess` is supplied, which used to remove this icon from the
+    // accessibility tree despite its `aria-label` -- `aria-hidden="true"`
+    // wins over any `aria-label` also present. `getByLabelText` matches the
+    // raw attribute directly (not a real accessibility-tree computation),
+    // so this assertion is the one that actually would have caught the bug.
+    expect(icon).not.toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveAttribute('role', 'img')
   })
 
   it('renders "n/a" in a neutral color, never flagged, when the ratio is null', () => {

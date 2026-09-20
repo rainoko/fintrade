@@ -5,18 +5,12 @@ import { useState } from 'react'
 import PageHeader from '../components/common/PageHeader/PageHeader'
 import {
   METHODOLOGY_SECTIONS,
+  STATUS_ORDER,
   type MethodologySection,
   type MethodologyStatus,
 } from '../features/methodology/data/methodologyContent'
 import MethodologySectionView from '../features/methodology/components/MethodologySectionView'
 import MethodologyStatusFilter from '../features/methodology/components/MethodologyStatusFilter'
-
-const ALL_STATUSES: MethodologyStatus[] = [
-  'core_signal',
-  'risk_management',
-  'informational',
-  'considered',
-]
 
 function filterSection(
   section: MethodologySection,
@@ -55,7 +49,7 @@ function filterSection(
  */
 export default function MethodologyPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<MethodologyStatus>>(
-    () => new Set(ALL_STATUSES),
+    () => new Set(STATUS_ORDER),
   )
 
   function toggleStatus(status: MethodologyStatus) {

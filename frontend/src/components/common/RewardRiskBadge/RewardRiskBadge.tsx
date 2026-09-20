@@ -81,6 +81,19 @@ export default function RewardRiskBadge({
           fontSize="small"
           style={{ color: theme.palette.riskBreach.main }}
           aria-label={failureAriaLabel}
+          // MUI's SvgIcon (which every icon component, including this one,
+          // wraps) defaults `aria-hidden="true"` whenever no `titleAccess`
+          // is supplied -- that silently removed this icon from the
+          // accessibility tree regardless of the `aria-label` above, since
+          // `aria-hidden="true"` wins over any `aria-label` also present.
+          // Passing `titleAccess` (which also sets `role="img"` and renders
+          // a real `<title>`) clears that default, so the icon -- and its
+          // `aria-label` -- are actually announced to a screen reader, not
+          // just present in the DOM for `aria-label`-attribute-only test
+          // queries like Testing Library's `getByLabelText` to find
+          // (docs/tasks/frontend-profit-target-display-followups-
+          // followups.json).
+          titleAccess={failureAriaLabel}
         />
       )}
       <Typography component="span" style={{ color, fontWeight: meetsMinimum ? 400 : 700 }}>

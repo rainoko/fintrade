@@ -23,7 +23,7 @@ from typing import Literal
 
 import pandas as pd
 
-from app.signals._swing_extremes import rolling_extreme_masks
+from app.signals._swing_extremes import rolling_max_mask, rolling_min_mask
 
 Role = Literal["support", "resistance"]
 StrengthCategory = Literal["minor", "intermediate", "major"]
@@ -154,11 +154,14 @@ def _find_swing_points(
     # this function's original behavior exactly: `Series.max()`/`.min()`'s own default
     # `skipna=True` already tolerated a NaN inside the comparison window (unlike
     # app.signals.swing_points's stricter contract), and `rolling(..., min_periods=1)`
-    # reproduces that same per-window skipna aggregation. Only `is_swing_high`'s ``high`` mask
-    # and `is_swing_low`'s ``low`` mask are used below -- the other side of each call is
-    # discarded, since `highs` and `lows` are compared independently, never against each other.
-    is_swing_high, _ = rolling_extreme_masks(highs, span, require_full_window=False)
-    _, is_swing_low = rolling_extreme_masks(lows, span, require_full_window=False)
+    # reproduces that same per-window skipna aggregation. `highs` and `lows` are compared
+    # independently, never against each other, so only one side of each series' rolling
+    # extreme is ever needed -- `rolling_max_mask`/`rolling_min_mask` (rather than
+    # `rolling_extreme_masks`, which would compute and discard the unused side of each call)
+    # keep this to exactly the two reductions actually used. See this task's `decisions` entry
+    # (docs/tasks/backend-swing-point-detector-followups-followups.json).
+    is_swing_high = rolling_max_mask(highs, span, require_full_window=False)
+    is_swing_low = rolling_min_mask(lows, span, require_full_window=False)
 
     swing_highs: list[tuple[pd.Timestamp, float]] = []
     swing_lows: list[tuple[pd.Timestamp, float]] = []

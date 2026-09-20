@@ -34,6 +34,7 @@ backend/
       impulse.py          # Impulse System gate
       confidence.py        # weighted scoring (Analyse.md §6)
       engine.py             # orchestrates the above into BUY/SELL/HOLD + %
+      _swing_extremes.py      # package-internal: vectorized centered-rolling max/min primitive shared by swing_points.py and support_resistance.py
       swing_points.py        # shared fractal swing-high/swing-low detector (single series)
       support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
       divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
