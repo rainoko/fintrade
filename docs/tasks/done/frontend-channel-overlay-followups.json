@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #151 review (frontend-channel-overlay)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-channel-overlay"],
   "references": [
     "docs/tasks/frontend-channel-overlay.json",
@@ -40,5 +40,12 @@
     "pr_number": 182,
     "pr_url": "https://github.com/rainoko/fintrade/pull/182",
     "pushed_at": "2026-09-20T06:35:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T06:35:36Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/182",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Task-closure PR, no production code touched (git diff main...task/frontend-channel-overlay-followups --stat confirms only docs/tasks/frontend-channel-overlay-followups.json and docs/tasks/index.json changed). Independently verified both claims rather than trusting the decision entries at face value: (1) `bringSeriesToFront` in frontend/src/utils/chart.ts (line 88) computes `chart.panes()[paneIndex].getSeries().length - 1` at call time -- a genuinely dynamic index, not a hardcoded literal -- and `git log -S\"bringSeriesToFront\"` confirms it was introduced in commit 1ee2e33 / PR #152 (frontend-support-resistance-overlay), predating this followup task, corroborating the 'already fixed by prior work' claim. Grepped all of PriceChart.tsx: zero direct `setSeriesOrder(<literal>)` calls remain; all 5 overlay-adding effects (value-zone/channel at line 1055, Tide-region shading, support/resistance zones at 1232, false-breakout markers at 1379/1466, kangaroo-tail markers at 1562) call `bringSeriesToFront(chart, series)` instead, matching the decision entry's inventory exactly when cross-checked against `useEffect` boundaries (911/974/1132/1255/1422/1528). PriceChart.test.tsx's `panes: () => [{ getSeries: () => [...paneSeries] }]` mock is a live, mutating array (not a static stub), so its `setSeriesOrderMock` assertions do exercise the dynamic-index behavior, not just a literal argument. (2) Read the 'decided against visual regression testing' rationale in full: it's a genuine cost/benefit judgment call (no golden-baseline infra + canvas/GPU/font-hinting flakiness vs. the z-order bug class now being structurally mitigated by (a) the self-healing bringSeriesToFront fix, (b) PriceChart.test.tsx's live z-order assertions, (c) the pipeline's mandatory browser walkthrough for chart-rendering changes), considers and rejects two concrete alternatives (full-page screenshot diff; canvas pixel-sampling) with specific reasons for each, and is explicitly framed by the checklist item itself as optional ('a genuine judgment call, not a mandate to add one'). This is a defensible engineering tradeoff, not test-coverage-dodging -- accepted as-is. Ran full suites as sanity checks despite no code changes: backend pytest --cov=app (807 passed, 99.92% coverage), frontend vitest --coverage (616 passed across 62 files, 99.62% statements / 98.86% branches -- both well above the 90% gate, no regression from the prior known-good state), backend ruff+mypy clean, frontend eslint clean, `yarn tsc -b --noEmit` clean, and scripts/validate_tasks.py clean (189 task files, no board-structure violations). No UI surface changed by this PR (no production code touched) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped for that reason, per the 'no UI surface skips this' carve-out. No new non-blocking findings surfaced by this review beyond what the task's own decisions already document, so no additional followup task was created."
   }
 }
