@@ -3,7 +3,7 @@
   "title": "Compute a suggested profit target and reward:risk ratio for BUY/SELL signals",
   "area": "backend/signals",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-channel-envelope-exposure",
     "backend-support-resistance"
@@ -78,5 +78,28 @@
     "pr_number": 177,
     "pr_url": "https://github.com/rainoko/fintrade/pull/177",
     "pushed_at": "2026-09-20T04:45:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T04:52:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/177",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "No unit test exercises a zone with role='support' sitting above current price -- the recorded decision explicitly says the position-based filter deliberately doesn't rely on the role/position coincidence holding, but every test zone uses the default role='resistance', so that edge case isn't actually exercised.",
+        "file": "backend/tests/unit/test_portfolio_profit_target.py",
+        "line": 28
+      },
+      {
+        "summary": "suggest_profit_target's docstring claims distance_to_target is 'Always > 0 by construction', but in the fully degenerate case where the Autoenvelope's rolling average deviation is exactly 0, channel height is 0 and the channel-derived target would equal current price exactly (distance_to_target == 0, not > 0). Minor docstring overclaim, not a real bug.",
+        "file": "backend/app/portfolio/profit_target.py",
+        "line": 100
+      },
+      {
+        "summary": "stop_from_price_action recomputes ema(daily_ohlcv['close'], 13) from scratch inside suggest_profit_target/get_analysis even though analyse() already computed the identical EMA(13) series moments earlier in the same request for result.indicators['ema_13']. Negligible cost today, but a duplicate computation that could be shared if engine.analyse ever exposed the full series.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 56
+      }
+    ],
+    "notes": "Full review: backend pytest 802 passed, 99.92% coverage (profit_target.py/risk.py both 100%); frontend vitest 578 passed (one PortfolioPage timeout was a confirmed flake -- passed in isolation and on a clean full-suite re-run), coverage well above 90%. ruff/mypy/eslint/tsc all clean. backend/openapi.json and frontend/src/api/types.ts re-regenerated against this branch with zero diff -- genuinely in sync. Hand-verified the Tradebill 30%-of-channel-height formula against docs/Analyse.md/docs/ideas.md ch. 58, and the tighter-of-channel-vs-nearest-S/R selection logic against the unit + integration tests (including a real, non-mocked channel computation). Confirmed protective_stop's long-only assumption in risk.py's own comments, and confirmed stop_from_price_action is a byte-for-byte extraction (all pre-existing protective_stop callers/tests pass unchanged). Confirmed profit_target is null for HOLD/SELL and non-null only for a fresh BUY via integration tests, and the 2:1 reward:risk flag is computed and exposed (not silently filtered) in both the passing and failing case. Confirmed the NaN-vs-None channel-warm-up fix is correct and matches the identical established convention in app.portfolio.grading._ratio_pct. No frontend component consumes profit_target yet (only generated types.ts and a test-mock fixture changed) -- no browser walkthrough or e2e run applicable, this PR has no UI surface. All checklist 'decide X' items have corresponding decisions entries; no undocumented judgment calls found. Three non-blocking findings filed as backend-profit-target-followups."
   }
 }

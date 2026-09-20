@@ -1034,8 +1034,8 @@
       "id": "backend-profit-target",
       "area": "backend/signals",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-profit-target.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target.json"
     },
     {
       "id": "backend-safezone-stop-coefficient-fix",
@@ -1302,6 +1302,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-tide-region-chart-shading-followups.json"
+    },
+    {
+      "id": "backend-profit-target-followups",
+      "area": "backend/signals",
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target-followups.json",
+      "skill": null
     }
   ]
 }

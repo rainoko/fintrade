@@ -1,0 +1,27 @@
+{
+  "id": "backend-profit-target-followups",
+  "title": "Profit target / reward:risk ratio -- non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-profit-target"],
+  "references": [
+    "docs/tasks/backend-profit-target.json#review",
+    "https://github.com/rainoko/fintrade/pull/177"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #177 (backend-profit-target), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "No unit test in tests/unit/test_portfolio_profit_target.py exercises a zone with role='support' sitting above current price. The task's own decisions entry explicitly says app.portfolio.profit_target._nearest_resistance_price's position-based filter (zone.lower > current_price) deliberately doesn't rely on the role/position coincidence holding (i.e. it should still pick up a 'support'-labeled zone that happens to sit above current price) -- but every test zone built via the file's own _zone() helper uses the default role='resistance', so that specific edge case the decision calls out isn't actually exercised by any test. Add a test passing role='support' for a zone above current price and assert it's still picked up as a candidate.",
+      "done": false
+    },
+    {
+      "step": "app.portfolio.profit_target.suggest_profit_target's docstring states distance_to_target is 'Always > 0 by construction' -- true for all realistic market data, but in the fully degenerate case where the Autoenvelope's rolling average deviation is exactly 0 across the whole lookback window (channel_upper == channel_lower), the channel-derived target equals current price exactly, so distance_to_target would be 0, not > 0. Soften the docstring wording to 'non-negative' (or add an explicit invariant/guard) so it doesn't overclaim a strict inequality the code doesn't actually guarantee in that edge case.",
+      "done": false
+    },
+    {
+      "step": "app.portfolio.risk.stop_from_price_action (called from suggest_profit_target via get_analysis) recomputes ema(daily_ohlcv['close'], 13) from scratch every time, even though app.signals.engine.analyse already computes the identical EMA(13) series moments earlier in the same request for result.indicators['ema_13']. Negligible cost at current data sizes, but a same-request duplicate computation that could be shared (mirroring how app.indicators.autoenvelope/app.portfolio.exits.evaluate_exit_flags already accept a precomputed EMA via a mid/short_ema parameter) if app.signals.engine ever exposes the full EMA(13) series to callers rather than only its latest scalar value.",
+      "done": false
+    }
+  ]
+}
