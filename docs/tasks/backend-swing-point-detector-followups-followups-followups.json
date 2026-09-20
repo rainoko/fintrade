@@ -19,11 +19,17 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-20T00:00:00Z",
+      "timestamp": "2026-09-20T17:58:40Z",
       "recorded_by": "task-worker",
       "decision": "rolling_extreme_masks now calls _rolling(series, span, require_full_window=require_full_window) instead of re-deriving min_periods/.rolling(...) inline, matching rolling_max_mask/rolling_min_mask.",
       "rationale": "This is the exact change the followup asked for; verified byte-identical behavior via the existing test_swing_extremes.py cross-check tests (which compare rolling_extreme_masks's output against rolling_max_mask/rolling_min_mask) and the full backend suite (935 passed), plus ruff/mypy clean on the file. No alternative approach was considered -- the shared helper already exists and has the exact same contract."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-swing-point-detector-followups-followups-followups",
+    "pr_number": 209,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/209",
+    "pushed_at": "2026-09-20T17:58:40Z"
+  }
 }
