@@ -193,7 +193,7 @@ describe('theme', () => {
     expect(contrastRatio(winter, white)).toBeGreaterThanOrEqual(4.5)
   })
 
-  it('defines a Kangaroo Tail marker color distinct from every other marker/line color already used on PriceChart (frontend-kangaroo-tail-markers)', () => {
+  it('defines a Kangaroo Tail marker color distinct from every other marker/line color already used on PriceChart (frontend-kangaroo-tail-markers, frontend-kangaroo-tail-markers-followups)', () => {
     const { main } = theme.palette.kangarooTail
     expect(main).toMatch(/^#/)
     expect(main).not.toBe(theme.palette.signal.buy)
@@ -205,5 +205,14 @@ describe('theme', () => {
     expectPerceptuallyDistinct(main, theme.palette.signal.sell)
     expectPerceptuallyDistinct(main, theme.palette.divergence.main)
     expectPerceptuallyDistinct(main, theme.palette.riskBreach.main)
+    // warning.main/info.main used to only get the exact-hex check above --
+    // the same category of gap (hex inequality without a perceptual floor)
+    // that let season.spring/signal.buy and riskBreach.main/signal.sell
+    // slip through as near-collisions in earlier rounds. theme.ts's own
+    // comment on kangarooTail claims distinctness from both; enforce it the
+    // same way as every other pair in this palette
+    // (frontend-kangaroo-tail-markers-followups).
+    expectPerceptuallyDistinct(main, theme.palette.warning.main)
+    expectPerceptuallyDistinct(main, theme.palette.info.main)
   })
 })

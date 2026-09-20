@@ -167,6 +167,32 @@ export const theme = createTheme({
     // magenta hue reads as unambiguously different from all of those at a
     // glance -- the whole point of this task's "distinct from every other
     // marker type already present" requirement.
+    //
+    // PR #165's review flagged this hue (~334°) as "fairly close" to
+    // `signal.sell`'s (~0°/360°) in raw hue-degree terms and suggested a
+    // future pass consider shifting further away
+    // (frontend-kangaroo-tail-markers-followups). Independently
+    // recomputing with the same CIE76 ΔE76 formula theme.test.ts already
+    // uses elsewhere in this file (the metric this codebase has since
+    // standardized on, after raw hue/RGB comparisons missed two real
+    // near-collisions -- season.spring/signal.buy and
+    // riskBreach.main/signal.sell, both above) shows this pairing is not
+    // actually a near-collision: kangarooTail.main vs signal.sell computes
+    // to ~37.8 ΔE76, well over double the codebase's 15-floor for "clearly
+    // distinct", because the two differ substantially in lightness/chroma
+    // even though their hue angles are only ~26° apart. Raw hue proximity
+    // alone doesn't predict perceptual distance the way ΔE76 does (see
+    // theme.test.ts's comment on `MIN_DISTINCT_DELTA_E` for why hue-only or
+    // RGB-Euclidean comparisons under-/over-state real visual similarity).
+    // kangarooTail.main's closest neighbor in the whole palette is
+    // `riskBreach.main` at ~18.6 ΔE76, still comfortably over the floor.
+    // No hex change made here: the flagged concern doesn't hold up under
+    // the perceptual metric this codebase treats as authoritative, and
+    // changing an already-distinct color risks creating a new collision
+    // for no real benefit. theme.test.ts's kangarooTail test was extended
+    // instead to assert ΔE76 distance from `warning.main`/`info.main` too
+    // (previously only hex-inequality-checked), closing the one real gap
+    // found while verifying this.
     kangarooTail: {
       main: '#ad1457',
     },
