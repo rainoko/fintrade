@@ -3,7 +3,7 @@
   "title": "Profit target display follow-ups (batch PR #207) — non-blocking review follow-ups",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-profit-target-display-followups"],
   "references": [
     "docs/tasks/frontend-profit-target-display-followups.json#review",
@@ -36,5 +36,22 @@
     "pr_number": 208,
     "pr_url": "https://github.com/rainoko/fintrade/pull/208",
     "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified against MUI's actual SvgIcon source (frontend/node_modules/@mui/material/SvgIcon/SvgIcon.js): it sets `\"aria-hidden\": titleAccess ? undefined : true, role: titleAccess ? 'img' : undefined`. Before this fix, WarningAmberIcon had no titleAccess, so aria-hidden was unconditionally 'true' regardless of the aria-label prop -- a genuine bug, not a no-op concern. Passing titleAccess={failureAriaLabel} now clears aria-hidden and sets role='img'; the retained aria-label still wins accessible-name computation over the <title> element titleAccess also renders, so both coexist without conflict. This is a real, correctly-verified accessibility fix, not a subtly-wrong one.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 96
+      },
+      {
+        "summary": "The Frontend.md §3 named exception for utils/profitTargetHelpText.ts is placed appropriately (within the Structure rules subsection, immediately after the utils/ placement rule it amends) and reads as a genuinely arguable, well-reasoned carve-out rather than a precedent-setting workaround -- consistent with architecture-review's placement checklist.",
+        "file": "docs/architecture/Frontend.md"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean. No live interactive Playwright MCP browser walkthrough was performed for RewardRiskBadge specifically (no browser tool was available in this review session) -- substituted with the MUI source trace above, RewardRiskBadge.test.tsx's DOM-attribute assertions, and the full persisted e2e suite (18/18 passing, though no e2e spec currently exercises RewardRiskBadge directly -- stock-analysis.spec.ts doesn't assert on it)."
   }
 }

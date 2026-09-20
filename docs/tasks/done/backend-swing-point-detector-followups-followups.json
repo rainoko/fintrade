@@ -3,7 +3,7 @@
   "title": "Swing-extreme primitive extraction -- non-blocking review follow-ups (round 2)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-swing-point-detector-followups"],
   "references": [
     "docs/tasks/backend-swing-point-detector-followups.json#review",
@@ -33,5 +33,22 @@
     "pr_number": 208,
     "pr_url": "https://github.com/rainoko/fintrade/pull/208",
     "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "rolling_max_mask/rolling_min_mask split verified by trace: support_resistance.py's _find_swing_points now performs exactly 2 rolling reductions (one .max() on highs, one .min() on lows) instead of the old 4 (rolling_extreme_masks computed both max and min for each of highs and lows, discarding one side each time). Both wrappers call the same _rolling(...) construction and produce output identical to rolling_extreme_masks's own two halves, confirmed by backend/tests/unit/signals/test_swing_extremes.py's assert_series_equal cross-checks and by full backend suite passing (935 tests, 99.94% coverage). Backend.md's module tree correctly lists the new _swing_extremes.py.",
+        "file": "backend/app/signals/_swing_extremes.py"
+      },
+      {
+        "summary": "Minor non-blocking finding filed as a new follow-up task (backend-swing-point-detector-followups-followups-followups): rolling_extreme_masks still re-implements _rolling's min_periods/rolling(...) construction inline instead of calling the new _rolling helper its two sibling functions use, so the module now has two copies of the same window logic. Not a correctness risk today (test_swing_extremes.py's own cross-check assertions would catch a future divergence), but worth consolidating.",
+        "file": "backend/app/signals/_swing_extremes.py",
+        "line": 73
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full backend suite (935 tests) and ruff/mypy both clean. verify-elder-signal check: this is a pure internal refactor of the swing-point extreme-detection primitive used by support_resistance.py -- no semantic change to Tide/Wave/Trigger/Impulse/Confidence/Portfolio Risk logic, confirmed by identical test output before/after."
   }
 }

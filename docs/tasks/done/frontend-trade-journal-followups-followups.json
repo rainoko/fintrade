@@ -3,7 +3,7 @@
   "title": "Follow-ups from pr-reviewer's review of PR #181 (frontend-trade-journal-followups)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-trade-journal-followups"],
   "references": [
     "docs/tasks/done/frontend-trade-journal-followups.json",
@@ -29,5 +29,17 @@
     "pr_number": 208,
     "pr_url": "https://github.com/rainoko/fintrade/pull/208",
     "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "TradeJournalPanel.test.tsx's 'sorts by a nullable grade column, missing values last' test now includes a genuine null buy_grade_pct row (CCC) and asserts null-last ordering in both ascending and descending order after clicking the Buy Grade header, matching what the test's own name claims and mirroring PositionsTable.test.tsx's precedent.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.test.tsx"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
   }
 }

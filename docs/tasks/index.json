@@ -964,8 +964,15 @@
       "id": "backend-swing-point-detector-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-swing-point-detector-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-swing-point-detector-followups-followups.json"
+    },
+    {
+      "id": "backend-swing-point-detector-followups-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-swing-point-detector-followups-followups-followups.json"
     },
     {
       "id": "backend-divergence-detection",
@@ -1335,8 +1342,8 @@
       "id": "frontend-methodology-explainer-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-methodology-explainer-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-methodology-explainer-followups.json"
     },
     {
       "id": "backend-trade-history-table-followups",
@@ -1349,8 +1356,8 @@
       "id": "backend-trade-history-table-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-history-table-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-history-table-followups-followups.json"
     },
     {
       "id": "frontend-trade-journal-followups",
@@ -1363,8 +1370,8 @@
       "id": "frontend-trade-journal-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-trade-journal-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followups-followups.json"
     },
     {
       "id": "backend-indicator-seasons-followups",
@@ -1405,8 +1412,8 @@
       "id": "frontend-profit-target-display-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-profit-target-display-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-profit-target-display-followups-followups.json"
     },
     {
       "id": "frontend-fundamental-data-panel-followups",

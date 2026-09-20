@@ -3,7 +3,7 @@
   "title": "Methodology Reference page -- non-blocking review follow-ups",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-methodology-explainer"],
   "references": [
     "docs/tasks/done/frontend-methodology-explainer.json#review",
@@ -37,5 +37,25 @@
     "pr_number": 208,
     "pr_url": "https://github.com/rainoko/fintrade/pull/208",
     "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "STATUS_ORDER derived from Object.keys(STATUS_META) is now the single source of truth used by both MethodologyPage.tsx and MethodologyStatusFilter.tsx, and its runtime key order matches the previous hand-written literal exactly (core_signal, risk_management, informational, considered) -- confirmed by reading methodologyContent.ts directly.",
+        "file": "frontend/src/features/methodology/data/methodologyContent.ts"
+      },
+      {
+        "summary": "resolveCrossLinkPath's three prefix branches (Stock Detail page, Portfolio page, Watchlist page) are exhaustive across every crossLinksTo string currently in methodologyContent.ts (checked all 21 entries), and routing Stock-Detail-anchored entries to /watchlist (rather than a fabricated ticker or a new popover mechanism) is a reasonable, well-reasoned middle ground given this page's own documented ticker-agnostic design -- matches the task's decisions entry.",
+        "file": "frontend/src/features/methodology/components/MethodologyEntryCard.tsx"
+      },
+      {
+        "summary": "frontend/tests/e2e/methodology.spec.ts genuinely exercises the real cross-link click-through against a live browser + backend (not a mock): 'Stock Detail <-> Methodology cross-link round trip' clicks StockDetailPage's Methodology reference link, then clicks a real MethodologyEntryCard crossLinksTo link and asserts navigation to /watchlist. Ran the full persisted e2e suite (make e2e): all 18 specs passed, including both new methodology.spec.ts tests.",
+        "file": "frontend/tests/e2e/methodology.spec.ts"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
   }
 }

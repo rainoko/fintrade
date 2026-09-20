@@ -3,7 +3,7 @@
   "title": "Total Risk breakdown tooltip (totalRiskHelp) has no direct test coverage -- non-blocking review follow-up",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-history-table-followups"],
   "references": [
     "docs/tasks/backend-trade-history-table-followups.json#review",
@@ -31,5 +31,17 @@
     "pr_number": 208,
     "pr_url": "https://github.com/rainoko/fintrade/pull/208",
     "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "totalRiskHelp.test.ts hand-checks the exact arithmetic (693.72% total = 1.93% open + 691.79% realized) against the PR #166 review's live-verified figures, plus both all-open and all-realized edge cases. RiskPanel.test.tsx and RiskSummaryCard.test.tsx both now click the 'Total Risk (Open + Realized) help' button and assert the rendered breakdown text, closing both gaps the original finding named (direct unit test + click-through precedent).",
+        "file": "frontend/src/features/portfolio/components/totalRiskHelp.test.ts"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
   }
 }
