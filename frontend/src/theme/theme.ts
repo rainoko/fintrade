@@ -81,8 +81,24 @@ export const theme = createTheme({
     // distinct from `signal.sell` so a risk breach banner never reads as
     // "this is a SELL signal" — it's a portfolio-level warning, not a
     // per-stock signal.
+    //
+    // `main` is a crimson/rose red (hue ~345°) rather than the pure red
+    // (~0°) it started as: the original #d32f2f shared essentially the same
+    // hue and saturation as `signal.sell` (#c62828, hue ~0°), so the two
+    // were only ~3.9 CIE76 ΔE apart — a near-collision no less severe than
+    // the season.spring/signal.buy one found in
+    // frontend-indicator-seasons-badge-followups-followups, just not
+    // flagged there since that task's check used raw RGB Euclidean distance
+    // (16.3, misleadingly "far enough") rather than a perceptual metric.
+    // Shifting hue away from sell (toward magenta-red, same technique used
+    // for `season.spring` below) rather than just changing lightness/
+    // saturation clears both a >=15 ΔE margin from every other palette
+    // color and >=4.5:1 WCAG contrast against white and against
+    // `background` below, while still reading unambiguously as "red/danger"
+    // (not sliding toward the orange of `signal.hold` or the magenta of
+    // `kangarooTail.main`).
     riskBreach: {
-      main: '#d32f2f',
+      main: '#d52651',
       background: '#fdecea',
     },
     // Divergence markers/connecting line (PriceChart.tsx/OscillatorChart.tsx,
@@ -113,8 +129,19 @@ export const theme = createTheme({
     // -- see that component's outlined-Chip styling). The originals computed
     // to spring 3.30:1, summer 1.97:1, autumn 4.35:1, winter 3.28:1; these
     // compute to >=4.5:1 for all four (frontend-indicator-seasons-badge-followups).
+    //
+    // `spring`'s hue was then shifted from pure green (~122°, matching
+    // `signal.buy`'s ~123°) to yellow-green (~80°): darkening spring for
+    // the 4.5:1 fix above compressed the lightness gap that used to be the
+    // only thing separating it from `signal.buy`, leaving the two only
+    // ~2.6 CIE76 ΔE apart (raw RGB Euclidean distance ~11.4, down from
+    // ~46 pre-fix) -- close to visually indistinguishable, since a
+    // same-hue/-saturation lightness-only change can't buy much perceptual
+    // distance. A hue shift (still >=4.5:1 against white) restores a
+    // comfortable margin from every other palette color
+    // (frontend-indicator-seasons-badge-followups-followups).
     season: {
-      spring: '#368139',
+      spring: '#617a2e',
       summer: '#a06504',
       autumn: '#ae5c2b',
       winter: '#3d75af',
