@@ -3,7 +3,7 @@
   "title": "Backend channel/Autoenvelope exposure -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-channel-envelope-exposure"],
   "references": [
     "docs/tasks/backend-channel-envelope-exposure.json#review",
@@ -21,5 +21,12 @@
     "pr_number": 179,
     "pr_url": "https://github.com/rainoko/fintrade/pull/179",
     "pushed_at": "2026-09-20T05:46:12Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T05:49:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/179",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified the new wraps=/patch spy test (test_autoenvelope_computed_once_regardless_of_bar_count) mirrors the sibling ema/macd/stochastic/force_index assertions in TestAnalyseHistoryPerformance exactly, and traced app/signals/engine.py's two autoenvelope call sites (the unconditional precompute in analyse_history() vs analyse()'s guarded fallback, which is never hit since channel_upper/channel_lower are always passed per bar) to confirm the assertion is genuinely falsifiable, not tautological -- a reintroduced per-bar call would push call_count to 1+len(daily_ohlcv), not 1. Backend suite: 803 passed, 99.92% coverage (no regression, above the 90% gate). ruff/mypy clean on the touched file; a pre-existing, unrelated 7-finding ruff gap in test_stochastic.py/test_triple_screen.py was confirmed byte-identical to main and out of scope for this PR. No API/schema or frontend changes (openapi.json untouched) -- no browser walkthrough or e2e run needed, PR has no UI surface. code-review skill run against the diff found no correctness or reuse/simplification issues. scripts/validate_tasks.py clean. No new non-blocking findings; no followups task needed."
   }
 }
