@@ -1223,8 +1223,8 @@
       "id": "frontend-breadth-widget",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-breadth-widget.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-breadth-widget.json"
     },
     {
       "id": "frontend-breadth-widget-followups",

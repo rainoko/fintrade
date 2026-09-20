@@ -22,6 +22,10 @@
     {
       "step": "personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when the computable-ticker count is singular (e.g. computable=1 renders '1 of 1 computable ticker (100.0%) are currently BULLISH' -- should be 'is'). Also locked in verbatim by PersonalBreadthCard.test.tsx's singular-wording test.",
       "done": true
+    },
+    {
+      "step": "New from PR #171's re-review (PersonalBreadthCard.tsx fix commit 2acf19c): the 'is'/'are' fix above keys the verb off `computable` (the computable-ticker denominator) instead of `bullishCount` (the actual grammatical subject of \"...are currently BULLISH\"), so it's still wrong whenever those two differ -- e.g. tracked_ticker_count=5, unavailable_count=1, bullish_count=1, bearish_count=3, neutral_count=0 gives computable=4, so the code emits 'are' ('1 of 4 computable tickers (25.0%) are currently BULLISH'), which should be 'is' since only 1 ticker is BULLISH. Also wrong when bullish_count=0 and computable=1 (emits 'is' for a zero count, which conventionally takes 'are'). The only test covering this fix (computable=1 AND bullishCount=1) can't distinguish the two variables, so the residual bug ships uncovered. Fix: key the is/are ternary off `bullishCount === 1`, not `computable === 1`.",
+      "done": false
     }
   ],
   "decisions": [

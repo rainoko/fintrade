@@ -3,7 +3,7 @@
   "title": "Watchlist \"personal breadth\" indicator widget",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-watchlist-breadth-proxy"
   ],
@@ -65,31 +65,31 @@
     "pushed_at": "2026-09-20T00:39:05Z"
   },
   "review": {
-    "reviewed_at": "2026-09-20T01:08:34Z",
+    "reviewed_at": "2026-09-20T01:21:21Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/171",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "PersonalBreadthCard.tsx:45 passes `alignItems=\"center\"` directly as a prop on MUI's `<Stack>` instead of this codebase's established `sx={{ alignItems: 'center' }}` convention (every other `<Stack>` usage in the repo uses `sx`). This fails `tsc -b --noEmit` (TS2769, 'No overload matches this call') -- the exact command `yarn build` and the static-verify skill run -- so `yarn build` genuinely fails on this branch, even though the PR's own stated test plan (`yarn tsc --noEmit`, without `-b`) passed because it type-checks against a different, less strict config and missed it. It also reproduces live: a real browser walkthrough and the persisted e2e suite (`make e2e`, tests/e2e/watchlist.spec.ts) both show a React console error on every WatchlistPage load: \"React does not recognize the `alignItems` prop on a DOM element ... spell it as lowercase `alignitems`\". Confirmed independently by both my own `tsc -b --noEmit`/`yarn build` runs and a separate code-review pass. Blocking: fix by switching to `sx={{ alignItems: 'center' }}`.",
+        "summary": "Confirmed fix: PersonalBreadthCard.tsx:45 now uses sx={{ alignItems: 'center' }} instead of the bare alignItems=\"center\" prop -- matches the exact convention used identically by OscillatorChart.tsx, SignalSummary.tsx, PriceChart.tsx, and TradeJournalPanel.tsx. yarn tsc -b --noEmit and yarn build both now exit 0 clean (re-ran both myself specifically, not the weaker plain tsc --noEmit that missed this originally). A live browser walkthrough (Playwright against the fixture-provider dev stack) shows zero console errors/warnings on WatchlistPage load, and make e2e's watchlist.spec.ts (which exercises GET /api/watchlist/breadth) passes with no console warning either -- no longer reproduces.",
         "file": "frontend/src/features/watchlist/components/PersonalBreadthCard.tsx",
         "line": 45
       },
       {
-        "summary": "Non-blocking: unavailable-count footnote pluralizes 'ticker(s)' off unavailable_count instead of the total tracked_ticker_count it's grammatically attached to (e.g. unavailable_count=1, tracked_ticker_count=5 renders 'ticker' instead of 'tickers'), and is locked in verbatim by a PersonalBreadthCard.test.tsx assertion. Tracked in frontend-breadth-widget-followups.",
+        "summary": "Confirmed fix: the unavailable-count footnote now pluralizes 'ticker(s)' off tracked_ticker_count (the total population the noun phrase attaches to) instead of unavailable_count. Correct and matches PersonalBreadthCard.test.tsx's updated assertion.",
         "file": "frontend/src/features/watchlist/components/PersonalBreadthCard.tsx",
         "line": 78
       },
       {
-        "summary": "Non-blocking: personalBreadthHelp.ts's unavailableClause has the same pluralization bug ('tracked ticker(s)' keyed off unavailableCount rather than trackedTickerCount), inconsistent with the correct computable-based pluralization two lines later in the same function. Tracked in frontend-breadth-widget-followups.",
+        "summary": "Confirmed fix: personalBreadthHelp.ts's unavailableClause now pluralizes off trackedTickerCount too, consistent with the computable-ticker clause's own pattern.",
         "file": "frontend/src/features/watchlist/components/personalBreadthHelp.ts",
         "line": 53
       },
       {
-        "summary": "Non-blocking: personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when computable=1 (e.g. '1 of 1 computable ticker (100.0%) are currently BULLISH' should be 'is'), also pinned verbatim by a test. Tracked in frontend-breadth-widget-followups.",
+        "summary": "Non-blocking (new, found via code-review this round): the 'is'/'are' fix resolves the exact case the original finding cited (computable=1, bullishCount=1) but keys the verb off computable (the denominator) rather than bullishCount (the actual grammatical subject of 'X ... are currently BULLISH'). Still wrong whenever bullishCount and computable differ, e.g. bullish_count=1, computable=4 renders '1 of 4 computable tickers (25.0%) are currently BULLISH' (should be 'is'), and wrong again when bullish_count=0, computable=1 (renders 'is' for a zero count). The only test added (computable=1 AND bullishCount=1, which can't distinguish the two variables) doesn't catch this. Cosmetic -- doesn't affect computed values, tests, lint, or build -- so not blocking, but tracked as a fresh finding on frontend-breadth-widget-followups rather than left only in this comment.",
         "file": "frontend/src/features/watchlist/components/personalBreadthHelp.ts",
         "line": 57
       }
     ],
-    "notes": "Backend+frontend test suites pass (backend 99.92% coverage, frontend 99.55%/98.76%/99.65%/99.64% statements/branches/functions/lines, 534 tests). Backend ruff/mypy clean; frontend eslint clean. `yarn tsc -b --noEmit` / `yarn build` fail (blocking, see comments). Live browser walkthrough via Playwright (fixture data provider) covered populated, empty, mixed BULLISH/BEARISH/NEUTRAL breakdown (verified the backend's independent-per-bucket-rounding quirk, e.g. 33.3+33.3+33.3=99.9, renders correctly since the widget shows three independent StatCards rather than a stacked bar or an implied 100% total -- no visual or textual confusion from the quirk), and an error state (PersonalBreadthCard's ErrorState renders independently of the watchlist table below it, which still loads fine) -- all functioned correctly apart from the alignItems console error. `make e2e` (16/16 specs) passes, reproducing the same alignItems console error. Component placement (feature, not common/) and no-Storybook-story decisions verified against the RiskSummaryCard precedent they cite -- both true (RiskSummaryCard.tsx has no .stories.tsx, is a feature card owning its own query). No backend/API changes in this PR, so no openapi.json regeneration was needed. No checklist item phrased as 'decide X' was left undecided. Sending back to implementing for the alignItems fix; the three grammar nits are filed as frontend-breadth-widget-followups rather than blocking this PR."
+    "notes": "Re-review (retry round 1) of PR #171 after the prior needs_work verdict. Re-ran everything from scratch on the current branch tip (commit 2acf19c): backend pytest 746 passed, 99.92% coverage; frontend vitest 99.55%/98.66%/99.65%/99.64% (statements/branches/functions/lines), all >=90% gate. Backend ruff/mypy clean. Frontend yarn lint clean. yarn tsc -b --noEmit exits 0 (the exact command the original miss was about) and yarn build also exits 0 clean (864KB bundle chunk-size warning is pre-existing/unrelated, not an error). Read the fix diff directly: the Stack alignItems change is correct and idiomatic, confirmed against 5 other identical sx={{ alignItems: 'center' }} usages elsewhere in the codebase (OscillatorChart.tsx, SignalSummary.tsx x3, PriceChart.tsx x7, TradeJournalPanel.tsx). The two bundled grammar fixes (footnote pluralization off tracked_ticker_count; personalBreadthHelp's unavailableClause pluralization) are both genuinely correct, and frontend-breadth-widget-followups.json's checklist items 1-2 are correctly marked done; item 3 (is/are agreement) is only a partial fix -- correct for the literal case the original finding cited but still buggy in general (see comments above; a fresh checklist entry was added rather than marking item 3 undone, since the original narrow claim it made is in fact resolved). Live browser walkthrough via Playwright against the fixture-data dev stack: WatchlistPage renders the Personal Breadth widget (3 StatCards + footnote), opened the MetricHelp balloon and confirmed its dynamic sentence renders correctly against live backend data (tracked=15, unavailable=13, computable=2, all-NEUTRAL), zero console errors/warnings/pageerrors and zero failed network requests throughout. make e2e (16/16 specs, including watchlist.spec.ts's add/view/remove flow exercising GET /api/watchlist/breadth) passes clean with no console-error regression. No backend/API changes in this PR, so no openapi.json regeneration applies. No checklist item phrased as 'decide X' was left undecided. No pr_decision present from a prior pass to clear. Accepting; the one new non-blocking finding is filed on frontend-breadth-widget-followups (still 'planned', now with 1 of 4 items outstanding)."
   }
 }
