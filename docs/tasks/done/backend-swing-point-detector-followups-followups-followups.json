@@ -38,5 +38,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Verified via `git diff main...task/backend-swing-point-detector-followups-followups-followups --stat` that only backend/app/signals/_swing_extremes.py (plus task-JSON bookkeeping) changed. Confirmed rolling_extreme_masks's new call to _rolling(series, span, require_full_window=require_full_window) is byte-for-byte equivalent to the removed inline min_periods/.rolling(...) construction. Confirmed test_swing_extremes.py's existing cross-check tests (pd.testing.assert_series_equal comparing rolling_extreme_masks against rolling_max_mask/rolling_min_mask, for both require_full_window=True and False) genuinely exercise this code path and would catch a regression. Full backend suite: 935 passed, coverage 99.94% (gate 90%), _swing_extremes.py at 100%. mypy clean. ruff reports 7 pre-existing findings in unrelated test files (test_stochastic.py, test_triple_screen.py) that predate this PR and are untouched by this diff -- not blocking. No new findings; no new followups task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T18:02:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov (935 passed, 99.94% coverage, matching pr-reviewer) and ruff/mypy (mypy clean; ruff's 7 findings confirmed pre-existing -- `git diff origin/main...HEAD --stat -- backend/tests` is empty, so no test file changed in this PR). Read the diff myself: only backend/app/signals/_swing_extremes.py changed, replacing the two inline lines (`min_periods = span if require_full_window else 1; rolling = series.rolling(span, center=True, min_periods=min_periods)`) with `rolling = _rolling(series, span, require_full_window=require_full_window)`, and confirmed `_rolling`'s body (lines 15-17 of the file) is those exact same two statements -- genuinely behavior-preserving."
   }
 }
