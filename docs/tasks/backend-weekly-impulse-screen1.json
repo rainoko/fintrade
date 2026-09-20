@@ -3,7 +3,7 @@
   "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/impulse.py",
@@ -90,7 +90,7 @@
     "branch": "task/backend-weekly-impulse-screen1",
     "pr_number": 187,
     "pr_url": "https://github.com/rainoko/fintrade/pull/187",
-    "pushed_at": "2026-09-20T08:36:35Z"
+    "pushed_at": "2026-09-20T08:59:31Z"
   },
   "review": {
     "reviewed_at": "2026-09-20T08:45:48Z",
