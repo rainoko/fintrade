@@ -1118,8 +1118,15 @@
       "id": "frontend-trend-strength-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-trend-strength-chart.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trend-strength-chart.json"
+    },
+    {
+      "id": "frontend-trend-strength-chart-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-trend-strength-chart-followups.json"
     },
     {
       "id": "frontend-rsi-oscillator-chart",

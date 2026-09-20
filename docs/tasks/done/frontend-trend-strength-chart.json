@@ -3,7 +3,7 @@
   "title": "New chart panel: Directional System (+DI/-DI/ADX) and ATR",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-indicator-atr-adx"
   ],
@@ -74,5 +74,31 @@
     "pr_number": 176,
     "pr_url": "https://github.com/rainoko/fintrade/pull/176",
     "pushed_at": "2026-09-20T04:11:18Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T04:19:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/176",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "atrHelp.interpretValue expresses ATR as a percentage of the current bar's EMA(13), disclosed explicitly in the text as 'a stand-in for current price level since this endpoint has no raw close field' -- confirmed via backend/openapi.json that IndicatorHistoryPoint genuinely has no close/price field, so the substitution is honest, not misleading. Non-blocking: EMA(13) can lag real price meaningfully (fast-moving/gapping markets), so the displayed percentage is an approximation worth reconsidering (e.g. adding a raw close field) -- tracked as a follow-up.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 963
+      },
+      {
+        "summary": "The ADX_RECENT_LOW_LOOKBACK_BARS=20 window is a genuine judgment call, not pinned by docs/Analyse.md or docs/ideas.md (verified via grep -- both docs give the 4-point 'rings a bell' rule's shape but no explicit lookback window). 20 bars (~1 trading month) is defensible and consistent with this app's own other 20-day windows (e.g. the volume-confirmation 20-day average, docs/Analyse.md §4/§6) -- not arbitrary. Recorded correctly as a decisions entry. Not blocking.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 869
+      },
+      {
+        "summary": "No test exercises the ADX_RECENT_LOW_LOOKBACK_BARS=20 trailing-window truncation itself -- every metricHelpContent.test.ts case for adxHelp uses <=3-point arrays where .slice(-20) never actually truncates anything, so the one behavior the whole lookback decision hinges on (excluding an older, lower ADX value outside the trailing 20 bars) is untested. Non-blocking (line/branch coverage for this file is 100%/99.6%), tracked as a follow-up.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.test.ts",
+        "line": 1163
+      },
+      {
+        "summary": "This task's own decisions entry for not extending IndicatorsPanel.tsx with +DI/-DI/ADX/ATR stat cards explicitly calls that a 'reasonable, defensible follow-up' since each trend_strength field (unlike OBV/A-D) is a meaningful single-bar value -- tracked as a follow-up so this doesn't only live in a decisions note that could go unread once the PR merges."
+      }
+    ],
+    "notes": "Full review: backend suite 791/791 passed, 99.92% coverage; frontend suite 578/578 passed after confirming one PortfolioPage.test.tsx timeout was a flake under parallel load (passed cleanly standalone and on re-run with --coverage), coverage 99.6%/98.8%/99.68%/99.68% (statements/branches/functions/lines), well above the 90% gate; TrendStrengthChart.tsx itself at 100%. Backend ruff+mypy clean; frontend eslint clean; `yarn tsc -b --noEmit` clean (exit 0, run explicitly per dispatch instructions). code-review skill (medium effort) found zero findings against the diff. Component placement (new TrendStrengthChart.tsx in features/stocks/components/, not folded into OscillatorChart.tsx or VolumeIndicatorsChart.tsx) is reasonable and well-justified: OscillatorChart.tsx is explicitly scoped to Screen-2/Impulse-slope oscillators, and +DI/-DI/ADX/ATR belong to a conceptually distinct Directional System (Elder ch. 24), matching the precedent already set for OBV/A-D getting their own component. Verified live against docs/Analyse.md §4 row 16 and §4 lines 154-159: the 20-bar ADX recent-low lookback is a defensible, documented judgment call, not an unjustified number. Verified the ema_13-as-price-stand-in for ATR's percentage-of-price reading is accurate to what's actually computed (confirmed via backend/openapi.json that IndicatorHistoryPoint has no close field) and is disclosed honestly in the UI text itself, not presented as more precise than it is -- non-blocking, tracked as a follow-up given the lag risk in fast-moving markets. No API route/schema changes in this PR (trend_strength was already exposed by the merged backend-indicator-atr-adx task), so no openapi.json regeneration was required or expected. Browser walkthrough (headless Chromium against a fixture-mode backend + real Vite dev server, since no Playwright MCP browser tool was available in this session): AAPL daily view renders the two-pane chart correctly (+DI/-DI/ADX pane 0, ATR pane 1), all three MetricHelp balloons open with live, ticker-specific interpretation text matching what the code computes; weekly-interval edge case correctly shows the 'only available for the Daily interval' EmptyState, consistent with OscillatorChart/VolumeIndicatorsChart; no console errors or failed network requests observed. Ran `make e2e` (frontend/tests/e2e/*.spec.ts, 4 spec files/16 tests) after stopping the manually-started dev servers -- all 16 passed; no new e2e spec was added for this feature, consistent with the task's own decisions entry and prior precedent (RSI/OBV-A-D chart additions also added none). Checklist item 4 ('Tests + Storybook story') is satisfied via the task's own decision not to add a Storybook story for this feature-specific chart component (Frontend.md §4 scopes that requirement to components/common/), consistent with PriceChart/OscillatorChart/VolumeIndicatorsChart precedent. All checklist items phrased as 'decide X' have corresponding decisions entries (ATR presentation, pane split, ADX lookback window, IndicatorsPanel scope, Storybook/e2e scope) -- no undocumented judgment calls found. Three non-blocking findings filed to docs/tasks/frontend-trend-strength-chart-followups.json."
   }
 }
