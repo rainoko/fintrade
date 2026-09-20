@@ -936,8 +936,8 @@
       "id": "backend-indicator-obv-ad",
       "area": "backend/indicators",
       "skill": "add-indicator",
-      "state": "testing",
-      "path": "docs/tasks/backend-indicator-obv-ad.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-obv-ad.json"
     },
     {
       "id": "backend-swing-point-detector",

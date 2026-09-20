@@ -3,7 +3,7 @@
   "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/indicators/force_index.py",
@@ -50,26 +50,10 @@
     }
   ],
   "review": {
-    "reviewed_at": "2026-09-20T02:15:49Z",
+    "reviewed_at": "2026-09-20T02:21:18Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/173",
-    "verdict": "needs_work",
-    "comments": [
-      {
-        "summary": "Making obv/accumulation_distribution required (non-nullable) fields on IndicatorHistoryPoint breaks the frontend build: `yarn tsc -b --noEmit` fails with 6 TS2739 errors ('missing the following properties ... accumulation_distribution, obv') because three pre-existing test files construct IndicatorHistoryPoint-shaped literals without the two new fields. frontend/tests/mocks/handlers.ts's shared fixture was correctly updated, but these three files build their own separate local fixtures that were missed. vitest itself still passes (it doesn't type-check), so this was only caught by running tsc directly, not by the test suite. Blocking: static analysis is a hard gate per CLAUDE.md/pr-reviewer's process.",
-        "file": "frontend/src/features/stocks/components/OscillatorChart.test.tsx",
-        "line": 132
-      },
-      {
-        "summary": "Same missing-fields TS2739 error as OscillatorChart.test.tsx:132/147/180, at two more literal sites.",
-        "file": "frontend/src/features/stocks/components/PriceChart.test.tsx",
-        "line": 264
-      },
-      {
-        "summary": "Same missing-fields TS2739 error as above, one more site.",
-        "file": "frontend/src/features/stocks/components/metricHelpContent.test.ts",
-        "line": 908
-      }
-    ],
-    "notes": "Everything else checks out: backend suite 759 passed/99.92% coverage, frontend suite 536 passed/99%+ coverage (no regression, both well above the 90% gate); backend ruff+mypy clean; frontend eslint clean. code-review skill (independent background pass) converged on the exact same single finding and raised nothing else. Hand-verified the obv and accumulation_distribution reference-value fixtures independently (recomputed both by hand from the fixture inputs, matched the committed pytest.approx assertions exactly) -- both formulas match Elder ch. 29's standard OBV/A-D definitions. Confirmed via grep across backend/app/ that obv/accumulation_distribution are referenced nowhere outside app/indicators/{obv,accumulation_distribution}.py, app/api/schemas.py, and app/api/routers/stocks.py -- genuinely never read by _determine_signal, confidence.py, or analyse()/analyse_history()'s screens, matching the task's own decisions entry and docs/Analyse.md's new §4 rows. The two edge-case decisions (OBV's undefined first-bar direction and A/D's zero-range-bar division both mapped to a 0 contribution instead of NaN, to avoid NaN poisoning the cumsum) are reasonable and correctly implemented -- verified against both indicator modules' code and their dedicated unit tests (test_first_bar_is_not_nan, test_zero_range_bar_contributes_zero_not_nan). backend/openapi.json regenerated and matches frontend/src/api/types.ts (re-ran scripts/export_openapi.py from a clean checkout -- zero diff); both have the new required obv/accumulation_distribution fields with schema descriptions per CLAUDE.md's API documentation standard. No new module/dependency/layer added (architecture-review not triggered); no frontend component added or changed (only frontend/src/api/types.ts and frontend/tests/mocks/handlers.ts touched), so the components/common/-vs-feature placement check (step 7a) doesn't apply. Browser walkthrough performed against the stock detail page (GET /api/stocks/{ticker}/indicators already has frontend consumers -- OscillatorChart/PriceChart): golden path (AAPL, 1Y range) renders the full analysis panel, price chart, and oscillator panels correctly with obv/accumulation_distribution present in the API response, zero console/network errors; edge case (unknown ticker ZZZZZZ) shows the expected 404/not-found handling, only the expected 404 network entries. Also ran the persisted e2e suite (make e2e): all 16 specs across 5 files passed, including stock-analysis.spec.ts's 1Y/max-range and unknown-ticker specs which exercise this same endpoint. Noted in passing: GET /api/stocks/{ticker}/indicators?range=1y took ~42s against the live yfinance provider in this dev environment; confirmed via a direct curl comparison that this is pre-existing live-network latency in my local walkthrough setup (not caused by this PR's O(1) vectorized obv/ad cumsum additions, and not reproducible at all against the fixture provider, where the same request is fast) -- not filed as a follow-up since it isn't this PR's issue and the underlying analyse_history performance question is already tracked and resolved by the api-stocks-indicator-history-followups task chain. No checklist item phrased as 'decide X' was left undecided -- the response-shape decision and the two edge-case-mapping decisions are both recorded with rationale and rejected alternatives, meeting CLAUDE.md's decision-memory bar. No non-blocking findings beyond the one blocking tsc issue above, so no <id>-followups task was created this round."
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Retry round 1, re-review scoped to the round-1 needs_work finding per dispatch instructions. task-worker's fix (commit d5c668b) adds obv/accumulation_distribution to the three local IndicatorHistoryPoint-shaped literals that were missing them (OscillatorChart.test.tsx, PriceChart.test.tsx, metricHelpContent.test.ts). Confirmed: `yarn tsc -b --noEmit` now passes clean with zero output (the exact command that caught the regression last round). Full frontend suite re-run: 536/536 tests passed across 56 files, no regression. `yarn lint` (eslint) clean. Diff-skimmed the fix commit directly (git show d5c668b): it touches only the three test files plus the task-JSON state mirror -- no other files changed since round 1's accept-blocking finding was raised. The added obv/accumulation_distribution values (e.g. 12000.0/3400.0, 10500.0/2900.0, 8000.0/2100.0, 5000.0/1200.0) are non-zero, distinct per row, and plausible cumulative-series magnitudes -- not degenerate placeholders like 0 that could mask a bug. Grepped all three files for any assertion referencing obv or accumulation_distribution: none exists: the fields are used purely to satisfy the IndicatorHistoryPoint type on these tests' local fixtures and are not read by any assertion in OscillatorChart.test.tsx, PriceChart.test.tsx, or metricHelpContent.test.ts, so the fix cannot be masking a behavioral gap in what those tests actually check. Per dispatch instructions, did not re-run the backend suite/coverage, verify-elder-signal, or the browser/e2e walkthrough this round since round 1 already verified those clean and this fix touches only frontend test fixtures with nothing suggesting those areas are now in question. No new findings, blocking or non-blocking, this round -- no <id>-followups task created/updated."
   }
 }
