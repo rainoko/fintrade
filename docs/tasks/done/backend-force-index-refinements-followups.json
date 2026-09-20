@@ -1,0 +1,45 @@
+{
+  "id": "backend-force-index-refinements-followups",
+  "title": "Force Index refinements — non-blocking review follow-up from PR #185",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-force-index-refinements"],
+  "references": [
+    "docs/tasks/done/backend-force-index-refinements.json#review",
+    "https://github.com/rainoko/fintrade/pull/185"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #185 (backend-force-index-refinements), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`_is_force_index_spike`'s new asymmetric-multiplier selection (`backend/app/signals/triple_screen.py`, around the `multiplier = (... if not negative else ...)` expression at the end of the function) uses a double-negative (`not negative` / `else`) ternary. This is a minor style inconsistency with the sign-selection code a few lines above it in the same function, which explicitly comments that it deliberately avoids exactly this pattern ('Signed multiplier rather than an `if negative: ... else: ...` pair of sign checks... instead of forcing a reader through... double-negative branches'). Rewriting as `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH` would read more directly and match the function's own stated convention. Purely a readability nit -- verified correct via hand-computed test values, not a behavior bug. Fixed opportunistically in PR #185 itself (as part of fixing the blocking is_force_index_reversal_spike baseline-window bug in the same file) rather than as a separate change here.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closing this task with a JSON-only PR (no source change) rather than re-applying the fix. Verified `_is_force_index_spike` in backend/app/signals/triple_screen.py already uses the direct (non-double-negative) form `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`, matching what the checklist item asked for, and matching PR #185's own review notes (backend-force-index-refinements.json#review) which independently confirmed this same opportunistic fix landed in commit ae3007c. Full backend suite re-run clean (850 passed) as a sanity check before closing.",
+      "rationale": "The task's only checklist item was already marked done:true with a note that the fix landed opportunistically in PR #185; re-doing the fix here would be redundant and risks a spurious no-op diff. Formally closing (state -> testing, git block recorded) lets it proceed through the normal review pipeline to done rather than sitting in planned indefinitely despite having nothing left to implement."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-force-index-refinements-followups",
+    "pr_number": 186,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/186",
+    "pushed_at": "2026-09-20T08:14:57Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T08:16:20Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/186",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "JSON-only task-closure PR. Confirmed via `git diff main...task/backend-force-index-refinements-followups --stat` that only docs/tasks/backend-force-index-refinements-followups.json and docs/tasks/index.json changed -- no source diff. Independently read backend/app/signals/triple_screen.py's _is_force_index_spike (lines 262-266) and confirmed the multiplier selection is already the direct form `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`, matching the task's decision entry and PR #185's own review notes. Commit ae3007c's message on main also explicitly documents this same fix landing as part of the is_force_index_reversal_spike baseline-guard fix. Ran the full backend suite as a sanity check (no code changed): 850 passed, 99.93% coverage, well above the 90% gate. No static analysis needed since no source changed. No UI surface -- browser walkthrough and e2e suite not applicable. No blocking findings; no new non-blocking findings to track."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T08:18:13Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...task/backend-force-index-refinements-followups --stat` confirms only the task-board JSON files changed (no source diff). Read backend/app/signals/triple_screen.py's _is_force_index_spike myself (lines 259-266) and confirmed the multiplier ternary is genuinely already the direct form (`... if negative else ...`), not the double-negative pattern the checklist flagged. Re-ran the full backend suite myself: 850 passed, 99.93% coverage, matching pr-reviewer's reported numbers exactly."
+  }
+}
