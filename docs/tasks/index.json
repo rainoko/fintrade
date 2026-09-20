@@ -1610,6 +1610,41 @@
       "skill": "add-frontend-feature",
       "state": "planned",
       "path": "docs/tasks/frontend-trade-apgar.json"
+    },
+    {
+      "id": "backend-market-scanner",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-market-scanner.json"
+    },
+    {
+      "id": "frontend-market-scanner-page",
+      "area": "frontend/pages",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-market-scanner-page.json"
+    },
+    {
+      "id": "backend-market-breadth-indicators",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-market-breadth-indicators.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget",
+      "area": "frontend/pages/watchlist",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-market-breadth-widget.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "waiting_input",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode.json"
     }
   ]
 }
