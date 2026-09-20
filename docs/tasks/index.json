@@ -1062,7 +1062,7 @@
       "id": "backend-trade-grading-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-trade-grading-followups.json"
     },
     {

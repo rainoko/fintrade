@@ -96,6 +96,57 @@ def grade_trade(
     )
 
 
+def grade_trade_from_filtered_history(
+    *,
+    entry_price: float,
+    entry_date: date,
+    exit_price: float,
+    exit_date: date,
+    filtered_daily_ohlcv: pd.DataFrame,
+    channel: pd.DataFrame,
+) -> TradeGrade:
+    """Grades a closed trade from a ticker's *already-filtered-and-channeled* daily history --
+    `filtered_daily_ohlcv` must already have been through
+    `app.signals.engine.drop_malformed_daily_bars`, and `channel` must already be
+    `autoenvelope(filtered_daily_ohlcv["close"])` (or an index-compatible equivalent).
+
+    This is the shared per-row grading step both `grade_closed_trade` (below, for a single
+    trade against its own freshly-fetched history) and a caller grading many closed trades for
+    the *same* ticker (e.g. `app.api.routers.portfolio._grade_closed_trades`) delegate to --
+    the latter derives `filtered_daily_ohlcv`/`channel` once per ticker and calls this function
+    once per row, instead of paying `drop_malformed_daily_bars`'s dropna pass and
+    `autoenvelope`'s full rolling-window computation again for every closed trade on that
+    ticker (see the `backend-trade-grading-followups` task).
+
+    Returns an all-`None` `TradeGrade` (never raises) whenever `entry_date` or `exit_date`
+    isn't present as an exact row in `filtered_daily_ohlcv` -- e.g. the ticker's cached/
+    fetched history doesn't reach back that far, that day was dropped as malformed, or (for a
+    position built from more than one buy -- see `ClosedTradeORM`'s own docstring on why
+    `entry_price`/`entry_date` can be a blended, quantity-weighted value rather than a single
+    literal day's purchase) `entry_date` doesn't correspond to a real trading day for this
+    ticker at all -- rather than guessing from a nearby bar, since Elder's formulas are
+    specifically about *that exact day's* range.
+    """
+    entry_ts = pd.Timestamp(entry_date)
+    exit_ts = pd.Timestamp(exit_date)
+    if entry_ts not in filtered_daily_ohlcv.index or exit_ts not in filtered_daily_ohlcv.index:
+        return TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+
+    entry_row = filtered_daily_ohlcv.loc[entry_ts]
+    exit_row = filtered_daily_ohlcv.loc[exit_ts]
+
+    return grade_trade(
+        buy_price=entry_price,
+        entry_day_high=float(entry_row["high"]),
+        entry_day_low=float(entry_row["low"]),
+        sell_price=exit_price,
+        exit_day_high=float(exit_row["high"]),
+        exit_day_low=float(exit_row["low"]),
+        channel_upper_entry_day=float(channel.loc[entry_ts, "upper"]),
+        channel_lower_entry_day=float(channel.loc[entry_ts, "lower"]),
+    )
+
+
 def grade_closed_trade(
     *,
     entry_price: float,
@@ -109,7 +160,7 @@ def grade_closed_trade(
     oldest-first), deriving the entry/exit day's own high/low plus the entry-day channel
     bounds (`app.indicators.autoenvelope.autoenvelope`, EMA(13) +/- avg % deviation -- same
     definition as `AnalysisResponse.indicators.channel_upper`/`channel_lower`) from it, then
-    delegating to `grade_trade` above.
+    delegating to `grade_trade_from_filtered_history` above.
 
     `daily_ohlcv` is passed through `app.signals.engine.drop_malformed_daily_bars` first
     (default `require_full_ohlc_on_latest_bar=True`, i.e. *every* bar needs full OHLC, not
@@ -118,32 +169,18 @@ def grade_closed_trade(
     latest bar) -- see that function's own docstring for why a malformed bar's NaN
     open/high/low must never silently flow into a computation that reads them.
 
-    Returns an all-`None` `TradeGrade` (never raises) whenever `entry_date` or `exit_date`
-    isn't present as an exact row in the filtered `daily_ohlcv` -- e.g. the ticker's cached/
-    fetched history doesn't reach back that far, that day was dropped as malformed, or (for a
-    position built from more than one buy -- see `ClosedTradeORM`'s own docstring on why
-    `entry_price`/`entry_date` can be a blended, quantity-weighted value rather than a single
-    literal day's purchase) `entry_date` doesn't correspond to a real trading day for this
-    ticker at all -- rather than guessing from a nearby bar, since Elder's formulas are
-    specifically about *that exact day's* range.
+    This function derives `filtered_daily_ohlcv`/`channel` itself and is the right entry point
+    for grading a single trade in isolation (e.g. unit tests below). A caller grading several
+    closed trades for the *same* ticker should instead derive those two once and call
+    `grade_trade_from_filtered_history` directly per row -- see that function's own docstring.
     """
-    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
-    entry_ts = pd.Timestamp(entry_date)
-    exit_ts = pd.Timestamp(exit_date)
-    if entry_ts not in daily_ohlcv.index or exit_ts not in daily_ohlcv.index:
-        return TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
-
-    entry_row = daily_ohlcv.loc[entry_ts]
-    exit_row = daily_ohlcv.loc[exit_ts]
-    channel = autoenvelope(daily_ohlcv["close"])
-
-    return grade_trade(
-        buy_price=entry_price,
-        entry_day_high=float(entry_row["high"]),
-        entry_day_low=float(entry_row["low"]),
-        sell_price=exit_price,
-        exit_day_high=float(exit_row["high"]),
-        exit_day_low=float(exit_row["low"]),
-        channel_upper_entry_day=float(channel.loc[entry_ts, "upper"]),
-        channel_lower_entry_day=float(channel.loc[entry_ts, "lower"]),
+    filtered_daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+    channel = autoenvelope(filtered_daily_ohlcv["close"])
+    return grade_trade_from_filtered_history(
+        entry_price=entry_price,
+        entry_date=entry_date,
+        exit_price=exit_price,
+        exit_date=exit_date,
+        filtered_daily_ohlcv=filtered_daily_ohlcv,
+        channel=channel,
     )

@@ -28,6 +28,7 @@ from app.portfolio.grading import (
     buy_grade_pct,
     grade_closed_trade,
     grade_trade,
+    grade_trade_from_filtered_history,
     sell_grade_pct,
     trade_grade_pct,
 )
@@ -227,3 +228,95 @@ class TestGradeClosedTrade:
             daily_ohlcv=frame,
         )
         assert result == TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+
+
+class TestGradeTradeFromFilteredHistory:
+    """`grade_trade_from_filtered_history` is the shared per-row step `grade_closed_trade`
+    itself delegates to after deriving the filtered frame/channel once -- and the one a
+    multi-row-per-ticker caller (e.g. `app.api.routers.portfolio._grade_closed_trades`) is
+    meant to call directly with an already-derived filtered frame/channel, instead of paying
+    for `drop_malformed_daily_bars`/`autoenvelope` again per row (`backend-trade-grading-
+    followups`)."""
+
+    def test_grade_closed_trade_delegates_to_it_with_identical_results(self) -> None:
+        """`grade_closed_trade` (single-trade convenience wrapper) must produce byte-identical
+        results to calling `grade_trade_from_filtered_history` directly against the same
+        already-filtered frame/channel -- proving the split didn't change any behavior, just
+        where the filtering/channel derivation happens."""
+        frame = _frame(150)
+        entry_ts, exit_ts = frame.index[120], frame.index[130]
+        entry_date, exit_date = entry_ts.date(), exit_ts.date()
+        entry_price, exit_price = 101.0, 103.0
+
+        via_wrapper = grade_closed_trade(
+            entry_price=entry_price,
+            entry_date=entry_date,
+            exit_price=exit_price,
+            exit_date=exit_date,
+            daily_ohlcv=frame,
+        )
+
+        channel = autoenvelope(frame["close"])
+        via_shared_step = grade_trade_from_filtered_history(
+            entry_price=entry_price,
+            entry_date=entry_date,
+            exit_price=exit_price,
+            exit_date=exit_date,
+            filtered_daily_ohlcv=frame,
+            channel=channel,
+        )
+
+        assert via_wrapper == via_shared_step
+        assert via_shared_step.trade_grade_pct is not None
+
+    def test_none_when_entry_date_not_in_filtered_frame(self) -> None:
+        frame = _frame(150)
+        channel = autoenvelope(frame["close"])
+        result = grade_trade_from_filtered_history(
+            entry_price=100.0,
+            entry_date=frame.index[0].date().replace(year=1999),
+            exit_price=105.0,
+            exit_date=frame.index[130].date(),
+            filtered_daily_ohlcv=frame,
+            channel=channel,
+        )
+        assert result == TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+
+    def test_a_shared_channel_grades_multiple_rows_of_the_same_ticker_correctly(self) -> None:
+        """The core scenario the followups task fixes: two closed trades on the same ticker,
+        graded off one shared filtered-frame/channel pair, each still getting their own
+        correct entry/exit-day values."""
+        frame = _frame(150)
+        channel = autoenvelope(frame["close"])
+
+        first = grade_trade_from_filtered_history(
+            entry_price=101.0,
+            entry_date=frame.index[120].date(),
+            exit_price=103.0,
+            exit_date=frame.index[130].date(),
+            filtered_daily_ohlcv=frame,
+            channel=channel,
+        )
+        second = grade_trade_from_filtered_history(
+            entry_price=100.5,
+            entry_date=frame.index[105].date(),
+            exit_price=102.0,
+            exit_date=frame.index[115].date(),
+            filtered_daily_ohlcv=frame,
+            channel=channel,
+        )
+
+        assert first == grade_closed_trade(
+            entry_price=101.0,
+            entry_date=frame.index[120].date(),
+            exit_price=103.0,
+            exit_date=frame.index[130].date(),
+            daily_ohlcv=frame,
+        )
+        assert second == grade_closed_trade(
+            entry_price=100.5,
+            entry_date=frame.index[105].date(),
+            exit_price=102.0,
+            exit_date=frame.index[115].date(),
+            daily_ohlcv=frame,
+        )

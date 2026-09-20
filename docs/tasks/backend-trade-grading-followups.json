@@ -3,7 +3,7 @@
   "title": "A-trade grading — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-trade-grading"],
   "references": [
     "docs/tasks/done/backend-trade-grading.json#review",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "GET /api/portfolio/closed-trades shares the per-ticker daily-history fetch across a ticker's rows (`_grade_closed_trades`'s `frames` dict), but the more expensive per-ticker derivation inside `grade_closed_trade` -- `drop_malformed_daily_bars(daily_ohlcv)` and the full `autoenvelope()` rolling-window computation over the whole history -- is redundantly recomputed once per closed-trade row instead of once per ticker. A ticker with many round-trip closed trades (e.g. 50 AAPL buy/sell pairs) triggers 50 separate dropna passes and 50 separate autoenvelope() computations over the identical frame, growing linearly with trade count per ticker rather than being computed once and reused. Fix by precomputing the filtered frame + channel once per ticker in `_grade_closed_trades` and passing the already-derived entry/exit rows + channel bounds into `grade_trade` directly, bypassing `grade_closed_trade`'s per-call re-derivation for the multi-row-per-ticker case.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Instead of extracting entry/exit rows + bare channel-bound floats in `_grade_closed_trades` and calling `grade_trade` directly (the checklist's literal phrasing), added a new `app.portfolio.grading.grade_trade_from_filtered_history(*, entry_price, entry_date, exit_price, exit_date, filtered_daily_ohlcv, channel)` that takes the already-filtered frame + already-computed channel DataFrame and does the entry/exit-date row lookup (including the not-an-exact-row -> all-None degrade) itself; `_grade_closed_trades` calls this once per row after computing `filtered_daily_ohlcv`/`channel` once per ticker, and `grade_closed_trade` (the single-trade convenience wrapper, kept for its own existing unit tests and as the correct entry point for grading one trade in isolation) now derives those two and delegates to it too.",
+      "rationale": "The row-lookup-and-degrade-to-None logic (`entry_ts`/`exit_ts` not in the filtered frame's index -> an all-None TradeGrade) is exactly the kind of per-row derivation this followup is about sharing, not duplicating -- inlining it into the router's `_grade_closed_trades` (to match the checklist's literal 'passing entry/exit rows + channel bounds into grade_trade directly' wording) would have duplicated that not-a-trivial-one-liner degrade check in two places (router and grading.py) and made it easy for the two to drift. Keeping it as one grading.py function callable either once (via grade_closed_trade, single trade) or in a loop over a shared filtered_daily_ohlcv/channel pair (via _grade_closed_trades, many trades on one ticker) achieves the exact same fix -- the expensive dropna/autoenvelope passes happen once per ticker, not once per row -- while keeping the pure-domain-function-plus-thin-router-glue split the original backend-trade-grading task's own decisions established (grading logic lives in app.portfolio.grading, not app.api.routers.portfolio). Verified byte-identical output between the two call paths with a dedicated unit test (TestGradeTradeFromFilteredHistory.test_grade_closed_trade_delegates_to_it_with_identical_results) and added an integration test (TestGetClosedTradesSharesOneFetchPerTicker.test_two_trades_same_ticker_only_filter_and_channel_once) that monkeypatches drop_malformed_daily_bars/autoenvelope in the router module to assert each is called exactly once for two same-ticker closed trades, not the pre-fix once-per-row."
     }
   ]
 }
