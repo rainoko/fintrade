@@ -83,6 +83,8 @@ Use this as a hard **gate**: if Impulse is Red, do not emit a fresh Buy signal e
 | 11 | Divergence Detection (MACD-Histogram / Stochastic / RSI) | Daily | 20–40-bar swing spacing, ≤50% second-extreme depth (Kerry Lovvorn's empirical filters) | Momentum-vs-price divergence, one of Elder's strongest signal types |
 | 12 | Indicator Seasons (MACD-Histogram) | Daily | slope (rising/falling) × position vs. zero centerline | Four-way Spring/Summer/Autumn/Winter classification of trend maturity (informational only) |
 | 13 | Kangaroo Tail Pattern ("fingers") | Daily | bar range ≥2.5× the 10-day average, ≥50% body retracement from the tip | 3-bar OHLC reversal pattern, confirmed by the next bar; suggested stop halfway through the tail |
+| 14 | On-Balance Volume (OBV) | Daily | cumulative running total, no parameters | Volume-weighted momentum; cumulative-series pattern/divergence only (informational) |
+| 15 | Accumulation/Distribution (A/D) | Daily | cumulative running total, no parameters | Volume weighted by close's position within the day's range; cumulative-series pattern/divergence only (informational) |
 
 Optional/secondary (not required for MVP, note for future): Williams %R, SafeZone stops (volatility-based trailing stop using average of downside/upside penetrations), Directional System / ADX for trend strength.
 
@@ -138,6 +140,15 @@ Row 13 (Kangaroo Tail Pattern, "fingers"), Elder ch. 20 (pp. 65-67): a 3-bar OHL
 **Suggested stop**, per the book's own explicit rule ("halfway through the tail, not at its tip — too wide — or its base — too tight"): the tail bar's own range midpoint, `(high + low) / 2`.
 
 Exposed as `kangaroo_tail` on `GET /api/stocks/{ticker}/analysis` and `GET /api/stocks/{ticker}/indicators` (the single most recently confirmed tail — same "current state" convention as `divergence`, Row 11) — see `docs/architecture/API.md`. **Detection + exposure only**: not wired into `_determine_signal`, the Impulse gate, or confidence scoring.
+
+Rows 14-15 (On-Balance Volume / Accumulation-Distribution), Elder ch. 29 (pp. 107-112), developed respectively by Joseph Granville and Larry Williams — two volume-based indicators, both cumulative running totals whose absolute level is meaningless (it depends on however far back the underlying history happens to start): only their pattern of highs/lows and divergence against price matters, same as every other oscillator in this app (docs/ideas.md).
+
+- **OBV** (`app.indicators.obv.obv`): today's full volume is added to the running total if close > prior close, subtracted if close < prior close, left unchanged if flat. The whole day's volume is credited to whichever side "won," however narrow the margin.
+- **A/D** (`app.indicators.accumulation_distribution.accumulation_distribution`): `(close - open) / (high - low) * volume`, cumulative running total — more finely calibrated than OBV since it credits volume *proportional to where the close landed within the day's own range*, instead of the whole day's volume to whichever side won. Conceptually close to Elder-Ray (Row 5, both read the open/close-vs-range relationship) but A/D is cumulative and volume-weighted where Elder-Ray isn't — a genuinely distinct indicator, not a duplicate.
+
+Edge cases (see this task's `decisions` entry, docs/tasks/backend-indicator-obv-ad.json, for the full rationale): OBV's first bar has no prior close to compare against, so its direction is undefined — mapped to a 0 contribution (the running total starts at 0) rather than left NaN, since NaN is "sticky" under a cumulative sum. A/D's zero-range bars (`high == low`) make that day's contribution a 0/0 division — also mapped to 0 for the same reason. Both series are therefore *never* null, unlike every other indicator in this table that has a warm-up period.
+
+Exposed as `obv`/`accumulation_distribution` on each point of `GET /api/stocks/{ticker}/indicators` only — see `docs/architecture/API.md`. **Not** exposed on `GET /api/stocks/{ticker}/analysis`'s `indicators` (a single latest-bar snapshot): a cumulative series' current level in isolation is meaningless without the trailing history to compare it against, unlike `rsi`/`season` (Rows 10/12), which are meaningful single-bar values. **Computation + exposure only**: not wired into `_determine_signal`, the Impulse gate, or confidence scoring; divergence detection against OBV/A-D (also noted in docs/ideas.md) is an explicit, separate follow-up this task intentionally left unimplemented — it depends on `app.signals.swing_points`, the same building block `app.signals.divergence` already uses for MACD-Histogram/Stochastic/RSI (see the `backend-swing-point-detector` task).
 
 ---
 

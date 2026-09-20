@@ -6,6 +6,7 @@ touch a live market data provider or the SQLite cache underneath it.
 """
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_data_provider
@@ -14,6 +15,10 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.indicators.accumulation_distribution import (
+    accumulation_distribution as compute_accumulation_distribution,
+)
+from app.indicators.obv import obv as compute_obv
 from app.main import app
 
 
@@ -319,6 +324,8 @@ class TestGetIndicatorHistory:
             "confidence_band",
             "divergence",
             "kangaroo_tail",
+            "obv",
+            "accumulation_distribution",
         }
         assert set(point["tide"]) == {"trend", "weekly_macd_histogram_slope"}
         # This fixture (26 daily bars) is far shorter than the Autoenvelope channel's
@@ -579,3 +586,78 @@ class TestGetIndicatorHistory:
 
         assert response.status_code == 200
         assert response.json()["points"] == []
+
+
+class TestObvAndAccumulationDistributionFields:
+    """OBV/A-D (docs/Analyse.md §4, Elder ch. 29) are cumulative running totals computed
+    directly from `daily_ohlcv` (no Screen/gate machinery involved, unlike every other field
+    on `IndicatorHistoryPoint`), so their own hand-computed reference-value coverage lives in
+    tests/unit/indicators/test_obv.py and test_accumulation_distribution.py -- these tests
+    only cover the endpoint's wiring: that the values returned match calling those functions
+    directly on the same input, that they're never null, and that `range` trimming doesn't
+    change an already-visible point's own value (mirrors
+    test_range_trimming_does_not_degrade_indicator_warm_up for the other indicator fields).
+    """
+
+    def test_values_match_calling_the_indicator_functions_directly(self) -> None:
+        daily = _buy_daily_ohlcv()
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = _get_indicator_history(provider, range="max")
+
+        assert response.status_code == 200
+        points = response.json()["points"]
+        expected_obv = compute_obv(daily["close"], daily["volume"])
+        expected_ad = compute_accumulation_distribution(
+            daily["open"], daily["high"], daily["low"], daily["close"], daily["volume"]
+        )
+        assert len(points) == len(daily)
+        for point, expected_obv_value, expected_ad_value in zip(
+            points, expected_obv, expected_ad, strict=True
+        ):
+            assert point["obv"] == pytest.approx(expected_obv_value)
+            assert point["accumulation_distribution"] == pytest.approx(expected_ad_value)
+
+    def test_never_null(self) -> None:
+        """Unlike stochastic_k/force_index_2ema/channel_upper/channel_lower/rsi/season, OBV/
+        A-D have no warm-up period at all -- even the very first bar has a well-defined
+        (0-contribution) value, per app.indicators.obv.obv/
+        app.indicators.accumulation_distribution.accumulation_distribution's own docstrings."""
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()}
+        )
+
+        response = _get_indicator_history(provider)
+
+        points = response.json()["points"]
+        assert all(point["obv"] is not None for point in points)
+        assert all(point["accumulation_distribution"] is not None for point in points)
+
+    def test_range_trimming_does_not_change_already_visible_point_values(self) -> None:
+        """OBV/A-D are cumulative over the ticker's *entire* available history, not reset to
+        the requested `range` window -- trimming `range` only changes which points are
+        included, never an already-visible point's own obv/accumulation_distribution value."""
+        daily = _buy_daily_ohlcv()
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        full_response = _get_indicator_history(provider, range="max")
+        trimmed_response = _get_indicator_history(provider, range="7d")
+
+        full_points = full_response.json()["points"]
+        trimmed_points = trimmed_response.json()["points"]
+        assert full_points[-len(trimmed_points) :] == trimmed_points
+
+    def test_not_exposed_on_analysis_endpoint(self) -> None:
+        """OBV/A-D are cumulative series whose absolute level is meaningless as a single
+        latest-bar value -- unlike rsi/season, they're intentionally *not* added to
+        GET /api/stocks/{ticker}/analysis's `indicators` (see this task's `decisions` entry).
+        """
+        provider = _StubProvider(
+            daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        assert "obv" not in response.json()["indicators"]
+        assert "accumulation_distribution" not in response.json()["indicators"]

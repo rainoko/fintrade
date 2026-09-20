@@ -26,6 +26,10 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.indicators.accumulation_distribution import (
+    accumulation_distribution as compute_accumulation_distribution,
+)
+from app.indicators.obv import obv as compute_obv
 from app.signals.divergence import Divergence
 from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
 from app.signals.kangaroo_tail import KangarooTail
@@ -427,6 +431,18 @@ def get_indicator_history(
     from_index = len(daily_ohlcv) - len(visible_daily)
     history = analyse_history(ticker, daily_ohlcv, weekly_ohlcv, from_index=from_index)
 
+    # OBV/A-D are purely causal cumulative running totals (each bar's value depends only on
+    # data up to and including it, no Screen/gate machinery involved) -- computed once over
+    # the full (untrimmed) `daily_ohlcv` so their cumulative level is anchored to this
+    # ticker's entire available history regardless of the requested `range` (matching every
+    # other indicator series here, which is why they don't need to flow through
+    # `analyse`/`analyse_history` the way Screen-dependent indicators do). See this task's
+    # `decisions` entry (docs/tasks/backend-indicator-obv-ad.json).
+    obv_full = compute_obv(daily_ohlcv["close"], daily_ohlcv["volume"])
+    accumulation_distribution_full = compute_accumulation_distribution(
+        daily_ohlcv["open"], daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"], daily_ohlcv["volume"]
+    )
+
     points = [
         IndicatorHistoryPoint(
             date=bar_date.date(),
@@ -453,7 +469,9 @@ def get_indicator_history(
             kangaroo_tail=(
                 _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
             ),
+            obv=obv_full.iloc[from_index + offset],
+            accumulation_distribution=accumulation_distribution_full.iloc[from_index + offset],
         )
-        for bar_date, result in history
+        for offset, (bar_date, result) in enumerate(history)
     ]
     return IndicatorHistoryResponse(ticker=ticker, points=points)

@@ -1,0 +1,64 @@
+{
+  "id": "backend-indicator-obv-ad",
+  "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/indicators/force_index.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Two volume-based indicators from Elder ch. 29, missing entirely (grep confirms). OBV: running total, add the day's volume if close > prior close, subtract if close < prior close, unchanged if flat. A/D: `(Close - Open) / (High - Low) * Volume`, cumulative running total -- more finely calibrated than OBV since it credits volume proportional to where the close landed within the day's range, not the whole day's volume to whichever side 'won'. Both are cumulative series whose absolute level is meaningless (depends on start date) -- only their pattern of highs/lows and divergence against price matters, same as every other oscillator in this app. This task is computation + exposure only -- divergence detection against these two (also mentioned in docs/ideas.md) depends on backend-swing-point-detector and is out of scope here.",
+  "checklist": [
+    {
+      "step": "Implement obv() and accumulation_distribution() in backend/app/indicators/, following existing module conventions.",
+      "done": true
+    },
+    {
+      "step": "Hand-computed reference-value tests for both (small OHLCV series, values worked out by hand).",
+      "done": true
+    },
+    {
+      "step": "Expose both as new cumulative series in the indicator-history endpoint (they're not meaningful as a single latest-bar value the way oscillators like Stochastic are -- decide the response shape and record as a decisions entry).",
+      "done": true
+    },
+    {
+      "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts; document in docs/Analyse.md.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-obv-ad",
+    "pr_number": 173,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/173",
+    "pushed_at": "2026-09-20T02:01:54Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Expose obv/accumulation_distribution only as new required (never-null) fields on IndicatorHistoryPoint (GET /api/stocks/{ticker}/indicators), computed once directly from the full daily_ohlcv in app/api/routers/stocks.py rather than threaded through app.signals.engine.analyse/analyse_history's indicators dict. NOT added to AnalysisResponse.indicators (the /analysis latest-bar snapshot).",
+      "rationale": "The task's own checklist already narrows this to the indicator-history endpoint specifically, since a cumulative series' absolute level is meaningless in isolation without the trailing history to compare it against -- unlike rsi/season (also computation+exposure-only additions), which are meaningful single-bar values and so are exposed on both endpoints. Computing them directly in the router (rather than adding obv/ad passthrough parameters to analyse()/analyse_history()) was chosen because they need no Screen/Impulse/confidence context and no per-bar truncation for correctness: both are purely causal cumulative sums over daily_ohlcv (a value at bar t depends only on data up to and including t), so a single computation over the full series can be sliced by position exactly like the precomputed EMA/MACD/Stochastic series already are, without adding two more parameters to analyse()'s already-large signature or duplicating the recompute in the /analysis route. Rejected: adding obv/ad to the Indicators schema too (rejected per the checklist's own framing of a latest-bar value being meaningless here) and threading them through analyse()/analyse_history() as passthrough parameters (rejected as unnecessary complexity/signature growth for a computation that needs none of that machinery -- SignalResult/analyse() stays scoped to Screen-dependent indicators)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV's undefined first-bar direction (no prior close to compare against) is mapped to a 0 contribution (np.sign(close.diff()).fillna(0.0)), not to the alternative convention of seeding the running total with the first bar's own raw volume. Similarly, A/D's zero-range bars (high == low, making close-open)/(high-low) a 0/0 division) are mapped to a 0 contribution via .where(range != 0, other=0.0), not left as NaN.",
+      "rationale": "Both series are cumulative (pd.Series.cumsum()), and NaN is 'sticky' under cumsum -- a single undefined day would otherwise poison every later cumulative total for the rest of the series, unlike a non-cumulative oscillator (e.g. app.indicators.stochastic.stochastic_oscillator, which safely leaves a zero-range bar's %K as NaN via plain division, since that NaN only affects that one bar). 0 was chosen over volume[0]-as-seed for OBV because the app's own framing ('only the pattern of highs/lows and divergence matters, absolute level is meaningless') makes the starting anchor arbitrary either way, and 0 is the more literal reading of 'add/subtract volume based on direction, with an undefined first direction contributing nothing' rather than implicitly asserting the first bar's own volume was itself bullish. Rejected: leaving these NaN (breaks every subsequent cumulative value, unlike every other indicator's warm-up-then-clean pattern in this app) and seeding OBV[0]=volume[0] (an equally arbitrary, but less literal, convention)."
+    }
+  ],
+  "review": {
+    "reviewed_at": "2026-09-20T02:21:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/173",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Retry round 1, re-review scoped to the round-1 needs_work finding per dispatch instructions. task-worker's fix (commit d5c668b) adds obv/accumulation_distribution to the three local IndicatorHistoryPoint-shaped literals that were missing them (OscillatorChart.test.tsx, PriceChart.test.tsx, metricHelpContent.test.ts). Confirmed: `yarn tsc -b --noEmit` now passes clean with zero output (the exact command that caught the regression last round). Full frontend suite re-run: 536/536 tests passed across 56 files, no regression. `yarn lint` (eslint) clean. Diff-skimmed the fix commit directly (git show d5c668b): it touches only the three test files plus the task-JSON state mirror -- no other files changed since round 1's accept-blocking finding was raised. The added obv/accumulation_distribution values (e.g. 12000.0/3400.0, 10500.0/2900.0, 8000.0/2100.0, 5000.0/1200.0) are non-zero, distinct per row, and plausible cumulative-series magnitudes -- not degenerate placeholders like 0 that could mask a bug. Grepped all three files for any assertion referencing obv or accumulation_distribution: none exists: the fields are used purely to satisfy the IndicatorHistoryPoint type on these tests' local fixtures and are not read by any assertion in OscillatorChart.test.tsx, PriceChart.test.tsx, or metricHelpContent.test.ts, so the fix cannot be masking a behavioral gap in what those tests actually check. Per dispatch instructions, did not re-run the backend suite/coverage, verify-elder-signal, or the browser/e2e walkthrough this round since round 1 already verified those clean and this fix touches only frontend test fixtures with nothing suggesting those areas are now in question. No new findings, blocking or non-blocking, this round -- no <id>-followups task created/updated."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T02:26:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend `pytest --cov=app` (759 passed, 99.92% coverage) and frontend `yarn tsc -b --noEmit` (clean, no output), `yarn vitest run --coverage` (536/536 passed, all files >=90%), and `yarn lint` (clean); also ruff/mypy clean and `python scripts/export_openapi.py` produced zero diff against the committed backend/openapi.json. Hand-computed OBV's reference series myself from the raw close/volume fixture (diffs -> signs -> signed volume -> cumsum: 0, 200, 200, -100, 150) and independently verified A/D's idx0/idx2 values (33.333333333333336 and 4.761904761904762) -- both match the committed test assertions and the implementation exactly. Read the full diff (git diff main...task/backend-indicator-obv-ad) including both the original implementation commit and the retry fix commit d5c668b; grepped app/signals/*.py and confidence.py and confirmed obv/accumulation_distribution appear only in a docstring comment in swing_points.py about a future follow-up, never read by signal/confidence computation, and are correctly absent from AnalysisResponse.indicators (asserted directly by test_not_exposed_on_analysis_endpoint). pr-reviewer's accept holds up."
+  }
+}
