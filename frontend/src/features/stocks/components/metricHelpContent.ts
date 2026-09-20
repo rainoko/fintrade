@@ -406,6 +406,90 @@ export const rsiHelp = {
 }
 
 // ---------------------------------------------------------------------------
+// VolumeIndicatorsChart.tsx (frontend-volume-indicators-chart)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared current-value interpretation for OBV/A-D (`obvHelp`/
+ * `accumulationDistributionHelp` below) -- both are cumulative running
+ * totals whose absolute level is meaningless on its own (docs/Analyse.md
+ * §4 rows 14-15), so simply stating "currently N" the way every other
+ * metric's `interpretValue` does would actively invite misreading it as a
+ * normal, comparable value. Instead this states the raw number *with* that
+ * caveat attached every time, then describes the one thing that IS
+ * meaningful: the shape of the line over the currently displayed window
+ * (`points`, the same array `VolumeIndicatorsChart.tsx` plots from) --
+ * whether it's trending up/down and whether it's sitting at its own
+ * high/low right now, which is exactly the "pattern of highs/lows vs.
+ * price" divergence-style reading this task's own description calls for.
+ *
+ * `points` is filtered to `selectValue`'s own finite values first (defense-
+ * in-depth against a non-finite runtime value even though both fields are
+ * declared non-nullable `number` -- same posture `isFiniteValue`/
+ * `isFiniteNumber` take everywhere else in this codebase, per this task's
+ * `decisions` entry) rather than assumed complete -- an empty result (e.g.
+ * no points at all) reports "unavailable" the same way every other
+ * `interpretValue` here does for a not-yet-available metric.
+ *
+ * `atExtreme` compares by array reference (`entry === highest`/`=== lowest`),
+ * not by re-comparing `.value`, since `highest`/`lowest`/`last` are all
+ * references into the same filtered `series` array -- reference equality is
+ * exact (no risk of a tied value at a different date matching instead) and
+ * avoids a second floating-point comparison.
+ */
+function cumulativeVolumeSeriesInterpretation(
+  label: string,
+  points: readonly IndicatorHistoryPoint[],
+  selectValue: (point: IndicatorHistoryPoint) => number,
+): string {
+  const series = points
+    .map((point) => ({ date: point.date, value: selectValue(point) }))
+    .filter((entry) => isKnown(entry.value))
+  if (series.length === 0) {
+    return 'Currently unavailable for this ticker.'
+  }
+  const first = series[0]
+  const last = series[series.length - 1]
+  const highest = series.reduce((max, entry) => (entry.value > max.value ? entry : max))
+  const lowest = series.reduce((min, entry) => (entry.value < min.value ? entry : min))
+  const direction =
+    last.value > first.value ? 'risen' : last.value < first.value ? 'fallen' : 'stayed flat'
+  const extremeClause =
+    last === highest
+      ? ' It is currently at its own highest point over this window.'
+      : last === lowest
+        ? ' It is currently at its own lowest point over this window.'
+        : ` Over this window its own high was ${highest.value.toFixed(0)} (${highest.date}) and low was ${lowest.value.toFixed(0)} (${lowest.date}).`
+  return `Currently ${last.value.toFixed(0)} as of ${last.date} -- this raw number means nothing on its own (it depends entirely on how far back this ticker's history happens to start, not on anything about the ticker itself). What actually matters is the shape: ${label} has ${direction} over the ${series.length} bar${series.length === 1 ? '' : 's'} currently shown.${extremeClause} Compare this pattern's own highs/lows against price's own highs/lows on the chart above -- a new price high/low without a matching new ${label} high/low is a divergence worth noting.`
+}
+
+export const obvHelp = {
+  metricLabel: 'On-Balance Volume (OBV)',
+  definition:
+    "A running cumulative total (Elder ch. 29, developed by Joseph Granville): today's full trading volume is added to a running sum if the close rose from the prior day, subtracted if it fell, left unchanged if flat (docs/Analyse.md §4 row 14).",
+  elderContext:
+    "Read two ways. (1) The standard divergence check against price: a new price high/low that OBV does NOT confirm with a matching new high/low of its own warns the move lacks real volume support behind it. (2) Elder's own specific trading-range case -- inside a range (not yet trending), an OBV breakout to a new high/low *ahead of* price's own breakout can itself be read as an early buy/sell signal, since it shows volume is already moving before price has confirmed anything. Purely informational here -- computation + exposure only, not wired into the BUY/SELL/HOLD signal or confidence score, and not yet run through this app's divergence detector (a stated follow-up, see the backend-indicator-obv-ad task's `decisions`).",
+  interpretValue(points: readonly IndicatorHistoryPoint[]): string {
+    return cumulativeVolumeSeriesInterpretation('OBV', points, (point) => point.obv)
+  },
+}
+
+export const accumulationDistributionHelp = {
+  metricLabel: 'Accumulation/Distribution (A/D)',
+  definition:
+    "A running cumulative total, more finely calibrated than OBV (Elder ch. 29, developed by Larry Williams): each day's volume is weighted by where the close landed within that day's own high-low range -- (close - open) / (high - low) * volume -- rather than crediting the whole day's volume to whichever side \"won\" the way OBV does (docs/Analyse.md §4 row 15).",
+  elderContext:
+    "Conceptually close to Elder-Ray (both read the open/close-vs-range relationship for a single bar) but A/D is cumulative and volume-weighted where Elder-Ray isn't -- a genuinely distinct indicator, not a duplicate. Read the same way as OBV above: compare its own pattern of highs/lows against price's, looking for a divergence. Purely informational here -- computation + exposure only, not wired into the BUY/SELL/HOLD signal or confidence score, and not yet run through this app's divergence detector (a stated follow-up, see the backend-indicator-obv-ad task's `decisions`).",
+  interpretValue(points: readonly IndicatorHistoryPoint[]): string {
+    return cumulativeVolumeSeriesInterpretation(
+      'A/D',
+      points,
+      (point) => point.accumulation_distribution,
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Channel / value-zone overlay (PriceChart.tsx)
 // ---------------------------------------------------------------------------
 
