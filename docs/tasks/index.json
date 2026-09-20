@@ -971,8 +971,8 @@
       "id": "backend-swing-point-detector-followups-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-swing-point-detector-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-swing-point-detector-followups-followups-followups.json"
     },
     {
       "id": "backend-divergence-detection",

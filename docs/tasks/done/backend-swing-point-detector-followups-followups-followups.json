@@ -3,7 +3,7 @@
   "title": "_swing_extremes.py: rolling_extreme_masks re-implements _rolling's min_periods logic instead of calling it -- non-blocking review follow-up (round 3)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-swing-point-detector-followups-followups"],
   "references": [
     "docs/tasks/backend-swing-point-detector-followups-followups.json#review",
@@ -31,5 +31,12 @@
     "pr_number": 209,
     "pr_url": "https://github.com/rainoko/fintrade/pull/209",
     "pushed_at": "2026-09-20T17:58:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T18:00:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/209",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified via `git diff main...task/backend-swing-point-detector-followups-followups-followups --stat` that only backend/app/signals/_swing_extremes.py (plus task-JSON bookkeeping) changed. Confirmed rolling_extreme_masks's new call to _rolling(series, span, require_full_window=require_full_window) is byte-for-byte equivalent to the removed inline min_periods/.rolling(...) construction. Confirmed test_swing_extremes.py's existing cross-check tests (pd.testing.assert_series_equal comparing rolling_extreme_masks against rolling_max_mask/rolling_min_mask, for both require_full_window=True and False) genuinely exercise this code path and would catch a regression. Full backend suite: 935 passed, coverage 99.94% (gate 90%), _swing_extremes.py at 100%. mypy clean. ruff reports 7 pre-existing findings in unrelated test files (test_stochastic.py, test_triple_screen.py) that predate this PR and are untouched by this diff -- not blocking. No new findings; no new followups task needed."
   }
 }
