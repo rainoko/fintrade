@@ -1419,8 +1419,8 @@
       "id": "frontend-indicator-seasons-badge-followups-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-indicator-seasons-badge-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-indicator-seasons-badge-followups-followups-followups.json"
     }
   ]
 }
