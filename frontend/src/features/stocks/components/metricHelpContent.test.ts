@@ -1265,6 +1265,31 @@ describe('metricHelpContent', () => {
       expect(message).toContain('flat versus the prior bar')
     })
 
+    it('limits the "recent low" search to the trailing ADX_RECENT_LOW_LOOKBACK_BARS=20 window, not the whole history (post-review follow-up, frontend-trend-strength-chart-followups)', () => {
+      // 25 bars total: `.slice(-20)` keeps only days 6-25 (indices 5-24),
+      // excluding days 1-5 -- every OTHER test in this describe block above
+      // uses <= 3 points, where `.slice(-20)` never actually truncates
+      // anything, so none of them exercise the truncation itself. Day 1
+      // (2026-08-01) is deliberately the TRUE all-time minimum (adx 1.0),
+      // but sits outside that trailing window; every bar from day 6 through
+      // day 24 is a flat 15.0 (the true in-window minimum, first reached on
+      // day 6 -- 2026-08-06, the window's own first bar), and the final bar
+      // (day 25) is 19.0, so a correct in-window reading reports "recent
+      // low of 15.0 (2026-08-06)", not the all-time low of 1.0.
+      const points: IndicatorHistoryPoint[] = []
+      for (let day = 1; day <= 25; day++) {
+        const date = `2026-08-${String(day).padStart(2, '0')}`
+        const adx = day === 1 ? 1.0 : day === 25 ? 19.0 : 15.0
+        points.push(buildPoint(date, { adx }))
+      }
+
+      const message = adxHelp.interpretValue(points)
+
+      expect(message).toContain('off its own recent low of 15.0 (2026-08-06)')
+      expect(message).not.toContain('recent low of 1.0')
+      expect(message).toContain('risen 4.0 points')
+    })
+
     it('reports ATR as unavailable for an empty points array', () => {
       expect(atrHelp.interpretValue([])).toBe(
         'Currently unavailable for this ticker -- ATR needs 13 prior True Range values (itself needing a prior close) before it warms up.',

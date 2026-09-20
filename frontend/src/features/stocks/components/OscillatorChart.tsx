@@ -27,7 +27,11 @@ import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
+import {
+  clickedDivergenceExtreme,
+  divergenceMarkerLabelAndPosition,
+  isDivergenceInRange,
+} from './divergenceClick'
 import { divergenceHelp, rsiHelp } from './metricHelpContent'
 
 export interface OscillatorChartProps {
@@ -208,8 +212,7 @@ function buildDivergenceIndicatorOverlay(
   divergence: DivergenceOut,
   color: string,
 ): DivergenceIndicatorOverlay {
-  const label = divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'
-  const position = divergence.kind === 'bullish' ? 'belowBar' : 'aboveBar'
+  const { label, position } = divergenceMarkerLabelAndPosition(divergence)
   return {
     paneIndex: divergencePaneIndex(divergence.indicator),
     line: [
@@ -327,10 +330,12 @@ export default function OscillatorChart({
   // rather than the `points`/`hasPoints` derived above, since those are
   // fresh references on every render regardless of whether the data
   // changed — same rationale as `PriceChart.tsx`'s own candlestick effect.
-  // Also depends on `analysisQuery.data` (the divergence overlay's own
-  // source) and `divergence` closes over whatever value was current the
-  // last time this effect ran, same as every other value this effect reads
-  // from render scope.
+  // Does NOT depend on `analysisQuery.data`/`divergence` — the divergence
+  // overlay is drawn by a SEPARATE effect below (post-review fix,
+  // frontend-divergence-markers-followups; see that effect's own doc
+  // comment for why), so this effect (and the chart/pane setup it owns) no
+  // longer needs to re-run whenever `analysisQuery` resolves independently
+  // of `indicatorsQuery`.
   useEffect(() => {
     const container = containerRef.current
     const data: IndicatorHistoryResponse | undefined = indicatorsQuery.data
@@ -398,67 +403,6 @@ export default function OscillatorChart({
     addZeroBaselineHistogramPane(chart, 1, 'Force Index (2-EMA)', forceIndex, theme)
     addZeroBaselineHistogramPane(chart, 2, 'MACD Histogram (Daily)', macdHistogram, theme)
 
-    // Divergence overlay (frontend-divergence-markers): the single
-    // currently-qualifying divergence, drawn as a connecting `LineSeries`
-    // plus a `circle` marker at each of its two compared *indicator*
-    // readings, on whichever pane its own `indicator` belongs to -- see
-    // `buildDivergenceIndicatorOverlay`'s own doc comment. Click-to-explain
-    // wired the same way as `PriceChart.tsx`'s own divergence overlay: this
-    // pane's series markers have no DOM trigger of their own, so
-    // `chart.subscribeClick` opens `AnchoredInfoBalloon` at the click's own
-    // page coordinates instead.
-    //
-    // Post-review fix (PR #158, blocking finding): windowed to the
-    // currently visible point range (`data.points[0].date`..
-    // `data.points.at(-1).date`) via `isDivergenceInRange` -- same fix,
-    // same rationale as `PriceChart.tsx`'s own divergence-overlay effect
-    // (see that effect's comment and `isDivergenceInRange`'s own doc
-    // comment in divergenceClick.ts): an unwindowed divergence line whose
-    // own dates fall outside the visible range stretched this pane's (and
-    // whichever pane the divergence's indicator belongs to's) time scale to
-    // cover the gap, squashing the actual oscillator content into an
-    // unreadable sliver.
-    const divergenceInRange =
-      divergence != null &&
-      isDivergenceInRange(
-        divergence,
-        data.points[0].date,
-        data.points[data.points.length - 1].date,
-      )
-    if (divergence && divergenceInRange) {
-      const color = theme.palette.divergence.main
-      const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(
-        divergence,
-        color,
-      )
-      const divergenceSeries = chart.addSeries(
-        LineSeries,
-        {
-          color,
-          lineWidth: 2,
-          lineStyle: LineStyle.LargeDashed,
-          title: 'Divergence',
-          priceLineVisible: false,
-          lastValueVisible: false,
-        },
-        paneIndex,
-      )
-      divergenceSeries.setData(line)
-      createSeriesMarkers(divergenceSeries, markers)
-
-      chart.subscribeClick((param: MouseEventParams<Time>) => {
-        if (param.paneIndex !== paneIndex || !clickedDivergenceExtreme(divergence, param)) {
-          return
-        }
-        const pageX = param.sourceEvent?.pageX
-        const pageY = param.sourceEvent?.pageY
-        if (pageX == null || pageY == null) {
-          return
-        }
-        setDivergenceBalloonAnchor({ top: pageY, left: pageX })
-      })
-    }
-
     chart.timeScale().fitContent()
     chartRef.current = chart
 
@@ -466,7 +410,107 @@ export default function OscillatorChart({
       chart.remove()
       chartRef.current = null
     }
-  }, [indicatorsQuery.data, enabled, theme, divergence])
+  }, [indicatorsQuery.data, enabled, theme])
+
+  // Divergence overlay (frontend-divergence-markers): the single
+  // currently-qualifying divergence, drawn as a connecting `LineSeries`
+  // plus a `circle` marker at each of its two compared *indicator*
+  // readings, on whichever pane its own `indicator` belongs to -- see
+  // `buildDivergenceIndicatorOverlay`'s own doc comment. Click-to-explain
+  // wired the same way as `PriceChart.tsx`'s own divergence overlay: this
+  // pane's series markers have no DOM trigger of their own, so
+  // `chart.subscribeClick` opens `AnchoredInfoBalloon` at the click's own
+  // page coordinates instead.
+  //
+  // Post-review fix (frontend-divergence-markers-followups): this used to
+  // be part of the chart-creation effect above, which (before this fix)
+  // also depended on `divergence` -- so the WHOLE multi-pane oscillator
+  // chart was torn down and rebuilt from scratch (visible flicker, lost
+  // zoom/pan/crosshair state) purely to add two marker points, every time
+  // `analysisQuery.data` resolved after `indicatorsQuery.data` (a common
+  // ordering, since the two are independent queries). `PriceChart.tsx`
+  // already avoided this for its own divergence overlay by keeping it in a
+  // SEPARATE effect that only adds/removes series on the existing
+  // chart/series refs, gated on `chartRef.current` already being set by its
+  // own candlestick effect -- this effect mirrors that same split, adding
+  // (only) the divergence line/markers/click-subscription onto the chart
+  // instance the effect above already created, and cleaning up (only) those
+  // same additions when `divergence`/theme/range changes, without ever
+  // touching the base chart or its other panes/series.
+  //
+  // Post-review fix (PR #158, blocking finding, still in effect): windowed
+  // to the currently visible point range (`data.points[0].date`..
+  // `data.points.at(-1).date`) via `isDivergenceInRange` -- same fix, same
+  // rationale as `PriceChart.tsx`'s own divergence-overlay effect (see that
+  // effect's comment and `isDivergenceInRange`'s own doc comment in
+  // divergenceClick.ts): an unwindowed divergence line whose own dates fall
+  // outside the visible range stretched this pane's (and whichever pane the
+  // divergence's indicator belongs to's) time scale to cover the gap,
+  // squashing the actual oscillator content into an unreadable sliver.
+  useEffect(() => {
+    const chart = chartRef.current
+    const data: IndicatorHistoryResponse | undefined = indicatorsQuery.data
+    if (!chart || !enabled || !data || data.points.length === 0) {
+      return
+    }
+    if (!divergence) {
+      return
+    }
+    const divergenceInRange = isDivergenceInRange(
+      divergence,
+      data.points[0].date,
+      data.points[data.points.length - 1].date,
+    )
+    if (!divergenceInRange) {
+      return
+    }
+
+    const color = theme.palette.divergence.main
+    const { paneIndex, line, markers } = buildDivergenceIndicatorOverlay(divergence, color)
+    const divergenceSeries = chart.addSeries(
+      LineSeries,
+      {
+        color,
+        lineWidth: 2,
+        lineStyle: LineStyle.LargeDashed,
+        title: 'Divergence',
+        priceLineVisible: false,
+        lastValueVisible: false,
+      },
+      paneIndex,
+    )
+    divergenceSeries.setData(line)
+    const divergenceMarkersPlugin = createSeriesMarkers(divergenceSeries, markers)
+
+    // An arrow function assigned to a `const`, not a `function` declaration
+    // -- same TypeScript narrowing rationale `PriceChart.tsx`'s own
+    // divergence-overlay effect documents for its identical `handleClick`.
+    const handleClick = (param: MouseEventParams<Time>) => {
+      if (param.paneIndex !== paneIndex || !clickedDivergenceExtreme(divergence, param)) {
+        return
+      }
+      const pageX = param.sourceEvent?.pageX
+      const pageY = param.sourceEvent?.pageY
+      if (pageX == null || pageY == null) {
+        return
+      }
+      setDivergenceBalloonAnchor({ top: pageY, left: pageX })
+    }
+    chart.subscribeClick(handleClick)
+
+    return () => {
+      // Skip cleanup if the chart-creation effect above already disposed
+      // this exact chart instance (e.g. `indicatorsQuery.data` changed at
+      // the same time) -- same guard `PriceChart.tsx`'s own per-overlay
+      // effects use for the same reason.
+      if (chartRef.current !== chart) {
+        return
+      }
+      chart.unsubscribeClick(handleClick)
+      chart.removeSeries(divergenceSeries)
+      divergenceMarkersPlugin.detach()
+    }
+  }, [indicatorsQuery.data, divergence, theme, enabled])
 
   // `/indicators` is daily-cadence only (see the `enabled` prop's own doc
   // comment) — while a weekly interval is selected upstream, this pane has

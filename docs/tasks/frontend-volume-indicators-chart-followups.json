@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #174 review (frontend-volume-indicators-chart)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-volume-indicators-chart"],
   "references": [
     "docs/tasks/done/frontend-volume-indicators-chart.json",
@@ -13,17 +13,29 @@
   "checklist": [
     {
       "step": "VolumeIndicatorsChart.tsx's doc comment (and this task's own 'no zero-baseline' decisions entry) incorrectly claims OBV/A-D 'are constructed to start at exactly 0 on the first plotted bar'. In fact backend/app/api/routers/stocks.py computes obv_full/accumulation_distribution_full over the ticker's entire untrimmed daily_ohlcv and only slices by from_index for the requested range -- confirmed live (GET /api/stocks/AAPL/indicators?range=1y returns obv=164800429500.0 on the first bar, and the browser walkthrough's default-range screenshot shows the OBV y-axis spanning ~163.75B-165.25B, nowhere near 0). The 0-anchor documented in backend-indicator-obv-ad's own decisions applies only to the ticker's absolute first historical bar (i.e. range=max), not to the first bar of whatever window is currently displayed -- the default range is 1y (PriceChart.tsx's DEFAULT_RANGE), so this misstatement affects the common case, not just an edge case. The practical conclusion (no zero-baseline reference line) still holds for an independent reason (a windowed slice's own arbitrary carried-over starting value still isn't a meaningful sign-based threshold), but the stated rationale and comment should be corrected to avoid misleading a future maintainer who trusts it at face value.",
-      "done": false
+      "done": true
     },
     {
       "step": "metricHelpContent.ts's cumulativeVolumeSeriesInterpretation() detects whether the latest bar is 'currently at its own window high/low' via reference equality (`last === highest` / `last === lowest`) against the result of `series.reduce(...)`, rather than by value. Since the reduce uses a strict `>`/`<` comparison, an exact tie between the latest bar and an earlier bar in the window resolves `highest`/`lowest` to the earlier occurrence, so `last` is a different array entry even though its value is identical -- the generated help text then falls into the 'not at either extreme' branch and misstates the window's high/low instead of noting the current bar is (jointly) at that extreme. Narrow edge case for a real-valued cumulative series, but worth a value-based comparison (`last.value === highest.value`) instead.",
-      "done": false
+      "done": true
     },
     {
       "step": "StockCharts.test.tsx (unchanged by this PR) was not extended to assert that VolumeIndicatorsChart is actually wired correctly inside the composed StockCharts page (e.g. correct range/enabled props, canvas presence, hide/restore on interval toggle) the way it already does for OscillatorChart -- only the standalone VolumeIndicatorsChart.test.tsx exercises the component in isolation. Coverage numbers are unaffected (StockCharts.tsx is 100% covered), but a future edit that silently breaks the StockCharts->VolumeIndicatorsChart wiring (e.g. swapping range/enabled props) would not be caught by this suite. Consider adding an integration-level assertion or two.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed all three findings as described: corrected VolumeIndicatorsChart.tsx's doc comment to state the real 0-anchor behavior (only at the ticker's absolute first historical bar / range=max, not the first bar of whatever window is requested, confirmed against backend/app/api/routers/stocks.py's own obv_full/accumulation_distribution_full-then-slice behavior); switched cumulativeVolumeSeriesInterpretation's high/low-tie check in metricHelpContent.ts from array reference equality to value equality; and added two integration tests to StockCharts.test.tsx mirroring the existing OscillatorChart wiring tests (range mirroring, hide/restore on interval toggle) for VolumeIndicatorsChart. Implemented as part of a batched PR (task/frontend-followups-batch-1) alongside four other small stocks-page follow-up tasks.",
+      "rationale": "All three were small, well-scoped, low-risk fixes exactly as described by the review findings -- no reason to defer any of them. The doc-comment fix keeps a future maintainer from trusting a stated rationale that's actually wrong even though its practical conclusion (no zero-baseline line) still holds for a different, correct reason. The value-based tie comparison is a one-line change with no behavior change for the non-tied case. The StockCharts.test.tsx additions directly mirror the existing OscillatorChart pattern in the same file, so there was an established template to follow rather than a novel test design."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-followups-batch-1",
+    "pr_number": null,
+    "pr_url": null,
+    "pushed_at": null
+  }
 }

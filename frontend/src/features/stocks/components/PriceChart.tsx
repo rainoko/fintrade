@@ -36,7 +36,11 @@ import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
 import { useStockAnalysis } from '../hooks/useStockAnalysis'
 import { useStockHistory } from '../hooks/useStockHistory'
 import { bringSeriesToFront, createBaseChart, isFiniteNumber } from '../../../utils/chart'
-import { clickedDivergenceExtreme, isDivergenceInRange } from './divergenceClick'
+import {
+  clickedDivergenceExtreme,
+  divergenceMarkerLabelAndPosition,
+  isDivergenceInRange,
+} from './divergenceClick'
 import {
   channelHelp,
   divergenceHelp,
@@ -361,10 +365,18 @@ function buildTideRegionSegments(
   for (let i = segments.length - 1; i > 0 && segments[i].data.length < 2; i--) {
     const previous = segments[i - 1]
     previous.data.pop()
-    const previousOwnLast = previous.data.at(-1)
-    if (!previousOwnLast) {
-      break
-    }
+    // `previous.data.at(-1)` can never be `undefined` here -- structurally
+    // unreachable, not merely assumed safe (post-review follow-up,
+    // frontend-tide-region-chart-shading-followups, confirmed by fuzz-
+    // testing every 2-symbol trend sequence up to length 10 in the PR #169
+    // re-review). `previous` (`segments[i - 1]`) can only ever be popped
+    // from ONCE across this whole backward loop, always before it could
+    // later become an unshift TARGET (`segments[i]`) in an earlier
+    // iteration -- and the forward-extension pass above already guarantees
+    // every segment except the very last one has >= 2 points before this
+    // loop starts, so popping one off `previous` here always leaves at
+    // least its own one real point behind.
+    const previousOwnLast = previous.data.at(-1) as (typeof previous.data)[number]
     segments[i].data.unshift({ time: previousOwnLast.time, value: 1 })
   }
   return segments
@@ -677,8 +689,7 @@ function buildDivergencePriceOverlay(
   divergence: DivergenceOut,
   color: string,
 ): DivergencePriceOverlay {
-  const label = divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'
-  const position = divergence.kind === 'bullish' ? 'belowBar' : 'aboveBar'
+  const { label, position } = divergenceMarkerLabelAndPosition(divergence)
   return {
     line: [
       {

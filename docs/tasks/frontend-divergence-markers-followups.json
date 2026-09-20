@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #158 review (frontend-divergence-markers)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-divergence-markers"],
   "references": [
     "docs/tasks/frontend-divergence-markers.json",
@@ -13,13 +13,25 @@
   "checklist": [
     {
       "step": "OscillatorChart.tsx's divergence overlay is built inside the single chart-creation `useEffect` (which now also depends on `divergence`), so the whole multi-pane oscillator chart is torn down and rebuilt from scratch (visible flicker, lost zoom/pan/crosshair state) whenever `analysisQuery.data` resolves after `indicatorsQuery.data` -- purely to add two marker points. PriceChart.tsx avoids this by keeping its own divergence overlay in a separate effect that only adds/removes series on the existing chart/series refs (gated on `chartRef.current`/`seriesRef.current` already being set). Consider the same separate-effect treatment for OscillatorChart.tsx, consistent with how PriceChart.tsx already splits its own signal-overlay/zone-overlay/divergence-overlay effects.",
-      "done": false
+      "done": true
     },
     {
       "step": "The bullish/bearish `label`/`position` derivation (`divergence.kind === 'bullish' ? 'Bullish divergence' : 'Bearish divergence'` / `belowBar`/`aboveBar`) is copy-pasted verbatim between `buildDivergencePriceOverlay` (PriceChart.tsx) and `buildDivergenceIndicatorOverlay` (OscillatorChart.tsx), even though the PR already factored out the one other genuinely shared piece of divergence logic (`clickedDivergenceExtreme` in divergenceClick.ts). Consider factoring this into a shared helper (e.g. alongside `clickedDivergenceExtreme` in divergenceClick.ts) so a future change to the label wording or up/down convention can't leave the two charts silently out of sync.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T16:53:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Split OscillatorChart.tsx's divergence overlay (line series, markers, click subscription) into its own `useEffect`, separate from the chart-creation effect -- gated on `chartRef.current` already being set by the chart-creation effect, mirroring PriceChart.tsx's own per-overlay effect pattern (including its 'skip cleanup if the chart was already disposed' ref-equality guard). Also factored the duplicated bullish/bearish label/position derivation into a new `divergenceMarkerLabelAndPosition` helper in divergenceClick.ts, used by both PriceChart.tsx's `buildDivergencePriceOverlay` and OscillatorChart.tsx's `buildDivergenceIndicatorOverlay`. Implemented as part of a batched PR (task/frontend-followups-batch-1) alongside four other small stocks-page follow-up tasks.",
+      "rationale": "Both fixes had a clear, already-established template to follow (PriceChart.tsx's own divergence-overlay effect and its 'skip cleanup' guard; divergenceClick.ts's existing `clickedDivergenceExtreme`/`isDivergenceInRange` as the precedent for where shared divergence logic lives), so there was no genuinely open design question -- just applying the same pattern OscillatorChart.tsx hadn't yet adopted. Added a new OscillatorChart.test.tsx test (mirroring PriceChart.test.tsx's own 'removes the previous divergence line/markers/click subscription and adds new ones when the divergence changes' test) to actually exercise the new effect's cleanup path, which the existing suite hadn't covered at all (confirmed via a coverage regression check before this fix -- lines 509-511 of the new effect were uncovered until that test was added)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-followups-batch-1",
+    "pr_number": null,
+    "pr_url": null,
+    "pushed_at": null
+  }
 }

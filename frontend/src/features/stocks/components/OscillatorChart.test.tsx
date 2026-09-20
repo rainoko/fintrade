@@ -8,7 +8,11 @@ import type {
   IndicatorHistoryResponse,
 } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../../../tests/renderWithProviders'
+import { stocksKeys } from '../hooks/queryKeys'
 import OscillatorChart from './OscillatorChart'
 
 // jsdom has no real <canvas> 2D context, and Lightweight Charts' own
@@ -20,6 +24,7 @@ import OscillatorChart from './OscillatorChart'
 // which never used either.
 const setDataMock = vi.fn()
 const removeMock = vi.fn()
+const removeSeriesMock = vi.fn()
 const fitContentMock = vi.fn()
 const createPriceLineMock = vi.fn()
 const addSeriesMock = vi.fn(
@@ -36,13 +41,24 @@ const createSeriesMarkersMock = vi.fn((_series: unknown, markers: unknown) => {
 })
 // Divergence-marker click-to-explain (frontend-divergence-markers): see
 // `PriceChart.test.tsx`'s own identical mock/comment for why
-// `subscribeClick` is captured rather than actually simulated via a real
-// pointer event.
+// `subscribeClick`/`unsubscribeClick` are captured rather than actually
+// simulated via a real pointer event.
 const subscribeClickMock = vi.fn()
+const unsubscribeClickMock = vi.fn()
+// Post-review fix (frontend-divergence-markers-followups): the divergence
+// overlay now lives in its own effect, separate from chart creation (see
+// OscillatorChart.tsx's own doc comment), so its cleanup calls
+// `chart.removeSeries`/`chart.unsubscribeClick` on the SAME chart instance
+// the creation effect built rather than everything being torn down via one
+// `chart.remove()` — `removeSeries`/`unsubscribeClick` need their own mock
+// methods here now, same shape `PriceChart.test.tsx`'s own `createChartMock`
+// already provides for its analogous per-overlay effects.
 const createChartMock = vi.fn(() => ({
   addSeries: addSeriesMock,
+  removeSeries: (series: unknown) => removeSeriesMock(series),
   timeScale: () => ({ fitContent: fitContentMock }),
   subscribeClick: (handler: unknown) => subscribeClickMock(handler),
+  unsubscribeClick: (handler: unknown) => unsubscribeClickMock(handler),
   remove: removeMock,
 }))
 
@@ -264,6 +280,7 @@ describe('OscillatorChart', () => {
   beforeEach(() => {
     setDataMock.mockClear()
     removeMock.mockClear()
+    removeSeriesMock.mockClear()
     fitContentMock.mockClear()
     addSeriesMock.mockClear()
     createChartMock.mockClear()
@@ -272,6 +289,7 @@ describe('OscillatorChart', () => {
     detachMarkersMock.mockClear()
     createSeriesMarkersMock.mockClear()
     subscribeClickMock.mockClear()
+    unsubscribeClickMock.mockClear()
   })
 
   it('shows a loading state, then renders Stochastic/RSI/Force Index/MACD Histogram, Stochastic+RSI sharing one pane', async () => {
@@ -763,6 +781,52 @@ describe('OscillatorChart', () => {
       expect(
         screen.getByText(/isn’t drawn on the chart right now/),
       ).toBeInTheDocument()
+    })
+
+    // Post-review fix (frontend-divergence-markers-followups): the
+    // divergence overlay now lives in its own effect, separate from chart
+    // creation (see OscillatorChart.tsx's own doc comment) -- this asserts
+    // that split actually behaves as intended: an analysis-only refetch
+    // (a NEW divergence, same indicator points) tears down and rebuilds
+    // only the divergence line/markers/click subscription, without
+    // recreating the whole multi-pane chart. Same pattern
+    // `PriceChart.test.tsx`'s own identical test already establishes for
+    // its own divergence overlay.
+    it('removes the previous divergence line/markers/click subscription and adds new ones when the divergence changes, without recreating the whole chart', async () => {
+      mockIndicators(indicatorPointsSpanningDivergence)
+      mockAnalysis(bearishDivergence)
+      const queryClient = createTestQueryClient()
+
+      renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />, { queryClient })
+
+      await waitFor(() => expect(subscribeClickMock).toHaveBeenCalledTimes(1))
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+
+      const otherDivergence: DivergenceOut = {
+        ...bearishDivergence,
+        second_extreme_date: '2026-08-31',
+        second_extreme_price: 244.0,
+        second_extreme_indicator_value: 66.0,
+      }
+      mockAnalysis(otherDivergence)
+      await queryClient.invalidateQueries({ queryKey: stocksKeys.analysis('AAPL') })
+
+      await waitFor(() =>
+        expect(setDataMock).toHaveBeenCalledWith(
+          0,
+          expect.arrayContaining([{ time: '2026-08-31', value: 66.0 }]),
+        ),
+      )
+      // The base multi-pane chart itself was never recreated for an
+      // analysis-only refetch...
+      expect(createChartMock).toHaveBeenCalledTimes(1)
+      // ...but the stale divergence overlay's own line series, markers
+      // plugin, and click subscription were torn down before the new ones
+      // were added.
+      expect(removeSeriesMock).toHaveBeenCalledTimes(1)
+      expect(unsubscribeClickMock).toHaveBeenCalledTimes(1)
+      expect(detachMarkersMock).toHaveBeenCalled()
+      expect(subscribeClickMock).toHaveBeenCalledTimes(2)
     })
   })
 })
