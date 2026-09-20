@@ -1,10 +1,12 @@
 {
   "id": "backend-swing-point-detector-followups",
-  "title": "Swing-point detector — non-blocking review follow-ups",
+  "title": "Swing-point detector \u2014 non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
-  "depends_on": ["backend-swing-point-detector"],
+  "state": "done",
+  "depends_on": [
+    "backend-swing-point-detector"
+  ],
   "references": [
     "docs/tasks/done/backend-swing-point-detector.json#review",
     "https://github.com/rainoko/fintrade/pull/153"
@@ -12,7 +14,7 @@
   "description": "Non-blocking findings from pr-reviewer's full review of PR #153 (backend-swing-point-detector), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
   "checklist": [
     {
-      "step": "docs/architecture/Backend.md §2's module-layout tree wasn't updated to list the new app/signals/swing_points.py module under signals/, the same recurring gap already flagged (still unresolved) as a non-blocking follow-up on the prior backend-support-resistance PR (#147) for support_resistance.py. Add both to the tree in the same pass.",
+      "step": "docs/architecture/Backend.md \u00a72's module-layout tree wasn't updated to list the new app/signals/swing_points.py module under signals/, the same recurring gap already flagged (still unresolved) as a non-blocking follow-up on the prior backend-support-resistance PR (#147) for support_resistance.py. Add both to the tree in the same pass.",
       "done": true
     },
     {
@@ -57,5 +59,28 @@
     "pr_number": 206,
     "pr_url": "https://github.com/rainoko/fintrade/pull/206",
     "pushed_at": "2026-09-20T16:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T16:35:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The new app.signals._swing_extremes.rolling_extreme_masks primitive is behavior-preserving: fuzz-verified (200+ randomized trials including NaN/tie/plateau cases) against the old manual per-bar loop for both swing_points.py's require_full_window=True contract and support_resistance.py's require_full_window=False contract -- identical results in every trial. divergence.py's single-pass find_swing_points()+partition also verified equivalent to the old swing_lows()+swing_highs() double-pass.",
+        "file": "backend/app/signals/_swing_extremes.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's \u00a72 module-layout tree wasn't updated to list the new app/signals/_swing_extremes.py module -- the same recurring doc-completeness gap this task's own checklist previously flagged for swing_points.py/support_resistance.py, now recurring for the module this PR itself introduces. Tracked as backend-swing-point-detector-followups-followups.",
+        "file": "docs/architecture/Backend.md",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (flagged by code-review): app.signals.support_resistance._find_swing_points calls rolling_extreme_masks twice (once for highs, once for lows), and each call computes both a rolling max and a rolling min but discards one -- 4 rolling passes where 2 would do. Not a correctness issue, an avoidable efficiency cost introduced by this refactor. Tracked as backend-swing-point-detector-followups-followups.",
+        "file": "backend/app/signals/support_resistance.py",
+        "line": 160
+      }
+    ],
+    "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage, well above the 90% gate) and ruff+mypy (clean on every file this PR touches; 7 pre-existing ruff findings on main in files this PR doesn't touch, confirmed not a regression). No frontend changes -- no browser walkthrough/e2e run needed, explicitly noted. Hand-verified this task's shared rolling_extreme_masks primitive against all three call sites (swing_points.py, support_resistance.py, divergence.py) via randomized fuzz testing for NaN handling, plateau ties, and window boundaries -- no drift found. verify-elder-signal: this is a pure internal refactor of shared swing-detection infrastructure plus a profit-target validation-ordering fix; no Tide/Wave/Trigger/Impulse/Confidence/2%-6%-rule computation changed, no methodology drift. No conflict found between this task's shared primitive and backend-profit-target-followups' profit_target.py changes (support_resistance.py's public Zone-producing behavior is numerically unchanged). All checklist items done, decisions recorded for every judgment call. Two non-blocking findings filed as backend-swing-point-detector-followups-followups."
   }
 }

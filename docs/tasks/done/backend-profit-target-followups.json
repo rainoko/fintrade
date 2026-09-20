@@ -3,8 +3,10 @@
   "title": "Profit target / reward:risk ratio -- non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
-  "depends_on": ["backend-profit-target"],
+  "state": "done",
+  "depends_on": [
+    "backend-profit-target"
+  ],
   "references": [
     "docs/tasks/backend-profit-target.json#review",
     "https://github.com/rainoko/fintrade/pull/177"
@@ -65,5 +67,23 @@
     "pr_number": 206,
     "pr_url": "https://github.com/rainoko/fintrade/pull/206",
     "pushed_at": "2026-09-20T16:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T16:35:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The ValueError-vs-KeyError fix is correctly ordered: suggest_profit_target now calls validate_daily_ohlcv_columns(daily_ohlcv) before reading daily_ohlcv['close'] for current_price, so a non-empty frame missing 'close' now raises the documented ValueError before ever reaching the old premature column read. The new regression test (test_non_empty_frame_missing_close_column_raises_value_error_not_key_error) genuinely exercises this: a DataFrame with only a 'low' column, asserting pytest.raises(ValueError, match='close') -- confirmed this would have raised KeyError pre-fix by reading the diff's removed line ordering.",
+        "file": "backend/app/portfolio/profit_target.py",
+        "line": 156
+      },
+      {
+        "summary": "test_a_support_labeled_zone_above_current_price_still_qualifies genuinely exercises the role/position-disagreement edge case (zone role='support', lower=109.0 > current_price=104.0), asserting the position-based filter still selects it as the target -- confirmed sound against _nearest_resistance_price's actual filter (zone.lower > current_price, role-independent).",
+        "file": "backend/tests/unit/test_portfolio_profit_target.py",
+        "line": 124
+      }
+    ],
+    "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage) and ruff+mypy clean on all files this PR touches. No frontend changes -- no browser walkthrough/e2e run needed. Confirmed no conflict with backend-swing-point-detector-followups' shared rolling_extreme_masks primitive: profit_target.py consumes support_resistance.Zone objects, and support_resistance.py's zone-producing behavior was verified numerically unchanged by that refactor (fuzz-tested). All checklist items done, decisions recorded for every judgment call (EMA(13) dedup left as a documented comment rather than a signal-engine API change, correctly scoped as out-of-proportion for a followups task)."
   }
 }

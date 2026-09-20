@@ -1,0 +1,23 @@
+{
+  "id": "backend-swing-point-detector-followups-followups",
+  "title": "Swing-extreme primitive extraction -- non-blocking review follow-ups (round 2)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-swing-point-detector-followups"],
+  "references": [
+    "docs/tasks/backend-swing-point-detector-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/206"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #206 (backend-swing-point-detector-followups, batched with backend-watchlist-breadth-proxy-followups and backend-profit-target-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md's §2 module-layout tree still wasn't updated to list the new app/signals/_swing_extremes.py module under signals/ -- this is the same recurring doc-completeness gap this very task's own checklist previously flagged (and marked done) for swing_points.py/support_resistance.py, now recurring for the new shared primitive module this PR itself introduced. Add it to the tree.",
+      "done": false
+    },
+    {
+      "step": "app.signals.support_resistance._find_swing_points calls rolling_extreme_masks twice (once for highs, once for lows), and each call computes BOTH a rolling max and a rolling min over the full series but discards one of the two results (is_swing_high, _ = rolling_extreme_masks(highs, ...) throws away the min; _, is_swing_low = rolling_extreme_masks(lows, ...) throws away the max) -- 4 rolling passes over the series where 2 would do. Not a correctness issue (flagged by code-review on PR #206), but an avoidable efficiency regression introduced by this exact refactor. Consider a mode='max'|'min'|'both' parameter (or two thin single-purpose wrappers) on rolling_extreme_masks so each caller only pays for the side it actually uses.",
+      "done": false
+    }
+  ]
+}

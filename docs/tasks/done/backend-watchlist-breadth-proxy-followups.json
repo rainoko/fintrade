@@ -3,8 +3,10 @@
   "title": "\"Personal breadth\" proxy -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
-  "depends_on": ["backend-watchlist-breadth-proxy"],
+  "state": "done",
+  "depends_on": [
+    "backend-watchlist-breadth-proxy"
+  ],
   "references": [
     "docs/tasks/done/backend-watchlist-breadth-proxy.json#review",
     "https://github.com/rainoko/fintrade/pull/170",
@@ -39,7 +41,7 @@
     {
       "timestamp": "2026-09-20T16:28:57Z",
       "recorded_by": "task-worker",
-      "decision": "Kept the \"Personal breadth proxy\" subsection under docs/Analyse.md's §7 (Portfolio-Level Rules) rather than promoting it to its own top-level section, and instead added a one-line cross-reference from §2 (Screen 1/Tide) pointing to it.",
+      "decision": "Kept the \"Personal breadth proxy\" subsection under docs/Analyse.md's \u00a77 (Portfolio-Level Rules) rather than promoting it to its own top-level section, and instead added a one-line cross-reference from \u00a72 (Screen 1/Tide) pointing to it.",
       "rationale": "The checklist item itself called this arguable, not clear-cut, and reasonable to leave as-is since the feature spans the whole portfolio, not just a single ticker's Tide. Moving it would also change docs/Analyse.md's own anchor structure (the task's own `references` entry, and this followups task's own reference, point at `docs/Analyse.md#7-portfolio-level-rules-risk-management-overlay` as the section containing it) -- a reorg risks stale cross-references elsewhere in the task board for a purely organizational nit. The cross-reference sentence addresses the discoverability concern (a reader starting at Screen 1/Tide is pointed to where the aggregate view lives) without that churn."
     },
     {
@@ -66,5 +68,23 @@
     "pr_number": 206,
     "pr_url": "https://github.com/rainoko/fintrade/pull/206",
     "pushed_at": "2026-09-20T16:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T16:35:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "_tide_trend now delegates to _compute_signal instead of duplicating its fetch-and-catch block -- confirmed functionally identical (same DataProviderError-only catch, same analyse() call, same None-on-failure return) via reading both functions side by side; the existing GET /api/watchlist/breadth integration test suite passes unchanged, confirming no behavior drift from the dedup.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 0
+      },
+      {
+        "summary": "Doc/schema corrections (rounding-sum note, 'reused when warm' cache wording) and the docs/Analyse.md cross-reference are accurate and match the actual code behavior; backend/openapi.json was regenerated and committed to match the schema description change.",
+        "file": "backend/app/api/schemas.py",
+        "line": 0
+      }
+    ],
+    "notes": "Full review of batched PR #206 (three followup tasks on one branch, per explicit dispatch instruction). Ran the full backend suite (929 tests, 99.94% coverage) and ruff+mypy clean on all files this PR touches. No frontend changes -- no browser walkthrough/e2e run needed. All checklist items done, decisions recorded for every judgment call (rounding-sum kept as doc note not remainder-derivation; docs/Analyse.md section placement kept under \u00a77 with cross-reference added). No blocking findings, no non-blocking findings specific to this task beyond what's already recorded on backend-swing-point-detector-followups-followups (which is scoped to the swing-detection refactor, not this task)."
   }
 }
