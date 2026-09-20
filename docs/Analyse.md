@@ -38,7 +38,7 @@ Purpose: within the tide's direction, wait for a counter-trend dip/rally (a "wav
 - If tide is **bearish**: wait for daily oscillators to rise into **overbought** territory (a rally) → potential sell/short.
 
 Indicators used:
-- **Force Index** (2-day EMA) — `Force Index = Volume × (Close_today − Close_yesterday)`, smoothed with a 2-period EMA for short-term signals and 13-period EMA for trend confirmation. Negative spike in an uptrend = buying opportunity; positive spike in a downtrend = selling opportunity.
+- **Force Index** (2-day EMA) — `Force Index = Volume × (Close_today − Close_yesterday)`, smoothed with a 2-period EMA for short-term signals and 13-period EMA for trend confirmation. Negative spike in an uptrend = buying opportunity; positive spike in a downtrend = selling opportunity. A "spike" is a statistically outsized move against a trailing 13-bar window, not merely any negative/positive tick — and, per Elder ch. 30, **the two directions are not equally reliable**: "markets recoil from down spikes but not from up spikes... spikes that point down reflect intense fear, which doesn't persist for very long. Spikes that point up reflect excessive enthusiasm and greed, which can persist for quite a long time." This app encodes that asymmetry by requiring a statistically *stricter* threshold for a bearish/overbought-rally (up-)spike than a bullish/oversold-pullback (down-)spike (`app.signals.triple_screen._is_force_index_spike` — see `backend-force-index-refinements`'s `decisions` for the exact multipliers and rationale), rather than treating both directions identically. Separately, ch. 30 gives its own much simpler, explicitly-quantified short-term reversal cue — a down-spike **"5 times or more its usual depth"** — as a distinct signal from the Screen 2 classification above (`app.signals.triple_screen.is_force_index_reversal_spike`); the book gives no equivalent numeric rule for an up-spike version, consistent with the same directional-asymmetry claim, so this function only ever evaluates down-spikes.
 - **Stochastic Oscillator** (%K 5, %D 3, smoothing 3) — below 30 = oversold, above 70 = overbought.
 - **Elder-Ray Index**:
   - `Bull Power = High − EMA(13)`
@@ -72,7 +72,7 @@ Use this as a hard **gate**: if Impulse is Red, do not emit a fresh Buy signal e
 |---|-----------|-----------|------------|------|
 | 1 | EMA | Weekly & Daily | 13, 26 | Trend direction (tide + impulse) |
 | 2 | MACD / MACD-Histogram | Weekly & Daily | 12, 26, 9 | Trend momentum, slope for tide & impulse |
-| 3 | Force Index | Daily | 2-EMA (entry), 13-EMA (trend) | Volume-weighted momentum, spike detection |
+| 3 | Force Index | Daily | 2-EMA (entry), 13-EMA (trend) | Volume-weighted momentum, spike detection — directionally asymmetric (down-spikes more reliable than up-spikes, ch. 30); separate "5x usual depth" reversal cue, down-spike only |
 | 4 | Stochastic Oscillator | Daily | %K 5, %D 3, smooth 3 | Overbought/oversold timing (Screen 2) |
 | 5 | Elder-Ray (Bull/Bear Power) | Daily | EMA 13 | Strength of buyers vs sellers relative to trend |
 | 6 | Autoenvelope (Channel) | Daily | EMA 13 ± avg % deviation | Profit-target / take-profit zone, overextension |

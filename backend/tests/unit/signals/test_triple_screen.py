@@ -50,6 +50,7 @@ from app.signals.triple_screen import (
     _is_force_index_spike,
     evaluate_tide,
     evaluate_wave,
+    is_force_index_reversal_spike,
     macd_histogram_slope,
     validate_weekly_ohlcv_columns,
 )
@@ -522,6 +523,95 @@ class TestIsForceIndexSpike:
         # "exceed" a zero threshold, so this is explicitly guarded against.
         series = pd.Series([3.0] * 13)
         assert _is_force_index_spike(series, negative=False) is False
+
+
+class TestIsForceIndexSpikeDirectionalAsymmetry:
+    """Elder ch. 30 (docs/ideas.md): down-spikes reliably predict rallies, up-spikes don't as
+    reliably predict declines -- see this task's `decisions` entry on
+    docs/tasks/backend-force-index-refinements.json. `_is_force_index_spike` must therefore
+    require a *stricter* multiple of the trailing stdev for the bearish/up-spike direction than
+    the bullish/down-spike one, not the identical bar for both.
+
+    Both series below are constructed so their trailing-13-bar stdev is identical (8.3205,
+    hand-derived from the ``std = |a - x| / sqrt(13)`` closed form for a window of 12 identical
+    baseline bars plus one differing bar -- see the task's implementation notes) and the spike
+    magnitude (10.0) sits at exactly 1.2019x that stdev: comfortably above the bullish 1.0x bar,
+    comfortably below the bearish 1.5x bar. This isolates the asymmetry itself (same underlying
+    statistical outsizedness, different directions) rather than merely using two differently
+    sized magnitudes, which wouldn't prove the multiplier itself differs by direction.
+    """
+
+    def test_down_spike_clears_the_bullish_1x_threshold(self) -> None:
+        series = pd.Series([20.0] * 12 + [-10.0])
+        assert series.rolling(window=13).std().iloc[-1] == pytest.approx(8.320502943378438)
+        assert _is_force_index_spike(series, negative=True) is True
+
+    def test_up_spike_of_the_same_relative_magnitude_fails_the_stricter_bearish_1_5x_threshold(
+        self,
+    ) -> None:
+        series = pd.Series([-20.0] * 12 + [10.0])
+        assert series.rolling(window=13).std().iloc[-1] == pytest.approx(8.320502943378438)
+        assert _is_force_index_spike(series, negative=False) is False
+
+    def test_an_even_larger_up_spike_still_clears_the_stricter_1_5x_threshold(self) -> None:
+        # Confirms the bearish path isn't unreachable -- it just needs more evidence.
+        series = pd.Series([-20.0] * 12 + [40.0])
+        assert _is_force_index_spike(series, negative=False) is True
+
+
+class TestIsForceIndexReversalSpike:
+    """Elder ch. 30's '5 times or more its usual depth' short-term reversal signal
+    (docs/ideas.md pp. 112-116) -- a distinct, simpler rule from `_is_force_index_spike` above,
+    down-spike (bullish) only per the book's own explicit directional-asymmetry claim. See this
+    task's `decisions` entry on docs/tasks/backend-force-index-refinements.json.
+
+    All fixtures use the same 13-bar baseline (``[2.0, -3.0, 1.0, -2.0, 3.0, -1.0, 2.0, -3.0,
+    1.0, -2.0, 3.0, -1.0, 2.0]``), whose mean absolute value is exactly 2.0 -- hand-summed:
+    ``(2+3+1+2+3+1+2+3+1+2+3+1+2) / 13 = 26 / 13 = 2.0``. "5x usual depth" is therefore 10.0.
+    """
+
+    _baseline = [2.0, -3.0, 1.0, -2.0, 3.0, -1.0, 2.0, -3.0, 1.0, -2.0, 3.0, -1.0, 2.0]
+
+    def test_down_spike_at_exactly_5x_usual_depth_is_a_reversal_spike(self) -> None:
+        series = pd.Series(self._baseline + [-10.0])
+        assert is_force_index_reversal_spike(series) is True
+
+    def test_down_spike_just_under_5x_usual_depth_is_not_a_reversal_spike(self) -> None:
+        series = pd.Series(self._baseline + [-9.9])
+        assert is_force_index_reversal_spike(series) is False
+
+    def test_up_spike_of_the_same_magnitude_never_counts_as_a_reversal_spike(self) -> None:
+        # Elder ch. 30 states the mirror-image up-spike version of this specific rule "doesn't
+        # work well" -- no threshold, however large, should classify a positive latest value as
+        # this signal.
+        series = pd.Series(self._baseline + [10.0])
+        assert is_force_index_reversal_spike(series) is False
+        huge_up_spike = pd.Series(self._baseline + [10_000.0])
+        assert is_force_index_reversal_spike(huge_up_spike) is False
+
+    def test_insufficient_baseline_history_is_not_a_reversal_spike(self) -> None:
+        # Only 10 preceding bars, not the full 13-bar baseline window.
+        series = pd.Series(self._baseline[:10] + [-50.0])
+        assert is_force_index_reversal_spike(series) is False
+
+    def test_zero_usual_depth_is_not_a_reversal_spike(self) -> None:
+        # A perfectly flat recent baseline (mean abs == 0) -- any nonzero spike would trivially
+        # "exceed" a zero baseline, so this is explicitly guarded against.
+        series = pd.Series([0.0] * 13 + [-0.001])
+        assert is_force_index_reversal_spike(series) is False
+
+    def test_nan_latest_value_is_not_a_reversal_spike(self) -> None:
+        series = pd.Series(self._baseline + [float("nan")])
+        assert is_force_index_reversal_spike(series) is False
+
+    def test_baseline_includes_the_candidate_bar_itself_is_excluded(self) -> None:
+        # The candidate spike bar is excluded from its own baseline -- a baseline window that
+        # included it would be inflated by the very spike it's meant to detect, making the
+        # threshold harder to clear the larger the spike gets. Same 13-bar baseline as above,
+        # but with a 14th (older) bar prepended that must NOT be read as part of the baseline
+        # (only the trailing 13 bars immediately before the latest one count).
+        series = pd.Series([999.0] + self._baseline + [-10.0])
+        assert is_force_index_reversal_spike(series) is True
 
 
 class TestEvaluateWave:

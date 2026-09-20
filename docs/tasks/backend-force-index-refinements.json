@@ -3,7 +3,7 @@
   "title": "Force Index spike-magnitude and directional-asymmetry refinements",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",
@@ -14,19 +14,42 @@
   "checklist": [
     {
       "step": "DECIDE AND RECORD whether to add the '5x usual depth' rule as a second, separate signal alongside the existing Screen-2 stdev-based spike check, or treat it as a reason to revisit that existing threshold -- these are genuinely different scopes.",
-      "done": false
+      "done": true
     },
     {
       "step": "DECIDE AND RECORD whether/how to encode the directional asymmetry (stricter threshold for bearish spikes than bullish ones, given Elder's explicit claim they aren't equally reliable) -- run this past the verify-elder-signal skill given it changes existing signal behavior.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement whichever of the above was decided, with unit tests covering both directions explicitly (not just one, given the asymmetry is the whole point).",
-      "done": false
+      "done": true
     },
     {
       "step": "Update docs/Analyse.md \u00a72/\u00a74 to document the refined rule(s) and the asymmetry rationale.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T07:47:00Z",
+      "recorded_by": "task-worker (add-indicator skill)",
+      "decision": "The ch. 30 '5x or more its usual depth' rule is implemented as a second, separate function (`is_force_index_reversal_spike` in app/signals/triple_screen.py) alongside -- not a replacement for or revision of -- the existing Screen-2 `_is_force_index_spike` (stdev-based). It is not wired into `evaluate_wave`'s OVERSOLD_PULLBACK/OVERBOUGHT_RALLY classification, `app.signals.engine.analyse()`'s screens.wave output, or the API schema in this task.",
+      "rationale": "docs/ideas.md's ch. 30 citation (pp. 112-116) frames this explicitly as 'a distinct, additional signal from a different part of the book (short-term reversal timing, not Screen 2's oversold-pullback classification)' -- the two rules answer genuinely different questions ('is today's Force Index reading, on its own, an unusually deep reaction' vs. 'does today's oscillator state, combined with the tide, constitute a Triple-Screen buy/sell setup') and even use structurally different baselines (a plain trailing mean-absolute 'usual depth', per the book's own casual phrasing, vs. `_is_force_index_spike`'s already-decided statistical stdev, recorded separately in screen2-wave.json's own `decisions` entry for that specific Screen 2 usage). Collapsing them into one threshold would silently discard one of the two book-cited definitions and conflate two different use cases that happen to share an indicator. Not wiring the new function into `evaluate_wave`'s output dict or the API: `evaluate_wave`'s own test suite (tests/unit/signals/test_triple_screen.py::TestEvaluateWave::test_returns_latest_bar_values_matching_api_shape) explicitly locks its return shape to exactly `{stochastic_k, force_index_2ema, state}`, and this task's checklist scopes doc updates to Analyse.md \u00a72/\u00a74 only (no API.md/schemas.py/openapi.json mention, unlike e.g. backend-indicator-atr-adx.json's checklist, which explicitly called out API exposure as in-scope) -- so widening evaluate_wave's contract or the AnalysisResponse schema wasn't requested and would be unrequested scope creep with its own frontend-sync obligations. The function is made public (not `_`-prefixed), mirroring how `macd_histogram_slope` was promoted out of a private helper in this same file for the same reason, so a future task (API exposure, a dashboard flag, a confidence-scoring extension) can call it directly once a concrete consumer is decided, without this task inventing one speculatively.",
+      "alternatives_considered": "Revising `_is_force_index_spike`'s existing 1.0x stdev threshold to somehow also satisfy the '5x usual depth' framing was rejected: the two thresholds aren't commensurable (stdev of the trailing series vs. a plain mean-absolute baseline) and Screen 2's threshold already has its own recorded rationale (screen2-wave.json) that a '5x' number would contradict rather than refine."
+    },
+    {
+      "timestamp": "2026-09-20T07:47:00Z",
+      "recorded_by": "task-worker (add-indicator skill, verify-elder-signal checklist)",
+      "decision": "`_is_force_index_spike`'s stdev multiplier is made asymmetric by direction: the bullish/down-spike path (feeding OVERSOLD_PULLBACK) keeps the existing 1.0x-stdev threshold; the bearish/up-spike path (feeding OVERBOUGHT_RALLY) now requires a stricter 1.5x-stdev threshold.",
+      "rationale": "docs/ideas.md's ch. 30 citation states plainly: 'markets recoil from down spikes but not from up spikes... spikes that point down reflect intense fear, which doesn't persist for very long. Spikes that point up reflect excessive enthusiasm and greed, which can persist for quite a long time.' Applied to `_is_force_index_spike` (used identically for both directions before this change, per this task's description), the bearish/sell side of the existing check is the less-reliable one per Elder's own claim, so it should require stronger statistical evidence before firing, not the identical bar as the more-reliable bullish/buy side. Checked against `verify-elder-signal`'s Screen 2 checklist item ('Force Index uses both the 2-EMA and 13-EMA... per \u00a72/\u00a74') -- this change only adjusts the existing 2-EMA spike threshold's strictness, doesn't touch which EMAs are used, and doesn't change `evaluate_wave`'s state-classification logic itself (still requires the qualifying Stochastic reading AND a spike together) -- so it's a magnitude-of-evidence change, not a structural one.",
+      "alternatives_considered": "A larger asymmetry (e.g. 2.0x bearish) was considered but rejected as arbitrary beyond what the book actually quantifies -- Elder states the asymmetry exists and its psychological cause, but never gives a numeric ratio for it (unlike the ch. 30 '5x' figure, which is explicit). 1.5x (50% stricter) is a deliberately modest, round-number encoding of 'meaningfully stricter, not merely different' that keeps the bearish path reachable (verified against this module's own existing real-value end-to-end test fixture, where the bearish spike ratio is ~3.6x, comfortably above 1.5x) rather than picking a value large enough to make OVERBOUGHT_RALLY practically unreachable, which would effectively repeal the sell side of Screen 2 rather than merely make it more conservative -- not what Elder's text asks for. Leaving the bearish threshold unchanged (i.e. deciding the asymmetry doesn't warrant a code change, only a documentation caveat) was also rejected: the task's own checklist frames this as a 'real methodology decision, not just new code', and the existing code's symmetric treatment is exactly the gap docs/ideas.md flags -- a doc-only caveat would leave the code still silently treating both directions as equally trustworthy, i.e. the gap this task exists to close."
+    },
+    {
+      "timestamp": "2026-09-20T07:47:00Z",
+      "recorded_by": "task-worker (add-indicator skill)",
+      "decision": "`is_force_index_reversal_spike` only ever evaluates the down-spike (bullish reversal) direction -- there is no `negative` parameter, and any non-negative latest value always returns False rather than being checked against a mirrored (even if stricter) up-spike threshold.",
+      "rationale": "This is a stronger encoding of the same ch. 30 directional-asymmetry claim than merely making an up-spike variant 'stricter': the book states the up-spike mirror of this specific short-term-reversal rule 'doesn't work well' at all, not just 'works less reliably' -- it never gives any numeric threshold, strict or otherwise, for an up-spike version of this particular signal (contrast with the '5x' figure it does give for the down-spike case). Fabricating a symmetric-but-stricter up-spike check here (the same treatment chosen for `_is_force_index_spike` above) would assert a claim about magnitude that the book itself declines to make for this rule, whereas `_is_force_index_spike`'s asymmetry is grounded in the same underlying claim applied to a check the book does describe as applying in both directions (Screen 2's oversold-pullback/overbought-rally pair, which Analyse.md \u00a72 documents symmetrically by design). 'Usual depth' baseline: mean absolute value over the 13 bars immediately preceding (excluding) the candidate bar, rather than a window that includes the candidate bar (which would let a large spike inflate its own baseline and mask itself) or a rolling-std-based baseline (which would just be `_is_force_index_spike`'s own definition under a different multiplier, undermining decision #1 above that these are genuinely different signals with genuinely different baselines).",
+      "alternatives_considered": "Exposing an informational-only up-spike reading (computed but explicitly documented as unreliable, e.g. returned as a separate always-checked-but-caveated boolean) was considered, but rejected as unnecessary complexity for a value nothing in this codebase would consume differently from 'False' -- if a future task finds a genuine use for that weaker signal, it can add it then with its own justification, rather than this task pre-building an unused code path."
     }
   ]
 }
