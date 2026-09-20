@@ -1,0 +1,63 @@
+{
+  "id": "backend-ibkr-status-endpoint",
+  "title": "GET /api/ibkr/status -- surface IBKR gateway connection state",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/data/ibkr_provider.py",
+    "backend/app/api/dependencies.py",
+    "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
+  ],
+  "description": "app.api.dependencies.get_ibkr_provider exists and is already a thread-safe singleton (backend-ibkr-data-provider-followups), but nothing calls it -- the provider is fully dormant end-to-end. Add a read-only status endpoint wrapping IBKRProvider.get_gateway_status() so the app can actually surface 'IBKR: connected / not authenticated / gateway down / disabled' instead of this being invisible everywhere.",
+  "checklist": [
+    { "step": "Add GET /api/ibkr/status returning the gateway state (available/gateway_unreachable/not_authenticated) plus an explicit 'disabled' state when Settings.ibkr_enabled is False, and a detail string.", "done": true },
+    { "step": "Ensure the endpoint never raises for any gateway state -- degrade to the appropriate status value instead, matching IBKRProvider.get_gateway_status's own never-raises contract.", "done": true },
+    { "step": "Unit tests mocking IBKRProvider for each of the four states (disabled, available, gateway_unreachable, not_authenticated).", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New GET /api/ibkr/status route lives in its own backend/app/api/routers/ibkr.py (not appended to an existing router), registered in app/main.py alongside stocks/portfolio/watchlist. The handler derives 'disabled' purely from app.api.dependencies.get_ibkr_provider yielding None -- it does not separately call get_settings().ibkr_enabled -- since get_ibkr_provider's own documented contract is to yield None in exactly (and only) that case, so re-checking the flag directly would just be a redundant, potentially-divergent second source of truth for the same condition.",
+      "rationale": "A dedicated router file matches this codebase's one-router-per-resource convention (stocks.py/portfolio.py/watchlist.py) rather than shoehorning an unrelated resource into watchlist.py or portfolio.py. Deriving 'disabled' from the dependency's own None sentinel (rather than re-reading Settings) keeps a single source of truth for 'is IBKR enabled' -- get_ibkr_provider.py's own docstring already commits to yielding None if and only if ibkr_enabled is False, so this endpoint just trusts that contract instead of duplicating the check."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKRStatusResponse declares no `responses={...}` error cases beyond FastAPI's default (no 404/422/503 entries) -- the endpoint has no path/query parameters to fail validation on, and both get_gateway_status() and this handler are documented as never raising, so there is no genuine error case to declare per CLAUDE.md's API documentation standard.",
+      "rationale": "The API documentation standard's '404/422/503 etc.' requirement is for endpoints that actually have failure modes worth declaring to a client; forcing placeholder error responses onto a route that structurally cannot produce them would misrepresent the contract rather than clarify it."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint",
+    "pr_number": 212,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/212",
+    "pushed_at": "2026-09-20T23:35:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T23:41:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/212",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "IBKRStatusResponse.detail's schema description claims detail is \"Always null for 'disabled'\", but app/api/routers/ibkr.py's handler always populates a non-null explanatory string for that state (confirmed by backend/tests/integration/test_ibkr_status.py::test_status_disabled asserting `detail is not None`). Same wrong claim duplicated into backend/openapi.json, frontend/src/api/types.ts, and docs/architecture/API.md. Non-blocking (informational-only field, never required for a caller to branch on per the schema's own framing) -- tracked as backend-ibkr-status-endpoint-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 594
+      },
+      {
+        "summary": "Verified the task-worker's claim that regenerating backend/openapi.json/frontend/src/api/types.ts picked up unrelated pre-existing docstring drift on GET /api/watchlist/breadth: confirmed main's backend/openapi.json already matched the current code docstring, but main's frontend/src/api/types.ts was stale (still had the old \"No new provider calls result\" text) -- this PR's regeneration step just caught types.ts up to what openapi.json already said. Description text only, no schema/type shape change -- genuinely in-scope snapshot catch-up, not a live behavior change.",
+        "file": "backend/openapi.json",
+        "line": 0
+      }
+    ],
+    "notes": "Backend: 939 passed, 99.94% line/branch coverage (pytest --cov=app --cov-fail-under=90). Frontend: 99.72%/99.19%/99.72%/99.78% (statements/branches/functions/lines; vitest run --coverage) -- unaffected by this PR's only frontend change (regenerated types.ts), run anyway for completeness. ruff/mypy/eslint/tsc all clean. `python scripts/export_openapi.py` reproduces the committed backend/openapi.json byte-for-byte. code-review skill (medium effort) run independently and converged on the same single finding as my own manual review (the detail-field doc/behavior mismatch); no other correctness, reuse, or efficiency issues found. Architecture: new backend/app/api/routers/ibkr.py follows the existing one-router-per-resource convention (stocks.py/portfolio.py/watchlist.py) -- not a new layer, architecture-review not separately invoked. Not backend/signals or backend/portfolio and skill isn't verify-elder-signal, so that check doesn't apply. No frontend component/page touched (only generated types.ts) and no endpoint has a frontend consumer yet, so this PR has no UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) both skipped, explicitly, rather than silently omitted. No checklist item phrased 'decide X' lacking a decisions entry -- both real judgment calls (router placement/disabled-derivation, and no responses={} error cases) are recorded with decision+rationale. Verdict: accepted; one non-blocking finding filed as backend-ibkr-status-endpoint-followups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T23:45:23Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `pytest --cov=app --cov-report=term-missing`: 939 passed, 99.94% coverage, matching pr-reviewer's numbers exactly. Skimmed the full diff (backend/app/api/routers/ibkr.py, schemas.py, main.py, test_ibkr_status.py, openapi.json/types.ts/API.md) myself: confirmed the disabled-state code path never calls IBKRProvider or constructs an HTTP client (get_ibkr_provider yields None purely from Settings.ibkr_enabled=False, which is the committed backend/.env default and unset in this environment), and all four gateway states in test_ibkr_status.py are exercised via a dependency-override stub with zero real network calls -- consistent with FINTRADE_IBKR_ENABLED staying false throughout. Confirmed `python scripts/export_openapi.py` reproduces backend/openapi.json byte-for-byte, and re-ran ruff/mypy on the changed backend files (clean). Confirmed the review's two non-blocking findings hold as described (detail-field doc/behavior mismatch is real but genuinely informational-only; the watchlist/breadth docstring diff in types.ts is pre-existing drift catch-up, not new). No missed blocking issue found; accept holds."
+  }
+}

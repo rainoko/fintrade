@@ -1482,8 +1482,15 @@
       "id": "backend-ibkr-status-endpoint",
       "area": "backend/api",
       "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-status-endpoint.json"
+    },
+    {
+      "id": "backend-ibkr-status-endpoint-followups",
+      "area": "backend/api",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-ibkr-status-endpoint.json"
+      "path": "docs/tasks/backend-ibkr-status-endpoint-followups.json"
     },
     {
       "id": "backend-ibkr-tickle-keepalive",

@@ -400,6 +400,16 @@ A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker
 
 `bullish_pct`/`bearish_pct`/`neutral_pct` are each rounded independently to 1 decimal place, so they don't always sum to exactly 100.0 (an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) — a client rendering all three should not assume they total 100, and shouldn't "fix" the display by silently adjusting one bucket. See `docs/Analyse.md`'s Personal breadth proxy section.
 
+### `GET /api/ibkr/status`
+
+Whether the optional IBKR Client Portal Gateway integration (`app.data.ibkr_provider.IBKRProvider`, gated behind `Settings.ibkr_enabled` — `false` by default, since no environment other than a real user's own machine has a locally-running, authenticated IB Gateway) is usable right now. Read-only — never triggers a login attempt or any data fetch itself, and never fails: every state below is returned as a normal `200`.
+
+```json
+{ "state": "available", "detail": null }
+```
+
+`state` ∈ `disabled | available | gateway_unreachable | not_authenticated`. `disabled` is this endpoint's own addition on top of `app.data.ibkr_provider.GatewayState`'s three values — set whenever `Settings.ibkr_enabled` is `False`, without ever attempting to reach a gateway at all. Otherwise `state` is exactly what `IBKRProvider.get_gateway_status()` reports: `available` (gateway running, session authenticated — IBKR-backed features can be used), `gateway_unreachable` (no gateway process answered at the configured base URL — most likely it isn't running), or `not_authenticated` (the gateway is up but its interactive browser login step hasn't been completed, or the session has since expired). `detail` is optional human-readable context (the underlying transport error, or the gateway's own message) — never required for a caller to branch on; always `null` for `disabled` and usually `null` for `available`. See the `backend-ibkr-status-endpoint` task's `decisions` entry.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.

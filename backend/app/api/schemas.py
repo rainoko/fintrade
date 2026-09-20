@@ -573,6 +573,32 @@ class ClosedTradesResponse(BaseModel):
     )
 
 
+# --- /api/ibkr/status ------------------------------------------------------
+
+IBKRGatewayState = Literal["disabled", "available", "gateway_unreachable", "not_authenticated"]
+
+
+class IBKRStatusResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Whether the optional IBKR Client Portal Gateway integration is usable "
+        "right now. 'disabled' -- Settings.ibkr_enabled is False (this app's default; no "
+        "attempt to reach a gateway is made at all). 'available' -- the gateway is running "
+        "and its session is authenticated; IBKR-backed features (hourly bars, the market "
+        "scanner) can be used. 'gateway_unreachable' -- ibkr_enabled is True but no gateway "
+        "process answered at the configured base URL (most likely it isn't running). "
+        "'not_authenticated' -- the gateway process is up and answering but its interactive "
+        "browser login step hasn't been completed, or the session has since expired. "
+        "Mirrors app.data.ibkr_provider.GatewayState exactly, plus this endpoint's own "
+        "'disabled' state for when that check is never even attempted.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state` (the underlying transport error, "
+        "or the gateway's own message) -- informational only, never required for a caller "
+        "to branch on. Always null for 'disabled' and usually null for 'available'.",
+    )
+
+
 # --- shared error shape (FastAPI default, documented for clarity) ---------
 
 
