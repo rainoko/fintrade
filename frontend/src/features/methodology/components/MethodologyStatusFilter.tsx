@@ -5,14 +5,8 @@ import Typography from '@mui/material/Typography'
 import {
   type MethodologyStatus,
   STATUS_META,
+  STATUS_ORDER,
 } from '../data/methodologyContent'
-
-const STATUS_ORDER: MethodologyStatus[] = [
-  'core_signal',
-  'risk_management',
-  'informational',
-  'considered',
-]
 
 export interface MethodologyStatusFilterProps {
   selected: ReadonlySet<MethodologyStatus>

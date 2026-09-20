@@ -1,0 +1,66 @@
+{
+  "id": "frontend-methodology-explainer-followups",
+  "title": "Methodology Reference page -- non-blocking review follow-ups",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-methodology-explainer"],
+  "references": [
+    "docs/tasks/done/frontend-methodology-explainer.json#review",
+    "https://github.com/rainoko/fintrade/pull/189"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #189 (frontend-methodology-explainer), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "MethodologyPage.tsx's ALL_STATUSES and MethodologyStatusFilter.tsx's STATUS_ORDER both hand-duplicate the full list of MethodologyStatus values, with no compiler-enforced link between them or to the STATUS_META Record (features/methodology/data/methodologyContent.ts) that already enumerates every status as a typed Record's keys. A future 5th status would get a compiler-enforced STATUS_META entry but silently no compiler error if a contributor forgets to add it to one or both of these plain string[] literals -- entries with the new status would be missing from the default 'select all' state and/or the filter row's chips/legend, uncaught by existing tests (which hardcode only the current 4 labels). Derive both from `Object.keys(STATUS_META) as MethodologyStatus[]` (or export one shared ordered array from methodologyContent.ts) instead.",
+      "done": true
+    },
+    {
+      "step": "MethodologyEntryCard.tsx renders `entry.crossLinksTo` as plain descriptive text ('See it live: Stock Detail page -> Signal Summary -> Tide (Screen 1) help icon'), not an actual clickable/navigable link -- a reader has to manually go find that page/panel themselves. The task's recorded decision only committed to 'naming' the location (not linking to it), so this isn't a violation of that decision, but a real in-app link (e.g. a react-router Link to the relevant page, possibly with a query param or anchor the target page reads to auto-open the right MetricHelp popover) would make the cross-link meaningfully more useful than prose alone.",
+      "done": true
+    },
+    {
+      "step": "No Playwright e2e spec (frontend/tests/e2e/) covers the new /methodology route, its status filter, or the Stock Detail <-> Methodology cross-link round trip -- this brand-new page currently has zero persisted regression coverage in that suite (only vitest/RTL component tests). Consider adding a methodology.spec.ts alongside the existing dashboard/navigation/portfolio/watchlist/stock-analysis specs.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:41:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Exported a new STATUS_ORDER: MethodologyStatus[] = Object.keys(STATUS_META) as MethodologyStatus[] from methodologyContent.ts (defined immediately after STATUS_META, since it depends on it), and switched both MethodologyPage.tsx's ALL_STATUSES usage and MethodologyStatusFilter.tsx's own STATUS_ORDER to import it instead of hand-duplicating the literal. For the cross-link finding, added a resolveCrossLinkPath(crossLinksTo: string): string | null helper in MethodologyEntryCard.tsx that prefix-matches each crossLinksTo string's own leading page name ('Stock Detail page', 'Portfolio page', 'Watchlist page' -- exhaustive across every current entry in methodologyContent.ts) and renders the text as a real react-router Link when a route resolves. 'Portfolio page'/'Watchlist page' entries link straight to /portfolio and /watchlist respectively. 'Stock Detail page' entries (the majority, e.g. 'Signal Summary -> Tide help icon') link to /watchlist instead of attempting a direct /stocks/:ticker link, since this page deliberately has no ticker context of its own (methodologyContent.ts's own docstring: 'independent of any one ticker') -- Watchlist is the nearest page that lets a reader pick a concrete ticker and continue on to Stock Detail from there, rather than either a dead link or inventing which ticker to pick. The fuller 'deep-link straight to a specific ticker + auto-open the right MetricHelp popover' idea the review finding also raised was deliberately left unbuilt: it would need a 'which ticker' answer this page has no source for (no last-viewed-ticker/localStorage mechanism exists anywhere in this app today), plus a net-new cross-page auto-open-popover mechanism nothing else in the codebase has -- both real, separate features, not a natural fit for this small non-blocking follow-up. Added frontend/tests/e2e/methodology.spec.ts covering nav-drawer entry into /methodology, the status filter's deselect-all/reselect behavior, and the Stock Detail <-> Methodology round trip (StockDetailPage's 'Methodology reference' link one way, a MethodologyEntryCard crossLinksTo link to /watchlist the other). Implemented as part of a batched PR (#208) alongside four other unrelated small follow-up tasks, per explicit user instruction to batch remaining small followups onto one branch/PR.",
+      "rationale": "STATUS_ORDER derived from STATUS_META's own key order (rather than a second hand-written array elsewhere) makes the two consumers compiler-linked to the single Record the review finding named as the real source of truth -- a future 5th status added only to STATUS_META now automatically appears in both the filter legend and the default 'select all' state, closing exactly the silent-drift gap the finding described. The Watchlist-page redirect for Stock-Detail-anchored cross-links is a deliberately modest, honest middle ground: it converts every current crossLinksTo entry into an actually-clickable link (not just the two page-level ones), without fabricating a ticker context this page was explicitly designed not to have, and without building an unrelated new feature (query-param-driven auto-open popovers) as a side effect of a small non-blocking cleanup task. Considered linking Stock-Detail entries to a hardcoded example ticker (e.g. AAPL) instead, but rejected it as actively misleading -- it would imply a specific, arbitrary ticker is 'the' place to see this, when the whole point of naming a page/panel/icon instead of a specific value was to stay ticker-agnostic."
+    }
+  ],
+  "git": {
+    "branch": "task/final-followups-batch",
+    "pr_number": 208,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "STATUS_ORDER derived from Object.keys(STATUS_META) is now the single source of truth used by both MethodologyPage.tsx and MethodologyStatusFilter.tsx, and its runtime key order matches the previous hand-written literal exactly (core_signal, risk_management, informational, considered) -- confirmed by reading methodologyContent.ts directly.",
+        "file": "frontend/src/features/methodology/data/methodologyContent.ts"
+      },
+      {
+        "summary": "resolveCrossLinkPath's three prefix branches (Stock Detail page, Portfolio page, Watchlist page) are exhaustive across every crossLinksTo string currently in methodologyContent.ts (checked all 21 entries), and routing Stock-Detail-anchored entries to /watchlist (rather than a fabricated ticker or a new popover mechanism) is a reasonable, well-reasoned middle ground given this page's own documented ticker-agnostic design -- matches the task's decisions entry.",
+        "file": "frontend/src/features/methodology/components/MethodologyEntryCard.tsx"
+      },
+      {
+        "summary": "frontend/tests/e2e/methodology.spec.ts genuinely exercises the real cross-link click-through against a live browser + backend (not a mock): 'Stock Detail <-> Methodology cross-link round trip' clicks StockDetailPage's Methodology reference link, then clicks a real MethodologyEntryCard crossLinksTo link and asserts navigation to /watchlist. Ran the full persisted e2e suite (make e2e): all 18 specs passed, including both new methodology.spec.ts tests.",
+        "file": "frontend/tests/e2e/methodology.spec.ts"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Read the full diff myself. Confirmed all 21 crossLinksTo entries in methodologyContent.ts resolve exhaustively via resolveCrossLinkPath's three prefix branches (grep found zero non-matching entries), and read methodology.spec.ts myself to confirm it clicks a real rendered link, not a mock. Ran scripts/validate_tasks.py (no violations)."
+  }
+}

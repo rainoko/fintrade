@@ -1,0 +1,59 @@
+{
+  "id": "backend-swing-point-detector-followups-followups",
+  "title": "Swing-extreme primitive extraction -- non-blocking review follow-ups (round 2)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-swing-point-detector-followups"],
+  "references": [
+    "docs/tasks/backend-swing-point-detector-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/206"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #206 (backend-swing-point-detector-followups, batched with backend-watchlist-breadth-proxy-followups and backend-profit-target-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md's §2 module-layout tree still wasn't updated to list the new app/signals/_swing_extremes.py module under signals/ -- this is the same recurring doc-completeness gap this very task's own checklist previously flagged (and marked done) for swing_points.py/support_resistance.py, now recurring for the new shared primitive module this PR itself introduced. Add it to the tree.",
+      "done": true
+    },
+    {
+      "step": "app.signals.support_resistance._find_swing_points calls rolling_extreme_masks twice (once for highs, once for lows), and each call computes BOTH a rolling max and a rolling min over the full series but discards one of the two results (is_swing_high, _ = rolling_extreme_masks(highs, ...) throws away the min; _, is_swing_low = rolling_extreme_masks(lows, ...) throws away the max) -- 4 rolling passes over the series where 2 would do. Not a correctness issue (flagged by code-review on PR #206), but an avoidable efficiency regression introduced by this exact refactor. Consider a mode='max'|'min'|'both' parameter (or two thin single-purpose wrappers) on rolling_extreme_masks so each caller only pays for the side it actually uses.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:41:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Added _swing_extremes.py to Backend.md's §2 tree with a one-line description, immediately above swing_points.py (the module that most directly depends on it). Implemented the second finding as two thin single-purpose wrappers (rolling_max_mask/rolling_min_mask) rather than a mode='max'|'min'|'both' parameter on the existing rolling_extreme_masks -- kept rolling_extreme_masks itself unchanged (still used as-is by swing_points.py, which genuinely needs both masks of the same series), so the change is additive rather than a signature change to an already-tested/consumed function. support_resistance.py's _find_swing_points now calls rolling_max_mask(highs, ...) and rolling_min_mask(lows, ...) directly, computing exactly the 2 reductions it actually uses instead of 4. Added a dedicated tests/unit/signals/test_swing_extremes.py (this package-internal module had no test file of its own before this task) asserting the two wrappers agree with rolling_extreme_masks's own combined output and that require_full_window's NaN-tolerance switch behaves identically either way. Implemented as part of a batched PR (#208) alongside four other unrelated small follow-up tasks, per explicit user instruction to batch remaining small followups onto one branch/PR.",
+      "rationale": "Two single-purpose wrappers keep the fix minimal and low-risk: no existing call site (swing_points.py, or any test asserting against rolling_extreme_masks's tuple-returning signature) needs to change at all, and the new wrappers are trivially unit-testable in isolation. A mode parameter was considered and rejected: it would require every caller (including swing_points.py, which doesn't have this efficiency problem at all) to pass an extra argument, and would return a different shape (a single Series for 'max'/'min' vs. a tuple for 'both'), which is a less clean API than two thin, single-purpose functions with a straightforward Series return type each."
+    }
+  ],
+  "git": {
+    "branch": "task/final-followups-batch",
+    "pr_number": 208,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "rolling_max_mask/rolling_min_mask split verified by trace: support_resistance.py's _find_swing_points now performs exactly 2 rolling reductions (one .max() on highs, one .min() on lows) instead of the old 4 (rolling_extreme_masks computed both max and min for each of highs and lows, discarding one side each time). Both wrappers call the same _rolling(...) construction and produce output identical to rolling_extreme_masks's own two halves, confirmed by backend/tests/unit/signals/test_swing_extremes.py's assert_series_equal cross-checks and by full backend suite passing (935 tests, 99.94% coverage). Backend.md's module tree correctly lists the new _swing_extremes.py.",
+        "file": "backend/app/signals/_swing_extremes.py"
+      },
+      {
+        "summary": "Minor non-blocking finding filed as a new follow-up task (backend-swing-point-detector-followups-followups-followups): rolling_extreme_masks still re-implements _rolling's min_periods/rolling(...) construction inline instead of calling the new _rolling helper its two sibling functions use, so the module now has two copies of the same window logic. Not a correctness risk today (test_swing_extremes.py's own cross-check assertions would catch a future divergence), but worth consolidating.",
+        "file": "backend/app/signals/_swing_extremes.py",
+        "line": 73
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full backend suite (935 tests) and ruff/mypy both clean. verify-elder-signal check: this is a pure internal refactor of the swing-point extreme-detection primitive used by support_resistance.py -- no semantic change to Tide/Wave/Trigger/Impulse/Confidence/Portfolio Risk logic, confirmed by identical test output before/after."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean; ruff's 7 findings are pre-existing on main in files this PR doesn't touch) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Read the full diff myself. Hand-verified the rolling_max_mask/rolling_min_mask split by reading _swing_extremes.py and support_resistance.py directly (2 reductions vs old 4, confirmed by test_swing_extremes.py's assert_series_equal cross-checks). Ran scripts/validate_tasks.py (no violations). Confirmed all five task JSONs are correctly under docs/tasks/done/ with matching index.json paths, and backend-swing-point-detector-followups-followups-followups.json is correctly filed as a new planned task with no board inconsistency."
+  }
+}

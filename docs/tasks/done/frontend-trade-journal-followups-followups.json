@@ -1,0 +1,50 @@
+{
+  "id": "frontend-trade-journal-followups-followups",
+  "title": "Follow-ups from pr-reviewer's review of PR #181 (frontend-trade-journal-followups)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-trade-journal-followups"],
+  "references": [
+    "docs/tasks/done/frontend-trade-journal-followups.json",
+    "https://github.com/rainoko/fintrade/pull/181"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #181 (frontend-trade-journal-followups), recorded here so they aren't lost once the PR merges and the review comment scrolls out of view.",
+  "checklist": [
+    {
+      "step": "TradeJournalPanel.test.tsx's new 'sorts by a nullable grade column, missing values last' test doesn't actually exercise a null value in the column it sorts: both fixture rows have a non-null buy_grade_pct (40 and 90) -- only sell_grade_pct/trade_grade_pct (columns not being sorted in that test) are null. So the test only verifies ordinary ascending numeric sort, not the null-last claim its own name/comment makes for this call site (unlike PositionsTable.test.tsx's equivalent current_price sort test, which does use a real null in the sorted column). Manually verified in a live browser walkthrough that TradeJournalPanel's null-last sorting is in fact correct (a closed trade with all-null grades sorted to the last row in both ascending and descending order on Buy Grade) -- so this is a test-honesty/coverage gap, not a functional bug. Worth adding a genuine null case to that test (e.g. give one row a null buy_grade_pct) so the assertion matches what it claims to check.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:41:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a third fixture row (ticker CCC) with buy_grade_pct: null to TradeJournalPanel.test.tsx's 'sorts by a nullable grade column, missing values last' test, and extended the assertion to check both ascending (AAA, BBB, CCC -- null last) and descending (BBB, AAA, CCC -- null still last, not first) order after clicking the Buy Grade header twice. Implemented as part of a batched PR (#208) alongside four other unrelated small follow-up tasks, per explicit user instruction to batch remaining small followups onto one branch/PR.",
+      "rationale": "A genuine null in the sorted column (not just the two other, unsorted grade columns the test already varied) is exactly what the finding asked for -- it's the only way this test can actually fail if a future change broke the null-last sort behavior it claims to verify. Added the descending-order check too (not just ascending) since 'missing values last' is specifically claimed regardless of sort direction, per the finding's own manual-verification note ('sorted to the last row in both ascending and descending order') -- asserting only ascending would have left that half of the claim just as untested as before."
+    }
+  ],
+  "git": {
+    "branch": "task/final-followups-batch",
+    "pr_number": 208,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "TradeJournalPanel.test.tsx's 'sorts by a nullable grade column, missing values last' test now includes a genuine null buy_grade_pct row (CCC) and asserts null-last ordering in both ascending and descending order after clicking the Buy Grade header, matching what the test's own name claims and mirroring PositionsTable.test.tsx's precedent.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.test.tsx"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Read the diff myself: confirmed TradeJournalPanel.test.tsx's updated 'sorts by a nullable grade column' test adds a genuine null buy_grade_pct row (CCC) and asserts null-last ordering in both ascending and descending order after clicking Buy Grade. Ran scripts/validate_tasks.py (no violations)."
+  }
+}

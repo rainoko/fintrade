@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { theme } from '../../../theme/theme'
 import type { MethodologyEntry } from '../data/methodologyContent'
@@ -17,9 +18,11 @@ const baseEntry: MethodologyEntry = {
 
 function renderCard(entry: MethodologyEntry) {
   return render(
-    <ThemeProvider theme={theme}>
-      <MethodologyEntryCard entry={entry} />
-    </ThemeProvider>,
+    <MemoryRouter>
+      <ThemeProvider theme={theme}>
+        <MethodologyEntryCard entry={entry} />
+      </ThemeProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -38,13 +41,41 @@ describe('MethodologyEntryCard', () => {
   it('renders a cross-link when crossLinksTo is present', () => {
     renderCard({ ...baseEntry, crossLinksTo: 'Stock Detail page → Some Panel' })
 
-    expect(screen.getByText(/See it live: Stock Detail page/)).toBeInTheDocument()
+    expect(screen.getByText(/See it live:/)).toBeInTheDocument()
   })
 
   it('renders no cross-link section when crossLinksTo is absent', () => {
     renderCard(baseEntry)
 
     expect(screen.queryByText(/See it live/)).not.toBeInTheDocument()
+  })
+
+  it('links a Stock Detail page cross-link to the Watchlist page (no ticker context here)', () => {
+    renderCard({ ...baseEntry, crossLinksTo: 'Stock Detail page → Some Panel' })
+
+    const link = screen.getByRole('link', { name: 'Stock Detail page → Some Panel' })
+    expect(link).toHaveAttribute('href', '/watchlist')
+  })
+
+  it('links a Portfolio page cross-link directly to the Portfolio page', () => {
+    renderCard({ ...baseEntry, crossLinksTo: 'Portfolio page → Risk Panel' })
+
+    const link = screen.getByRole('link', { name: 'Portfolio page → Risk Panel' })
+    expect(link).toHaveAttribute('href', '/portfolio')
+  })
+
+  it('links a Watchlist page cross-link directly to the Watchlist page', () => {
+    renderCard({ ...baseEntry, crossLinksTo: 'Watchlist page → Personal Breadth card' })
+
+    const link = screen.getByRole('link', { name: 'Watchlist page → Personal Breadth card' })
+    expect(link).toHaveAttribute('href', '/watchlist')
+  })
+
+  it('renders plain, non-linked text for a crossLinksTo that names no known page', () => {
+    renderCard({ ...baseEntry, crossLinksTo: 'Some other page → Some Panel' })
+
+    expect(screen.getByText(/See it live: Some other page/)).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   it.each([

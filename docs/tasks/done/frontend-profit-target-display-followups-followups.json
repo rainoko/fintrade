@@ -1,0 +1,62 @@
+{
+  "id": "frontend-profit-target-display-followups-followups",
+  "title": "Profit target display follow-ups (batch PR #207) — non-blocking review follow-ups",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-profit-target-display-followups"],
+  "references": [
+    "docs/tasks/frontend-profit-target-display-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/207",
+    "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+    "frontend/src/utils/profitTargetHelpText.ts",
+    "docs/architecture/Frontend.md#3"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #207 (batched: frontend-trend-strength-chart-followups, frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups, frontend-profit-target-display-followups), tracked here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so they aren't lost once that PR merges. Both findings below isolate specifically to frontend-profit-target-display-followups' own changes (RewardRiskBadge.tsx and the new frontend/src/utils/profitTargetHelpText.ts) -- the PR's other four batched changes had no findings of any kind (see PR #207's review comment for the full verification detail across all five).",
+  "checklist": [
+    {
+      "step": "RewardRiskBadge.tsx's new `failureAriaLabel` prop (this PR) parameterizes the *content* of the warning icon's `aria-label`, but doesn't fix the pre-existing (not introduced by this PR) reason that label is never actually announced to a screen reader at all: MUI's `SvgIcon` (which `WarningAmberIcon` wraps) defaults `aria-hidden=\"true\"` whenever no `titleAccess` prop is supplied, and neither the old nor the new code passes one -- confirmed live (PR #207 browser walkthrough, MU stock detail page): the rendered DOM has both `aria-hidden=\"true\"` and `aria-label=\"Below the 2:1 minimum\"` on the same `<svg>` simultaneously, and `aria-hidden=\"true\"` removes an element from the accessibility tree regardless of any `aria-label` also present. Testing-library's `getByLabelText` (used by both the pre-existing and this PR's new RewardRiskBadge.test.tsx assertions) matches on the raw `aria-label` attribute directly, not a real accessibility-tree computation, so the existing unit tests pass despite this. Fix by either passing MUI's `titleAccess` prop (which also clears the default `aria-hidden`) instead of a bare `aria-label`, or explicitly overriding `aria-hidden={false}` alongside the existing `aria-label` prop.",
+      "done": true
+    },
+    {
+      "step": "The new frontend/src/utils/profitTargetHelpText.ts (PROFIT_TARGET_DEFINITION / PROFIT_TARGET_ELDER_CONTEXT_SUFFIX) is domain-specific content (Elder ch. 58's Tradebill 'A' target formula, Autoenvelope/channel height, protective stop, ch. 53's 2:1 rule) shared across exactly two features (features/stocks and features/portfolio), placed in `utils/` specifically to avoid a cross-feature registry import. This is a genuinely arguable case (not a clear-cut misplacement) given the task's own explicit, well-reasoned decisions entry, but it does read as in tension with Frontend.md §3's own placement test ('references a feature's domain concept... -> features/<domain>/'; `utils/` is documented as for helpers that are 'domain-agnostic', which this text isn't) -- `utils/insiderClusters.ts` is a prior, narrower precedent (a single-feature helper, not genuinely cross-feature content) that doesn't fully cover this case either. Worth either (a) documenting this specific pattern (domain-specific content genuinely shared by exactly two feature registries, where neither owns it and cross-importing one from the other is the established anti-pattern) as an explicit, named exception in Frontend.md §3 alongside the existing utils/ placement rule, or (b) reconsidering whether a small third location (e.g. a features/shared/ or similar) would fit this and any future same-shaped case better than `utils/`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:41:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed RewardRiskBadge.tsx's warning icon to pass MUI's `titleAccess={failureAriaLabel}` alongside the existing `aria-label={failureAriaLabel}` (kept both, rather than replacing aria-label with titleAccess outright) -- titleAccess clears SvgIcon's default aria-hidden='true' and sets role='img', while the retained aria-label keeps the existing getByLabelText-based test/query pattern working unchanged. Added a regression assertion to RewardRiskBadge.test.tsx checking aria-hidden isn't 'true' and role is 'img'. For the second finding, went with option (a) from the finding itself: documented frontend/src/utils/profitTargetHelpText.ts's placement as a named, deliberate exception to Frontend.md §3's domain-agnostic utils/ rule, rather than inventing a new features/shared/ location. Implemented as part of a batched PR (#208) alongside four other unrelated small follow-up tasks, per explicit user instruction to batch remaining small followups onto one branch/PR.",
+      "rationale": "Keeping aria-label alongside the new titleAccess (rather than dropping it) avoids a churny test-suite rewrite for every existing getByLabelText(...) call site referencing this component's aria-label convention, while still genuinely fixing the underlying accessibility bug the finding described -- aria-label wins over a <title> element in accessible-name computation anyway, so the two coexist without conflict. Chose (a) (document the exception) over (b) (a new features/shared/ location) because the finding itself frames (a) as the lower-risk, narrower fix ('a genuinely arguable case... worth documenting'), and a single instance of this shape (profitTargetHelpText.ts) doesn't yet justify standing up a whole new top-level directory with its own placement rules on spec -- the documented exception explicitly invites reusing this same pattern (not a new location) if a second same-shaped case appears, which keeps the option to introduce features/shared/ open later if a real pattern (not just one case) emerges."
+    }
+  ],
+  "git": {
+    "branch": "task/final-followups-batch",
+    "pr_number": 208,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "pushed_at": "2026-09-20T17:39:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:49:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified against MUI's actual SvgIcon source (frontend/node_modules/@mui/material/SvgIcon/SvgIcon.js): it sets `\"aria-hidden\": titleAccess ? undefined : true, role: titleAccess ? 'img' : undefined`. Before this fix, WarningAmberIcon had no titleAccess, so aria-hidden was unconditionally 'true' regardless of the aria-label prop -- a genuine bug, not a no-op concern. Passing titleAccess={failureAriaLabel} now clears aria-hidden and sets role='img'; the retained aria-label still wins accessible-name computation over the <title> element titleAccess also renders, so both coexist without conflict. This is a real, correctly-verified accessibility fix, not a subtly-wrong one.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 96
+      },
+      {
+        "summary": "The Frontend.md §3 named exception for utils/profitTargetHelpText.ts is placed appropriately (within the Structure rules subsection, immediately after the utils/ placement rule it amends) and reads as a genuinely arguable, well-reasoned carve-out rather than a precedent-setting workaround -- consistent with architecture-review's placement checklist.",
+        "file": "docs/architecture/Frontend.md"
+      }
+    ],
+    "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean. No live interactive Playwright MCP browser walkthrough was performed for RewardRiskBadge specifically (no browser tool was available in this review session) -- substituted with the MUI source trace above, RewardRiskBadge.test.tsx's DOM-attribute assertions, and the full persisted e2e suite (18/18 passing, though no e2e spec currently exercises RewardRiskBadge directly -- stock-analysis.spec.ts doesn't assert on it)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Independently read node_modules/@mui/material/SvgIcon/SvgIcon.js myself (not just the reviewer's citation): line 157 is literally \"aria-hidden\": titleAccess ? undefined : true, and line 158 is role: titleAccess ? 'img' : undefined -- confirms titleAccess={failureAriaLabel} genuinely clears the default aria-hidden. Ran scripts/validate_tasks.py (no violations)."
+  }
+}
