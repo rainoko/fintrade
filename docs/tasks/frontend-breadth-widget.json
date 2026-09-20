@@ -3,7 +3,7 @@
   "title": "Watchlist \"personal breadth\" indicator widget",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-watchlist-breadth-proxy"
   ],
@@ -57,5 +57,33 @@
     "pr_number": 171,
     "pr_url": "https://github.com/rainoko/fintrade/pull/171",
     "pushed_at": "2026-09-20T00:39:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T01:08:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/171",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "PersonalBreadthCard.tsx:45 passes `alignItems=\"center\"` directly as a prop on MUI's `<Stack>` instead of this codebase's established `sx={{ alignItems: 'center' }}` convention (every other `<Stack>` usage in the repo uses `sx`). This fails `tsc -b --noEmit` (TS2769, 'No overload matches this call') -- the exact command `yarn build` and the static-verify skill run -- so `yarn build` genuinely fails on this branch, even though the PR's own stated test plan (`yarn tsc --noEmit`, without `-b`) passed because it type-checks against a different, less strict config and missed it. It also reproduces live: a real browser walkthrough and the persisted e2e suite (`make e2e`, tests/e2e/watchlist.spec.ts) both show a React console error on every WatchlistPage load: \"React does not recognize the `alignItems` prop on a DOM element ... spell it as lowercase `alignitems`\". Confirmed independently by both my own `tsc -b --noEmit`/`yarn build` runs and a separate code-review pass. Blocking: fix by switching to `sx={{ alignItems: 'center' }}`.",
+        "file": "frontend/src/features/watchlist/components/PersonalBreadthCard.tsx",
+        "line": 45
+      },
+      {
+        "summary": "Non-blocking: unavailable-count footnote pluralizes 'ticker(s)' off unavailable_count instead of the total tracked_ticker_count it's grammatically attached to (e.g. unavailable_count=1, tracked_ticker_count=5 renders 'ticker' instead of 'tickers'), and is locked in verbatim by a PersonalBreadthCard.test.tsx assertion. Tracked in frontend-breadth-widget-followups.",
+        "file": "frontend/src/features/watchlist/components/PersonalBreadthCard.tsx",
+        "line": 78
+      },
+      {
+        "summary": "Non-blocking: personalBreadthHelp.ts's unavailableClause has the same pluralization bug ('tracked ticker(s)' keyed off unavailableCount rather than trackedTickerCount), inconsistent with the correct computable-based pluralization two lines later in the same function. Tracked in frontend-breadth-widget-followups.",
+        "file": "frontend/src/features/watchlist/components/personalBreadthHelp.ts",
+        "line": 53
+      },
+      {
+        "summary": "Non-blocking: personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when computable=1 (e.g. '1 of 1 computable ticker (100.0%) are currently BULLISH' should be 'is'), also pinned verbatim by a test. Tracked in frontend-breadth-widget-followups.",
+        "file": "frontend/src/features/watchlist/components/personalBreadthHelp.ts",
+        "line": 57
+      }
+    ],
+    "notes": "Backend+frontend test suites pass (backend 99.92% coverage, frontend 99.55%/98.76%/99.65%/99.64% statements/branches/functions/lines, 534 tests). Backend ruff/mypy clean; frontend eslint clean. `yarn tsc -b --noEmit` / `yarn build` fail (blocking, see comments). Live browser walkthrough via Playwright (fixture data provider) covered populated, empty, mixed BULLISH/BEARISH/NEUTRAL breakdown (verified the backend's independent-per-bucket-rounding quirk, e.g. 33.3+33.3+33.3=99.9, renders correctly since the widget shows three independent StatCards rather than a stacked bar or an implied 100% total -- no visual or textual confusion from the quirk), and an error state (PersonalBreadthCard's ErrorState renders independently of the watchlist table below it, which still loads fine) -- all functioned correctly apart from the alignItems console error. `make e2e` (16/16 specs) passes, reproducing the same alignItems console error. Component placement (feature, not common/) and no-Storybook-story decisions verified against the RiskSummaryCard precedent they cite -- both true (RiskSummaryCard.tsx has no .stories.tsx, is a feature card owning its own query). No backend/API changes in this PR, so no openapi.json regeneration was needed. No checklist item phrased as 'decide X' was left undecided. Sending back to implementing for the alignItems fix; the three grammar nits are filed as frontend-breadth-widget-followups rather than blocking this PR."
   }
 }

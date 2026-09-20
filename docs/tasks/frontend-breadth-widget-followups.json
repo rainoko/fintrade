@@ -1,0 +1,27 @@
+{
+  "id": "frontend-breadth-widget-followups",
+  "title": "Personal Breadth widget -- non-blocking review follow-ups",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-breadth-widget"],
+  "references": [
+    "docs/tasks/frontend-breadth-widget.json#review",
+    "https://github.com/rainoko/fintrade/pull/171"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #171 (frontend-breadth-widget), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "PersonalBreadthCard.tsx's unavailable-count footnote ('N of M tracked ticker(s) currently unavailable') pluralizes 'ticker(s)' based on unavailable_count instead of the total tracked_ticker_count it's actually attached to -- e.g. unavailable_count=1 with tracked_ticker_count=5 renders 'ticker' instead of 'tickers'. Locked in verbatim by PersonalBreadthCard.test.tsx's assertion of the exact (grammatically wrong) string, so fixing it needs the test's expected string updated too.",
+      "done": false
+    },
+    {
+      "step": "personalBreadthHelp.ts's unavailableClause has the identical pluralization bug ('N of M tracked ticker(s) unavailable right now') -- pluralizes on unavailableCount rather than trackedTickerCount, inconsistent with the correct pattern two lines later in the same function (the computable-ticker clause correctly pluralizes off the total, computable).",
+      "done": false
+    },
+    {
+      "step": "personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when the computable-ticker count is singular (e.g. computable=1 renders '1 of 1 computable ticker (100.0%) are currently BULLISH' -- should be 'is'). Also locked in verbatim by PersonalBreadthCard.test.tsx's singular-wording test.",
+      "done": false
+    }
+  ]
+}
