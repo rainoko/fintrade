@@ -41,5 +41,10 @@
       }
     ],
     "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Read the diff myself: confirmed TradeJournalPanel.test.tsx's updated 'sorts by a nullable grade column' test adds a genuine null buy_grade_pct row (CCC) and asserts null-last ordering in both ascending and descending order after clicking Buy Grade. Ran scripts/validate_tasks.py (no violations)."
   }
 }

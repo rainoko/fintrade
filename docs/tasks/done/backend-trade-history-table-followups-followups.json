@@ -43,5 +43,10 @@
       }
     ],
     "notes": "Part of a 5-task batched PR (#208). Full frontend suite (700 tests, 99.7%+ coverage), eslint, and tsc -b --noEmit all clean."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:55:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite (935 passed, 99.94% cov, mypy clean) and frontend suite (700 passed, 99.72%+ statement/99.19% branch cov, tsc -b --noEmit clean, eslint clean). Read the diff myself: hand-checked totalRiskHelp's arithmetic (693.72 - 691.79 = 1.93, matches the rendered string) and confirmed RiskPanel.test.tsx genuinely clicks the 'Total Risk (Open + Realized) help' button and asserts the rendered breakdown text. Ran scripts/validate_tasks.py (no violations)."
   }
 }
