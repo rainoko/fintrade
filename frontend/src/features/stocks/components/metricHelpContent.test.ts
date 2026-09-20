@@ -913,6 +913,8 @@ describe('metricHelpContent', () => {
         macd_histogram: 0.5,
         bull_power: 1,
         bear_power: -1,
+        obv: 5000.0,
+        accumulation_distribution: 1200.0,
         signal: 'HOLD',
         confidence: 0,
         confidence_band: 'Low',

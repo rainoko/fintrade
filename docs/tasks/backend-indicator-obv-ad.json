@@ -3,7 +3,7 @@
   "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/force_index.py",
