@@ -156,6 +156,8 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
         signal: 'HOLD',
         confidence: 0,
         confidence_band: 'Low',
+        obv: 1250000.0,
+        accumulation_distribution: 84210.5,
       },
       {
         date: '2026-09-02',
@@ -173,6 +175,8 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
         signal: 'BUY',
         confidence: 72,
         confidence_band: 'High',
+        obv: 1450000.0,
+        accumulation_distribution: 91500.25,
       },
     ],
   }

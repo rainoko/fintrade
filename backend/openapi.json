@@ -541,6 +541,11 @@
       },
       "IndicatorHistoryPoint": {
         "properties": {
+          "accumulation_distribution": {
+            "description": "Accumulation/Distribution (docs/Analyse.md \u00a74, Elder ch. 29) -- a running total, more finely calibrated than `obv` since it credits volume proportional to where the close landed within the day's own range rather than crediting the whole day's volume to whichever side 'won': `(close - open) / (high - low) * volume`, cumulative (`app.indicators.accumulation_distribution.accumulation_distribution`). Same cumulative-over-full-history, meaningless-absolute-level, computation-and-exposure-only caveats as `obv` above.",
+            "title": "Accumulation Distribution",
+            "type": "number"
+          },
           "bear_power": {
             "description": "Elder-Ray Bear Power = Low - EMA(13), for this bar.",
             "title": "Bear Power",
@@ -644,6 +649,11 @@
             "title": "Macd Histogram",
             "type": "number"
           },
+          "obv": {
+            "description": "On-Balance Volume (docs/Analyse.md \u00a74, Elder ch. 29) -- a running total: today's full volume is added if close > prior close, subtracted if close < prior close, unchanged if flat (`app.indicators.obv.obv`). Cumulative over this ticker's *entire* available daily history, not reset to the requested `range` window -- so trimming `range` never changes an already-visible point's own value, only which points are included. Its absolute level is meaningless (it depends on how far back history happens to start) -- only its pattern of highs/lows and divergence against price matters, same as every other oscillator in this app. Not exposed on AnalysisResponse.indicators (a single latest-bar snapshot) for exactly this reason -- only here, where its shape over time is visible. Computation + exposure only -- not wired into `signal`/`confidence`, and divergence detection against it is a separate, explicit follow-up (see the backend-indicator-obv-ad task's decisions).",
+            "title": "Obv",
+            "type": "number"
+          },
           "rsi": {
             "anyOf": [
               {
@@ -711,7 +721,9 @@
           "bear_power",
           "signal",
           "confidence",
-          "confidence_band"
+          "confidence_band",
+          "obv",
+          "accumulation_distribution"
         ],
         "title": "IndicatorHistoryPoint",
         "type": "object"

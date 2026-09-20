@@ -3,7 +3,7 @@
   "title": "Add On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "backend/indicators",
   "skill": "add-indicator",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/indicators/force_index.py",
@@ -14,19 +14,33 @@
   "checklist": [
     {
       "step": "Implement obv() and accumulation_distribution() in backend/app/indicators/, following existing module conventions.",
-      "done": false
+      "done": true
     },
     {
       "step": "Hand-computed reference-value tests for both (small OHLCV series, values worked out by hand).",
-      "done": false
+      "done": true
     },
     {
       "step": "Expose both as new cumulative series in the indicator-history endpoint (they're not meaningful as a single latest-bar value the way oscillators like Stochastic are -- decide the response shape and record as a decisions entry).",
-      "done": false
+      "done": true
     },
     {
       "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts; document in docs/Analyse.md.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Expose obv/accumulation_distribution only as new required (never-null) fields on IndicatorHistoryPoint (GET /api/stocks/{ticker}/indicators), computed once directly from the full daily_ohlcv in app/api/routers/stocks.py rather than threaded through app.signals.engine.analyse/analyse_history's indicators dict. NOT added to AnalysisResponse.indicators (the /analysis latest-bar snapshot).",
+      "rationale": "The task's own checklist already narrows this to the indicator-history endpoint specifically, since a cumulative series' absolute level is meaningless in isolation without the trailing history to compare it against -- unlike rsi/season (also computation+exposure-only additions), which are meaningful single-bar values and so are exposed on both endpoints. Computing them directly in the router (rather than adding obv/ad passthrough parameters to analyse()/analyse_history()) was chosen because they need no Screen/Impulse/confidence context and no per-bar truncation for correctness: both are purely causal cumulative sums over daily_ohlcv (a value at bar t depends only on data up to and including t), so a single computation over the full series can be sliced by position exactly like the precomputed EMA/MACD/Stochastic series already are, without adding two more parameters to analyse()'s already-large signature or duplicating the recompute in the /analysis route. Rejected: adding obv/ad to the Indicators schema too (rejected per the checklist's own framing of a latest-bar value being meaningless here) and threading them through analyse()/analyse_history() as passthrough parameters (rejected as unnecessary complexity/signature growth for a computation that needs none of that machinery -- SignalResult/analyse() stays scoped to Screen-dependent indicators)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "OBV's undefined first-bar direction (no prior close to compare against) is mapped to a 0 contribution (np.sign(close.diff()).fillna(0.0)), not to the alternative convention of seeding the running total with the first bar's own raw volume. Similarly, A/D's zero-range bars (high == low, making close-open)/(high-low) a 0/0 division) are mapped to a 0 contribution via .where(range != 0, other=0.0), not left as NaN.",
+      "rationale": "Both series are cumulative (pd.Series.cumsum()), and NaN is 'sticky' under cumsum -- a single undefined day would otherwise poison every later cumulative total for the rest of the series, unlike a non-cumulative oscillator (e.g. app.indicators.stochastic.stochastic_oscillator, which safely leaves a zero-range bar's %K as NaN via plain division, since that NaN only affects that one bar). 0 was chosen over volume[0]-as-seed for OBV because the app's own framing ('only the pattern of highs/lows and divergence matters, absolute level is meaningless') makes the starting anchor arbitrary either way, and 0 is the more literal reading of 'add/subtract volume based on direction, with an undefined first direction contributing nothing' rather than implicitly asserting the first bar's own volume was itself bullish. Rejected: leaving these NaN (breaks every subsequent cumulative value, unlike every other indicator's warm-up-then-clean pattern in this app) and seeding OBV[0]=volume[0] (an equally arbitrary, but less literal, convention)."
     }
   ]
 }

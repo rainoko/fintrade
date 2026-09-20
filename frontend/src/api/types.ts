@@ -749,6 +749,11 @@ export interface components {
         /** IndicatorHistoryPoint */
         IndicatorHistoryPoint: {
             /**
+             * Accumulation Distribution
+             * @description Accumulation/Distribution (docs/Analyse.md §4, Elder ch. 29) -- a running total, more finely calibrated than `obv` since it credits volume proportional to where the close landed within the day's own range rather than crediting the whole day's volume to whichever side 'won': `(close - open) / (high - low) * volume`, cumulative (`app.indicators.accumulation_distribution.accumulation_distribution`). Same cumulative-over-full-history, meaningless-absolute-level, computation-and-exposure-only caveats as `obv` above.
+             */
+            accumulation_distribution: number;
+            /**
              * Bear Power
              * @description Elder-Ray Bear Power = Low - EMA(13), for this bar.
              */
@@ -808,6 +813,11 @@ export interface components {
              * @description Same definition as AnalysisResponse.indicators.macd_histogram, for this bar.
              */
             macd_histogram: number;
+            /**
+             * Obv
+             * @description On-Balance Volume (docs/Analyse.md §4, Elder ch. 29) -- a running total: today's full volume is added if close > prior close, subtracted if close < prior close, unchanged if flat (`app.indicators.obv.obv`). Cumulative over this ticker's *entire* available daily history, not reset to the requested `range` window -- so trimming `range` never changes an already-visible point's own value, only which points are included. Its absolute level is meaningless (it depends on how far back history happens to start) -- only its pattern of highs/lows and divergence against price matters, same as every other oscillator in this app. Not exposed on AnalysisResponse.indicators (a single latest-bar snapshot) for exactly this reason -- only here, where its shape over time is visible. Computation + exposure only -- not wired into `signal`/`confidence`, and divergence detection against it is a separate, explicit follow-up (see the backend-indicator-obv-ad task's decisions).
+             */
+            obv: number;
             /**
              * Rsi
              * @description Same definition as AnalysisResponse.indicators.rsi, for this bar. Null for a bar still inside the indicator's 9-day warm-up window -- same warm-up-only caveat as stochastic_k/force_index_2ema above, though with a shorter (9-bar) window than either.
