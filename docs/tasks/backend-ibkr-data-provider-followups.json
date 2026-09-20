@@ -3,7 +3,7 @@
   "title": "Optional IBKR data provider — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-data-provider"],
   "references": [
     "docs/tasks/backend-ibkr-data-provider.json",
@@ -47,5 +47,23 @@
     "pr_number": 191,
     "pr_url": "https://github.com/rainoko/fintrade/pull/191",
     "pushed_at": "2026-09-20T10:33:53Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T10:40:53Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/191",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "`_get_ibkr_provider_singleton`'s docstring (app/api/dependencies.py:53) claims `@lru_cache(maxsize=1)` 'gives thread-safe lazy-init for free' -- this is not accurate for what matters here. CPython's lru_cache only holds its internal lock around the cache dict/linked-list bookkeeping; it releases the lock before calling the wrapped function and re-acquires it after. On a cold cache, two threads that both observe a miss each independently execute the factory body (each constructing its own IBKRProvider/httpx.Client/throttle state) and each thread's call returns its own locally-computed instance, not necessarily the one that ends up cached -- reproduced empirically against the real functools.lru_cache (20 concurrent threads on a cold cache -> 20 factory-body executions, 20 distinct instances returned to callers), and independently confirmed by the code-review skill sub-agent. This is the same class of race PR #190's re-review opened this followup task to close; the fix narrows the window (the cache self-heals to one stable instance once the initial cold-cache burst resolves) but does not eliminate it, and the docstring overstates the guarantee. get_settings() gets away with the identical pattern only because a duplicated Settings object during that race window is harmless (no meaningful per-instance mutable state); IBKRProvider has exactly the per-instance state (HTTP client, scanner-params cache, run_scanner throttle) this task exists to protect. Needs an explicit threading.Lock-guarded double-checked-locking construction (or, at minimum, a corrected docstring that accurately describes a bounded/self-healing race window rather than full thread safety) before accept.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 53
+      },
+      {
+        "summary": "No new/updated test actually exercises concurrent access to _get_ibkr_provider_singleton -- test_enabled_reuses_the_same_singleton_across_calls calls get_ibkr_provider() twice sequentially on one thread, which would also pass under the pre-PR hand-rolled singleton and would not catch the race above. A concurrent regression test (two threads racing _get_ibkr_provider_singleton() on a cold cache, asserting `is` identity) is recommended once the lock-based fix lands.",
+        "file": "backend/tests/unit/api/test_dependencies.py",
+        "line": 131
+      }
+    ],
+    "notes": "Verified items (2) get_settings() precedent match and (3) fixture reset correctness/scope from the review ask both check out as described in the PR's decisions -- no other test file or route currently reaches get_ibkr_provider, so the module-scoped (not conftest.py) autouse fixture has no current leak risk. Full backend suite (890 passed, 99.93% coverage), ruff, and mypy all pass on the changed files; frontend suite (672 passed, ~99.7% coverage) unaffected since no frontend files are touched. The one blocking item is (1): lru_cache is not actually race-free for this purpose, contrary to the docstring's claim -- see review.comments."
   }
 }
