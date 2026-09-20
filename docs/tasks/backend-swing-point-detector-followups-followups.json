@@ -3,7 +3,7 @@
   "title": "Swing-extreme primitive extraction -- non-blocking review follow-ups (round 2)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-swing-point-detector-followups"],
   "references": [
     "docs/tasks/backend-swing-point-detector-followups.json#review",
@@ -13,11 +13,25 @@
   "checklist": [
     {
       "step": "docs/architecture/Backend.md's §2 module-layout tree still wasn't updated to list the new app/signals/_swing_extremes.py module under signals/ -- this is the same recurring doc-completeness gap this very task's own checklist previously flagged (and marked done) for swing_points.py/support_resistance.py, now recurring for the new shared primitive module this PR itself introduced. Add it to the tree.",
-      "done": false
+      "done": true
     },
     {
       "step": "app.signals.support_resistance._find_swing_points calls rolling_extreme_masks twice (once for highs, once for lows), and each call computes BOTH a rolling max and a rolling min over the full series but discards one of the two results (is_swing_high, _ = rolling_extreme_masks(highs, ...) throws away the min; _, is_swing_low = rolling_extreme_masks(lows, ...) throws away the max) -- 4 rolling passes over the series where 2 would do. Not a correctness issue (flagged by code-review on PR #206), but an avoidable efficiency regression introduced by this exact refactor. Consider a mode='max'|'min'|'both' parameter (or two thin single-purpose wrappers) on rolling_extreme_masks so each caller only pays for the side it actually uses.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T17:41:47Z",
+      "recorded_by": "task-worker",
+      "decision": "Added _swing_extremes.py to Backend.md's §2 tree with a one-line description, immediately above swing_points.py (the module that most directly depends on it). Implemented the second finding as two thin single-purpose wrappers (rolling_max_mask/rolling_min_mask) rather than a mode='max'|'min'|'both' parameter on the existing rolling_extreme_masks -- kept rolling_extreme_masks itself unchanged (still used as-is by swing_points.py, which genuinely needs both masks of the same series), so the change is additive rather than a signature change to an already-tested/consumed function. support_resistance.py's _find_swing_points now calls rolling_max_mask(highs, ...) and rolling_min_mask(lows, ...) directly, computing exactly the 2 reductions it actually uses instead of 4. Added a dedicated tests/unit/signals/test_swing_extremes.py (this package-internal module had no test file of its own before this task) asserting the two wrappers agree with rolling_extreme_masks's own combined output and that require_full_window's NaN-tolerance switch behaves identically either way. Implemented as part of a batched PR (#208) alongside four other unrelated small follow-up tasks, per explicit user instruction to batch remaining small followups onto one branch/PR.",
+      "rationale": "Two single-purpose wrappers keep the fix minimal and low-risk: no existing call site (swing_points.py, or any test asserting against rolling_extreme_masks's tuple-returning signature) needs to change at all, and the new wrappers are trivially unit-testable in isolation. A mode parameter was considered and rejected: it would require every caller (including swing_points.py, which doesn't have this efficiency problem at all) to pass an extra argument, and would return a different shape (a single Series for 'max'/'min' vs. a tuple for 'both'), which is a less clean API than two thin, single-purpose functions with a straightforward Series return type each."
+    }
+  ],
+  "git": {
+    "branch": "task/final-followups-batch",
+    "pr_number": 208,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/208",
+    "pushed_at": "2026-09-20T17:39:00Z"
+  }
 }

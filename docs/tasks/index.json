@@ -964,7 +964,7 @@
       "id": "backend-swing-point-detector-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-swing-point-detector-followups-followups.json"
     },
     {
@@ -1335,7 +1335,7 @@
       "id": "frontend-methodology-explainer-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-methodology-explainer-followups.json"
     },
     {
@@ -1349,7 +1349,7 @@
       "id": "backend-trade-history-table-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-history-table-followups-followups.json"
     },
     {
@@ -1363,7 +1363,7 @@
       "id": "frontend-trade-journal-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-trade-journal-followups-followups.json"
     },
     {
@@ -1405,7 +1405,7 @@
       "id": "frontend-profit-target-display-followups-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-profit-target-display-followups-followups.json"
     },
     {
