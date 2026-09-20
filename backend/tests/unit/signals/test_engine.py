@@ -1342,6 +1342,26 @@ class TestAnalyseHistoryPerformance:
             assert _nan_tolerant_equal(result.indicators, expected.indicators)
             assert _nan_tolerant_equal(result.screens, expected.screens)
 
+    def test_autoenvelope_computed_once_regardless_of_bar_count(self) -> None:
+        """Mirrors the ema/macd test above for the Autoenvelope channel (docs/tasks/
+        backend-channel-envelope-exposure.json): ``analyse_history`` precomputes
+        ``channel_bands_full = autoenvelope(daily_close, mid=ema_13_full)`` once, then slices
+        it per bar via ``.iloc[:i+1]`` -- ``autoenvelope`` itself must never be called again
+        inside the per-bar loop."""
+        import app.signals.engine as engine_module
+
+        daily_ohlcv = _dated_buy_daily_ohlcv()
+        weekly_ohlcv = _dated_buy_weekly_ohlcv()
+
+        with patch(
+            "app.signals.engine.autoenvelope", wraps=engine_module.autoenvelope
+        ) as mock_autoenvelope:
+            history = analyse_history("TEST", daily_ohlcv, weekly_ohlcv)
+
+        assert len(history) == len(daily_ohlcv)
+        # Precomputed exactly once over the full daily close series -- not once per bar.
+        assert mock_autoenvelope.call_count == 1
+
 
 def _flipping_tide_weekly_ohlcv(n_weeks: int = 31) -> pd.DataFrame:
     """Weekly closes that rise 5%/week for the first 20 weeks (a real BULLISH tide, per

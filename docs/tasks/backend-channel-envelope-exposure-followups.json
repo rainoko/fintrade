@@ -3,7 +3,7 @@
   "title": "Backend channel/Autoenvelope exposure -- non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-channel-envelope-exposure"],
   "references": [
     "docs/tasks/backend-channel-envelope-exposure.json#review",
@@ -13,7 +13,7 @@
   "checklist": [
     {
       "step": "app/signals/engine.py's TestAnalyseHistoryPerformance class (backend/tests/unit/signals/test_engine.py) asserts, via a wraps= spy, that ema/macd_components/stochastic_oscillator/force_index are each computed exactly once per analyse_history() call regardless of bar count -- the whole point of the precompute-and-slice pattern PR #146 itself extended to channel_upper/channel_lower (see that task's second decisions entry). PR #146 did not add an analogous spy-based test asserting autoenvelope() is likewise called exactly once (not once per bar) inside analyse_history(); manual inspection of the code confirms the call site is correctly placed outside the per-bar loop (backend/app/signals/engine.py's channel_bands_full = autoenvelope(daily_close, mid=ema_13_full) line, computed once, then sliced via .iloc[:i+1] per bar), so this is a test-coverage symmetry gap, not a live bug -- but a future refactor could silently reintroduce a per-bar autoenvelope() call without any test catching it. Add a mocker.spy/wraps= assertion (assert_count == 1) for autoenvelope, mirroring the existing ema/macd/stochastic/force_index assertions in that same test class.",
-      "done": false
+      "done": true
     }
   ]
 }
