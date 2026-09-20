@@ -3,7 +3,7 @@
   "title": "Insider-transaction cluster detection (buy/sell classification + time-windowed grouping)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-market-data-extra-fields"
   ],
@@ -65,5 +65,23 @@
     "pr_number": 193,
     "pr_url": "https://github.com/rainoko/fintrade/pull/193",
     "pushed_at": "2026-09-20T11:16:04Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T11:22:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/193",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Checklist step 5 asked to 'file/note the frontend-consumption follow-up rather than implementing it here' (a future 'cluster detected' UI badge) -- no such follow-up task or note was actually created anywhere. Not a functional gap; filed as a checklist item on backend-insider-transaction-clusters-followups.",
+        "file": "docs/tasks/backend-insider-transaction-clusters.json",
+        "line": 39
+      },
+      {
+        "summary": "_find_clusters/detect_insider_clusters use three runtime `assert ... is not None` statements plus a blanket `# type: ignore[arg-type,return-value]` (no inline rationale) for mypy type-narrowing, diverging from sibling detection modules (support_resistance.py/divergence.py/kangaroo_tail.py) that don't need this. Functionally correct (mypy and full suite pass), but worth a narrower typed fix later. Filed as a checklist item on backend-insider-transaction-clusters-followups.",
+        "file": "backend/app/signals/insider_clusters.py",
+        "line": 214
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (920 passed, 99.94% coverage), frontend yarn vitest run --coverage (672 passed -- one PortfolioPage.test.tsx timeout was a pre-existing flake in an untouched file, confirmed passing on rerun and in isolation), ruff/mypy/eslint/tsc all clean. Regenerated backend/openapi.json and frontend/src/api/types.ts against the branch -- both produced an empty diff, confirming genuine sync (not just presence). Hand-verified classify_transaction's exclusion-keyword-before-leading-word rule against Elder ch. 37 p. 147 (docs/ideas.md's citation) and several of the 26 hand-computed test cases -- reasonable, no misclassification of common real-world filing text found. Hand-traced _find_clusters's anchored non-overlapping scan against test_transactions_outside_window_do_not_merge, test_two_non_overlapping_clusters_for_the_same_direction, test_same_insider_repeat_filing_does_not_count_twice, and test_transaction_count_can_exceed_distinct_insider_count -- no off-by-one or double-counting; distinctness correctly requires distinct insider names, not just transaction count. Confirmed via grep that insider_clusters/InsiderCluster is never referenced in app/signals/confidence.py, triple_screen.py, impulse.py, or app/portfolio/ -- purely informational as claimed, and no diff at all to any of those files in this PR. AnalysisResponse.insider_clusters as a new top-level sibling field to extended_data matches the established support_resistance_zones/divergence/kangaroo_tail/profit_target precedent, with real rejected alternatives recorded in decisions. Architecture: new module's placement already documented inline in docs/architecture/Backend.md's signals/ package listing; router (get_analysis) stays thin, business logic lives in the signals module. All five frontend test-fixture files (PositionProfitTargetCell.test.tsx, OscillatorChart.test.tsx, PriceChart.test.tsx, StockDetailPage.test.tsx, tests/mocks/handlers.ts) correctly add insider_clusters: [] to their AnalysisResponse fixtures. No component actually renders insider_clusters yet (grep-confirmed), consistent with the decision to leave the frontend badge as a future follow-up -- browser walkthrough and the e2e-test skill were explicitly skipped since this PR adds no new/changed UI surface for a user to click through. All three 'decide X' checklist items have corresponding decisions entries with real rejected alternatives -- no undocumented judgment calls. Posted as a COMMENTED-type PR review (gh pr review 193 --comment), never an approve/request-changes review."
   }
 }
