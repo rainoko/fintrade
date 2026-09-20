@@ -1,0 +1,21 @@
+{
+  "id": "frontend-indicator-seasons-badge-followups-followups-followups",
+  "title": "Follow-up from PR #201 review (frontend-indicator-seasons-badge-followups-followups): riskBreach.main/background WCAG contrast overclaim",
+  "area": "frontend/pages/stocks",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-indicator-seasons-badge-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-indicator-seasons-badge-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/201"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #201 (frontend-indicator-seasons-badge-followups-followups), tracked here so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "theme.ts's new riskBreach.main comment (and the corresponding frontend-indicator-seasons-badge-followups-followups `decisions` entry) both claim the new riskBreach.main (#d52651) 'clears both a >=15 ΔE margin from every other palette color and >=4.5:1 WCAG contrast against white and against `background` below'. Independently recomputed (same relativeLuminance/contrastRatio formulas theme.test.ts already uses): #d52651 vs riskBreach.background (#fdecea) is actually ~4.3459:1, below the 4.5:1 AA floor for normal text -- not the claimed >=4.5:1. This is not a regression from this PR (the pre-PR value, #d32f2f vs #fdecea, was ~4.3540:1, also failing, so the change is a wash on this specific pairing) but it is a new, false, permanently-recorded compliance claim in both a code comment and the task's decision-memory log. It matters in practice because components/common/RiskBreachBanner/RiskBreachBanner.tsx:37,41 paints theme.palette.riskBreach.main as 16px/fontWeight:700 text (below WCAG's ~18.7px bold 'large text' threshold, so the 4.5:1 normal-text minimum applies) directly onto theme.palette.riskBreach.background as the box fill -- a real, currently-shipping AA contrast gap that theme.test.ts's WCAG-contrast test block (added by frontend-indicator-seasons-badge-followups) never checks, since that block only covers the four season colors against white. Fix: (a) correct the false comment/decision claims to state the actual ~4.35:1 figure and that it's a known pre-existing gap, and (b) separately decide whether to actually close the gap (e.g. lighten riskBreach.background or further adjust riskBreach.main, while re-verifying the >=15 ΔE76 margins from every other palette color and the >=4.5:1 contrast against white are preserved) or explicitly accept it as a known limitation, and add a theme.test.ts assertion for the riskBreach.main-vs-background pairing either way so this doesn't silently drift again.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

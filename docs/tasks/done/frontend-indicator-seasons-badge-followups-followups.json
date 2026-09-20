@@ -3,7 +3,7 @@
   "title": "Follow-ups from PR #200 review (frontend-indicator-seasons-badge-followups)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-indicator-seasons-badge-followups"],
   "references": [
     "docs/tasks/frontend-indicator-seasons-badge-followups.json",
@@ -39,5 +39,28 @@
     "pr_number": 201,
     "pr_url": "https://github.com/rainoko/fintrade/pull/201",
     "pushed_at": "2026-09-20T14:18:58Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T14:28:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/201",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-implemented the sRGB->linear->XYZ->Lab CIE76 ΔE76 formula in Python (separately from theme.test.ts's TypeScript) and confirmed every numeric claim in the PR's comments/decisions is correct to within rounding: season.spring(new) vs signal.buy ΔE76=19.19 (old pair was 2.64), riskBreach.main(new) vs signal.sell ΔE76=20.97 (old pair was 3.90), season.summer vs season.autumn (the closest pair among all currently-distinct colors) ΔE76=17.74. Also recomputed hue (HSL) for every changed color: spring new H~79.7° (old ~122.4°, matching signal.buy's ~123.0°), riskBreach.main new H~345.3° (old ~0.0°, matching signal.sell's ~0.0°) -- all exactly match the PR's stated hue-shift rationale. Computed all C(9,2)=36 pairwise ΔE76 values across the full current palette (signal x3, riskBreach, divergence, season x4, kangarooTail): every pair clears the 15 threshold, so neither color change introduces a new collision. Also recomputed WCAG contrast independently: new spring vs white = 4.85:1 (clears 4.5:1, consistent with PR #200's fix), new riskBreach.main vs white = 4.97:1 (clears 4.5:1). The MIN_DISTINCT_DELTA_E=15 threshold is well-justified: above the ~2.3 JND and the ~2.6-3.9 ΔE76 of the two real collisions found, comfortably below the ~17.7 ΔE76 of the closest intentionally-distinct pair, matching standard CIE76 'clearly distinct' guidance (~10+).",
+        "file": "frontend/src/theme/theme.test.ts",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the new riskBreach.main code comment and this task's own `decisions` entry both claim the new color 'clears... >=4.5:1 WCAG contrast against white and against `background` below', but independently computed, #d52651 vs riskBreach.background (#fdecea) is actually ~4.3459:1, below the 4.5:1 AA floor. Not a regression (old #d32f2f vs #fdecea was ~4.3540:1, also failing) but it's a new false compliance claim baked into a permanent comment and decision record, and RiskBreachBanner.tsx:37,41 does paint riskBreach.main text directly onto riskBreach.background at 16px/700-weight (below WCAG's bold 'large text' threshold, so 4.5:1 applies), with no test currently guarding this pairing. Filed as a followup task (frontend-indicator-seasons-badge-followups-followups-followups) rather than left only here.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 96
+      },
+      {
+        "summary": "Grepped for hardcoded hex/snapshot references to the old riskBreach.main (#d32f2f) and old season.spring (#368139) values across frontend/src and frontend/tests: none found outside explanatory comments in theme.ts/theme.test.ts themselves -- confirms the color-value changes are safe, isolated, and referenced only symbolically (theme.palette.riskBreach.main / theme.palette.season.spring) everywhere else.",
+        "file": "frontend/src/theme/theme.ts",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: backend suite unaffected by this PR (921 passed, 99.94% coverage, no backend files touched) and frontend suite (686 passed, 99.64% statements / 98.94% branches -- both well above the 90% gate); ruff/mypy/eslint/tsc all clean. code-review skill (background pass) independently reached the same single finding as my own manual verification (the riskBreach/background contrast overclaim) -- no other correctness or reuse/simplification issues found. No API/schema touched (openapi.json snapshot check n/a); no new module/dependency/layer (architecture-review n/a); no components added or changed, so no common/-vs-feature placement question applies here (only theme.ts/theme.test.ts changed); area is frontend/pages/stocks, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply. Browser walkthrough: ran the actual app (backend in FINTRADE_DATA_PROVIDER_MODE=fixture + frontend dev servers) and Storybook against the real theme -- GOOGL's stock detail page renders the new Spring season badge (yellow-olive-green, outlined chip) clearly visually distinct from a BUY signal chip (filled forest green) side by side in Storybook; RiskBreachBanner's PortfolioPageWording story renders in the new crimson/rose (#d52651), clearly distinct from SELL red and legible on its pink background. No console errors across any page visited (stock detail for AAPL/MSFT/TSLA/GOOGL, empty portfolio page, both Storybook stories). Ran the persisted e2e suite (make e2e): all 16 specs across all 5 spec files (dashboard, navigation, portfolio, stock-analysis, watchlist) passed. No checklist item here was phrased as 'decide X' without a corresponding decisions entry -- both judgment calls (the spring hue-shift approach, and the decision to also fix the riskBreach/sell collision discovered mid-implementation rather than deferring it) are fully recorded with rationale and alternatives considered. Verdict: accepted, with one non-blocking finding tracked as a new followup task."
   }
 }
