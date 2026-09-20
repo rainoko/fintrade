@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buyGradeHelp, sellGradeHelp, tradeGradeHelp } from './metricHelpContent'
+import type { ProfitTargetOut } from '../../../api/stocks'
+import {
+  buyGradeHelp,
+  profitTargetHelp,
+  sellGradeHelp,
+  tradeGradeHelp,
+} from './metricHelpContent'
 
 describe('portfolio metricHelpContent', () => {
   describe('buyGradeHelp.interpretValue', () => {
@@ -37,6 +43,59 @@ describe('portfolio metricHelpContent', () => {
 
     it('explains an unavailable grade (warm-up window / insufficient history) instead of rendering a bare null', () => {
       expect(tradeGradeHelp.interpretValue(null)).toMatch(/warm-up window/)
+    })
+  })
+
+  describe('profitTargetHelp.interpretValue', () => {
+    const target: ProfitTargetOut = {
+      price: 245.0,
+      source: 'channel',
+      distance_to_stop: 9.3,
+      distance_to_target: 18.6,
+      reward_risk_ratio: 2.0,
+      meets_minimum_reward_risk: true,
+    }
+
+    it('explains a null signal (couldn’t be computed) distinctly from a definite non-BUY signal', () => {
+      expect(profitTargetHelp.interpretValue(null, null)).toMatch(
+        /couldn’t be computed/,
+      )
+    })
+
+    it('explains a non-BUY signal by name', () => {
+      expect(profitTargetHelp.interpretValue(null, 'HOLD')).toBe(
+        'Not applicable -- a profit target is only ever computed for a fresh BUY signal; this position’s ticker is currently HOLD.',
+      )
+    })
+
+    it('explains a BUY signal with no current candidate', () => {
+      expect(profitTargetHelp.interpretValue(null, 'BUY')).toMatch(
+        /Currently unavailable for this BUY signal/,
+      )
+    })
+
+    it('names the channel technique and reward:risk ratio, and confirms it clears the 2:1 minimum', () => {
+      const text = profitTargetHelp.interpretValue(target, 'BUY')
+      expect(text).toContain('Currently 245.00, from the channel/Tradebill formula')
+      expect(text).toContain('Reward:risk ratio 2.0:1')
+      expect(text).toContain('This clears Elder’s 2:1 minimum.')
+    })
+
+    it('names the support/resistance technique and flags a ratio that fails the 2:1 minimum', () => {
+      const text = profitTargetHelp.interpretValue(
+        { ...target, source: 'support_resistance', reward_risk_ratio: 0.9, meets_minimum_reward_risk: false },
+        'BUY',
+      )
+      expect(text).toContain('nearest detected support/resistance zone')
+      expect(text).toContain('This FAILS Elder’s 2:1 minimum')
+    })
+
+    it('explains an undefined ratio (stop distance <= 0) instead of a fabricated number', () => {
+      const text = profitTargetHelp.interpretValue(
+        { ...target, reward_risk_ratio: null, meets_minimum_reward_risk: false },
+        'BUY',
+      )
+      expect(text).toMatch(/reward:risk ratio is undefined right now/)
     })
   })
 })

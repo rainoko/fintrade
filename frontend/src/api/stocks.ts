@@ -22,6 +22,7 @@ export type SupportResistanceZone = components['schemas']['SupportResistanceZone
 export type FalseBreakoutOut = components['schemas']['FalseBreakoutOut']
 export type DivergenceOut = components['schemas']['DivergenceOut']
 export type KangarooTailOut = components['schemas']['KangarooTailOut']
+export type ProfitTargetOut = components['schemas']['ProfitTargetOut']
 
 export interface GetStockHistoryParams {
   /**

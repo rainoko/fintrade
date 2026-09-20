@@ -82,8 +82,15 @@ describe('RiskPanel', () => {
     // No 6%-rule banner and no missing-risk-data note.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    // No exit flags on either row.
-    expect(screen.getAllByText('—')).toHaveLength(2)
+
+    // AAPL's own BUY signal resolves a real profit target from GET
+    // /api/stocks/AAPL/analysis (PositionProfitTargetCell); MSFT's HOLD
+    // signal never fires that fetch at all, so its own Profit Target cell
+    // is an immediate em dash, same as both rows' (empty) Exit Flags cells:
+    // 3 dashes total once AAPL's async fetch has settled.
+    await waitFor(() => expect(screen.getByText('$245.00')).toBeInTheDocument())
+    expect(screen.getByText('2.0:1')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(3)
 
     // Ticker cells link into stock detail (common/TickerLink).
     expect(screen.getByRole('link', { name: 'AAPL' })).toHaveAttribute(
@@ -141,9 +148,11 @@ describe('RiskPanel', () => {
     )
     const aaplRow = screen.getByText('AAPL').closest('tr') as HTMLElement
     expect(within(aaplRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
-    // Both the (empty) Exit Flags cell and the null-signal Signal cell fall
-    // back to '—'.
-    expect(within(aaplRow).getAllByText('—')).toHaveLength(2)
+    // The (empty) Exit Flags cell, the null-signal Signal cell, and the
+    // Profit Target cell (never fetched at all -- a null signal isn't
+    // 'BUY', so PositionProfitTargetCell shows its own immediate em dash)
+    // all fall back to '—'.
+    expect(within(aaplRow).getAllByText('—')).toHaveLength(3)
   })
 
   it('visually flags the row and lists readable exit-flag labels when the 2% rule is breached on one position', async () => {
