@@ -3,7 +3,7 @@
   "title": "New chart panel: Directional System (+DI/-DI/ADX) and ATR",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-indicator-atr-adx"
   ],
@@ -16,19 +16,57 @@
   "checklist": [
     {
       "step": "Decide ATR's presentation (separate line panel vs. bands on the price chart) and record.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement the new chart panel(s) following OscillatorChart.tsx's existing structure/conventions.",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp content explaining +DI/-DI/ADX and ATR: what they measure, the 'ADX rising from a lull rings a bell on a new trend' rule, and the 'stop should be >=1 ATR from entry' rule -- tie explicitly to why this matters for THIS ticker's current reading.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "+DI/-DI/ADX/ATR are surfaced in a brand-new component, `frontend/src/features/stocks/components/TrendStrengthChart.tsx`, rendered as its own panel beneath `VolumeIndicatorsChart` (wired into `StockCharts.tsx` with the same range/enabled mirroring), not as additional series folded into `OscillatorChart.tsx`.",
+      "rationale": "`OscillatorChart.tsx`'s own doc comment scopes it explicitly to 'historical oscillator pane for Screen 2 (the Wave)' -- every series already there (Stochastic, RSI, Force Index, MACD Histogram) is either a Screen-2 input or the Impulse System's slope input. +DI/-DI/ADX/ATR belong to the Directional System (Elder ch. 24), a different chapter's worth of trend-strength/volatility tooling that is purely informational and explicitly never read by signal/confidence (docs/Analyse.md §4 row 16, the backend-indicator-atr-adx task's own scope note) -- exactly the same 'conceptually distinct, not a Wave input' situation the frontend-volume-indicators-chart task's own decision already resolved the same way for OBV/A-D. A new component keeps that distinction visible to a user reading the page and avoids growing an already-large, differently-scoped component with a fifth-through-eighth unrelated series. Rejected: folding the four new series into `OscillatorChart.tsx` (rejected per the scoping mismatch above, and it would have pushed that component past six series across three-plus panes) and a new tab/accordion section (rejected as inconsistent with how every other historical-indicator panel on this page is already always-visible, stacked beneath the price chart)."
+    },
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "+DI, -DI, and ADX share ONE pane (pane 0) within `TrendStrengthChart`'s single chart instance; ATR gets its OWN pane (pane 1). ATR is presented as a simple line panel (in this same new component), not as bands around price on `PriceChart.tsx`.",
+      "rationale": "+DI/-DI/ADX are all built from the same smoothed True-Range/+DM/-DM pipeline and land on the same roughly-0-100 scale (ADX's own formula caps at 100; +DI/-DI are practically always well under it) -- the same 'shared bound -> shared pane' reasoning `OscillatorChart.tsx` already applies to Stochastic/RSI. ATR is a fundamentally different kind of value: an unbounded volatility measure in the ticker's own price units, not a 0-100-ish percentage -- sharing a pane with it would flatten +DI/-DI/ADX to a near-flat line near zero, the same 'different scale -> own pane' reasoning `OscillatorChart.tsx` applies to Force Index vs. MACD Histogram and `VolumeIndicatorsChart.tsx` applies to OBV vs. A/D. A simple ATR line panel (rather than price bands) was chosen over the task description's other suggested option because: (1) it keeps ATR, +DI, -DI, and ADX -- all four fields of the same backend `trend_strength` object, sharing the same warm-up family -- together in one panel rather than splitting the Directional System's own data across two unrelated parts of the page; (2) bands around price would require computing and maintaining a mid-line/multi-ATR overlay on `PriceChart.tsx`, an already crash-history-sensitive component (`StockCharts.tsx`'s own doc comment references frontend-chart-signal-overlay, PR #107) for a feature (multi-ATR profit-target/channel bands, docs/ideas.md's own 'Kerry Lovvorn's method' note) explicitly out of this task's scope; (3) a line panel is consistent with every other informational indicator this app already exposes this way (OBV/A-D, Stochastic/RSI/Force Index/MACD Histogram). Rejected: three separate panes for +DI/-DI/ADX (rejected -- no scale difference between them to justify it, and it would waste vertical space) and ATR-as-price-bands (rejected per the reasons above)."
+    },
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No fixed reference/threshold lines are drawn on the +DI/-DI/ADX pane (unlike Stochastic's 30/70 or Force Index/MACD Histogram's zero baseline). ADX's own 'rings a bell' rule (a rise of >=4 points off its own recent low, searched over a trailing 20-bar/~1-month lookback window) is instead computed against the currently-displayed points and stated in `adxHelp`'s `interpretValue`, tied to this ticker's own current reading.",
+      "rationale": "Neither docs/Analyse.md nor docs/ideas.md gives ADX/+DI/-DI a documented fixed numeric threshold the way it does for Stochastic (30/70) -- Elder's own ADX rule is about its *slope* (rising vs. falling) and its *rise off its own recent low*, not a fixed level, so a reference line here would be an invented threshold with no textual support. The 20-bar lookback window for 'its own recent low' is a genuine judgment call neither doc pins down numerically: long enough that a months-old trough isn't mistaken for the current lull, short enough that it reads as recent, not the whole history's minimum. Rejected: no lookback limit at all (rejected -- would let an old low from years ago count as 'recent', making the 'rings a bell' reading meaningless for a long `range=max` window) and a fixed reference line at some invented ADX level (rejected -- no source document supports a specific numeric ADX threshold)."
+    },
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ATR's `interpretValue` expresses the current ATR value as a percentage of the same point's `ema_13` (labeled explicitly as 'used here as a stand-in for current price level'), not against a raw close price, since neither `IndicatorHistoryPoint` nor `AnalysisResponse.indicators` exposes a raw close/current-price field -- only `ema_13`/`ema_26` are available as price-scale references from the same `/indicators` response this chart already fetches.",
+      "rationale": "Fetching `/history` separately just to get a raw close price for this one percentage calculation would mean a second network request this component doesn't otherwise need (every other value here comes from the single `/indicators` call already shared with `OscillatorChart`/`VolumeIndicatorsChart`), and EMA(13) is already the closest price-scale reference this response carries -- it's the same baseline Elder-Ray/Impulse/the Tide already measure against elsewhere in this app. The caveat is stated explicitly in the interpretation text itself so the percentage is never presented as more precise than it is. Rejected: fetching `/history` for a raw close (rejected as an unnecessary extra request for one number) and omitting the percentage entirely (rejected -- the task's own description calls for tying ATR's value to why it matters for this ticker specifically, and a raw price-unit number alone doesn't communicate 'how volatile, relatively' the way a percentage does)."
+    },
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`IndicatorsPanel.tsx` (the latest-bar `StatCard` grid) was NOT extended with new stat cards for +DI/-DI/ADX/ATR, despite `trend_strength` being exposed on `AnalysisResponse.indicators` (a latest-bar-only object) specifically because -- unlike OBV/A-D -- each of its fields is a meaningful single-bar value (docs/Analyse.md §4 row 16's own 'each a meaningful single-bar value (informational)' framing). Scope was kept to the new chart panel only, per this task's own checklist/description (which names a 'new toggle-able chart panel' as the deliverable) and its explicit description of the historical-chart pattern; `IndicatorsPanel.tsx` was listed in `references` as a convention example (the StatCard+MetricHelp corner-icon pattern), not as a required integration point.",
+      "rationale": "This is a genuine judgment call the task's own wording left open (references listing `IndicatorsPanel.tsx` without a checklist item calling for changes to it), recorded here per CLAUDE.md's decision-memory rule rather than silently deciding either way. Adding stat cards would be a reasonable, defensible follow-up (the values ARE latest-bar-meaningful, unlike OBV/A-D), but doing so wasn't required by the checklist and would have doubled this task's surface area (a second UI location, a second set of MetricHelp entries or reused ones with different current-value framing) without the task explicitly asking for it. Rejected: adding stat cards anyway (rejected as scope creep beyond the checklist's explicit 'new chart panel' framing) and skipping the chart's own legend/MetricHelp rows in favor of only stat cards (rejected -- the checklist explicitly calls for a chart panel with MetricHelp content, which stat cards alone wouldn't satisfy)."
+    },
+    {
+      "timestamp": "2026-09-20T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No new Storybook story was added for `TrendStrengthChart.tsx`, and no new Playwright e2e spec was added.",
+      "rationale": "`TrendStrengthChart.tsx` is a `features/stocks/components/` feature-specific chart component wired to a live TanStack Query hook, the same category `PriceChart`/`OscillatorChart`/`VolumeIndicatorsChart` already fall into without their own stories (Frontend.md §4 scopes the Storybook requirement to `components/common/`) -- consistent with `frontend-volume-indicators-chart`'s identical decision for the same reason. No e2e spec: consistent with the same precedent (and `frontend-rsi-oscillator-chart` before it) of not adding a new e2e spec per new historical-indicator chart addition; unit/component tests (`TrendStrengthChart.test.tsx`, `metricHelpContent.test.ts`) cover this feature's own behavior, and `StockCharts.test.tsx`'s shared indicators fixture was updated to include a `trend_strength` value so the composed page's existing tests continue to exercise a realistic response shape."
     }
   ]
 }

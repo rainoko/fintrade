@@ -1118,7 +1118,7 @@
       "id": "frontend-trend-strength-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-trend-strength-chart.json"
     },
     {
