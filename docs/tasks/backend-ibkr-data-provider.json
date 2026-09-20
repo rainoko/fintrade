@@ -3,7 +3,7 @@
   "title": "Optional IBKR Client Portal Web API data provider (hourly bars + market scanner)",
   "area": "backend/data",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/data/base.py",
@@ -88,5 +88,38 @@
     "pr_number": 190,
     "pr_url": "https://github.com/rainoko/fintrade/pull/190",
     "pushed_at": "2026-09-20T10:06:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T10:12:43Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/190",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING: run_scanner() calls self._require_available() -- a real GET /iserver/auth/status HTTP round-trip -- before checking the cheap client-side 1-second rate-limit, contradicting this method's own documented contract. IBKRRateLimitedError's docstring (and Backend.md) explicitly claims the throttle is 'enforced client-side (a monotonic-clock check, no network round-trip) so a caller finds out immediately rather than spending a real HTTP request'. As coded, a caller retrying run_scanner() within the same second still triggers a real HTTP request on every call before the rate-limit check runs at all -- defeating the whole point of the client-side throttle. Not caught by test_second_call_within_one_second_raises_rate_limited because that test mocks get_gateway_status itself, hiding the extra request it would otherwise make. Fix: check _last_scanner_run_at/elapsed and raise IBKRRateLimitedError before calling _require_available().",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 309
+      },
+      {
+        "summary": "BLOCKING: get_hourly_bars's 'was this a full page' check compares len(page_bars) -- the count AFTER _parse_bars drops malformed rows -- against _MAX_BARS_PER_PAGE, so a single malformed row in an otherwise-full page makes the loop treat it as the final/short page and stop pagination early. Example: a first page of 1,000 raw rows (meaning more history exists further back) with one malformed row parses down to 999 IBKRBar objects; len(page_bars) == 999 < 1000 is then true, so get_hourly_bars(lookback_days=90) silently returns only ~41 days of bars with no error or signal that the result is incomplete. Fix: base the full-page/short-page decision on the raw response's row count (e.g. len(payload.get('data', []))), not the post-filter parsed count.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 260
+      },
+      {
+        "summary": "Non-blocking: get_ibkr_provider() constructs a brand-new IBKRProvider (closed at the end of every request) on every dependency resolution, so IBKRProvider's in-memory scanner-params TTL cache and 1-req/sec run_scanner throttle -- the caching layer checklist item 4 claims done -- never actually persist across requests once a real route depends on this. The class's own state design only protects IBKR's rate limits if one instance survives across calls; as wired today it provides zero cross-request protection. Currently dormant (no route consumes get_ibkr_provider yet) so not itself a live bug, but whoever builds the first consuming endpoint needs to know this and choose a longer-lived instance (e.g. a module-level singleton) rather than assume the per-request dependency already handles it. Tracked as a follow-up.",
+        "file": "backend/app/api/dependencies.py",
+        "line": 47
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's new §8 IBKR section is thorough, but the pre-existing §3 'Key Dependencies' table wasn't updated in this PR -- it still describes httpx's purpose as only 'via FastAPI TestClient | API integration tests', which is now incomplete since IBKRProvider also uses httpx as a real production HTTP client. Tracked as a follow-up rather than blocking, since it's a documentation-accuracy gap, not a functional one.",
+        "file": "docs/architecture/Backend.md",
+        "line": 70
+      },
+      {
+        "summary": "Decision to keep IBKRProvider a distinct class (not a DataProvider implementation) is well justified and checks out: its two capabilities (hourly bars for a single conid, a scanner run returning many contracts) genuinely don't map onto DataProvider's per-ticker daily/weekly/extended-data shape, and docs/ideas.md's own bullet 9 (the source of the 'Decided: add ... as a new DataProvider' headline) explicitly walks that headline back to 'better fit as an optional, secondary provider' before this task was ever scoped -- confirmed by reading docs/ideas.md directly. No new API route was required by this task's own checklist (confirmed by re-reading it) and none was added -- openapi.json is git-diff-empty against main, confirming that. httpx's promotion to a main dependency is minimal-footprint and properly pinned. Disabled-by-default behavior is genuinely tested (TestGetIbkrProvider.test_disabled_by_default_yields_none_without_constructing_a_client), not just claimed, and nothing in app/main.py or any router references IBKRProvider. None of these are findings.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: backend pytest --cov (887 passed, 99.93% coverage, gate 90%), ruff check app/ (clean), mypy (clean, 52 files), architecture-review checklist walked against docs/Architecture.md/Backend.md (module placement, no live network calls in tests, OpenAPI snapshot byte-identical to main since no route/schema changed). code-review skill (medium effort) surfaced two genuine correctness bugs in app/data/ibkr_provider.py -- run_scanner's rate-limit check running after a real HTTP call it was documented to avoid, and get_hourly_bars's full-page detection using the post-parse (malformed-row-filtered) count instead of the raw response's row count, causing silent history truncation on a malformed row in a full page -- both verified directly against the source, not just trusted from the sub-review. These are review-blocking correctness bugs; verdict is needs_work despite otherwise-clean tests/coverage/lint/types and well-reasoned judgment calls elsewhere in the PR (DataProvider-vs-distinct-class, no new route despite the add-api-endpoint skill tag, httpx main-dependency promotion, disabled-by-default wiring). No frontend files touched and no API route added/consumed, so there is no UI-facing surface -- browser walkthrough and the e2e-test skill (step 9/9a) are inapplicable, not silently skipped. verify-elder-signal does not apply (area is backend/data, not backend/signals or backend/portfolio). Two non-blocking findings (per-request IBKRProvider dependency defeating its own caching once consumed, and Backend.md §3's stale httpx purpose description) filed on docs/tasks/backend-ibkr-data-provider-followups.json."
   }
 }

@@ -1,0 +1,23 @@
+{
+  "id": "backend-ibkr-data-provider-followups",
+  "title": "Optional IBKR data provider — non-blocking review follow-ups",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-data-provider"],
+  "references": [
+    "docs/tasks/backend-ibkr-data-provider.json",
+    "https://github.com/rainoko/fintrade/pull/190"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #190 (backend-ibkr-data-provider), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "app.api.dependencies.get_ibkr_provider() constructs a brand-new IBKRProvider (closed at the end of every request) on every dependency resolution, so IBKRProvider's in-memory scanner-params TTL cache and 1-req/sec run_scanner throttle never persist across requests. This is currently dormant (no route consumes get_ibkr_provider yet) but whoever builds the first consuming endpoint needs to choose a longer-lived instance (e.g. a module-level singleton, or move the cache/throttle state to a shared store) rather than assume the per-request FastAPI dependency already provides IBKR-rate-limit protection.",
+      "done": false
+    },
+    {
+      "step": "docs/architecture/Backend.md §3's 'Key Dependencies' table still lists `httpx` with the purpose 'via FastAPI TestClient | API integration tests' only -- it wasn't updated to also reflect that `httpx` is now a main/production runtime dependency (app/data/ibkr_provider.py's `IBKRProvider` performs real HTTP calls with it, not just tests). Update the §3 table row to mention IBKRProvider's production use alongside the existing TestClient-testing purpose.",
+      "done": false
+    }
+  ]
+}
