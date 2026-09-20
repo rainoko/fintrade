@@ -323,6 +323,21 @@ describe('StockDetailPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a Methodology reference link regardless of load state, even on an error', async () => {
+    renderStockDetail('UNKNOWN')
+
+    expect(screen.getByRole('link', { name: /methodology reference/i })).toHaveAttribute(
+      'href',
+      '/methodology',
+    )
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: /methodology reference/i })).toHaveAttribute(
+      'href',
+      '/methodology',
+    )
+  })
+
   it('normalizes a lowercase URL ticker to uppercase for both the heading and the query cache key', async () => {
     let requestCount = 0
     server.use(

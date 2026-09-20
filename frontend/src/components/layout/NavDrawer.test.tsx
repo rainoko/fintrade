@@ -25,6 +25,10 @@ describe('NavDrawer', () => {
       'href',
       '/watchlist',
     )
+    expect(screen.getByRole('link', { name: /methodology/i })).toHaveAttribute(
+      'href',
+      '/methodology',
+    )
   })
 
   it('highlights the Dashboard link as active on /', () => {
@@ -55,6 +59,15 @@ describe('NavDrawer', () => {
     renderAt('/watchlist')
 
     expect(screen.getByRole('link', { name: /watchlist/i })).toHaveClass('Mui-selected')
+    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveClass(
+      'Mui-selected',
+    )
+  })
+
+  it('highlights the Methodology link as active on /methodology', () => {
+    renderAt('/methodology')
+
+    expect(screen.getByRole('link', { name: /methodology/i })).toHaveClass('Mui-selected')
     expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveClass(
       'Mui-selected',
     )

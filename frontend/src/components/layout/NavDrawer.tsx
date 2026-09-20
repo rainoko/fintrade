@@ -1,5 +1,6 @@
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'
 import DashboardIcon from '@mui/icons-material/Dashboard'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
@@ -16,15 +17,20 @@ interface NavItem {
   icon: ReactNode
 }
 
-// Static top-level nav: Dashboard, Portfolio, and Watchlist. Stock Detail
-// ('/stocks/:ticker') is intentionally not listed here — it's a
-// ticker-parameterized route reached by navigating from a position/search,
-// not a standalone nav destination (see docs/architecture/Frontend.md §3's
-// page list).
+// Static top-level nav: Dashboard, Portfolio, Watchlist, and Methodology.
+// Stock Detail ('/stocks/:ticker') is intentionally not listed here — it's
+// a ticker-parameterized route reached by navigating from a
+// position/search, not a standalone nav destination (see
+// docs/architecture/Frontend.md §3's page list). Methodology
+// ('/methodology', frontend-methodology-explainer) IS listed even though
+// it's not in that doc's page list yet — it's a genuine standalone
+// destination (the "signals we considered" reference page), not reached by
+// drilling into any specific ticker/position the way Stock Detail is.
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
   { label: 'Portfolio', path: '/portfolio', icon: <AccountBalanceWalletIcon /> },
   { label: 'Watchlist', path: '/watchlist', icon: <VisibilityIcon /> },
+  { label: 'Methodology', path: '/methodology', icon: <MenuBookIcon /> },
 ]
 
 interface NavDrawerProps {
