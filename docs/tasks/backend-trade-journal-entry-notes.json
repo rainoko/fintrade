@@ -28,5 +28,11 @@
       "decision": "`entry_notes` is carried on `app.portfolio.pricing.EnrichedPosition` as its own field (populated from `PositionORM.entry_notes` in `enrich_positions_with_price`) rather than being added to the shared `app.portfolio.models.Position` domain model that `EnrichedPosition.position` wraps.",
       "rationale": "`Position` is reused by `app.portfolio.risk`/`app.portfolio.exits`, which have no use for a free-text note, and its serialization shape is pinned exactly to the `GET /api/portfolio` JSON example in `docs/architecture/API.md` via `tests/unit/test_portfolio_models.py`'s byte-for-byte round-trip test. Adding an unused field there would mean either updating that pinned example/test for a field two of its three consumers never touch, or accepting drift. Keeping `entry_notes` alongside `daily_ohlcv` on `EnrichedPosition` (which already exists precisely to carry extra per-position context past `Position` itself) avoids both, at the cost of one extra dataclass field GET /api/portfolio's handler reads directly."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-entry-notes",
+    "pr_number": 213,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/213",
+    "pushed_at": "2026-09-20T23:58:00Z"
+  }
 }
