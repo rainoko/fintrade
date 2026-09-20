@@ -46,5 +46,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-trend-strength-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups, frontend-profit-target-display-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. This task's own tie-detection fix (cumulativeVolumeSeriesInterpretation switching from reference equality to `.value` equality) was hand-verified with a constructed tie case: series [{5,d1},{3,d2},{5,d3=last}] -- old code's `reduce` with strict `>` keeps the EARLIER occurrence on a tie, so `highest={5,d1}` while `last={5,d3}`; reference equality (`last === highest`) is false, incorrectly falling into the 'not at either extreme' branch and reporting a misleading high/low pair, while the new `.value`-based check correctly reports 'currently at its own highest point'. Genuine fix, not a regression. The new StockCharts.test.tsx integration tests correctly mirror the existing OscillatorChart wiring-test pattern. Full frontend suite (690 tests, 99.72% coverage) and backend suite (929 tests, 99.94% coverage) pass; eslint/tsc/mypy clean. No findings specific to this task's own change."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:28:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend suite (690/690 passed, 99.72% line coverage) and backend suite (929/929 passed, 99.94% coverage), tsc -b --noEmit and eslint both clean. Independently constructed the same tie case (series [{5,d1},{3,d2},{5,d3=last}]) and hand-traced it: old reference-equality check (last===highest) is false since reduce's strict `>` keeps the earlier {5,d1} on a tie, while the new `.value`-based check correctly resolves true -- confirms this is a genuine fix. Also read the VolumeIndicatorsChart.tsx doc-comment correction and StockCharts.test.tsx integration tests; both match the review's description."
   }
 }

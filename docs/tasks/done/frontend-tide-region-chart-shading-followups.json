@@ -42,5 +42,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-trend-strength-chart-followups, frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-profit-target-display-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. This task's own percentage-sum fix (tideRegionHelp.interpretValue rounding Bullish/Bearish directly and deriving Neutral as the remainder) was confirmed to read from the exact same windowed dataset (`selectVisibleIndicatorPoints`, keyed off `bars[0].date`/`bars[bars.length-1].date`) the chart-drawing effect (`buildTideRegionSegments`) actually shades from -- this PR only changed the rounding math, not the data source, so no new legend/chart mismatch was introduced. Live browser walkthrough (AAPL stock detail page, Tide Background MetricHelp popover) confirmed the fix live: '45% Bullish, 20% Bearish, 35% Neutral' sums to exactly 100%. The unreachable-guard-to-assertion change (buildTideRegionSegments) is a comment/type-narrowing change only, no behavior change. Full frontend suite (690 tests, 99.72% coverage) and backend suite (929 tests, 99.94% coverage) pass; eslint/tsc/mypy clean. No findings specific to this task's own change."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T17:28:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend suite (690/690 passed, 99.72% line coverage) and backend suite (929/929 passed, 99.94% coverage), tsc -b --noEmit and eslint both clean. Read the tideRegionHelp.interpretValue diff: pctBullish/pctBearish rounded directly, pctNeutral derived as 100-minus-both, which algebraically guarantees a sum of exactly 100 for any input -- correct fix. Also read the buildTideRegionSegments unreachable-guard-to-assertion change, a comment/type-narrowing-only change with no behavior difference."
   }
 }
