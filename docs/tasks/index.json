@@ -1398,8 +1398,15 @@
       "id": "frontend-insider-clusters-badge",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-insider-clusters-badge.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-insider-clusters-badge.json"
+    },
+    {
+      "id": "frontend-insider-clusters-badge-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-insider-clusters-badge-followups.json"
     }
   ]
 }

@@ -3,7 +3,7 @@
   "title": "\"Cluster detected\" badge for insider-transaction clusters",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-insider-transaction-clusters"
   ],
@@ -75,5 +75,58 @@
     "pr_number": 195,
     "pr_url": "https://github.com/rainoko/fintrade/pull/195",
     "pushed_at": "2026-09-20T11:54:27Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T12:15:36Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/195",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Full backend+frontend coverage run: backend 99.94% (920 passed), frontend 99.43%/98.79%/98.88%/99.57% (stmts/branch/funcs/lines) with all new FundamentalDataPanel.tsx and metricHelpContent.ts code at 100%. One frontend test file (src/pages/PortfolioPage.test.tsx, an add-position flow with a 5s userEvent timeout) fails intermittently only when run as part of the full suite, never in isolation -- confirmed this is a pre-existing flake unrelated to this PR by reproducing the identical failure on main with the PR branch's changes stashed out. Not touched by this PR's diff and not review-blocking.",
+        "file": "frontend/src/pages/PortfolioPage.test.tsx",
+        "line": 91
+      },
+      {
+        "summary": "Static analysis clean across the board: backend ruff + mypy clean, frontend eslint clean, and `yarn tsc -b --noEmit` (run explicitly as requested) reports zero errors.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 1
+      },
+      {
+        "summary": "code-review skill (medium effort) surfaced exactly one finding, non-blocking: the most-recent-window_end_date-first sort comparator is duplicated verbatim between FundamentalDataPanel.tsx's InsiderClusterCallouts and metricHelpContent.ts's insiderClustersHelp.interpretValue instead of sharing one implementation. Tracked as frontend-insider-clusters-badge-followups.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 113
+      },
+      {
+        "summary": "Three-state insider-cluster empty-state logic confirmed correctly implemented as three genuinely distinct states, not two pretending to be three -- verified live against real backend/yfinance data (not just the mocked component tests): AAPL (5 real sell clusters) renders one Alert+Chip callout per cluster, sorted most-recent-window-first (Apr 2026 top, Oct 2024 last, matching the recorded sort decision); XOM (63 real filings, zero qualifying clusters) renders exactly the quiet 'No insider-transaction cluster currently detected...' caption with no callouts; SPY (zero insider_transactions at all) renders neither the cluster note nor any callout, deferring entirely to the raw table's own 'No insider transactions currently reported for this ticker.' empty message -- confirming the no-filings-at-all case is genuinely silent, not just visually similar to the has-filings-no-clusters case. No console errors or failed/4xx+ network requests observed in any of the three states.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 66
+      },
+      {
+        "summary": "MUI success/error chip-color decision confirmed sound: screenshotted the AAPL page with both the top-of-page orange 'HOLD' SignalBadge (theme.palette.signal.*) and the red 'SELL CLUSTER' chips visible together -- the two read as visually distinct callout types (different shape, color, and position) rather than a second signal, consistent with the decision's stated rationale and the existing RiskBreachBanner-vs-Alert precedent it cites.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 45
+      },
+      {
+        "summary": "No-Storybook-story placement reasoning confirmed accurate: grepped the whole frontend tree for *.stories.tsx -- every existing story lives under components/common/, none under any features/ folder, and the cited precedent (ScreensPanel.tsx, a comparably self-contained feature-specific informational sub-block) indeed has no story either. InsiderClusterCallouts itself takes an InsiderClusterOut[] prop (a domain-specific type), correctly disqualifying it from components/common/ per Frontend.md §3's placement test; not a near-duplicate of RiskBreachBanner or any other common/ component (different prop shape -- a generic ReactNode message vs. a typed cluster array with direction/insiders/date-range formatting).",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 45
+      },
+      {
+        "summary": "insiderTransactionsHelp.elderContext's stale claim ('does not... automatically detect a qualifying cluster') is corrected accurately: new text states the backend now computes clusters and points to the new insiderClustersHelp entry, without introducing any new incorrect claim. insiderClustersHelp's own definition/elderContext (3+ distinct insiders, 30-calendar-day window, Elder ch. 37 p. 147) matches backend/openapi.json's InsiderClusterOut schema descriptions exactly ('Always at least 3', 'within 30 calendar days').",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 1144
+      },
+      {
+        "summary": "e2e suite (make e2e, 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist) run in full: 16/16 passed, no regression from this PR. No persisted e2e spec exercises insider_clusters specifically (not required by add-frontend-feature's scope for this change), covered instead by the live walkthrough above plus FundamentalDataPanel.test.tsx/StockDetailPage.test.tsx's mocked coverage.",
+        "file": "frontend/tests/e2e",
+        "line": 0
+      },
+      {
+        "summary": "Checklist cross-check: all five checklist items are marked done and each corresponds to a recorded decisions entry with rationale (placement/multi-cluster handling, empty-state gating logic, separate-vs-merged MetricHelp entry, signal-palette-avoidance color choice, no-Storybook-story reasoning) -- no undecided 'decide X' item found. backend/openapi.json correctly left untouched (insider_clusters was already present from PR #193; this task is display-only).",
+        "file": "docs/tasks/frontend-insider-clusters-badge.json",
+        "line": 41
+      }
+    ],
+    "notes": "Full review: backend+frontend coverage (both far above the 90% gate; one pre-existing unrelated frontend flake confirmed reproducible on main), static analysis (ruff/mypy/eslint/tsc all clean, tsc run explicitly per request), code-review skill (one minor non-blocking finding, filed as a follow-up task), and a live browser walkthrough of all three insider-cluster empty/populated states against real yfinance-backed data plus the persisted e2e suite (16/16 passed). No blocking findings. Accepted."
   }
 }
