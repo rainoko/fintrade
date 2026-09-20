@@ -117,3 +117,24 @@ class TestAtr:
         accepted as period=1."""
         with pytest.raises(TypeError):
             atr(HIGH, LOW, CLOSE, period=True)
+
+    def test_precomputed_true_range_is_used_as_is(self) -> None:
+        """A caller-supplied ``true_range`` (e.g. shared with
+        ``app.indicators.directional_system.plus_minus_di`` -- docs/tasks/backend-indicator-atr-
+        adx-followups.json) is used verbatim instead of being recomputed, and yields the exact
+        same result as the default (no-``true_range``) call for the same inputs."""
+        precomputed = true_range(HIGH, LOW, CLOSE)
+
+        result = atr(HIGH, LOW, CLOSE, period=3, true_range=precomputed)
+        expected = atr(HIGH, LOW, CLOSE, period=3)
+
+        pd.testing.assert_series_equal(result, expected)
+
+    def test_precomputed_true_range_overrides_recomputation(self) -> None:
+        """A deliberately wrong ``true_range`` (not actually derived from ``HIGH``/``LOW``/
+        ``CLOSE``) is trusted as-is, proving it isn't silently ignored/recomputed."""
+        wrong_true_range = pd.Series([100.0] * len(HIGH))
+
+        result = atr(HIGH, LOW, CLOSE, period=3, true_range=wrong_true_range)
+
+        assert result.iloc[3] == pytest.approx(100.0)

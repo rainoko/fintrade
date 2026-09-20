@@ -1,0 +1,59 @@
+{
+  "id": "backend-kangaroo-tail-pattern-followups",
+  "title": "Follow-ups from backend-kangaroo-tail-pattern PR review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-kangaroo-tail-pattern"],
+  "references": [
+    "docs/tasks/backend-kangaroo-tail-pattern.json",
+    "https://github.com/rainoko/fintrade/pull/162"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #162 (backend-kangaroo-tail-pattern), tracked so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "app.signals.kangaroo_tail.build_kangaroo_tail_cache's `daily_ohlcv.index.get_loc(tail.confirmed_date)` (kangaroo_tail.py:332) has no guard against a non-unique index, unlike the identical get_loc pattern in app.signals.divergence (divergence.py:333-338), which explicitly checks `isinstance(position, int)` before using the result and falls back gracefully. If daily_ohlcv ever contained a duplicate date (not currently reachable given this app's own always-unique daily-bar indices, same as divergence.py's own case), get_loc would return a slice/ndarray instead of an int, and kangaroo_tail_confirmed_as_of's `confirmed_position > position` comparison would raise a TypeError, crashing the whole analyse_history call instead of degrading gracefully. Add the same isinstance guard (with a `# pragma: no cover` comment matching divergence.py's own precedent) for consistency and defense-in-depth. Alternatively, consider having _evaluate_candidate pass along the confirming bar's already-known positional index (`position + 1`) directly instead of re-deriving it via a second label-based get_loc lookup.",
+      "done": true
+    },
+    {
+      "step": "kangaroo_tail.py:200-204's code comment for the new-high/new-low tie-break ('\"up\" takes priority in that degenerate tie... See this task's `decisions` entry') claims a recorded decision that does not actually exist in docs/tasks/backend-kangaroo-tail-pattern.json's `decisions` array (none of the 5 recorded decisions discuss the outside-bar tie-break). Either add a proper `decisions` entry recording this judgment call (a bar that is simultaneously a new high AND a new low beyond the lookback window -- an 'outside bar' -- defaults to direction='up'), or correct the comment to stop citing a nonexistent record. Also add a dedicated regression test for this degenerate outside-bar case -- the existing up-tail/down-tail tests each only exercise one of makes_new_high/makes_new_low being true, never both simultaneously, so this specific branch of the ternary has no test coverage even though the module reports 100% line/branch coverage overall.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 1: added the same isinstance(position, int) guard build_kangaroo_tail_cache now uses around daily_ohlcv.index.get_loc(tail.confirmed_date), filtering cache.tails/cache.confirmed_positions together so they stay index-parallel for kangaroo_tail_confirmed_as_of's own zip(..., strict=True). Item 2: corrected kangaroo_tail.py's outside-bar tie-break comment to stop citing docs/tasks/backend-kangaroo-tail-pattern.json's decisions array (which never actually covered this) and point instead at this followups task's own decisions entry (this one) -- recording, for the first time, the actual judgment call: a bar that is simultaneously a new high AND a new low beyond the lookback window (a degenerate 'outside bar') defaults to direction='up'. Added a dedicated regression test (TestGatingConditions::test_outside_bar_new_high_and_new_low_defaults_to_up_direction) constructing exactly such a bar and asserting both the resolved direction and that the body-retracement check that follows is evaluated against the winning ('up') direction, not the losing one.",
+      "rationale": "Chose the isinstance-guard fix (matching app.signals.divergence's existing precedent line-for-line) over the checklist's alternative suggestion (having _evaluate_candidate pass the confirming bar's already-known position+1 directly) because the alternative would require adding a new field to the KangarooTail dataclass (or a parallel return value) to carry that position out of _evaluate_candidate to build_kangaroo_tail_cache, rippling into every existing KangarooTail(...) construction site across app/signals/kangaroo_tail.py and both test files -- a larger, riskier change for a defensive fix whose triggering condition (a non-unique daily-bar index) isn't reachable from this app's own current call paths, same as divergence.py's own get_loc guard. Chose to correct the comment + add the missing decision here (on the followups task) rather than editing docs/tasks/done/backend-kangaroo-tail-pattern.json's own decisions array retroactively -- that task is done/merged, and backfilling its historical decisions array with a call that wasn't actually recorded at the time would misrepresent when the decision was actually made; this followups task's own decisions array is the accurate place to record it, and the code comment now points here instead of to a nonexistent citation. Implemented as part of a batched PR alongside backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, and backend-divergence-detection-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-followups-batch-1",
+    "pr_number": 205,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T15:54:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed the isinstance guard in `build_kangaroo_tail_cache` matches `app.signals.divergence`'s precedent (divergence.py:333-338) line-for-line in intent: same `isinstance(position, int)` check after `Index.get_loc`, same `# pragma: no cover` (unreachable given this app's always-unique daily-bar indices), same rationale comment. The one difference is graceful-degradation shape -- divergence.py's guard returns None for the whole call (aborting that one divergence-pair evaluation), while kangaroo_tail.py's filters just that one tail out of the cache and continues -- appropriate given kangaroo_tail.py is building a list/cache of many tails rather than evaluating a single pair, and the diff correctly keeps `filtered_tails`/`confirmed_positions` index-parallel for the `zip(..., strict=True)` consumer downstream.",
+        "file": "backend/app/signals/kangaroo_tail.py"
+      },
+      {
+        "summary": "Confirmed the outside-bar tie-break regression test is non-tautological: it constructs a bar that is simultaneously a new high (110.0, beyond the window's 101.0 max) and a new low (90.0, beyond the window's 99.0 min), with a body (open=95.0, close=95.5) that only satisfies the 'up' direction's retracement-from-the-high check (0.75/0.725, both >= 0.5) and explicitly would NOT satisfy the 'down' direction's retracement-from-the-low check (0.25/0.275, both < 0.5) per the test's own worked-out arithmetic (independently re-verified: range=20.0, (110-95)/20=0.75, (110-95.5)/20=0.725 vs (95-90)/20=0.25, (95.5-90)/20=0.275). So the test would fail if the tie-break ever silently resolved to 'down' instead of 'up' (no tail would be detected at all) -- it isn't just checking the tie-break happens to agree with whichever direction was already going to pass.",
+        "file": "backend/tests/unit/signals/test_kangaroo_tail.py"
+      }
+    ],
+    "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No conflicts with the other three tasks' changes in this batch. Backend-only diff -- no browser walkthrough/e2e run (explicitly noted, not silently skipped)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy (mypy clean; pre-existing ruff findings unrelated to this PR). Read both kangaroo_tail.py's build_kangaroo_tail_cache guard and divergence.py's _evaluate_pair guard (divergence.py lines ~329-338) side by side: same isinstance(position, int) check after Index.get_loc, same # pragma: no cover with matching unreachable-given-unique-index rationale; kangaroo_tail.py's version filters tails/confirmed_positions in lockstep instead of returning None outright, appropriate since it builds a cache of many tails rather than evaluating one pair."
+  }
+}

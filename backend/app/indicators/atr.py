@@ -41,10 +41,34 @@ def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     return pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1, skipna=False)
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 13) -> pd.Series:
+# Internal alias so `atr`'s `true_range` keyword-only parameter (named to match what it
+# represents, same convention `app.signals.engine.analyse`'s `atr`/`plus_di`/`minus_di`
+# parameters already use for their own precomputed-series passthroughs) doesn't shadow this
+# module's own `true_range` function within `atr`'s body.
+_true_range = true_range
+
+
+def atr(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    period: int = 13,
+    *,
+    true_range: pd.Series | None = None,
+) -> pd.Series:
     """Average True Range (Elder ch. 24, docs/Analyse.md §4) -- the trailing ``period``-day
     simple/arithmetic average of ``true_range``, 13 days by default (the book's own default,
     docs/ideas.md).
+
+    ``true_range``, if given, is the already-computed ``true_range(high, low, close)`` series
+    -- used as-is instead of recomputing it here. Lets a caller that needs both ``atr`` and
+    ``app.indicators.directional_system.plus_minus_di`` (which also derives its own smoothed
+    True Range internally) share one ``true_range`` pass over ``high``/``low``/``close``
+    instead of each independently recomputing it -- see ``app.signals.engine``'s ``analyse``/
+    ``analyse_history``, which both do this whenever either needs computing (docs/tasks/
+    backend-indicator-atr-adx-followups.json). When omitted, computed here exactly as before;
+    no validation is repeated on an explicitly-supplied ``true_range`` beyond what its own
+    construction already did.
 
     A plain ``.rolling(window=period).mean()`` is used, not Wilder's smoothed moving average
     (an EMA-like running average with smoothing constant ``1/period``) -- consistent with this
@@ -75,4 +99,5 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 13) -> 
     """
     validate_period("period", period)
 
-    return true_range(high, low, close).rolling(window=period).mean()
+    tr = true_range if true_range is not None else _true_range(high, low, close)
+    return tr.rolling(window=period).mean()

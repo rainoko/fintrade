@@ -42,6 +42,7 @@ Lovvorn's accepted 20-40 range) -- a fully qualifying bullish MACD-Histogram div
 import pandas as pd
 import pytest
 
+from app.signals import divergence
 from app.signals.divergence import (
     DEFAULT_SWING_WINDOW,
     Divergence,
@@ -223,6 +224,32 @@ class TestStochasticAndRsiDivergence:
         assert is_beyond_reference_line(10.0, 25.0, "bullish") is False
         assert is_beyond_reference_line(85.0, 65.0, "bearish") is True
         assert is_beyond_reference_line(90.0, 75.0, "bearish") is False
+
+    def test_rsi_beyond_reference_line_uses_rsi_constants_not_stochastic(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression test for docs/tasks/backend-divergence-detection-followups.json: the RSI
+        branch of `_evaluate_pair` must pass `_RSI_OVERSOLD`/`_RSI_OVERBOUGHT` explicitly to
+        `is_beyond_reference_line`, not silently fall back to that function's own default
+        parameters (which happen to equal `_STOCHASTIC_OVERSOLD`/`_STOCHASTIC_OVERBOUGHT`
+        today). Diverges RSI's own constants from Stochastic's here to prove the two are read
+        independently -- if the RSI call site ever regressed to relying on the shared default,
+        this would compute `beyond_reference_line` against the (now-different) Stochastic
+        constants and this test would fail."""
+        monkeypatch.setattr(divergence, "_RSI_OVERSOLD", 20.0)
+        monkeypatch.setattr(divergence, "_RSI_OVERBOUGHT", 80.0)
+
+        # idx 10 = 15 (below both RSI's patched 20 and Stochastic's unchanged 30 oversold
+        # lines -- either constant pair agrees this extreme is deeply oversold). idx 30 = 21:
+        # back inside RSI's patched 20 line (correct fix -> beyond_reference_line True), but
+        # still below Stochastic's unchanged 30 line (the bug this regression-tests against --
+        # silently falling back to Stochastic's defaults -> beyond_reference_line False).
+        indicator = pd.Series([50.0] * 10 + [15.0] + [50.0] * 19 + [21.0] + [50.0] * 10)
+
+        results = find_divergences(_FIXTURE_A_PRICE, indicator, indicator_name="rsi", kind="bullish")
+
+        assert len(results) == 1
+        assert results[0].beyond_reference_line is True
 
 
 class TestLovvornFilters:

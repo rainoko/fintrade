@@ -197,11 +197,17 @@ def _evaluate_candidate(
     makes_new_low = low < window_low_min
     if not makes_new_high and not makes_new_low:
         return None
-    # A bar could in principle satisfy both (a huge outside bar) -- "up" takes priority in
-    # that degenerate tie, since a genuine Kangaroo Tail's body-position check below only
-    # ever passes for one direction in practice (the body can't retrace toward both ends of
-    # the range at once unless min_retracement is exactly 0.5 and the body sits exactly on
-    # the midpoint). See this task's `decisions` entry.
+    # A bar could in principle satisfy both (a huge "outside bar", beyond the lookback
+    # window's high AND low at once) -- "up" takes priority in that degenerate tie, since a
+    # genuine Kangaroo Tail's body-position check below only ever passes for one direction in
+    # practice (the body can't retrace toward both ends of the range at once unless
+    # min_retracement is exactly 0.5 and the body sits exactly on the midpoint). Recorded as
+    # its own decision in docs/tasks/backend-kangaroo-tail-pattern-followups.json (not this
+    # module's originating task, backend-kangaroo-tail-pattern.json, whose own `decisions`
+    # array does not actually cover this specific tie-break) -- see that followups task's
+    # `decisions` entry and its dedicated outside-bar regression test
+    # (test_kangaroo_tail.py::TestGatingConditions::
+    # test_outside_bar_new_high_and_new_low_defaults_to_up_direction).
     direction: Direction = "up" if makes_new_high else "down"
 
     open_ = float(daily_ohlcv["open"].iloc[position])
@@ -329,8 +335,24 @@ def build_kangaroo_tail_cache(
         range_multiplier=range_multiplier,
         min_retracement=min_retracement,
     )
-    confirmed_positions = [daily_ohlcv.index.get_loc(tail.confirmed_date) for tail in tails]
-    return KangarooTailCache(tails=tails, confirmed_positions=confirmed_positions)
+    # `Index.get_loc` returns a slice/boolean-array for a non-unique index instead of a single
+    # int -- unreachable for this app's own always-unique daily-bar date indices (matching
+    # app.signals.divergence's identical `isinstance` guard for the same get_loc pattern,
+    # divergence.py's `_evaluate_pair`), but guarded rather than silently letting a non-int
+    # position flow into `kangaroo_tail_confirmed_as_of`'s `confirmed_position > position`
+    # comparison, which would raise a TypeError there instead of degrading gracefully here
+    # (docs/tasks/backend-kangaroo-tail-pattern-followups.json). `tails`/`confirmed_positions`
+    # are filtered together so they stay index-parallel for `kangaroo_tail_confirmed_as_of`'s
+    # own `zip(..., strict=True)`.
+    filtered_tails: list[KangarooTail] = []
+    confirmed_positions: list[int] = []
+    for tail in tails:
+        position = daily_ohlcv.index.get_loc(tail.confirmed_date)
+        if not isinstance(position, int):
+            continue  # pragma: no cover
+        filtered_tails.append(tail)
+        confirmed_positions.append(position)
+    return KangarooTailCache(tails=filtered_tails, confirmed_positions=confirmed_positions)
 
 
 def kangaroo_tail_confirmed_as_of(cache: KangarooTailCache, position: int) -> KangarooTail | None:

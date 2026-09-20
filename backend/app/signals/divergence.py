@@ -351,9 +351,26 @@ def _evaluate_pair(
             return None  # "no crossover, no divergence" -- not a divergence at all.
 
     beyond_reference_line: bool | None = None
-    if indicator_name in ("stochastic", "rsi"):
+    if indicator_name == "stochastic":
         beyond_reference_line = is_beyond_reference_line(
-            float(first_indicator_value), float(second_indicator_value), kind
+            float(first_indicator_value),
+            float(second_indicator_value),
+            kind,
+            oversold=_STOCHASTIC_OVERSOLD,
+            overbought=_STOCHASTIC_OVERBOUGHT,
+        )
+    elif indicator_name == "rsi":
+        # Explicit, not relying on `is_beyond_reference_line`'s own default parameters --
+        # those defaults happen to equal RSI's own constants today (both 30.0/70.0), but the
+        # two pairs are deliberately kept distinct (see `_RSI_OVERSOLD`/`_RSI_OVERBOUGHT`'s own
+        # comment) precisely so one can diverge from the other later without silently breaking
+        # this call site (docs/tasks/backend-divergence-detection-followups.json).
+        beyond_reference_line = is_beyond_reference_line(
+            float(first_indicator_value),
+            float(second_indicator_value),
+            kind,
+            oversold=_RSI_OVERSOLD,
+            overbought=_RSI_OVERBOUGHT,
         )
 
     first_extreme = DivergenceExtreme(
@@ -669,7 +686,32 @@ def confirmed_divergence_as_of(
     ``p + cache.window <= position``. ``cache.price``/``macd_histogram``/``stochastic``/``rsi``
     are each read only up to and including ``position`` (a positional slice) for the same
     no-look-ahead reason -- matching ``app.signals.engine.analyse_history``'s own per-bar
-    truncation contract for every other series it passes through."""
+    truncation contract for every other series it passes through.
+
+    **Known residual look-ahead leak (narrow, documented rather than fixed -- docs/tasks/
+    backend-divergence-detection-followups.json):** for a swing point born from a run of 3+
+    *exact-value-tied* consecutive bars, ``app.signals.swing_points``'s plateau-merge
+    convention reports the point at the run's middle bar (``p``), and this function's confirm
+    threshold (``p + cache.window <= position``) is measured from that reported position. But a
+    genuinely causal recomputation over data truncated to ``position`` can see a *shorter*
+    plateau run near the truncation boundary (the run's later bars aren't visible yet), which
+    merges to an earlier middle bar than the full-series merge eventually converges to.
+    Concretely: for a 5-bar tied plateau at positions 5-9, the full series merges to position 7
+    (this function's own threshold then confirms it at ``position >= 10``), but a causal
+    recomputation truncated to position 10 still only sees positions 5-9's neighborhood as a
+    plateau lacking its true right edge and reports the merged point at position 6, not 7 --
+    convergence to 7 only happens once truncated at position 11. So at ``position == 10``, this
+    function reports a swing point one bar earlier than a truly causal recomputation would -- a
+    real, if narrow, look-ahead leak specific to swing points born from an exact multi-bar tie.
+    Left undefended rather than fixed (e.g. by tightening the threshold to key off the
+    plateau run's own last raw-candidate position instead of the merged point's reported
+    position) because an exact multi-bar tie in real float price/indicator data is vanishingly
+    rare outside synthetic/constructed data -- the same "vanishingly rare outside synthetic
+    data" reasoning this task's own `decisions` entry already applied to a related-but-distinct
+    question (whether plateau merging distorts the Lovvorn spacing filter's bar-count
+    measurement); that entry's "no mitigation needed" conclusion did not, however, cover this
+    confirm-threshold correctness question specifically, which is why it's called out here on
+    its own."""
     confirmed_lows = [
         point
         for point, swing_position in zip(cache.lows, cache.low_positions, strict=True)

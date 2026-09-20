@@ -1,0 +1,52 @@
+{
+  "id": "backend-indicator-atr-adx-followups",
+  "title": "ATR/Directional System -- non-blocking review follow-ups",
+  "area": "backend/indicators",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-indicator-atr-adx"],
+  "references": [
+    "docs/tasks/backend-indicator-atr-adx.json#review",
+    "https://github.com/rainoko/fintrade/pull/175"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #175 (backend-indicator-atr-adx), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "True Range is computed twice from the same high/low/close whenever atr/plus_di/minus_di aren't all supplied to app.signals.engine.analyse(), since app.indicators.atr.atr() and app.indicators.directional_system.plus_minus_di() each independently call true_range() instead of sharing one pass. Every call path that computes these from scratch -- app.signals.engine.analyse_history's upfront full-history precompute (engine.py, the atr_full/plus_di_full/minus_di_full block), and any direct analyse() call with no atr/plus_di/minus_di passed in (e.g. via portfolio.get_risk's position-signal computation or watchlist's signal computation) -- runs true_range(high, low, close) twice over the full daily series: once inside atr() and once inside plus_minus_di(). Cheap in absolute terms (a vectorized O(n) pass), but avoidable -- engine.py could compute true_range once and pass it into both, or atr()/plus_minus_di() could accept an optional precomputed true_range series the way analyse() already accepts precomputed atr/plus_di/minus_di. Found by a code-review pass during PR #175's review.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Gave app.indicators.atr.atr() and app.indicators.directional_system.plus_minus_di() an optional keyword-only `true_range` parameter (a precomputed true_range(high, low, close) series, used as-is when supplied) rather than restructuring engine.py to compute True Range itself and pass it down as a brand-new concept the callers have to know about.",
+      "rationale": "This mirrors the passthrough contract app.signals.engine.analyse() already uses for atr/plus_di/minus_di/rsi/etc -- each indicator function stays the single owner of its own default computation, and a caller that already has the series can hand it in instead. Kept the parameter itself named `true_range` (matching the value it represents, same convention as analyse()'s own atr=/plus_di=/minus_di= parameters), which required a module-private `_true_range` alias in both atr.py and directional_system.py so the parameter name doesn't shadow the module-level true_range() function within each function body -- considered naming the parameter something else (e.g. `tr`) to sidestep the shadowing issue entirely, but rejected that since it breaks the existing name-matches-value convention for no real benefit. app.signals.engine.analyse() and analyse_history() were both updated to compute true_range once (via a new compute_true_range import) and pass it to both compute_atr()/plus_minus_di() whenever either needs computing from scratch -- eliminating the double O(n) pass this task's checklist item flagged. Implemented as part of a batched PR alongside backend-trade-grading-followups-followups, backend-divergence-detection-followups, and backend-kangaroo-tail-pattern-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request).",
+      "alternatives_considered": "Restructuring engine.py to compute true_range itself and always pass it to both callees (removing each function's own internal default) -- rejected because it would force every other existing caller/test of atr()/plus_minus_di() outside engine.py to start supplying true_range themselves, a bigger and unnecessary API change for a purely-internal-to-engine.py caching win."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-followups-batch-1",
+    "pr_number": 205,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T15:54:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/205",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the shared `true_range` sharing is correct, not just a claimed optimization: `atr()`/`plus_minus_di()` both fall back to computing `true_range()` internally when the new keyword-only `true_range=` isn't supplied, so behavior for every existing caller is unchanged. `engine.py`'s `analyse()`/`analyse_history()` now compute True Range at most once per call and pass the same series into both `compute_atr()`/`plus_minus_di()` whenever either needs computing from scratch -- confirmed the O(n) double-pass elimination is real by reading the `analyse()` conditional (`daily_true_range` is only computed when `atr is None or plus_di is None or minus_di is None`, and left `None`/unused when all three are already supplied). New tests (`test_precomputed_true_range_is_used_as_is`, `test_precomputed_true_range_overrides_recomputation` in both `test_atr.py` and `test_directional_system.py`) genuinely prove the precomputed series is trusted as-is (a deliberately-wrong constant series changes the result), not silently ignored/recomputed. No other call site outside `engine.py` calls `atr()`/`plus_minus_di()` with the new kwarg, and the kwarg being optional/keyword-only means nothing else needed updating.",
+        "file": "backend/app/signals/engine.py"
+      }
+    ],
+    "notes": "Reviewed as part of PR #205, a single batched PR covering four followups tasks (backend-indicator-atr-adx-followups, backend-trade-grading-followups-followups, backend-divergence-detection-followups, backend-kangaroo-tail-pattern-followups) per explicit user request. Full backend suite: 927 passed, 99.94% coverage (90% gate). ruff + mypy clean. No API/schema changes -- openapi.json correctly untouched. Backend-only diff -- no frontend/UI surface, so no browser walkthrough or e2e run (explicitly noted, not silently skipped). No conflicts found between this task's engine.py change and the divergence.py/kangaroo_tail.py changes in the same PR -- disjoint modules, only engine.py imports/calls the touched indicator functions."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T16:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (927 passed, 99.94% cov) and ruff/mypy on the diff's touched files -- mypy clean; the 7 ruff findings that show up repo-wide are pre-existing on origin/main (confirmed by checking out origin/main's backend/ and re-running ruff) in files this PR never touches. Traced engine.py's analyse()/analyse_history() diff myself: daily_true_range is computed once only when atr/plus_di/minus_di need computing from scratch and fed into both compute_atr()/plus_minus_di(), and atr()/plus_minus_di() fall back to recomputing true_range() internally (identical to pre-change behavior) whenever the new keyword isn't supplied -- confirmed no other call site outside engine.py passes it."
+  }
+}
