@@ -3,7 +3,7 @@
   "title": "Expose earnings/dividend dates, short interest, and insider transactions",
   "area": "backend/data",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/data/base.py",
@@ -88,5 +88,33 @@
     "pr_number": 183,
     "pr_url": "https://github.com/rainoko/fintrade/pull/183",
     "pushed_at": "2026-09-20T07:00:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T07:08:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/183",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "yfinance field mapping (Ticker.calendar's 'Earnings Date'/'Ex-Dividend Date' as date objects, Ticker.info's sharesShort/shortRatio/shortPercentOfFloat/floatShares, Ticker.insider_transactions's Insider/Position/Text/Shares/Value/Start Date/Ownership columns) verified directly against the installed yfinance 1.7.0 source (yfinance.scrapers.quote's _fetch_calendar, yfinance.scrapers.holders.Holders._parse_insider_transactions) -- test mocks match the real shapes exactly, including the NaN-vs-missing-key distinction _int_or_none/_float_or_none/_str_or_none handle. No live network call anywhere in the test suite (grepped for unmocked yf.Ticker/yf.download usage -- none found).",
+        "file": "backend/app/data/yfinance_provider.py"
+      },
+      {
+        "summary": "extended_data_cache migration (8e8f24da49e7) verified as the single alembic head, chained correctly off 2e81d22e2f96, upgrade/downgrade symmetric (create_table/drop_table). CachedDataProvider's 3-day TTL is separate from OHLCV's 24h TTL and correctly gates fresh-vs-stale reads; extensive test coverage of fresh-cache-hit, stale-refetch, fallback-provider-caches-unavailable_reason, both-providers-fail (no row written), and the concurrent-first-population IntegrityError race (mirroring the existing OHLCV upsert race handling).",
+        "file": "backend/app/db/migrations/versions/8e8f24da49e7_add_extended_data_cache_table.py"
+      },
+      {
+        "summary": "Confirmed via grep across app/signals/ and app/portfolio/ that extended_data/ExtendedData/earnings_date/shares_short/insider_transactions are referenced nowhere in signal or confidence computation -- purely informational/exposed data, consistent with this session's established pattern (divergence, kangaroo-tail, support/resistance zones). git diff main...HEAD also shows zero changes to app/signals/ or app/portfolio/.",
+        "file": "backend/app/api/routers/stocks.py"
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts confirmed in sync: regenerating both from the checked-out branch (python scripts/export_openapi.py, yarn generate:api-types) produced zero diff. All four frontend test files (handlers.ts, PositionProfitTargetCell.test.tsx, OscillatorChart.test.tsx, PriceChart.test.tsx) needed their update solely because AnalysisResponse.extended_data is a new non-optional field the existing fixtures must now satisfy for TS to compile -- correctly done in each. yarn tsc -b --noEmit and yarn lint both clean; ruff/mypy both clean.",
+        "file": "frontend/src/api/types.ts"
+      },
+      {
+        "summary": "Insider-transaction cluster detection (3+ buys/sells within a month) was explicitly and reasonably deferred as raw-exposure-only in this PR, consistent with this codebase's established pattern of separating detection logic from data exposure into its own later task (divergence/kangaroo-tail/support-resistance precedent) -- not a silently passed-off gap. Filed as a tracked follow-up so the deferred detection task doesn't get lost once this PR merges (see backend-market-data-extra-fields-followups).",
+        "file": "backend/app/data/base.py"
+      }
+    ],
+    "notes": "Full review: backend pytest (839 passed, 99.93% coverage) and frontend vitest (615-616 passed, ~99.6% coverage; one PortfolioPage timeout was a resource-contention flake, reproduced as passing on rerun and in isolation) both clean against the 90% gate. ruff/mypy/eslint/tsc all clean. code-review skill (medium effort) found zero issues. verify-elder-signal confirmed extended_data is not wired into any Screen/Impulse/Confidence/Portfolio-Risk computation (no changes to app/signals/ or app/portfolio/ in this diff at all). No frontend UI component consumes extended_data yet (grepped -- none do), so no common-vs-feature placement question applies; browser walkthrough of the /stocks/AAPL analysis page (fixture data provider) confirmed the page renders correctly with the new field present in the API response and no console/network errors, plus an unknown-ticker edge case degrading gracefully to the existing not-found page. Ran the persisted e2e suite (make e2e): all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed, no regressions. openapi.json/types.ts regeneration is byte-for-byte identical to what's committed. All checklist items phrased as judgment calls have corresponding decisions entries (protocol shape, Stooq sentinel-vs-exception, cache table/TTL split, 14-day earnings window, .calendar-vs-.earnings_dates source, raw-vs-classified insider exposure, endpoint placement) -- no undocumented decision gaps found. One non-blocking finding (deferred insider-cluster-detection follow-up) filed as backend-market-data-extra-fields-followups; no other findings."
   }
 }
