@@ -3,7 +3,7 @@
   "title": "Follow-ups from PR #161 review (frontend-indicator-seasons-badge)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-indicator-seasons-badge"],
   "references": [
     "docs/tasks/done/frontend-indicator-seasons-badge.json",
@@ -13,9 +13,17 @@
   "checklist": [
     {
       "step": "theme.palette.season.summer (#f9a825) fails WCAG contrast against the white card background it's rendered on (common/SeasonBadge paints the raw season color as outlined-Chip text/icon color, no getContrastText adjustment): computed contrast ratio ~1.97:1, well below the 3:1 minimum for UI components/graphical objects and the 4.5:1 minimum for normal text. spring (#43a047, 3.3:1) and winter (#5e92c7, 3.28:1) are also below the 4.5:1 text threshold though closer to the 3:1 bar; autumn (#b8622e, 4.35:1) passes. Darken summer (and consider spring/winter) enough to clear at least 3:1 against white while keeping it visually distinct from theme.palette.signal.*, and re-run the theme.test.ts color-distinctness guard.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Darkened all four season colors (spring #43a047->#368139, summer #f9a825->#a06504, autumn #b8622e->#ae5c2b, winter #5e92c7->#3d75af) to clear the stricter 4.5:1 WCAG AA normal-text contrast ratio against white, not just the 3:1 UI-component floor the checklist named as the minimum bar.",
+      "rationale": "common/SeasonBadge paints the season color as both the Chip's label text color and its icon color, with the label being real text at a normal (small Chip) size -- WCAG's 4.5:1 normal-text threshold is the applicable one here, not the more lenient 3:1 that only covers graphical objects/UI component boundaries (borders, focus rings) with no text. Fixing only summer to clear 3:1 while leaving spring/winter at ~3.3:1 would still fail the text-contrast bar for three of the four colors; picking one consistent 4.5:1 target for all four (autumn already passed it, so this doesn't regress it) keeps the palette internally consistent rather than leaving an arbitrary per-color bar. Preserved each color's original hue and saturation (HSL lightness reduction only, via binary search to just clear the target ratio with a small safety margin -- targeted ~4.8:1 actual, comfortably above 4.5:1 to survive any float/rounding edge cases) so the four colors remain recognizably 'spring green / summer gold / autumn rust / winter frost-blue' rather than becoming an unrelated new palette; verified by hand-computed WCAG relative-luminance/contrast-ratio arithmetic (added as a reusable theme.test.ts guard) that all four now sit at >=4.5:1 against white, and that none collides with signal.buy/sell/hold, riskBreach.main, divergence.main, or kangarooTail.main.",
+      "alternatives_considered": "Rejected fixing only summer (the one flagged as failing even the 3:1 UI-component floor) and leaving spring/winter at ~3.3:1: that would satisfy the checklist's literal minimum but leave three of four season colors still failing the text-contrast bar their actual usage (Chip label text) is held to, undermining the fix's purpose."
+    }
+  ],
   "questions": []
 }
