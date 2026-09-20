@@ -13,9 +13,17 @@
   "checklist": [
     {
       "step": "True Range is computed twice from the same high/low/close whenever atr/plus_di/minus_di aren't all supplied to app.signals.engine.analyse(), since app.indicators.atr.atr() and app.indicators.directional_system.plus_minus_di() each independently call true_range() instead of sharing one pass. Every call path that computes these from scratch -- app.signals.engine.analyse_history's upfront full-history precompute (engine.py, the atr_full/plus_di_full/minus_di_full block), and any direct analyse() call with no atr/plus_di/minus_di passed in (e.g. via portfolio.get_risk's position-signal computation or watchlist's signal computation) -- runs true_range(high, low, close) twice over the full daily series: once inside atr() and once inside plus_minus_di(). Cheap in absolute terms (a vectorized O(n) pass), but avoidable -- engine.py could compute true_range once and pass it into both, or atr()/plus_minus_di() could accept an optional precomputed true_range series the way analyse() already accepts precomputed atr/plus_di/minus_di. Found by a code-review pass during PR #175's review.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Gave app.indicators.atr.atr() and app.indicators.directional_system.plus_minus_di() an optional keyword-only `true_range` parameter (a precomputed true_range(high, low, close) series, used as-is when supplied) rather than restructuring engine.py to compute True Range itself and pass it down as a brand-new concept the callers have to know about.",
+      "rationale": "This mirrors the passthrough contract app.signals.engine.analyse() already uses for atr/plus_di/minus_di/rsi/etc -- each indicator function stays the single owner of its own default computation, and a caller that already has the series can hand it in instead. Kept the parameter itself named `true_range` (matching the value it represents, same convention as analyse()'s own atr=/plus_di=/minus_di= parameters), which required a module-private `_true_range` alias in both atr.py and directional_system.py so the parameter name doesn't shadow the module-level true_range() function within each function body -- considered naming the parameter something else (e.g. `tr`) to sidestep the shadowing issue entirely, but rejected that since it breaks the existing name-matches-value convention for no real benefit. app.signals.engine.analyse() and analyse_history() were both updated to compute true_range once (via a new compute_true_range import) and pass it to both compute_atr()/plus_minus_di() whenever either needs computing from scratch -- eliminating the double O(n) pass this task's checklist item flagged. Implemented as part of a batched PR alongside backend-trade-grading-followups-followups, backend-divergence-detection-followups, and backend-kangaroo-tail-pattern-followups (four small non-blocking-followups tasks on one branch/PR per explicit user request).",
+      "alternatives_considered": "Restructuring engine.py to compute true_range itself and always pass it to both callees (removing each function's own internal default) -- rejected because it would force every other existing caller/test of atr()/plus_minus_di() outside engine.py to start supplying true_range themselves, a bigger and unnecessary API change for a purely-internal-to-engine.py caching win."
+    }
+  ],
   "questions": []
 }

@@ -169,6 +169,35 @@ class TestGatingConditions:
 
         assert detect_kangaroo_tails(daily_ohlcv) == []
 
+    def test_outside_bar_new_high_and_new_low_defaults_to_up_direction(self) -> None:
+        """A degenerate "outside bar" -- simultaneously a new high AND a new low beyond the
+        full lookback window -- exercises the `makes_new_high and makes_new_low` tie-break in
+        `_evaluate_candidate`, which defaults to `direction="up"` (docs/tasks/backend-kangaroo-
+        tail-pattern-followups.json's `decisions` entry). high=110.0 is a new high (beyond the
+        filler window's own 101.0 max) and low=90.0 is a new low (beyond the filler window's
+        own 99.0 min) at the same bar; range = 20.0, baseline = 2.0, multiple = 10.0 (well past
+        the 2.5x threshold). Body (open=95.0, close=95.5) sits in the bottom half, retracing
+        (110-95)/20=0.75 and (110-95.5)/20=0.725 from the top -- satisfying the "up" body-
+        position check (retracement measured from the high, since direction resolved to "up"),
+        which a "down" resolution's retracement-from-the-low check would NOT have satisfied
+        ((95-90)/20=0.25, (95.5-90)/20=0.275 -- both well under the 0.5 minimum), so this test
+        also incidentally proves the tie-break actually took effect rather than either
+        direction happening to pass by coincidence."""
+        overrides = {
+            10: {"open": 95.0, "high": 110.0, "low": 90.0, "close": 95.5},
+            11: {"open": 95.5, "high": 96.5, "low": 93.5, "close": 94.0},
+        }
+        daily_ohlcv = _build_ohlcv(12, overrides)
+
+        tails = detect_kangaroo_tails(daily_ohlcv)
+
+        assert len(tails) == 1
+        tail = tails[0]
+        assert tail.direction == "up"
+        assert tail.high == pytest.approx(110.0)
+        assert tail.low == pytest.approx(90.0)
+        assert tail.range_multiple == pytest.approx(10.0)
+
 
 class TestLatestKangarooTail:
     def test_returns_none_when_no_tail_detected(self) -> None:

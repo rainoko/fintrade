@@ -246,7 +246,18 @@ class TestGetClosedTradesSharesOneFetchPerTicker:
         """`backend-trade-grading-followups`: `drop_malformed_daily_bars`/`autoenvelope` --
         the two more expensive per-ticker derivations `grade_closed_trade` used to redo once
         per row -- must also be shared across every closed-trade row for the same ticker, not
-        just the underlying `get_daily_ohlcv` fetch (already covered above)."""
+        just the underlying `get_daily_ohlcv` fetch (already covered above).
+
+        Note on what a regression would actually look like here (docs/tasks/backend-trade-
+        grading-followups-followups.json): `drop_malformed_daily_bars`/`autoenvelope` are
+        separate module-level name bindings in `app.portfolio.grading` vs.
+        `app.api.routers.portfolio`, and this test's `monkeypatch.setattr(portfolio_router,
+        ...)` only intercepts the router module's own binding. If `_grade_closed_trades` were
+        reverted to call `grade_closed_trade` per row (the pre-fix, O(n)-per-row behavior),
+        that path never calls through the router's own `drop_malformed_daily_bars`/
+        `autoenvelope` bindings at all -- so the counters below would read 0, not 2 (not a
+        doubled per-row count). The assertions still correctly fail on that regression
+        (`assert 0 == 1`), just via a different failure than "counted twice"."""
         dropna_calls = 0
         autoenvelope_calls = 0
         real_drop_malformed = portfolio_router.drop_malformed_daily_bars

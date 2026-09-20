@@ -1,7 +1,7 @@
 import pandas as pd
 
 from app.indicators._validation import validate_period
-from app.indicators.atr import true_range
+from app.indicators.atr import true_range as _true_range
 
 
 def plus_minus_dm(high: pd.Series, low: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -48,7 +48,12 @@ def plus_minus_dm(high: pd.Series, low: pd.Series) -> tuple[pd.Series, pd.Series
 
 
 def plus_minus_di(
-    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 13
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    period: int = 13,
+    *,
+    true_range: pd.Series | None = None,
 ) -> tuple[pd.Series, pd.Series]:
     """+DI/-DI (Directional Indicators, Elder ch. 24, docs/Analyse.md §4) -- ``+DM``/``-DM``
     (``plus_minus_dm``) each smoothed over ``period`` days (13 by default, matching
@@ -77,18 +82,26 @@ def plus_minus_di(
     .stochastic_oscillator`` leaves a flat trailing range's %K undefined instead of
     special-casing it.
 
+    ``true_range``, if given, is the already-computed ``app.indicators.atr.true_range(high,
+    low, close)`` series -- used as-is instead of recomputing it here. Lets a caller that needs
+    both this and ``app.indicators.atr.atr`` (which also needs its own True Range) share one
+    ``true_range`` pass instead of each independently recomputing it from the same
+    ``high``/``low``/``close`` -- see ``app.signals.engine``'s ``analyse``/``analyse_history``,
+    which both do this whenever either needs computing (docs/tasks/backend-indicator-atr-adx-
+    followups.json). When omitted, computed here exactly as before.
+
     Returns ``(plus_di, minus_di)``, same index as ``high``/``low``/``close``.
 
     Raises:
         TypeError: if ``period`` is not an ``int`` (e.g. a ``bool`` or a ``float`` like
             ``13.5``).
         ValueError: if ``period`` is not >= 1, or if ``high``, ``low``, ``close`` are not
-            aligned on the same index (see ``plus_minus_dm``/``true_range``).
+            aligned on the same index (see ``plus_minus_dm``/``app.indicators.atr.true_range``).
     """
     validate_period("period", period)
 
     plus_dm, minus_dm = plus_minus_dm(high, low)
-    tr = true_range(high, low, close)
+    tr = true_range if true_range is not None else _true_range(high, low, close)
 
     smoothed_plus_dm = plus_dm.rolling(window=period).mean()
     smoothed_minus_dm = minus_dm.rolling(window=period).mean()

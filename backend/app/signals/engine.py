@@ -4,6 +4,7 @@ from typing import Literal
 import pandas as pd
 
 from app.indicators.atr import atr as compute_atr
+from app.indicators.atr import true_range as compute_true_range
 from app.indicators.autoenvelope import autoenvelope
 from app.indicators.directional_system import adx as compute_adx
 from app.indicators.directional_system import plus_minus_di
@@ -492,10 +493,24 @@ def analyse(
     if rsi is None:
         rsi = compute_rsi(daily_close)
 
+    # Shared once, not per-call: whenever `atr` and/or `plus_di`/`minus_di` need computing from
+    # scratch below, both would otherwise independently call `true_range(daily_ohlcv["high"],
+    # daily_ohlcv["low"], daily_close)` themselves -- an avoidable second O(n) pass over the
+    # same three series (docs/tasks/backend-indicator-atr-adx-followups.json). Left `None` (and
+    # never computed) when neither needs it, e.g. an `analyse_history` slice call that already
+    # supplies both.
+    daily_true_range = None
+    if atr is None or plus_di is None or minus_di is None:
+        daily_true_range = compute_true_range(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+
     if plus_di is None or minus_di is None:
-        plus_di, minus_di = plus_minus_di(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+        plus_di, minus_di = plus_minus_di(
+            daily_ohlcv["high"], daily_ohlcv["low"], daily_close, true_range=daily_true_range
+        )
     if atr is None:
-        atr = compute_atr(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+        atr = compute_atr(
+            daily_ohlcv["high"], daily_ohlcv["low"], daily_close, true_range=daily_true_range
+        )
     if adx is None:
         adx = compute_adx(plus_di, minus_di)
 
@@ -763,10 +778,17 @@ def analyse_history(
     channel_upper_full = channel_bands_full["upper"]
     channel_lower_full = channel_bands_full["lower"]
     rsi_full = compute_rsi(daily_close)
+    # One shared True Range pass, fed to both `plus_minus_di` and `atr` below, instead of each
+    # independently recomputing it from the same `high`/`low`/`close` (docs/tasks/backend-
+    # indicator-atr-adx-followups.json) -- the same sharing `analyse`'s own fallback path now
+    # does whenever it's not given precomputed `atr`/`plus_di`/`minus_di`.
+    true_range_full = compute_true_range(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
     plus_di_full, minus_di_full = plus_minus_di(
-        daily_ohlcv["high"], daily_ohlcv["low"], daily_close
+        daily_ohlcv["high"], daily_ohlcv["low"], daily_close, true_range=true_range_full
     )
-    atr_full = compute_atr(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+    atr_full = compute_atr(
+        daily_ohlcv["high"], daily_ohlcv["low"], daily_close, true_range=true_range_full
+    )
     adx_full = compute_adx(plus_di_full, minus_di_full)
     # One swing-point pass in each direction over the full daily close series, shared by every
     # bar's `confirmed_divergence_as_of` call below -- the precompute-and-slice counterpart to

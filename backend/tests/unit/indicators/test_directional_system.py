@@ -55,6 +55,7 @@ ADX (period=3, plain rolling mean of DX -- DX itself is NaN for idx 0-2):
 import pandas as pd
 import pytest
 
+from app.indicators.atr import true_range
 from app.indicators.directional_system import adx, dx, plus_minus_di, plus_minus_dm
 
 HIGH = pd.Series([10, 12, 11, 13, 15, 14, 16, 15], dtype=float)
@@ -162,6 +163,30 @@ class TestPlusMinusDi:
     def test_rejects_bool_period(self) -> None:
         with pytest.raises(TypeError):
             plus_minus_di(HIGH, LOW, CLOSE, period=True)
+
+    def test_precomputed_true_range_is_used_as_is(self) -> None:
+        """A caller-supplied ``true_range`` (e.g. shared with ``app.indicators.atr.atr`` --
+        docs/tasks/backend-indicator-atr-adx-followups.json) is used verbatim instead of being
+        recomputed, and yields the exact same result as the default (no-``true_range``) call
+        for the same inputs."""
+        precomputed = true_range(HIGH, LOW, CLOSE)
+
+        plus_di, minus_di = plus_minus_di(HIGH, LOW, CLOSE, period=3, true_range=precomputed)
+        expected_plus_di, expected_minus_di = plus_minus_di(HIGH, LOW, CLOSE, period=3)
+
+        pd.testing.assert_series_equal(plus_di, expected_plus_di)
+        pd.testing.assert_series_equal(minus_di, expected_minus_di)
+
+    def test_precomputed_true_range_overrides_recomputation(self) -> None:
+        """A deliberately wrong ``true_range`` (not actually derived from ``HIGH``/``LOW``/
+        ``CLOSE``) is trusted as-is, proving it isn't silently ignored/recomputed."""
+        wrong_true_range = pd.Series([1.0] * len(HIGH))
+
+        plus_di, minus_di = plus_minus_di(HIGH, LOW, CLOSE, period=3, true_range=wrong_true_range)
+
+        # smoothed(TR) collapses to 1.0 for every bar, so +DI/-DI == 100 * smoothed(+DM/-DM).
+        assert plus_di.iloc[3] == pytest.approx(100 * (4 / 3))
+        assert minus_di.iloc[3] == pytest.approx(100 * (1 / 3))
 
 
 class TestDx:
