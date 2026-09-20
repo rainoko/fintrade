@@ -1398,8 +1398,8 @@
       "id": "frontend-fundamental-data-panel-followups",
       "area": "frontend/pages/stocks",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-fundamental-data-panel-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-fundamental-data-panel-followups.json"
     },
     {
       "id": "frontend-insider-clusters-badge",
