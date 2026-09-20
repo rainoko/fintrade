@@ -214,6 +214,19 @@ Implementation: `app.portfolio.risk.total_open_risk_pct` computes part (2) only;
 ### Stop-loss placement (SafeZone concept)
 Stop-loss for a long position = recent swing low minus **2× (or more)** a volatility buffer (average size of downside penetrations of a short EMA over the last N days) — Elder's own words, "placing your stop any closer would be self-defeating" (ch. 54); this app uses the book's stated minimum of 2×, not a wider multiple (see the `backend-safezone-stop-coefficient-fix` task's `decisions` for why). This stop is what feeds the 2%/6% calculations above, and a **close below this stop is itself a SELL trigger** for that position regardless of Screen 2/3 state ("protective stop hit").
 
+### Profit target (suggested target + reward:risk ratio)
+This app computes a signal, a confidence score, and a protective stop — but never a target price. Elder ch. 53 "How to Set Profit Targets" gives three style-dependent techniques; this app implements the two relevant to a swing/position-holding use case (the third — a day-trade's first-sign-of-opposing-divergence exit — doesn't apply, since this app has no intraday use case):
+- **Swing-style**: ch. 58's own explicit Tradebill formula for an "A" target — current price + **30%** of that day's Autoenvelope/channel height (§4) — the same 30% figure the trade-grading rubric above already uses for a ≥30%-of-channel-height capture, by design.
+- **Position-style**: the nearest prior support/resistance level above current price (§4 Row 9).
+
+This app has no separate notion of "trade style" for a fresh signal — rather than inventing one, both techniques are always computed and the **tighter** (closer-to-current-price) of the two candidates is used, since a closer target is the more conservative, more probable one to actually be reached (see the `backend-profit-target` task's `decisions` for the full rationale, including why "tighter wins" rather than a fixed preference order).
+
+Explicit, checkable sanity rule paired with the target: **potential reward should be at least 2× the risk** (distance to target ÷ distance to stop ≥ 2) — "it seldom pays to risk a dollar to make a dollar." The ratio is always computed and exposed, flagged via a boolean, not silently used to filter out a signal that fails it.
+
+**BUY-only**: this app's protective-stop formula (and its whole portfolio model) is explicitly long-only (see "Stop-loss placement" above) — there's no symmetric short-side stop to pair with a SELL-side reward:risk ratio, so `profit_target` is null for a SELL signal (and for HOLD). It's also null for a BUY when neither technique currently produces a candidate (e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above current price).
+
+Implementation: `app.portfolio.profit_target.suggest_profit_target`, exposed as `profit_target` on `GET /api/stocks/{ticker}/analysis` (see `docs/architecture/API.md`) — computed directly in `get_analysis`, reusing the already-computed channel bounds and support/resistance zones rather than recomputing either. **Detection + exposure only**: not wired into `signal`/`confidence_breakdown`.
+
 ### Trade grading ("Is This an A-Trade?")
 Once a position is closed (recorded in the `closed_trades` table above), grade it by three exact, checkable formulas (Elder ch. 55) rather than by raw dollars/percent-return alone — they measure how much of what was *realistically available* got captured, not just what was captured:
 - **Buy grade** = (entry day's high − buy price) / (entry day's high − entry day's low) — how close to the entry day's low the buy was. **>50% is "very good."**

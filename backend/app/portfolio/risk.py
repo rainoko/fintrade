@@ -53,6 +53,44 @@ def validate_daily_ohlcv_columns(daily_ohlcv: pd.DataFrame) -> None:
         raise ValueError(f"daily_ohlcv is missing required column(s): {sorted(missing)}")
 
 
+def stop_from_price_action(
+    daily_ohlcv: pd.DataFrame,
+    *,
+    short_ema: pd.Series | None = None,
+    columns_validated: bool = False,
+) -> float:
+    """The `Position`-independent core of `protective_stop` below -- everything that formula
+    actually computes, since `position` itself is never read by the calculation (see
+    `protective_stop`'s own docstring). Factored out so a caller with no `Position` to hand it
+    (e.g. `app.portfolio.profit_target.suggest_profit_target`, computing a stop-distance for a
+    ticker's fresh BUY signal rather than an already-held position) doesn't have to fabricate
+    one just to satisfy a parameter the math never uses -- see the `backend-profit-target`
+    task's `decisions` entry. `protective_stop` delegates to this function unchanged; every
+    parameter/behavior/docstring detail below is identical to `protective_stop`'s own.
+
+    Raises:
+        ValueError: if ``daily_ohlcv`` is empty, or (when ``columns_validated`` is False)
+            missing a required column.
+    """
+    if columns_validated:
+        if daily_ohlcv.empty:
+            raise ValueError(
+                "daily_ohlcv must contain at least one row to compute a protective stop"
+            )
+    else:
+        validate_daily_ohlcv_columns(daily_ohlcv)
+
+    window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
+    swing_low = float(window["low"].min())
+
+    if short_ema is None:
+        short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
+    downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
+    volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())
+
+    return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)
+
+
 def protective_stop(
     position: Position,
     daily_ohlcv: pd.DataFrame,
@@ -121,23 +159,9 @@ def protective_stop(
         ValueError: if ``daily_ohlcv`` is empty, or (when ``columns_validated`` is False)
             missing a required column.
     """
-    if columns_validated:
-        if daily_ohlcv.empty:
-            raise ValueError(
-                "daily_ohlcv must contain at least one row to compute a protective stop"
-            )
-    else:
-        validate_daily_ohlcv_columns(daily_ohlcv)
-
-    window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
-    swing_low = float(window["low"].min())
-
-    if short_ema is None:
-        short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
-    downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
-    volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())
-
-    return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)
+    return stop_from_price_action(
+        daily_ohlcv, short_ema=short_ema, columns_validated=columns_validated
+    )
 
 
 def position_risk_pct(position: Position, stop: float, account: Account) -> float:

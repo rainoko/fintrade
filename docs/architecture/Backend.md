@@ -42,6 +42,7 @@ backend/
       pricing.py         # shared mark-to-market price enrichment (EnrichedPosition)
       risk.py           # 2% rule, 6% rule, protective stop calc
       exits.py           # existing-position exit rules (Analyse.md §7)
+      profit_target.py    # suggested profit target + reward:risk ratio for a fresh BUY (Analyse.md §7)
     db/
       models.py         # SQLAlchemy ORM models
       session.py

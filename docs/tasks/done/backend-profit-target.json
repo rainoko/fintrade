@@ -1,0 +1,115 @@
+{
+  "id": "backend-profit-target",
+  "title": "Compute a suggested profit target and reward:risk ratio for BUY/SELL signals",
+  "area": "backend/signals",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [
+    "backend-channel-envelope-exposure",
+    "backend-support-resistance"
+  ],
+  "references": [
+    "backend/app/portfolio/risk.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "This app computes a signal, a confidence score, and a protective stop, but never a target price -- confirmed gap. Elder ch. 53 gives three concrete, style-dependent techniques, all buildable from tasks already in this batch: exit in the value zone or at the near channel line (backend-channel-envelope-exposure) for swing-style trades, or at the nearest prior support/resistance level (backend-support-resistance) for position-style trades. Pair with an explicit, checkable sanity rule: potential reward should be at least 2x the risk (target distance / stop distance >= 2) -- flag, don't silently hide, a fresh BUY/SELL whose own target/stop combination fails this ratio. Elder's own Tradebill gives one specific numeric formula worth matching: an 'A' target = entry price + 30% of that day's channel height (the same 30% figure the A-trade grading rubric uses).",
+  "checklist": [
+    {
+      "step": "Decide the target-selection logic (channel line / value zone vs. nearest S/R level) -- record as a decisions entry, including whether it varies by some existing notion of trade style or just always uses one consistent rule for v1.",
+      "done": true
+    },
+    {
+      "step": "Implement the 2:1 minimum reward:risk sanity check as an explicit flag on the response (not merely computed and silently used to filter).",
+      "done": true
+    },
+    {
+      "step": "Expose target price + reward:risk ratio alongside the existing protective_stop() output on GET /api/portfolio/risk and/or GET /api/stocks/{ticker}/analysis -- decide which endpoint(s) and record.",
+      "done": true
+    },
+    {
+      "step": "Unit tests covering a BUY near a clean value zone, a BUY where support/resistance gives a tighter target than the channel would, and a case where the 2:1 ratio fails and is correctly flagged.",
+      "done": true
+    },
+    {
+      "step": "Regenerate backend/openapi.json/frontend types; document the formula in docs/Analyse.md \u00a77.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Target-selection logic (app.portfolio.profit_target.suggest_profit_target): this app has no existing notion of 'trade style' anywhere (no swing-vs-position distinction is tracked for a fresh signal), so v1 always computes BOTH of the two applicable Elder ch. 53 techniques -- the ch. 58 Tradebill formula (current price + 30% of today's Autoenvelope/channel height) and the nearest support/resistance zone above current price -- and uses whichever candidate is TIGHTER (closer to current price), rather than a fixed preference order or a new trade-style concept. The third technique (a day-trade's first-sign-of-opposing-divergence exit) is out of scope, matching docs/ideas.md's own note that this app has no intraday/day-trade use case.",
+      "rationale": "Inventing a 'trade style' classification (e.g. based on holding-period intent, position size, or some other heuristic) would be a much bigger, unrequested product decision with no textual basis in Analyse.md or the book for how this app specifically should classify a fresh signal's style -- the task's own checklist phrasing ('or just always uses one consistent rule for v1') explicitly offers this simpler option. Preferring the TIGHTER of the two candidates (not, say, always preferring the channel formula since it's the one with an explicit numeric formula) was chosen because a closer target is the more conservative, more probable one to actually be reached -- this app already defaults to the more conservative choice wherever Elder's own text leaves a range rather than a single number (e.g. the SafeZone stop coefficient uses the book's stated 2x minimum, not a wider multiple, per the backend-safezone-stop-coefficient-fix task). Rejected alternatives: (a) always prefer the channel/Tradebill technique since it has an explicit book formula, falling back to support/resistance only when the channel is unavailable -- rejected because it would silently give an overly-optimistic (further-away, lower-probability) target whenever a much closer resistance zone actually exists between current price and the channel target, which Elder's own S/R chapter (ch. 18) treats as a real obstacle price is unlikely to blow through; (b) always prefer support/resistance when a zone exists, channel only as a fallback -- rejected symmetrically, since a detected zone might legitimately be further away than the channel's own 30%-height target, in which case the channel number is the more useful (tighter, still-real) one; (c) inventing a trade-style flag on the signal/request -- rejected as unrequested product scope this task doesn't ask for and Analyse.md doesn't define.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "profit_target is BUY-only. It is null whenever signal is SELL or HOLD, not just computed-but-less-meaningful for SELL.",
+      "rationale": "The reward:risk ratio this task's own checklist requires needs a stop distance, and this app's ONLY stop formula (app.portfolio.risk.protective_stop / the newly-extracted stop_from_price_action) is explicitly, repeatedly documented as long-only (see risk.py's own module-level comments and the backend-safezone-stop-coefficient-fix task's decisions, which note a future short-position feature would need its own separate short-side coefficient/formula before a symmetric SELL-side stop could exist). Building a mirrored short-side stop formula (swing high + buffer) from scratch to support a SELL-side profit target would be new methodology scope well beyond 'expose a target for the two techniques already built' -- it would need its own book-grounded formula choice and its own decisions/tests, not something this task's checklist (which itself only asks for BUY test cases: 'a BUY near a clean value zone, a BUY where support/resistance gives a tighter target... a case where the 2:1 ratio fails') anticipates. Rejected alternatives: (a) compute a target price for SELL too (mirroring the channel/S&R techniques downward) but leave reward_risk_ratio/meets_minimum_reward_risk null for SELL only -- rejected as a confusing half-populated object (a 'profit target' with no risk context is exactly the kind of number Elder's own 2:1 rule exists to guard against being read in isolation); (b) fabricate a symmetric short-side stop coefficient without a book citation just to unblock SELL -- rejected as inventing methodology this task doesn't ask for and docs/Analyse.md doesn't specify a number for.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Endpoint placement: expose profit_target only on GET /api/stocks/{ticker}/analysis, not on GET /api/portfolio/risk's RiskPosition (which keeps protective_stop as its only stop-related field, unchanged).",
+      "rationale": "profit_target is semantically a property of a FRESH BUY signal (docs/Analyse.md \u00a77's own framing: 'a suggested target for a fresh BUY signal'), and signal/confidence-band fields already live on signal-carrying schemas in this app (AnalysisResponse, PositionOut via the api-portfolio-position-signal task) rather than on RiskResponse/RiskPosition, which is purely about current stop-distance/2%-rule/6%-rule risk math for an ALREADY-HELD position -- adding a fresh-entry target concept there would be a scope mismatch (an existing position's own real entry price/date already exist and are a completely different thing from 'what would a target be if entered today'). Support_resistance_zones/divergence/kangaroo_tail (all similarly signal-adjacent, informational context) were exposed the same way -- only on /analysis, never added to RiskResponse -- for the identical reason. Rejected alternative: also add profit_target to RiskPosition, computed from current_price as a forward-looking 'if you re-entered today' figure for already-held positions -- rejected as conflating two different questions (a held position's current downside risk vs. a fresh entry's target) in one endpoint, and because RiskPosition has no `signal` field at all to gate a BUY-only computation on (a currently-held position isn't necessarily still signaling a fresh BUY); a frontend that wants this for an open position can call GET /api/stocks/{ticker}/analysis for that ticker directly. Noted as a natural, separate follow-up if ever needed, not implemented here.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Module placement: app.portfolio.profit_target (not app.signals, despite this task's own \"area\": \"backend/signals\" metadata) -- mirrors app.portfolio.grading's precedent (a sibling 'derived trading-math on top of price action + an existing indicator' module). Extracted app.portfolio.risk.stop_from_price_action (the exact, unchanged core of protective_stop, minus the unused Position parameter) so profit_target could get a stop distance without fabricating a Position object just to satisfy a parameter the math never reads.",
+      "rationale": "profit_target's reward:risk computation needs app.portfolio.risk's stop formula, and app.portfolio already depends on app.signals (e.g. app.portfolio.exits, app.portfolio.grading both import from app.signals.engine) -- keeping profit_target in app.portfolio too preserves that one-directional layering (portfolio -> signals, never the reverse) rather than introducing a signals -> portfolio dependency this task would otherwise need. protective_stop(position, daily_ohlcv, ...) has always documented `position` as unused by the calculation itself ('kept in the signature for symmetry... a future short-position variant doesn't need a signature change') -- extracting stop_from_price_action(daily_ohlcv, ...) as the real, Position-independent implementation (with protective_stop now a one-line delegation, identical behavior/docstring/tests) is a minimal, purely-additive refactor: every existing protective_stop test still passes unchanged, and it avoids the alternative of constructing a throwaway Position with meaningless id/ticker/quantity/avg_cost_basis/entry_date values just to call a function that ignores all of them. Rejected alternatives: (a) leave protective_stop as the only entry point and have profit_target build a dummy Position -- rejected as exactly the kind of fabricated-input smell CLAUDE.md's testing/decision-memory culture pushes away from, and it would make profit_target's own tests read as if position data mattered when it structurally doesn't; (b) put profit_target in app.signals and have app.signals depend on app.portfolio.risk for this one function -- rejected as inverting this codebase's established one-directional module layering (docs/architecture/Backend.md's module list has app.portfolio depend on app.signals, never listed the other way) for a single function call.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Nearest-support/resistance-target lookup (app.portfolio.profit_target._nearest_resistance_price) filters app.signals.support_resistance.Zone objects by PRICE POSITION relative to current price (zone.lower > current_price), not by the zone's own `role` label ('support'/'resistance'), and uses each qualifying zone's `lower` edge (not its midpoint or upper edge) as the target price.",
+      "rationale": "Elder's own rule (docs/ideas.md ch. 53) is 'the nearest prior support/resistance level ABOVE current price' -- a statement about position, not about which side of a past breakout a zone is currently labeled as. `role` tracks a different, related concept (support_resistance's own role-flipping logic); in practice the two coincide for virtually every zone (a role only ever flips once price has already moved past it), but this function doesn't rely on that coincidence holding for every edge case support_resistance's own decisions already documents (e.g. a zone mid-way through its false-breakout confirmation window). Using `lower` (the near edge, the first price level reached climbing toward the zone from below) rather than the midpoint or `upper` mirrors the exact same near-the-edge-not-the-middle convention this app's own Zone.false_breakout.extreme_price already established for stop placement -- a target should be the level that's actually reached first, not a point already inside/through the zone.",
+      "context": null
+    }
+  ],
+  "git": {
+    "branch": "task/backend-profit-target",
+    "pr_number": 177,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/177",
+    "pushed_at": "2026-09-20T04:45:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T04:52:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/177",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "No unit test exercises a zone with role='support' sitting above current price -- the recorded decision explicitly says the position-based filter deliberately doesn't rely on the role/position coincidence holding, but every test zone uses the default role='resistance', so that edge case isn't actually exercised.",
+        "file": "backend/tests/unit/test_portfolio_profit_target.py",
+        "line": 28
+      },
+      {
+        "summary": "suggest_profit_target's docstring claims distance_to_target is 'Always > 0 by construction', but in the fully degenerate case where the Autoenvelope's rolling average deviation is exactly 0, channel height is 0 and the channel-derived target would equal current price exactly (distance_to_target == 0, not > 0). Minor docstring overclaim, not a real bug.",
+        "file": "backend/app/portfolio/profit_target.py",
+        "line": 100
+      },
+      {
+        "summary": "stop_from_price_action recomputes ema(daily_ohlcv['close'], 13) from scratch inside suggest_profit_target/get_analysis even though analyse() already computed the identical EMA(13) series moments earlier in the same request for result.indicators['ema_13']. Negligible cost today, but a duplicate computation that could be shared if engine.analyse ever exposed the full series.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 56
+      },
+      {
+        "summary": "suggest_profit_target reads daily_ohlcv['close'] before any column validation, so a non-empty frame missing 'close' raises a bare KeyError instead of the ValueError the function's own docstring documents. Verified via direct repro. Confirmed unreachable via the only real caller (get_analysis) since app.signals.engine.analyse already raises its own bare KeyError for a frame missing 'close' before profit_target's code would ever run -- a docstring/contract mismatch for a direct/future caller, not a new production risk. Found by the code-review skill's background pass after the initial review comment was posted; added here rather than left unrecorded.",
+        "file": "backend/app/portfolio/profit_target.py",
+        "line": 138
+      }
+    ],
+    "notes": "Full review: backend pytest 802 passed, 99.92% coverage (profit_target.py/risk.py both 100%); frontend vitest 578 passed (one PortfolioPage timeout was a confirmed flake -- passed in isolation and on a clean full-suite re-run), coverage well above 90%. ruff/mypy/eslint/tsc all clean. backend/openapi.json and frontend/src/api/types.ts re-regenerated against this branch with zero diff -- genuinely in sync. Hand-verified the Tradebill 30%-of-channel-height formula against docs/Analyse.md/docs/ideas.md ch. 58, and the tighter-of-channel-vs-nearest-S/R selection logic against the unit + integration tests (including a real, non-mocked channel computation). Confirmed protective_stop's long-only assumption in risk.py's own comments, and confirmed stop_from_price_action is a byte-for-byte extraction (all pre-existing protective_stop callers/tests pass unchanged). Confirmed profit_target is null for HOLD/SELL and non-null only for a fresh BUY via integration tests, and the 2:1 reward:risk flag is computed and exposed (not silently filtered) in both the passing and failing case. Confirmed the NaN-vs-None channel-warm-up fix is correct and matches the identical established convention in app.portfolio.grading._ratio_pct. No frontend component consumes profit_target yet (only generated types.ts and a test-mock fixture changed) -- no browser walkthrough or e2e run applicable, this PR has no UI surface. All checklist 'decide X' items have corresponding decisions entries; no undocumented judgment calls found. The code-review skill's background pass (medium effort) completed after the initial review comment was posted and surfaced one additional non-blocking finding (the KeyError-vs-ValueError contract mismatch below), independently verified via direct repro and confirmed unreachable through the real call path; added as an addendum rather than left unrecorded. Four non-blocking findings total, filed as backend-profit-target-followups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T04:59:38Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov (802 passed, 99.92% coverage, matches review) and frontend tsc -b --noEmit (clean) + vitest (578 passed, no flake this run). Diffed stop_from_price_action against protective_stop's old body: the extracted function's code is character-for-character identical (validation, swing-low window, EMA/volatility-buffer, SAFEZONE formula) with protective_stop now a one-line delegation -- confirmed behavior-preserving both by inspection and by hand-running stop_from_price_action on the 5-row fixture (close=[100,102,101,103,104], low=[99,100,99,101,102]), which reproduced the exact 97.930612... stop value the existing test suite already hand-verifies. Hand-verified the ch. 58 Tradebill formula against test_channel_target_is_entry_price_plus_30pct_of_channel_height's fixture: channel_upper=110, channel_lower=100 -> height 10 -> 30% = 3.0 -> target = current price (104) + 3.0 = 107, matching both the test assertion and docs/Analyse.md §7's stated formula. Traced the KeyError-vs-ValueError follow-up finding through app/api/routers/stocks.py and app/signals/engine.py: analyse() reads daily_ohlcv['close'] and would raise its own bare KeyError before suggest_profit_target's code ever runs in get_analysis, confirming that finding's unreachable-in-production claim rather than just trusting it. All four followups filed to backend-profit-target-followups.json are genuinely non-blocking; index.json mirror for both tasks is consistent with their file locations."
+  }
+}
