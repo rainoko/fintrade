@@ -3,7 +3,7 @@
   "title": "Display the suggested profit target and reward:risk ratio",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-profit-target"
   ],
@@ -74,5 +74,11 @@
       "rationale": "A held position's own ticker/history has, by construction, already been successfully fetched at least once for this same portfolio session (its `PositionOut.signal`/`current_price` are already populated, which is how `RiskPanel` even knows to attempt a BUY-gated fetch at all) -- a transient failure of this specific extra analysis call is a genuinely rare, non-primary-path case, and a fourth distinct message would need its own new `profitTargetHelp` branch/wording used nowhere else in this app's established null-cause taxonomy (not-a-BUY / BUY-with-no-candidate / signal-unknown). Simplicity was preferred over completeness here given how narrow the case is; the resulting message ('neither technique currently produces a candidate') is not actively misleading for a fetch failure, just slightly less specific than it could be. Noted as a candidate minor follow-up rather than blocking this task on it.",
       "context": null
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-profit-target-display",
+    "pr_number": 178,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/178",
+    "pushed_at": "2026-09-20T05:22:53Z"
+  }
 }
