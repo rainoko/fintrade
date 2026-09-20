@@ -3,7 +3,7 @@
   "title": "Indicator Seasons — non-blocking review follow-up from PR #159",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-indicator-seasons"],
   "references": [
     "docs/tasks/done/backend-indicator-seasons.json#review",
@@ -13,8 +13,15 @@
   "checklist": [
     {
       "step": "frontend/src/pages/PortfolioPage.test.tsx's 'adds a new position end to end and reflects it in the refreshed table' test times out (default 5000ms) whenever the full frontend suite is run with `--coverage` (v8 instrumentation overhead pushes it past the timeout) -- reproduced twice during this PR's review, though this PR touches no frontend logic (only the generated api/types.ts). Passes reliably in isolation, on a coverage-less full run, and on a coverage run with the timeout bumped (`--testTimeout=15000`). Not caused by this PR -- pr-decision's notes on at least two prior PRs (backend-indicator-rsi, frontend-trade-journal) already independently observed the identical flake -- but it has now recurred often enough across reviews that it's worth either raising this one test's own timeout or investigating why coverage instrumentation makes it this much slower, rather than each reviewer re-diagnosing it as 'a pre-existing flake' from scratch every time.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Diagnosed the 'adds a new position end to end' flake as legitimately slow, not a fixable inefficiency, and fixed it by raising only that one test's own vitest timeout to 15000ms (third arg to `it(...)`) rather than bumping the project-wide `testTimeout` default or changing the component/test's interaction sequence.",
+      "rationale": "Traced the full chain: PortfolioPage.tsx renders four data-fetching children at once (positions table, RiskPanel, TradeJournalPanel, plus the AddPositionDialog) under the real MUI theme, and this specific test additionally drives userEvent.type() across all 4 AddPositionDialog form fields (Ticker/Quantity/Avg Cost Basis/Entry Date, ~18 keystrokes total) plus 3 real clicks through a mounted MUI Dialog -- by far the most real DOM/event work of any test in the file (the other 3 tests in PortfolioPage.test.tsx only click buttons or wait for GETs; even AddPositionDialog.test.tsx's own 'fills and submits' test, which does more user.type() calls, renders only the dialog in isolation, not the whole page). Checked for a genuinely fixable cause and found none: useAddPosition.ts (backend/.venv n/a here) is a plain useMutation with no debounce/setTimeout; AddPositionDialog.tsx has no artificial delay; tests/renderWithProviders.tsx already sets `retry: false` on both queries and mutations so a mocked response settles immediately; tests/setup.ts installs no fake timers. userEvent v14's type()/click() are inherently real (not instant) by design -- there's no unmocked slow operation or missing waitFor to fix, only real work whose wall-clock cost varies with V8 coverage instrumentation overhead, which per the task's own prior reproduction (passes in isolation, passes on a coverage-less full run, passes on a coverage run with --testTimeout=15000) is exactly what's tipping this one test past the default 5000ms under full-suite instrumentation load. Rejected: (1) reducing the test's real work (e.g. user.paste instead of user.type per field) -- would weaken the 'end to end' coverage of the real per-keystroke form-entry path for no good reason, just to dodge a timing artifact; (2) raising the project-wide vitest `testTimeout` default -- would mask a future genuinely-hung/broken test suite-wide instead of tolerating slack only where it's actually earned; (3) leaving it unfixed as 'known flake' -- explicitly the thing this task exists to stop happening, since every PR review was re-diagnosing it from scratch. Verified the fix with 4 consecutive full `yarn test:coverage` runs (69 files / 685 tests passing every time, no other change needed) plus a plain `yarn test` run, eslint, and tsc, all clean."
+    }
+  ]
 }

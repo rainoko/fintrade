@@ -1356,7 +1356,7 @@
       "id": "backend-indicator-seasons-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-indicator-seasons-followups.json"
     },
     {

@@ -88,33 +88,52 @@ describe('PortfolioPage', () => {
     expect(screen.getByText('Connection error')).toBeInTheDocument()
   })
 
-  it('adds a new position end to end and reflects it in the refreshed table', async () => {
-    const user = userEvent.setup()
-    renderPortfolioPage()
+  // This test's own timeout is raised above vitest's 5000ms default (see
+  // backend-indicator-seasons-followups task decisions): it renders the
+  // whole PortfolioPage (positions table + risk panel + trade journal, all
+  // hydrated from their own mocked GETs) and then drives four real
+  // userEvent.type() field entries plus two clicks through a mounted MUI
+  // Dialog -- legitimately more real DOM/event work than any other test in
+  // this file. That's fast enough in isolation and on a coverage-less full
+  // run, but v8 coverage instrumentation's per-file overhead during a full
+  // suite run intermittently pushes it past 5000ms; it comfortably clears
+  // 15000ms every time under the same load. Bumping just this test's
+  // timeout (rather than the project-wide default, which would mask a
+  // future genuinely-hung test elsewhere) is the fix, not a change to the
+  // component or the interaction sequence itself, which do no unnecessary
+  // real waiting (no timers/debounce; retries are already disabled in
+  // tests/renderWithProviders.tsx).
+  it(
+    'adds a new position end to end and reflects it in the refreshed table',
+    async () => {
+      const user = userEvent.setup()
+      renderPortfolioPage()
 
-    await waitFor(() =>
-      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
-    )
+      await waitFor(() =>
+        expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+      )
 
-    await user.click(screen.getByRole('button', { name: 'Add Position' }))
-    await user.type(screen.getByLabelText('Ticker'), 'MSFT')
-    await user.type(screen.getByLabelText('Quantity'), '5')
-    await user.type(screen.getByLabelText('Avg Cost Basis'), '400')
-    await user.type(screen.getByLabelText('Entry Date'), '2026-02-01')
-    await user.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Add Position' }),
-    )
+      await user.click(screen.getByRole('button', { name: 'Add Position' }))
+      await user.type(screen.getByLabelText('Ticker'), 'MSFT')
+      await user.type(screen.getByLabelText('Quantity'), '5')
+      await user.type(screen.getByLabelText('Avg Cost Basis'), '400')
+      await user.type(screen.getByLabelText('Entry Date'), '2026-02-01')
+      await user.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Add Position' }),
+      )
 
-    await waitFor(() =>
-      expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
-    )
-    await user.click(screen.getByRole('button', { name: 'Done' }))
+      await waitFor(() =>
+        expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
+      )
+      await user.click(screen.getByRole('button', { name: 'Done' }))
 
-    await waitFor(() => {
-      const table = screen.getByRole('table', { name: 'Positions' })
-      expect(within(table).getByText('MSFT')).toBeInTheDocument()
-    })
-  })
+      await waitFor(() => {
+        const table = screen.getByRole('table', { name: 'Positions' })
+        expect(within(table).getByText('MSFT')).toBeInTheDocument()
+      })
+    },
+    15000,
+  )
 
   it('deletes a position end to end and removes it from the refreshed table', async () => {
     const user = userEvent.setup()
