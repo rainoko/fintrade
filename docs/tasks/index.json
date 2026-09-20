@@ -1083,8 +1083,15 @@
       "id": "backend-market-data-extra-fields-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-market-data-extra-fields-followups.json"
+    },
+    {
+      "id": "backend-insider-transaction-clusters",
+      "area": "backend/signals",
+      "skill": "add-indicator",
+      "state": "planned",
+      "path": "docs/tasks/backend-insider-transaction-clusters.json"
     },
     {
       "id": "backend-watchlist-breadth-proxy",

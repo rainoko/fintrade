@@ -3,7 +3,7 @@
   "title": "Extended market data — non-blocking review follow-ups",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-market-data-extra-fields"],
   "references": [
     "docs/tasks/done/backend-market-data-extra-fields.json#review",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "Insider-transaction cluster detection (3+ buys or sells within a month, Elder ch. 37's secondary signal) was explicitly deferred by this task's own `decisions` entry -- this PR only exposes the raw `insider_transactions` list, no buy/sell classification or time-windowed grouping. The scoping itself is reasonable (matches this codebase's established pattern of a separate detection task after the underlying data is exposed, e.g. divergence/kangaroo-tail/support-resistance-zone detection), but no follow-up task existed yet to actually pick this up later -- create/scope that detection task (parsing yfinance's free-text `Text` field into a buy/sell direction, then the time-windowed clustering pass) when it's next prioritized.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T08:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "This checklist item's job is to author and board a new, separately-worked task (docs/tasks/backend-insider-transaction-clusters.json, id `backend-insider-transaction-clusters`, area backend/signals, skill add-indicator, depends_on backend-market-data-extra-fields, state planned) that scopes the free-text-parsing + time-windowed-clustering work in detail, not to implement cluster detection itself in this task.",
+      "rationale": "The checklist item's own wording is 'create/scope that detection task ... when it's next prioritized' -- an explicit request to produce the task-board artifact (matching this codebase's established pattern of a dedicated later task for pattern/cluster detection: backend-divergence-detection, backend-kangaroo-tail-pattern, backend-support-resistance were each scoped this way after their underlying data became available), not a request to build the classifier/clustering algorithm now. Implementing detection here would both go beyond what this specific checklist item asks and skip the two genuine judgment calls the new task itself should record when it's actually worked (how to classify yfinance's free-text `transaction_text` into buy/sell/neither, and the exact rolling-window/distinct-insider clustering rule) -- deferring those to the dedicated task, with a checklist that explicitly requires recording them as `decisions`, follows the same 'concept precise, mechanism not' precedent set by backend-support-resistance's own zone-detection algorithm and backend-kangaroo-tail-pattern's threshold choices. Rejected: implementing the classifier/clustering logic directly in this followups task -- rejected because this task's sole remaining checklist item is explicitly a scoping request, and folding actual detection-algorithm work into a task titled/scoped as 'non-blocking review follow-ups' would blur task-board granularity in a way this codebase otherwise avoids (every prior instance of this exact pattern -- deferred detection logic after a data-exposure PR -- got its own dedicated task id rather than being implemented inline in the follow-ups task that flagged it)."
     }
   ]
 }
