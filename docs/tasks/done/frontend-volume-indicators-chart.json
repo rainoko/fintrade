@@ -3,7 +3,7 @@
   "title": "New chart panel: On-Balance Volume (OBV) and Accumulation/Distribution (A/D)",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-indicator-obv-ad"
   ],
@@ -63,5 +63,28 @@
     "pr_number": 174,
     "pr_url": "https://github.com/rainoko/fintrade/pull/174",
     "pushed_at": "2026-09-20T02:36:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T02:53:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/174",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "VolumeIndicatorsChart.tsx's doc comment (and this task's own 'no zero-baseline' decisions entry) incorrectly claims OBV/A-D 'are constructed to start at exactly 0 on the first plotted bar'. Backend actually computes both series over the ticker's entire untrimmed history and only slices by from_index for the requested range, so for the default 1y range (and any range other than max) the first plotted bar's value is a large nonzero carried-over total -- confirmed live via GET /api/stocks/AAPL/indicators?range=1y and the browser walkthrough's default-range screenshot (OBV y-axis ~163.75B-165.25B). The 0-anchor documented in backend-indicator-obv-ad's decisions applies only to the ticker's absolute first historical bar, not the first bar of a narrowed window. Practical conclusion (no zero baseline) still holds for an independent reason, but the stated rationale/comment is inaccurate. Non-blocking; tracked as frontend-volume-indicators-chart-followups.",
+        "file": "frontend/src/features/stocks/components/VolumeIndicatorsChart.tsx",
+        "line": 123
+      },
+      {
+        "summary": "cumulativeVolumeSeriesInterpretation()'s 'currently at window high/low' detection uses reference equality (last === highest/lowest) against a strict-> reduce result, so an exact tie between the latest bar and an earlier bar resolves to the earlier occurrence and the help text misses that the latest bar is (jointly) at the window extreme. Narrow edge case; non-blocking; tracked as frontend-volume-indicators-chart-followups.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 456
+      },
+      {
+        "summary": "StockCharts.test.tsx was not extended to assert VolumeIndicatorsChart's wiring (range/enabled props, canvas presence, interval-toggle hide/restore) inside the composed page the way it already does for OscillatorChart -- only the standalone VolumeIndicatorsChart.test.tsx covers it. Coverage numbers unaffected (StockCharts.tsx is 100% covered). Non-blocking; tracked as frontend-volume-indicators-chart-followups.",
+        "file": "frontend/src/features/stocks/components/StockCharts.test.tsx",
+        "line": 1
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (99.92%, 759 passed, no regression -- this PR is frontend-only) and frontend vitest run --coverage (99.57/98.72/99.67/99.65% stmt/branch/fn/line, 553 tests passed) both well above the 90% gate. Static analysis clean: ruff, mypy, eslint, and `yarn tsc -b --noEmit` (run specifically per this session's recurring required-field/type bug class) all pass with zero findings. code-review skill (medium effort) surfaced 3 non-blocking findings (see comments above), no blocking correctness bugs. Architecture/placement check (7a): VolumeIndicatorsChart.tsx correctly lives under features/stocks/components/ (references ticker/OBV/A-D domain concepts throughout, not a candidate for components/common/); no near-duplicate of an existing common/ or other-feature component. Confirmed the 'new dedicated component rather than folding into OscillatorChart.tsx' decision is reasonable: OBV/A-D are unbounded cumulative totals, not Screen-2/Impulse inputs, unlike every existing OscillatorChart.tsx series. Confirmed the 'no Storybook story for feature-specific chart components' precedent is real by checking docs/architecture/Frontend.md §4 (stories are explicitly scoped to components/common/ only) and confirming PriceChart.tsx/OscillatorChart.tsx/StockCharts.tsx have none. No backend/API changes in this PR, so backend/openapi.json regeneration is not applicable. Confirmed obvHelp/accumulationDistributionHelp's definitions (including A/D's `(close - open) / (high - low) * volume` formula) match docs/Analyse.md §4 rows 14-15 and backend/app/api/schemas.py verbatim, and both interpretValue() functions honestly lead with a 'this raw number means nothing on its own' caveat before describing the actually-meaningful rising/falling-and-window-extreme pattern, per the task's own description. Live browser walkthrough (Playwright script against `make dev`, ticker AAPL): confirmed OBV (blue, pane 0) and A/D (purple, pane 1) render on two separate panes with independent auto-scaled y-axes with no z-order/occlusion issues; MetricHelp popovers for both show the expected honest caveat + current pattern text; changing range (1y -> 3M) re-renders correctly; toggling interval to Weekly hides the canvas and shows the documented gating message with zero console/network errors, and toggling back to Daily restores the canvas -- confirmed via console/network listeners across the whole walkthrough (zero errors). Ran the persisted e2e suite (`make e2e`): all 16 specs across 4 files passed; no spec directly exercises the new Volume Indicators panel, consistent with the existing precedent of not adding a new e2e spec per new OscillatorChart/PriceChart indicator (e.g. frontend-rsi-oscillator-chart, PR #157, added the same way with no new e2e coverage), not a regression introduced by this PR. Decisions cross-check: all judgment calls (component placement, per-indicator pane split, no zero baseline, no divergence overlay, no Storybook story, color choice) are recorded with rationale + rejected alternatives per CLAUDE.md's decision-memory rule; no checklist item was phrased as an undecided 'decide X' left unresolved. Filed frontend-volume-indicators-chart-followups for the three non-blocking findings above."
   }
 }

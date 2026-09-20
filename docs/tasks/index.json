@@ -1125,8 +1125,15 @@
       "id": "frontend-volume-indicators-chart",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-volume-indicators-chart.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-volume-indicators-chart.json"
+    },
+    {
+      "id": "frontend-volume-indicators-chart-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-volume-indicators-chart-followups.json"
     },
     {
       "id": "frontend-divergence-markers",
