@@ -52,6 +52,7 @@ function mockAnalysis(ticker: string, response: Partial<AnalysisResponse>) {
           insider_transactions: [],
           unavailable_reason: null,
         },
+        insider_clusters: [],
         ...response,
       }),
     ),

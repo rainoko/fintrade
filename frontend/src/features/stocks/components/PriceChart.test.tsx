@@ -211,6 +211,7 @@ const baseAnalysis: AnalysisResponse = {
     insider_transactions: [],
     unavailable_reason: null,
   },
+  insider_clusters: [],
 }
 
 function mockAnalysis(

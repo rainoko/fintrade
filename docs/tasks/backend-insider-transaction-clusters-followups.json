@@ -1,0 +1,25 @@
+{
+  "id": "backend-insider-transaction-clusters-followups",
+  "title": "Insider-transaction cluster detection — non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "backend-insider-transaction-clusters"
+  ],
+  "references": [
+    "docs/tasks/backend-insider-transaction-clusters.json#review",
+    "https://github.com/rainoko/fintrade/pull/193"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #193 (backend-insider-transaction-clusters), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "backend-insider-transaction-clusters's own checklist item 5 asked to 'file/note the frontend-consumption follow-up rather than implementing it here' (a future 'cluster detected' badge alongside the existing raw insider-transactions table added by frontend-fundamental-data-panel) -- that item was marked done but no such follow-up task or note was actually created anywhere (checked docs/tasks/index.json, docs/tasks/*.json, docs/tasks/done/*.json, and the task's own decisions array -- none exist). Create/scope that frontend task (a badge or similar UI surface next to FundamentalDataPanel's insider-transactions table, reading AnalysisResponse.insider_clusters) when it's next prioritized, or otherwise decide it's not worth doing and record why.",
+      "done": false
+    },
+    {
+      "step": "app/signals/insider_clusters.py's `_find_clusters`/`detect_insider_clusters` lean on three separate `assert ... is not None` statements (for anchor_date/next_date/window_start+window_end) plus a blanket `# type: ignore[arg-type,return-value]` on the sort-by-start_date call, all for mypy type-narrowing, with no inline rationale comment next to the ignore. Functionally correct today (mypy and the full test suite pass, and the invariant genuinely holds -- both direction lists are pre-filtered to non-null insider/start_date before reaching this code), but diverges from the pattern in sibling detection modules (support_resistance.py, divergence.py, kangaroo_tail.py), none of which need runtime asserts or a type: ignore for the equivalent logic. Worth a narrower fix next time this module is touched -- e.g. a small typed tuple/dataclass representing 'a transaction with guaranteed non-null insider + start_date' constructed once at the classify/filter boundary, so downstream code (including the sort) doesn't need asserts or an ignore at all.",
+      "done": false
+    }
+  ]
+}

@@ -1090,8 +1090,15 @@
       "id": "backend-insider-transaction-clusters",
       "area": "backend/signals",
       "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/backend-insider-transaction-clusters.json"
+    },
+    {
+      "id": "backend-insider-transaction-clusters-followups",
+      "area": "backend/signals",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-insider-transaction-clusters.json"
+      "path": "docs/tasks/backend-insider-transaction-clusters-followups.json"
     },
     {
       "id": "backend-watchlist-breadth-proxy",

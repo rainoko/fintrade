@@ -38,6 +38,7 @@ backend/
       support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
       divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
       kangaroo_tail.py         # Kangaroo Tail ("fingers") reversal-pattern detection (Analyse.md §4 row 13)
+      insider_clusters.py      # insider-transaction buy/sell classification + cluster detection (Elder ch. 37 p. 147)
     portfolio/
       models.py        # Position, Account (Pydantic/SQLAlchemy)
       pricing.py         # shared mark-to-market price enrichment (EnrichedPosition)
