@@ -3,7 +3,7 @@
   "title": "Display earnings/dividend dates, short interest, and insider transactions",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-market-data-extra-fields"
   ],
@@ -73,5 +73,23 @@
     "pr_number": 184,
     "pr_url": "https://github.com/rainoko/fintrade/pull/184",
     "pushed_at": "2026-09-20T07:25:36Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T07:35:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/184",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the `extendedData: ExtendedDataOut | null | undefined` defensive guard decision: `AnalysisResponse.extended_data` is confirmed required/non-nullable in backend/app/api/schemas.py, backend/openapi.json, and the generated frontend/src/api/types.ts. However this does NOT mask a TypeScript error the way a stale-fixture case per PR #173/#156/#171 would -- confirmed `yarn tsc -b --noEmit` is clean with or without the guard, because the 4 StockDetailPage.test.tsx fixtures that omit `extended_data` (SELL/HOLD/season/lowercase-normalize cases, predating this task) are untyped inline `HttpResponse.json({...})` literals never checked against `AnalysisResponse` -- unlike the properly-typed `frontend/tests/mocks/handlers.ts`'s `analysisFixture: AnalysisResponse` (which PR #156's own blocking finding was about, and which this PR correctly keeps updated). The guard is therefore case (a): harmless, and in fact currently functionally necessary to keep those 4 pre-existing tests from throwing at runtime, not something routing around a compile-time requirement. Non-blocking finding filed as a follow-up: consider updating those 4 fixtures instead of carrying the guard long-term.",
+        "file": "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+        "line": 89
+      },
+      {
+        "summary": "Raw insider-transactions display confirmed non-overclaiming: `insiderTransactionsHelp`'s definition/elderContext/interpretValue all explicitly state this app shows filings raw with no buy/sell classification or cluster detection, mirroring the backend's own deferred scope (backend-market-data-extra-fields decisions). The >=3-filings note reads as 'worth reading before treating this as a cluster,' not an asserted verdict. Verified live via a MetricHelp popover screenshot during the browser walkthrough.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 1108
+      }
+    ],
+    "notes": "Full review: backend pytest (839 passed, 99.93% coverage) and frontend vitest (642/643 passed on first run -- 1 PortfolioPage.test.tsx timeout confirmed a pre-existing flake unrelated to this PR by isolated rerun, passed on rerun; 99.63%/98.91%/99.7%/99.7% stmt/branch/fn/line coverage) both clear the 90% gate. Static analysis clean: backend ruff + mypy, frontend eslint + `yarn tsc -b --noEmit` (run standalone per request, zero errors). code-review skill (medium effort) found zero correctness/reuse/simplification issues across FundamentalDataPanel.tsx, metricHelpContent.ts, StockDetailPage.tsx, and DataTable.tsx's sort handling of the new nullable columns. Frontend component placement (step 7a): FundamentalDataPanel correctly lives under features/stocks/components/ (every field is ticker-specific/domain-tied to AnalysisResponse), reuses common/DataTable, common/StatCard, common/MetricHelp rather than duplicating them -- no misplacement finding. No backend/route/schema change in this PR, so openapi.json staleness doesn't apply (already current from PR #183, extended_data confirmed required there too). Browser walkthrough (backend+frontend dev servers, route-intercepted AnalysisResponse fixtures): golden path (earnings-warning banner + short interest + insider table, screenshot captured), unavailable-provider edge case (distinct dashed-border card, no earnings banner, screenshot captured), and a no-warning/empty-insider-transactions case, plus a MetricHelp popover interaction -- zero console errors, zero failed network requests in all cases. e2e-test skill: `make e2e`, all 16 specs across 5 files passed, including stock-analysis.spec.ts's PR-added fundamental-data-panel assertions against the fixture provider's all-null extended_data case. No checklist item phrased as 'decide X' lacks a decisions entry -- all judgment calls (placement, Alert-vs-RiskBreachBanner reuse, warning-condition scope, raw-vs-classified insider transactions, unavailable-state treatment, the defensive guard itself) are recorded with rationale. No pre-existing pr_decision to clear."
   }
 }

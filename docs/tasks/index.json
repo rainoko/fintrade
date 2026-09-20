@@ -1251,8 +1251,8 @@
       "id": "frontend-fundamental-data-panel",
       "area": "frontend/pages/stocks",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-fundamental-data-panel.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-fundamental-data-panel.json"
     },
     {
       "id": "frontend-breadth-widget",
@@ -1337,6 +1337,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-profit-target-display-followups.json"
+    },
+    {
+      "id": "frontend-fundamental-data-panel-followups",
+      "area": "frontend/pages/stocks",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-fundamental-data-panel-followups.json"
     }
   ]
 }
