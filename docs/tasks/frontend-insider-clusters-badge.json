@@ -69,5 +69,11 @@
       "decision": "No Storybook story was added for the new cluster-callout UI (`InsiderClusterCallouts`, a non-exported sub-component of `FundamentalDataPanel.tsx`) -- coverage of the buy/sell/empty/unavailable-provider states instead lives entirely in `FundamentalDataPanel.test.tsx`'s component tests plus dedicated `insiderClustersHelp.interpretValue` unit tests in `metricHelpContent.test.ts`.",
       "rationale": "The `add-frontend-feature` skill's own step 5 scopes the Storybook-story requirement to `components/common/` components specifically ('`components/common/` components need a colocated test *and* a Storybook story before they're done') -- `InsiderClusterCallouts` is a private, non-exported helper inside a `features/stocks/components/` feature file, the same placement `FundamentalDataPanel` itself (no story) and `ScreensPanel`'s own informational 'Indicator Season' card (no separate story either, despite being a comparably self-contained informational sub-block) already establish as not requiring one. The checklist's own phrasing ('Tests... and a Storybook story') is read as inheriting that same common/-only scoping rather than overriding it, since nothing in the task's own description calls for promoting this to a `components/common/` component (it takes an `InsiderClusterOut[]` prop, a domain-specific type, which is itself disqualifying per the skill's own common/-vs-feature placement test in step 2)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-insider-clusters-badge",
+    "pr_number": 195,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/195",
+    "pushed_at": "2026-09-20T11:54:27Z"
+  }
 }
