@@ -51,10 +51,10 @@ export function personalBreadthHelp(data: BreadthResponse): PersonalBreadthHelpC
   } else {
     const unavailableClause =
       unavailableCount > 0
-        ? ` (${unavailableCount} of ${trackedTickerCount} tracked ticker${unavailableCount === 1 ? '' : 's'} unavailable right now, excluded from these percentages)`
+        ? ` (${unavailableCount} of ${trackedTickerCount} tracked ticker${trackedTickerCount === 1 ? '' : 's'} unavailable right now, excluded from these percentages)`
         : ''
     valueInterpretation =
-      `${bullishCount} of ${computable} computable ticker${computable === 1 ? '' : 's'} (${bullishPct.toFixed(1)}%) are currently BULLISH, ` +
+      `${bullishCount} of ${computable} computable ticker${computable === 1 ? '' : 's'} (${bullishPct.toFixed(1)}%) ${computable === 1 ? 'is' : 'are'} currently BULLISH, ` +
       `${bearishCount} (${bearishPct.toFixed(1)}%) BEARISH, ${neutralCount} (${neutralPct.toFixed(1)}%) NEUTRAL${unavailableClause}.`
   }
 

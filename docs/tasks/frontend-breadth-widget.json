@@ -3,7 +3,7 @@
   "title": "Watchlist \"personal breadth\" indicator widget",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-watchlist-breadth-proxy"
   ],
@@ -50,6 +50,12 @@
       "recorded_by": "task-worker",
       "decision": "Widget layout: a heading ('Personal Breadth (Watchlist + Portfolio)') with a `MetricHelp` balloon, three `StatCard`s (Bullish/Bearish/Neutral, each showing count + percentage), an `EmptyState` when nothing is tracked yet, and a small caption footnote naming `unavailable_count` when it's non-zero -- rather than a single-sentence widget matching the task description's literal example ('9 of 15 watchlist tickers are currently BULLISH').",
       "rationale": "The backend's response spans three trend buckets (BULLISH/BEARISH/NEUTRAL) plus an explicit unavailable count, not just a single BULLISH fraction -- showing only the BULLISH count would silently discard the BEARISH/NEUTRAL breakdown and the honesty-relevant unavailable-ticker signal the backend task deliberately added (rather than guessing or dropping unavailable tickers). Reused `StatCard` (already used identically by RiskSummaryCard/DashboardPage) rather than inventing a new stat-tile component, per the skill's 'check for an existing common/ component before building a new one' step. The dynamic sentence form ('X of Y tracked tickers are currently BULLISH...') from the task description instead lives in the `MetricHelp` balloon's `valueInterpretation` (`personalBreadthHelp.ts`), where it's paired with the full BULLISH/BEARISH/NEUTRAL/unavailable breakdown plus the honest personal-proxy framing, rather than being the widget's only visible content."
+    },
+    {
+      "timestamp": "2026-09-20T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the blocking `alignItems` finding by switching to `sx={{ alignItems: 'center' }}` on the inner `<Stack>` (PersonalBreadthCard.tsx), and bundled the two non-blocking grammar fixes tracked on frontend-breadth-widget-followups into the same commit rather than leaving them for a separate followups PR.",
+      "rationale": "The `alignItems` fix is the exact convention every other `<Stack>` usage in the repo already follows, per pr-reviewer's finding -- no alternative considered. For the two grammar fixes (footnote pluralization keyed off tracked_ticker_count instead of unavailable_count; 'is'/'are' agreement keyed off the computable-ticker count), bundled them since the dispatching instruction called them cheap to bundle while already touching these exact two files for the blocking fix; both required updating the verbatim strings pinned in PersonalBreadthCard.test.tsx's existing assertions. Verified with `yarn tsc -b --noEmit` specifically (not plain `tsc --noEmit`, since that's the config that missed the original bug), the full frontend suite (534 tests, coverage unchanged at ~99%+), `yarn eslint .`, and `yarn build`, all clean."
     }
   ],
   "git": {

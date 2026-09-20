@@ -48,7 +48,7 @@ describe('PersonalBreadthCard', () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText('1 of 5 tracked ticker currently unavailable (excluded above).'),
+        screen.getByText('1 of 5 tracked tickers currently unavailable (excluded above).'),
       ).toBeInTheDocument(),
     )
   })
@@ -222,7 +222,7 @@ describe('PersonalBreadthCard', () => {
 
     expect(
       screen.getByText(
-        '1 of 1 computable ticker (100.0%) are currently BULLISH, 0 (0.0%) BEARISH, 0 (0.0%) NEUTRAL.',
+        '1 of 1 computable ticker (100.0%) is currently BULLISH, 0 (0.0%) BEARISH, 0 (0.0%) NEUTRAL.',
       ),
     ).toBeInTheDocument()
   })

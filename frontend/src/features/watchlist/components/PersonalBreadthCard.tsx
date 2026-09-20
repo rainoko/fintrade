@@ -42,7 +42,7 @@ export default function PersonalBreadthCard() {
 
   return (
     <Stack spacing={1}>
-      <Stack direction="row" alignItems="center" spacing={0.5}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
         <Typography variant="h6" component="h2">
           Personal Breadth (Watchlist + Portfolio)
         </Typography>
@@ -75,7 +75,7 @@ export default function PersonalBreadthCard() {
           {data.unavailable_count > 0 && (
             <Typography variant="caption" color="text.secondary">
               {data.unavailable_count} of {data.tracked_ticker_count} tracked ticker
-              {data.unavailable_count === 1 ? '' : 's'} currently unavailable (excluded
+              {data.tracked_ticker_count === 1 ? '' : 's'} currently unavailable (excluded
               above).
             </Typography>
           )}

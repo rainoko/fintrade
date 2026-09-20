@@ -13,15 +13,23 @@
   "checklist": [
     {
       "step": "PersonalBreadthCard.tsx's unavailable-count footnote ('N of M tracked ticker(s) currently unavailable') pluralizes 'ticker(s)' based on unavailable_count instead of the total tracked_ticker_count it's actually attached to -- e.g. unavailable_count=1 with tracked_ticker_count=5 renders 'ticker' instead of 'tickers'. Locked in verbatim by PersonalBreadthCard.test.tsx's assertion of the exact (grammatically wrong) string, so fixing it needs the test's expected string updated too.",
-      "done": false
+      "done": true
     },
     {
       "step": "personalBreadthHelp.ts's unavailableClause has the identical pluralization bug ('N of M tracked ticker(s) unavailable right now') -- pluralizes on unavailableCount rather than trackedTickerCount, inconsistent with the correct pattern two lines later in the same function (the computable-ticker clause correctly pluralizes off the total, computable).",
-      "done": false
+      "done": true
     },
     {
       "step": "personalBreadthHelp.ts's valueInterpretation sentence always uses the plural verb 'are' even when the computable-ticker count is singular (e.g. computable=1 renders '1 of 1 computable ticker (100.0%) are currently BULLISH' -- should be 'is'). Also locked in verbatim by PersonalBreadthCard.test.tsx's singular-wording test.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed all three grammar findings directly on task/frontend-breadth-widget (PR #171) alongside the blocking alignItems fix, rather than waiting for a dedicated followups branch/PR for this task id.",
+      "rationale": "The dispatching instruction explicitly called these 'cheap to bundle now' while already in these exact files for the blocking fix, and all three are one-line ternary-condition changes with no new design surface. Rejected alternative: leaving them for a separate task/frontend-breadth-widget-followups branch later, which would mean re-opening and re-verifying (tsc -b, full test suite, eslint) the same two files a second time for no benefit. State intentionally left as 'planned' (not 'done') despite the checklist being fully checked off -- closing a task's lifecycle to 'done' is pr-reviewer's/task-qa-reviewer's call per CLAUDE.md's mover convention, not task-worker's, even for a followups task whose fix happened to land as a drive-by; pr-reviewer can confirm and close this out on its next pass over PR #171."
     }
   ]
 }
