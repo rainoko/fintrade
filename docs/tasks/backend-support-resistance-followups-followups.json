@@ -3,7 +3,7 @@
   "title": "Support/resistance zones — non-blocking review follow-up from PR #164",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-support-resistance-followups"],
   "references": [
     "docs/tasks/backend-support-resistance-followups.json#review",
@@ -13,7 +13,21 @@
   "checklist": [
     {
       "step": "PR #164's efficiency refactor (splitting `detect_support_resistance_zones`'s scoring into a cheap `_score_candidate` used for ranking, and `_build_zone` now only run on the top-`max_zones` survivors) is provably equivalent to the old pipeline by code inspection -- the sort key (`strength_score`, `touch_count`, `last_touch_date`) never depends on the deferred `_scan_breaks_and_false_breakouts`/`_dollar_volume` work, and pr-reviewer independently re-verified this both by re-reading the code and via a standalone synthetic simulation of 40 candidates confirming old-pipeline vs new-pipeline produce identical order/truncation. However, `backend/tests/unit/signals/test_support_resistance.py`'s only zone-cap test (`test_max_zones_caps_the_returned_list`) exercises a single qualifying candidate with `max_zones=1` -- it truncates a list of length 1 and never exercises reordering across multiple distinct-strength-score candidates, so it would NOT catch a ranking-order regression in this exact refactor if one were ever introduced (e.g. a future edit to the sort key or the score/build split). Add a fixture with >`max_zones` (15) qualifying candidate clusters spanning multiple `strength_score` values (varying length/height category combinations) and assert `detect_support_resistance_zones`'s returned zones are both capped at `max_zones` AND in strict descending (`strength_score`, `touch_count`, `last_touch_date`) order, to give this refactor's equivalence claim real, in-repo regression coverage instead of relying on external reasoning alone.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built the >max_zones fixture as 20 resistance-only candidate clusters at widely-spaced absolute price levels (2000, 2100, 2200, ... in 5% steps), rather than mixing support and resistance or packing candidates at similar price levels. Each band's two touches are placed within 1% of each other (so they cluster into one zone) while every band is >>1% away from its neighbors (so bands never cross-merge) -- both margins are generous (dollar gaps of a few dollars against band price levels in the thousands) specifically so the fixture's own construction can't accidentally fail from floating-point or clustering-tolerance edge effects. Rejected mixing in support zones or reusing similar price levels across bands: either would have required much more careful tolerance-boundary arithmetic for no added coverage of the thing actually under test (the sort/truncate key, which doesn't care about role).",
+      "rationale": "The refactor being regression-tested (PR #164) only touches the ranking/truncation step, which is role-agnostic (resistance and support candidates get merged into one `ranked` list before sorting) -- so a resistance-only fixture exercises the exact same code path as a mixed one, with far less fixture-construction risk."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Deliberately avoided the 'major' length category (>=730 calendar days) in the fixture, using only 'minor' (16 business-day touch gap, 22 calendar days) and 'intermediate' (45 business-day gap, 63 calendar days) length categories, combined with all three height categories, to reach 4 distinct strength_score tiers (33.33/50.00/66.67/83.33) across 20 candidates. Rejected including a 'major'-length tier: it would need a >=730-calendar-day (roughly 520-business-day) touch span per band, ballooning the already-~850-bar fixture for no extra coverage of the ranking logic itself, since the sort key treats strength_score as an opaque number regardless of which category combination produced it (already covered independently by TestStrengthScoringHelpers).",
+      "rationale": "The task only requires 'multiple strength_score values' to exercise real reordering, not full category coverage -- 4 distinct tiers (one fully kept, one fully dropped, one only partially kept requiring correct last_touch_date tie-break, one fully kept) already exercises every edge the cap/sort logic can produce, at a fraction of the fixture size and runtime."
     }
   ]
 }
