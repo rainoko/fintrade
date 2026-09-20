@@ -32,6 +32,9 @@
     }
   ],
   "git": {
-    "branch": "task/backend-ibkr-status-endpoint"
+    "branch": "task/backend-ibkr-status-endpoint",
+    "pr_number": 212,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/212",
+    "pushed_at": "2026-09-20T23:35:11Z"
   }
 }
