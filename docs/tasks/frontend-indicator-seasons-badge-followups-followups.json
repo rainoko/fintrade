@@ -33,5 +33,11 @@
       "chosen_delta_e_threshold": "15 (MIN_DISTINCT_DELTA_E in theme.test.ts) -- above the ~2.3 single-step JND and the observed 2.6-3.9 ΔE of the two real collisions found, comfortably below the ~17.7 ΔE of the closest pair among colors already treated as intentionally distinct (season.summer vs season.autumn) so no unrelated existing pair is newly flagged."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-indicator-seasons-badge-followups-followups",
+    "pr_number": 201,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/201",
+    "pushed_at": "2026-09-20T14:18:58Z"
+  }
 }
