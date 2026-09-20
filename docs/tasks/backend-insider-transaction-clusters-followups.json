@@ -35,5 +35,11 @@
       "decision": "Fixed the assert+type:ignore pattern with a narrower typed approach: a new frozen `_QualifyingTransaction` dataclass (insider: str, start_date: date, shares: float | None, value: float | None) constructed once in `detect_insider_clusters`'s own classify/filter loop (the exact point where `transaction.start_date is None or transaction.insider is None` is already checked), replacing `list[InsiderTransaction]` as `_find_clusters`'s parameter/working type. All three `assert ... is not None` statements and the blanket `# type: ignore[arg-type,return-value]` on the sort call are removed entirely -- mypy narrows `insider`/`start_date` from the dataclass's own non-Optional field types, with nothing left to assert or ignore.",
       "rationale": "A clean fix was available and straightforward (no rejected-as-not-viable alternative here), matching exactly the narrower fix this task's own checklist item suggested. `_QualifyingTransaction` is deliberately minimal (only the 4 fields `_find_clusters`/`InsiderCluster` construction actually reads, not a full `InsiderTransaction` copy) and module-private (a leading underscore, not exported), since nothing outside this module needs to see the pre-filtered intermediate representation -- `detect_insider_clusters`'s own public signature (still `list[InsiderTransaction]` in, `list[InsiderCluster]` out) is unchanged. Verified: `ruff check`/`mypy app/signals/insider_clusters.py` clean, `pytest tests/unit/signals/test_insider_clusters.py` (26 passed) and the full backend suite (920 passed, insider_clusters.py at 100% line/branch coverage) both green -- the existing test suite only exercises the public `detect_insider_clusters` function, so no test needed updating. This brings the module back in line with the sibling pattern (support_resistance.py/divergence.py/kangaroo_tail.py), none of which need runtime asserts or a type-narrowing ignore for equivalent Optional-filtering logic."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-insider-transaction-clusters-followups",
+    "pr_number": 194,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/194",
+    "pushed_at": "2026-09-20T11:31:38Z"
+  }
 }
