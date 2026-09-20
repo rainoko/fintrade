@@ -922,8 +922,15 @@
       "id": "backend-indicator-atr-adx",
       "area": "backend/indicators",
       "skill": "add-indicator",
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-atr-adx.json"
+    },
+    {
+      "id": "backend-indicator-atr-adx-followups",
+      "area": "backend/indicators",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-indicator-atr-adx.json"
+      "path": "docs/tasks/backend-indicator-atr-adx-followups.json"
     },
     {
       "id": "backend-indicator-rsi",

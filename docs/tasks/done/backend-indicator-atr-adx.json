@@ -1,0 +1,117 @@
+{
+  "id": "backend-indicator-atr-adx",
+  "title": "Add Average True Range (ATR) and the Directional System (+DI/-DI/ADX)",
+  "area": "backend/indicators",
+  "skill": "add-indicator",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/indicators/stochastic.py",
+    "backend/app/indicators/force_index.py",
+    "docs/Analyse.md",
+    "docs/ideas.md"
+  ],
+  "description": "Two indicators from Elder ch. 24, missing entirely from this codebase (confirmed via grep: no `true_range`, `atr`, `directional_system`, or `adx` anywhere in app/), sharing one prerequisite (`True Range`) so implement it once. `TR = max(high-low, |high-prev_close|, |low-prev_close|)`. `ATR` = N-day average of TR (13 default). Directional System: `+DM`/`-DM` = the portion of today's high-low range extending beyond yesterday's, signed by direction; `+DI`/`-DI` = smoothed(`DM`/`TR`)*100 (13-day smoothing default); `DX` = `|+DI - -DI| / (+DI + -DI) * 100`; `ADX` = smoothed `DX`. Elder treats ADX-rising-from-a-lull (specifically: rising 4 steps from its lowest point, e.g. 9->13) as a concrete early-new-trend signal, and ADX direction as the gate for whether to trust trend-following logic at all right now. This task is indicator computation + hand-computed reference-value tests + API exposure ONLY -- wiring ADX into `_determine_signal`'s actual gating logic, or into the trend/range regime idea, is explicitly out of scope here (a separate methodology decision, not an indicator-plumbing one).",
+  "checklist": [
+    {
+      "step": "Implement true_range(), atr(), plus_minus_dm(), plus_minus_di(), dx(), adx() in a new backend/app/indicators/directional_system.py (or split atr into its own module if that reads cleaner -- decide and record).",
+      "done": true
+    },
+    {
+      "step": "Hand-computed reference-value tests for each function (per add-indicator skill convention) -- at minimum a small hand-verifiable OHLC series with known TR/DM/DI/DX/ADX values worked out by hand, not just golden-output regression tests.",
+      "done": true
+    },
+    {
+      "step": "Expose the new fields on the existing WaveScreen or a new screens.trend_strength object in GET /api/stocks/{ticker}/analysis and the indicator-history endpoint -- decide the shape and record as a decisions entry.",
+      "done": true
+    },
+    {
+      "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.",
+      "done": true
+    },
+    {
+      "step": "Document the indicators in docs/Analyse.md's indicator table, citing this task.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-atr-adx",
+    "pr_number": 175,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/175",
+    "pushed_at": "2026-09-20T03:21:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T03:49:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/175",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Hand-verified True Range/ATR/+DM/-DM/+DI/-DI/DX/ADX by hand against the shared 8-bar fixture (idx 1-3 and idx 7) independently of the PR's own worked comments -- every value matches (e.g. TR[1]=3, ATR[3..7]=8/3,8/3,8/3,8/3,7/3; +DM/-DM[1..7]; +DI/-DI[3]=50.0/12.5; DX[3-6]=60.0, DX[7]=0.0; ADX[5]=60.0, ADX[6]=60.0, ADX[7]=40.0, with ADX[4] correctly NaN since its 3-bar window still includes DX's own NaN warm-up bar). Plain rolling-mean smoothing (not Wilder's) confirmed as a defensible, consistently-applied choice -- cross-checked against app.indicators.rsi.rsi's own docstring/decisions entry, which uses the exact same rationale (book's own 'N-day average' phrasing, hand-computed-test tractability) for the same choice.",
+        "file": "backend/tests/unit/indicators/test_directional_system.py",
+        "line": 0
+      },
+      {
+        "summary": "Grepped app/signals/confidence.py, app/signals/triple_screen.py, app/signals/impulse.py, and _determine_signal's own signature -- trend_strength/plus_di/minus_di/atr/adx are never read by any of them, matching the task's declared computation-and-exposure-only scope. Confirmed no look-ahead bias: atr/plus_di/minus_di/adx are all causal (trailing rolling-window) series, and analyse_history's precompute-and-slice pattern only ever takes a positional .iloc[:i+1] prefix of each full-series computation before passing it to analyse(), which is index-for-index identical to computing that series on the truncated prefix directly.",
+        "file": "backend/app/signals/engine.py",
+        "line": 479
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts both regenerated and committed -- re-ran python scripts/export_openapi.py myself and got an empty diff against the committed snapshot. Confirmed every frontend test file the PR's own description claims to have updated (IndicatorsPanel.test.tsx, OscillatorChart.test.tsx, PriceChart.test.tsx, VolumeIndicatorsChart.test.tsx, metricHelpContent.test.ts, tests/mocks/handlers.ts) actually was, and ran yarn tsc -b --noEmit and yarn eslint . myself -- both clean.",
+        "file": "frontend/src/api/types.ts",
+        "line": 0
+      },
+      {
+        "summary": "Backend: 791 passed, 99.92% coverage (atr.py/directional_system.py both 100%). Frontend: vitest all passing, 99.57%/98.72%/99.67%/99.65% (statements/branches/functions/lines). Both well above the 90% gate; no regression. mypy clean. Backend ruff has 7 pre-existing errors, all in files this PR doesn't touch (test_stooq_provider.py, test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_stochastic.py, test_triple_screen.py) -- unrelated to this PR, not a new finding.",
+        "file": "backend/app/indicators/atr.py",
+        "line": 0
+      },
+      {
+        "summary": "No new UI surface -- frontend changes are limited to type definitions and test fixtures; no component reads/renders trend_strength yet, matching the task's declared scope. Since /analysis and /indicators are already rendered extensively by existing UI, did a browser walkthrough anyway (started backend+frontend, loaded /stocks/AAPL): page rendered correctly (signal/confidence/screens/charts all populated), zero console errors, zero failed network requests, and the /indicators?range=1y response's trend_strength values matched /analysis's own latest-bar snapshot exactly. Also ran the persisted e2e suite (make e2e): all 16 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed.",
+        "file": "frontend/src/features/stocks/components/IndicatorsPanel.test.tsx",
+        "line": 0
+      },
+      {
+        "summary": "Architecture: atr.py/directional_system.py fit the established one-file-per-indicator convention in app/indicators/ (pure functions, no I/O/global state); signals/engine.py only orchestrates (imports and calls, no indicator math inlined); no new dependency added; API routers stay thin (stocks.py just casts and constructs the schema). docs/Analyse.md and docs/architecture/API.md both updated in the same change with accurate, matching descriptions. All four checklist items phrased as 'decide X' (module split, smoothing choice, DM tie-handling, trend_strength placement/shape) have corresponding decisions entries with real rationale, not just a bare 'changed X'.",
+        "file": "backend/app/indicators/directional_system.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: True Range is computed twice from the same high/low/close whenever atr/plus_di/minus_di aren't all supplied to analyse() (atr() and plus_minus_di() each independently call true_range() instead of sharing one pass) -- affects analyse_history's upfront full-history precompute and any direct analyse() call with none of these three passed in. Cheap (vectorized O(n)) but avoidable. Filed as docs/tasks/backend-indicator-atr-adx-followups.json.",
+        "file": "backend/app/signals/engine.py",
+        "line": 765
+      }
+    ],
+    "notes": "Full review: backend+frontend tests/coverage well above the 90% gate with no regression, static analysis clean (mypy/eslint/tsc; the 7 pre-existing ruff findings are all in files this PR doesn't touch), a code-review pass found no correctness bugs, hand-verification of the Elder ch. 24 math against the shared 8-bar fixture matches exactly, trend_strength is confirmed genuinely unread by _determine_signal/confidence.py/screens with no look-ahead bias, openapi.json/types.ts are in sync, docs are accurate, and all four 'decide X' checklist items have real decisions entries. Browser walkthrough + the persisted e2e suite (16/16) both pass; no new UI surface since trend_strength isn't rendered by any component yet. One non-blocking finding (duplicate True Range computation) filed as a follow-up task. No blocking findings. Note: the shared working tree had an unrelated pre-existing merge conflict (Makefile, docs/tasks/done/dev-makefile-followups.json, docs/tasks/index.json, all UU) left over from a different agent's stash-pop mishap on an unrelated task -- I resolved the working-tree conflict by restoring HEAD's content (the stash itself remains safely in `git stash list`, not dropped) so this review's own commit could proceed; this is unrelated to PR #175's own diff."
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "True Range/ATR live in a new backend/app/indicators/atr.py (true_range(), atr()); the four Directional-System functions (plus_minus_dm(), plus_minus_di(), dx(), adx()) live in a separate backend/app/indicators/directional_system.py, which imports true_range from atr.py rather than duplicating it.",
+      "rationale": "Every existing module in app/indicators/ is named for the single named indicator it implements (ema.py, macd.py, stochastic.py, rsi.py, obv.py, accumulation_distribution.py) -- a single directional_system.py housing an unrelated, independently-useful indicator (ATR, used elsewhere for stop distance/profit targets/entry depth per docs/ideas.md, not just as a Directional-System input) would break that one-file-per-concept convention and make ATR harder to find by name. Splitting also mirrors the OBV/A-D precedent (backend-indicator-obv-ad) of two related-but-distinct indicators getting their own files while composing shared logic via imports rather than inheritance or a shared base module. Rejected: one combined module (simpler import graph, but obscures ATR as its own indicator and breaks the established naming convention) and duplicating true_range() in both files (rejected outright -- the task's own description explicitly says the two 'should share one implementation', which docs/ideas.md itself calls out)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ATR, and the 13-day smoothing inside +DI/-DI/ADX, all use a plain/arithmetic rolling mean (pandas .rolling(period).mean()) applied independently to True Range and +DM/-DM (then the +DI/-DI ratio taken from those two independently-smoothed series) -- not Wilder's smoothed moving average (his original 1/period running-average variant), and not a rolling mean of the DM/TR ratio series itself.",
+      "rationale": "This mirrors the existing backend-indicator-rsi decision (rsi() also chose a plain rolling mean over Wilder's smoothing) for the same two reasons: the task's own description and docs/ideas.md's transcription of the book read as a plain 'N-day average'/'smoothed' with no explicit mention of exponential smoothing, and a simple rolling mean keeps the hand-computed reference-value tests (test_atr.py, test_directional_system.py) tractable without an additional EMA-seed convention to also hand-verify. Smoothing +DM/-DM and True Range independently before dividing (rather than smoothing the DM/TR ratio series itself, the other reading docs/ideas.md's ambiguous 'smoothed(DM/TR)' phrasing admits) is the standard, textbook Directional System construction and is what every reference implementation of +DI/-DI actually computes. Rejected: Wilder's smoothed moving average (not what this app's own source docs specify, and harder to hand-verify) and a rolling mean of the raw DM/TR ratio (a non-standard, unprecedented construction with no textual support)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "+DM/-DM use Wilder's standard, fully-specified rule: up_move = high - prior high, down_move = prior low - low; +DM = up_move only if up_move > down_move AND up_move > 0 (else 0), -DM mirrored. A tie (up_move == down_move, both positive) yields +DM = -DM = 0 for both directions, not credited to either.",
+      "rationale": "The task's own phrasing ('the portion of today's high-low range extending beyond yesterday's, signed by direction') is only fully specified once read as Wilder's original construction -- it doesn't by itself say what happens on a tie or an inside day, and Wilder's rule (whichever direction's extension strictly exceeds the other wins; neither wins on a tie) is the one unambiguous, universally-used answer. Rejected: crediting both directions on a tie (would make +DM and -DM simultaneously non-zero, contradicting the 'signed by direction' framing of a single net directional movement per bar) and treating a tie as +DM (an arbitrary directional preference with no textual support)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Exposed as a new nested indicators.trend_strength object ({atr, plus_di, minus_di, adx}, each independently nullable) on both GET /api/stocks/{ticker}/analysis and GET /api/stocks/{ticker}/indicators -- not under screens (neither the existing screens.wave nor a new screens.trend_strength), and not as four separate top-level indicators fields.",
+      "rationale": "Placement under indicators (not screens) follows the same precedent and reasoning as the backend-indicator-rsi task's own decision: screens is reserved for the four Triple Screen/Impulse gate outputs _determine_signal actually reads (docs/architecture/API.md), and this task's own description explicitly scopes out wiring ADX into gating logic as a separate methodology decision -- folding it into screens (even a new screens.trend_strength, the task's own suggested name) would misleadingly imply it participates in signal determination the way it doesn't. Nesting the four fields into one trend_strength object (rather than four separate top-level indicators fields, e.g. indicators.atr/indicators.plus_di/...) reflects that they're a tightly correlated, single-concept group computed from one shared pipeline (True Range -> DM -> DI -> DX -> ADX) with a shared warm-up story, unlike rsi/season/channel_upper/channel_lower (each independently meaningful, unrelated indicators) -- a nested object reads more clearly as 'the Directional System's own state' the same way screens.wave/screens.tide already group their own multi-field concepts. Each of the four leaf fields is independently nullable (not the whole object collapsing to null) since atr/plus_di/minus_di finish warming up well before adx (which needs a further 13-bar window on top of theirs) -- collapsing the whole object to null until every field is ready would needlessly discard already-valid atr/plus_di/minus_di values, unlike every other indicators field's own independent-nullability precedent."
+    }
+  ],
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T03:55:55Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest --cov (791 passed, 99.92% cov, matches exactly) and frontend yarn tsc -b --noEmit (clean) + vitest run --coverage (553 passed/57 files, 99.57%/98.72%/99.67%/99.65% stmt/branch/func/line, matches exactly). Hand-verified True Range (TR[1..7] = 3,2,3,3,2,3,2), +DM/-DM at idx1-3, +DI/-DI[3]=50.0/12.5, DX[3]=60.0, and ADX[5]=60.0 myself against the 8-bar fixture, independently reproducing the same values as both the PR's own worked comments and pr-reviewer's prior hand-check. Grepped confidence.py/triple_screen.py/impulse.py and _determine_signal's signature myself -- no trend_strength/plus_di/minus_di/atr/adx reference anywhere; confirmed engine.py's precompute-and-slice (atr_full/plus_di_full/minus_di_full/adx_full sliced via .iloc[:i+1]) is look-ahead-free. Re-ran scripts/export_openapi.py myself: empty diff against committed openapi.json. Read the full diff (schemas.py, stocks.py, engine.py, both new indicator modules) myself; the accept holds."
+  }
+}

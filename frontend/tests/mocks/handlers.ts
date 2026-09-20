@@ -88,6 +88,7 @@ const analysisFixture: AnalysisResponse = {
     macd_histogram: 1.82,
     bull_power: 3.1,
     bear_power: -1.4,
+    trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
   },
   support_resistance_zones: [
     {
@@ -158,6 +159,7 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
         confidence_band: 'Low',
         obv: 1250000.0,
         accumulation_distribution: 84210.5,
+        trend_strength: { atr: 3.8, plus_di: 26.0, minus_di: 18.5, adx: 20.0 },
       },
       {
         date: '2026-09-02',
@@ -177,6 +179,7 @@ function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse 
         confidence_band: 'High',
         obv: 1450000.0,
         accumulation_distribution: 91500.25,
+        trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
       },
     ],
   }

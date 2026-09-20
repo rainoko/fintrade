@@ -197,6 +197,7 @@ const baseAnalysis: AnalysisResponse = {
     macd_histogram: 1.82,
     bull_power: 3.1,
     bear_power: -1.4,
+    trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
   },
   support_resistance_zones: [],
 }
@@ -275,6 +276,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
       accumulation_distribution: 3400.0,
       channel_upper: 232.0,
       channel_lower: 218.2,
+      trend_strength: { atr: 3.8, plus_di: 26.0, minus_di: 18.5, adx: 20.0 },
       signal: 'HOLD',
       confidence: 0,
       confidence_band: 'Low',
@@ -293,6 +295,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
       accumulation_distribution: 2900.0,
       channel_upper: 233.3,
       channel_lower: 219.5,
+      trend_strength: { atr: 4.2, plus_di: 28.5, minus_di: 15.3, adx: 22.1 },
       signal: 'BUY',
       confidence: 72,
       confidence_band: 'High',

@@ -3,7 +3,10 @@ from typing import Literal
 
 import pandas as pd
 
+from app.indicators.atr import atr as compute_atr
 from app.indicators.autoenvelope import autoenvelope
+from app.indicators.directional_system import adx as compute_adx
+from app.indicators.directional_system import plus_minus_di
 from app.indicators.elder_ray import bear_power as elder_bear_power
 from app.indicators.elder_ray import bull_power as elder_bull_power
 from app.indicators.ema import ema
@@ -279,6 +282,10 @@ def analyse(
     channel_upper: pd.Series | None = None,
     channel_lower: pd.Series | None = None,
     rsi: pd.Series | None = None,
+    atr: pd.Series | None = None,
+    plus_di: pd.Series | None = None,
+    minus_di: pd.Series | None = None,
+    adx: pd.Series | None = None,
     divergence: Divergence | None = _DIVERGENCE_NOT_GIVEN,  # type: ignore[assignment]
     kangaroo_tail: KangarooTail | None = _KANGAROO_TAIL_NOT_GIVEN,  # type: ignore[assignment]
     _daily_ohlcv_already_clean: bool = False,
@@ -390,6 +397,23 @@ def analyse(
     not read by ``_determine_signal``, the Impulse gate, or confidence scoring -- see
     docs/tasks/backend-indicator-seasons.json's own scope.
 
+    ``atr``/``plus_di``/``minus_di``/``adx``, if given, are the already-computed
+    ``app.indicators.atr.atr(daily_ohlcv['high'], daily_ohlcv['low'], daily_ohlcv['close'])`` /
+    ``app.indicators.directional_system.plus_minus_di(daily_ohlcv['high'],
+    daily_ohlcv['low'], daily_ohlcv['close'])`` (a pair, both supplied together or both
+    omitted together) / ``app.indicators.directional_system.adx(plus_di, minus_di)`` (Elder ch.
+    24, docs/Analyse.md §4: True Range/Average True Range and the Directional System) -- same
+    passthrough contract as ``channel_upper``/``channel_lower``/``rsi`` above. When omitted,
+    this function computes each itself (``plus_di``/``minus_di`` together via one
+    ``plus_minus_di`` call whenever either is missing, then ``adx`` from whichever
+    ``plus_di``/``minus_di`` pair is now in scope). Exposed as ``indicators["trend_strength"]``
+    (``{"atr": ..., "plus_di": ..., "minus_di": ..., "adx": ...}``) purely as computation +
+    exposure -- not read by ``_determine_signal``, the Impulse gate, or confidence scoring;
+    wiring Elder's own usage rules for this data (trade trend-following only while ADX rises,
+    a 4-step rise off its own low point signals a new trend being born) into signal/confidence
+    logic is explicitly out of scope for the task that added this field
+    (docs/tasks/backend-indicator-atr-adx.json).
+
     ``divergence``, if given (a ``Divergence`` or ``None``, distinct from the sentinel default
     that means "not supplied" -- see ``_DIVERGENCE_NOT_GIVEN``), is used as-is instead of being
     computed here -- letting ``analyse_history`` supply its own per-bar, look-ahead-free result
@@ -467,6 +491,13 @@ def analyse(
     if rsi is None:
         rsi = compute_rsi(daily_close)
 
+    if plus_di is None or minus_di is None:
+        plus_di, minus_di = plus_minus_di(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+    if atr is None:
+        atr = compute_atr(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+    if adx is None:
+        adx = compute_adx(plus_di, minus_di)
+
     if divergence is _DIVERGENCE_NOT_GIVEN:
         divergence_stochastic_k = (
             stochastic_k
@@ -493,6 +524,12 @@ def analyse(
         "channel_lower": _latest(channel_lower),
         "rsi": _latest(rsi),
         "season": classify_season(histogram),
+        "trend_strength": {
+            "atr": _latest(atr),
+            "plus_di": _latest(plus_di),
+            "minus_di": _latest(minus_di),
+            "adx": _latest(adx),
+        },
     }
     screens = {
         "tide": {
@@ -659,28 +696,32 @@ def analyse_history(
 
     Performance: naively calling ``analyse()`` once per bar on an ``i``-bar-growing slice of
     ``daily_ohlcv`` would make every one of its EMA(13)/EMA(26)/MACD-Histogram/Stochastic/Force
-    Index/Autoenvelope/RSI computations -- each themselves O(i) -- recompute from scratch each
-    time, an O(range_size x history_length) total cost that's a real multi-second-plus latency
-    risk for ``range=max`` on a ticker with years of daily history (see this task's `decisions`
-    entry, docs/tasks/api-stocks-indicator-history-followups.json). All seven of those daily
-    indicator series -- plus, on the weekly side, Screen 1 (Tide)'s own EMA(13)/EMA(26)/MACD-
-    Histogram -- are causal/rolling-window (a value at index *t* depends only on data up to
-    *t*), so this function instead computes each of them exactly once over the full (cleaned)
-    ``daily_ohlcv``/``weekly_ohlcv`` and passes ``analyse()`` a same-truncated *slice* of each
-    precomputed series per bar (via ``analyse()``'s own ``ema_13``/``ema_26``/``histogram``/
-    ``stochastic_k``/``force_index_2ema``/``channel_upper``/``channel_lower``/``rsi``/
-    ``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` parameters -- see its docstring) --
-    a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead of letting
-    ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/``evaluate_tide``)
-    rederive them from each bar's own truncated ``daily_ohlcv``/``weekly_ohlcv`` window. This
-    turns the dominant cost of the O(range_size x history_length) total into O(history_length),
-    not the *entire* cost -- ``elder_bull_power``/``elder_bear_power`` (a vectorized High/Low -
-    EMA(13) subtraction) are *not* among the series precomputed here, since ``analyse()``
-    computes them itself from its own truncated ``daily_ohlcv``/``ema_13`` slice every call;
-    along with the already-acknowledged per-bar volume-rolling-average (the confidence-scoring
-    branch) and ``_weekly_through_bar_date`` boolean-mask costs, this leaves a residual
-    O(i)-per-bar term, so the function's true worst-case asymptotic complexity remains
-    O(range_size x history_length) -- just with a much smaller constant, since the seven/ten
+    Index/Autoenvelope/RSI/ATR/Directional-System computations -- each themselves O(i) --
+    recompute from scratch each time, an O(range_size x history_length) total cost that's a
+    real multi-second-plus latency risk for ``range=max`` on a ticker with years of daily
+    history (see this task's `decisions` entry, docs/tasks/api-stocks-indicator-history-
+    followups.json). All twelve of those daily indicator series (``ema_13``/``ema_26``/
+    ``histogram``/``stochastic_k``/``force_index_2ema``/``channel_upper``/``channel_lower``/
+    ``rsi``/``plus_di``/``minus_di``/``atr``/``adx``) -- plus, on the weekly side, Screen 1
+    (Tide)'s own EMA(13)/EMA(26)/MACD-Histogram -- are causal/rolling-window (a value at
+    index *t* depends only on data up to *t*), so this function instead computes each of them
+    exactly once over the full (cleaned) ``daily_ohlcv``/``weekly_ohlcv`` and passes
+    ``analyse()`` a same-truncated *slice* of each precomputed series per bar (via
+    ``analyse()``'s own ``ema_13``/``ema_26``/``histogram``/``stochastic_k``/
+    ``force_index_2ema``/``channel_upper``/``channel_lower``/``rsi``/``plus_di``/``minus_di``/
+    ``atr``/``adx``/``weekly_ema_13``/``weekly_ema_26``/``weekly_histogram`` parameters -- see
+    its docstring) -- a cheap positional ``.iloc[:k]`` slice, not a recomputation -- instead of
+    letting ``analyse()`` (and, transitively, ``_wave_lookback``/``evaluate_wave``/
+    ``evaluate_tide``) rederive them from each bar's own truncated ``daily_ohlcv``/
+    ``weekly_ohlcv`` window. This turns the dominant cost of the O(range_size x
+    history_length) total into O(history_length), not the *entire* cost --
+    ``elder_bull_power``/``elder_bear_power`` (a vectorized High/Low - EMA(13) subtraction) are
+    *not* among the series precomputed here, since ``analyse()`` computes them itself from its
+    own truncated ``daily_ohlcv``/``ema_13`` slice every call; along with the
+    already-acknowledged per-bar volume-rolling-average (the confidence-scoring branch) and
+    ``_weekly_through_bar_date`` boolean-mask costs, this leaves a residual O(i)-per-bar term,
+    so the function's true worst-case asymptotic complexity remains O(range_size x
+    history_length) -- just with a much smaller constant, since the twelve/fifteen
     precomputed series above were the dominant terms.
     Confirmed empirically this residual cost doesn't matter in practice for realistic history
     lengths (a synthetic worst-case benchmark engineered to hit the Wave screen's oversold/
@@ -721,6 +762,11 @@ def analyse_history(
     channel_upper_full = channel_bands_full["upper"]
     channel_lower_full = channel_bands_full["lower"]
     rsi_full = compute_rsi(daily_close)
+    plus_di_full, minus_di_full = plus_minus_di(
+        daily_ohlcv["high"], daily_ohlcv["low"], daily_close
+    )
+    atr_full = compute_atr(daily_ohlcv["high"], daily_ohlcv["low"], daily_close)
+    adx_full = compute_adx(plus_di_full, minus_di_full)
     # One swing-point pass in each direction over the full daily close series, shared by every
     # bar's `confirmed_divergence_as_of` call below -- the precompute-and-slice counterpart to
     # `ema_13_full`/etc above, for the same O(range_size x history_length) reason (see
@@ -779,6 +825,10 @@ def analyse_history(
                     channel_upper=channel_upper_full.iloc[: i + 1],
                     channel_lower=channel_lower_full.iloc[: i + 1],
                     rsi=rsi_full.iloc[: i + 1],
+                    plus_di=plus_di_full.iloc[: i + 1],
+                    minus_di=minus_di_full.iloc[: i + 1],
+                    atr=atr_full.iloc[: i + 1],
+                    adx=adx_full.iloc[: i + 1],
                     divergence=confirmed_divergence_as_of(
                         divergence_swing_cache,
                         i,

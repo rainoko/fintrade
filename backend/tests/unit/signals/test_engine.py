@@ -579,13 +579,21 @@ class TestAnalyseCombinations:
             "channel_lower",
             "rsi",
             "season",
+            "trend_strength",
         }
-        # `season` is a Spring/Summer/Autumn/Winter label (or None), not a float like every
-        # other indicators entry -- checked separately below.
+        assert set(result.indicators["trend_strength"]) == {"atr", "plus_di", "minus_di", "adx"}
+        # `season` is a Spring/Summer/Autumn/Winter label (or None), and `trend_strength` is
+        # a nested dict of its own floats -- both checked separately, not a float like every
+        # other indicators entry.
         assert all(
-            isinstance(v, float) for k, v in result.indicators.items() if k != "season"
+            isinstance(v, float)
+            for k, v in result.indicators.items()
+            if k not in ("season", "trend_strength")
         )
         assert result.indicators["season"] in ("Spring", "Summer", "Autumn", "Winter", None)
+        assert all(
+            isinstance(v, float) for v in result.indicators["trend_strength"].values()
+        )
 
     def test_channel_upper_and_lower_passthrough_are_independent(self) -> None:
         """channel_upper/channel_lower, like every other precomputed-series parameter
@@ -960,7 +968,10 @@ class TestAnalyseEndToEnd:
         assert result.screens["tide"] == {"trend": "NEUTRAL", "weekly_macd_histogram_slope": "flat"}
         assert result.screens["impulse"] == "BLUE"
         assert result.screens["trigger"] == {"fired": False, "reference": "not_applicable"}
-        assert all(pd.isna(v) for v in result.indicators.values())
+        assert all(
+            pd.isna(v) for k, v in result.indicators.items() if k != "trend_strength"
+        )
+        assert all(pd.isna(v) for v in result.indicators["trend_strength"].values())
 
 
 class TestConfidenceComponentPassthrough:
