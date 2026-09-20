@@ -13,8 +13,15 @@
   "checklist": [
     {
       "step": "backend/app/signals/confidence.py::score_tide_alignment's docstring quotes docs/Analyse.md §6's old wording verbatim ('100% if slope & EMA agree strongly; 50% if mixed; 0% if tide contradicts') even though backend-weekly-impulse-screen1 updated that table's actual text to describe the weekly-Impulse-color-based scoring. Behavior is unaffected (the mechanical BULLISH/NEUTRAL/BEARISH -> 1.0/0.5/0.0 mapping is still correct), but the docstring is now a stale quote of doc text that no longer exists in docs/Analyse.md -- update it to match the corrected §6 wording.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed this checklist item's docstring staleness in the same task-worker pass that fixed backend-weekly-impulse-screen1's blocking frontend-copy finding (PR #187), rather than leaving it for a separate pass through this followups task.",
+      "rationale": "The reviewer's own comment marked this non-blocking but said it was optional 'if convenient since you're already touching related methodology text' -- since fixing the blocking frontend Tide copy already required editing the same 'how is Tide scored/described' surface, fixing this one-line docstring quote alongside it was a small, low-risk addition rather than a separate task-board cycle. This task's own checklist item stays as the durable record that it happened, per CLAUDE.md's non-blocking-finding-stays-tracked convention -- this entry doesn't move it to done itself; state remains planned since backend-weekly-impulse-screen1 (its depends_on) hasn't reached done yet, and a human/orchestrator pass can close this task's remaining checklist (now empty) once that dependency lands."
+    }
+  ]
 }

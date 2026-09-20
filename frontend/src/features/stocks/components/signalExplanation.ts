@@ -92,13 +92,19 @@ export function explainSignal(
             : null
 
   if (direction === null) {
-    // `weekly_macd_histogram_slope === 'flat'` covers two distinct causes
+    // Screen 1 (Tide) is the weekly Impulse System color as of
+    // `backend-weekly-impulse-screen1` -- `weekly_macd_histogram_slope`
+    // (`weeklySlope` below) is purely informational now and no longer
+    // decides `trend`, so `weeklySlope === 'flat'` here just means the
+    // *informational* reading is ambiguous between two distinct causes
     // `evaluate_tide` (backend/app/signals/triple_screen.py) doesn't expose
-    // separately -- a genuinely flat weekly MACD-H slope, or its
-    // <2-weekly-bar short-circuit where no slope is computed at all.
+    // separately: a genuinely small weekly MACD-Histogram step (with a real
+    // weekly Impulse Blue behind it -- the EMA(13)/MACD-Histogram
+    // bar-over-bar directions still disagreeing), or its <2-weekly-bar
+    // short-circuit where no weekly Impulse color is computed at all.
     // `TideScreen` doesn't expose a weekly bar count, so naming both
-    // possibilities (rather than asserting "genuinely flat") is the most
-    // this frontend can honestly say -- same reasoning as
+    // possibilities (rather than asserting either) is the most this
+    // frontend can honestly say -- same reasoning as
     // metricHelpContent.ts's tideHelp.interpretValue, mirrored here via the
     // shared TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE constant so the
     // wording only needs fixing in one place going forward (see this task's
@@ -113,7 +119,7 @@ export function explainSignal(
         detail:
           weeklySlope === 'flat'
             ? `Tide is Neutral -- ${TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE} -- either way, Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).`
-            : 'Tide is Neutral -- the weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree, so Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2).',
+            : 'Tide is Neutral -- the weekly EMA(13) and weekly MACD-Histogram aren’t moving in the same direction, so the weekly Impulse System reads Blue, and Screen 1 doesn’t support either a fresh BUY or a fresh SELL right now (docs/Analyse.md §2, §3).',
       },
       {
         key: 'impulse',

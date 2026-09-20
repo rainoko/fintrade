@@ -1299,12 +1299,13 @@ export interface components {
         TideScreen: {
             /**
              * Trend
-             * @description Screen 1 output (docs/Analyse.md §2). NEUTRAL when weekly MACD-Histogram slope and the 13/26-week EMA relationship disagree.
+             * @description Screen 1 output (docs/Analyse.md §2/§3): the weekly Impulse System color (EMA(13) direction + MACD-Histogram direction, both on the weekly chart) mapped onto BULLISH/BEARISH/NEUTRAL -- GREEN->BULLISH, RED->BEARISH, BLUE (the two disagree, or too little history)->NEUTRAL. Per Elder ch. 39, this replaced the original standalone weekly-MACD-Histogram-slope-plus-13/26-week-EMA test as Screen 1's own trend tool.
              * @enum {string}
              */
             trend: "BULLISH" | "BEARISH" | "NEUTRAL";
             /**
              * Weekly Macd Histogram Slope
+             * @description The weekly MACD-Histogram's own last-step classification -- informational context only as of docs/Analyse.md §2's ch. 39 correction; it no longer decides `trend` above (weekly Impulse's own EMA(13)/MACD-Histogram direction check does).
              * @enum {string}
              */
             weekly_macd_histogram_slope: "rising" | "falling" | "flat";

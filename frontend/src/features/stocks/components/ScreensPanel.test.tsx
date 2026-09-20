@@ -152,7 +152,7 @@ describe('ScreensPanel', () => {
     renderWithTheme(<ScreensPanel screens={neutralScreens} />)
 
     await user.click(screen.getByRole('button', { name: 'Tide (Screen 1) help' }))
-    expect(screen.getByText(/genuinely flat/)).toBeInTheDocument()
+    expect(screen.getByText(/too small to call clearly rising or falling/)).toBeInTheDocument()
     await user.keyboard('{Escape}')
 
     // Regression coverage for PR #127's needs_work finding: a not_applicable Trigger

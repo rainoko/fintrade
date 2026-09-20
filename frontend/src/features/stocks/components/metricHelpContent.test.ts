@@ -193,7 +193,7 @@ describe('metricHelpContent', () => {
       // which never computes a slope at all -- see this task's `decisions`
       // entry. Assert both candidate causes are named rather than just one.
       expect(message).toMatch(/enough weekly price history/)
-      expect(message).toMatch(/genuinely flat/)
+      expect(message).toMatch(/too small to call clearly rising or falling/)
     })
 
     it('omits the raw "slope Flat" parenthetical in the flat-slope Neutral case, since asserting it unqualified would contradict the hedge in the same sentence', () => {
@@ -202,10 +202,12 @@ describe('metricHelpContent', () => {
       expect(message.startsWith('Currently Neutral --')).toBe(true)
     })
 
-    it('explains a Neutral tide with a rising/falling slope as a slope-vs-EMA disagreement', () => {
+    it('explains a Neutral tide with a rising/falling slope as a weekly EMA(13)/MACD-Histogram direction disagreement (weekly Impulse Blue)', () => {
       const message = tideHelp.interpretValue('NEUTRAL', 'rising')
       expect(message).toMatch(/no directional Triple Screen setup/)
-      expect(message).toMatch(/slope and EMA13\/26 relationship disagree/)
+      expect(message).toMatch(
+        /weekly EMA\(13\) and weekly MACD-Histogram aren.t moving in the same direction, so the weekly Impulse System reads Blue/,
+      )
     })
   })
 

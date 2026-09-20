@@ -15,7 +15,7 @@ export const DefinitionOnly: Story = {
     definition:
       'The long-term trend, evaluated on the weekly chart. Never trade against the tide.',
     elderContext:
-      'Determined by the weekly MACD-Histogram slope, confirmed by the 13/26-week EMA relationship (docs/Analyse.md §2 Screen 1).',
+      'Determined by the weekly Impulse System color -- weekly EMA(13) direction and weekly MACD-Histogram direction together (docs/Analyse.md §2 Screen 1).',
   },
 }
 

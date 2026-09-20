@@ -84,9 +84,9 @@ export const confidenceComponentHelp: Record<
   tide_alignment: {
     metricLabel: 'Tide alignment (Screen 1)',
     definition:
-      'How strongly the weekly MACD-Histogram slope and the 13/26-week EMA relationship agree with, and support, this signal’s direction.',
+      'How strongly Tide -- the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction together, docs/Analyse.md §2/§3) -- agrees with, and supports, this signal’s direction.',
     elderContext:
-      'Scored 100% if the weekly MACD-H slope and EMA13/26 relationship agree strongly, 50% if mixed, 0% if the Tide actually contradicts the signal direction (docs/Analyse.md §6). Weighted 30% -- the single largest component, reflecting Elder’s "never trade against the tide" rule.',
+      'Scored 100% if Tide agrees with the signal direction (Bullish for a Buy, Bearish for a Sell), 50% if Tide is Neutral (weekly Impulse Blue -- the weekly EMA(13) and weekly MACD-Histogram directions disagree, or there’s too little weekly history), 0% if Tide actually contradicts the signal direction (docs/Analyse.md §6). Weighted 30% -- the single largest component, reflecting Elder’s "never trade against the tide" rule.',
     interpretValue: interpretComponentScore,
   },
   impulse_gate: {
@@ -178,7 +178,7 @@ export const tideHelp = {
   definition:
     'Screen 1 of the Triple Screen system: the dominant long-term trend, evaluated on the weekly chart. Elder’s rule is to never trade against the tide.',
   elderContext:
-    'Driven by the weekly MACD-Histogram (12,26,9) slope -- rising means a bullish tide (only buy signals considered), falling means a bearish tide (only sell/avoid signals). Confirmed by the 13-week/26-week EMA relationship (13 EMA above 26 EMA = uptrend). Neutral when the slope and EMA relationship disagree -- this reduces confidence rather than blocking a signal outright (docs/Analyse.md §2 Screen 1).',
+    'Screen 1 is the weekly Impulse System color (Elder ch. 39 -- this directly replaced his original weekly-MACD-Histogram-slope test as the tide’s own trend tool). Weekly Impulse Green -- weekly EMA(13) and weekly MACD-Histogram both rising bar-over-bar -- means a bullish tide (only buy signals considered); Red -- both falling -- means a bearish tide (only sell/avoid signals). Blue -- the two disagree, or there’s too little weekly history -- reads Neutral, reducing confidence rather than blocking a signal outright (docs/Analyse.md §2 Screen 1, §3).',
   interpretValue(trend: string, slope: string): string {
     const trendLabel = humanizeSnakeCase(trend)
     const slopeLabel = humanizeSnakeCase(slope).toLowerCase()
@@ -186,16 +186,21 @@ export const tideHelp = {
       // 'flat' is reported both when `evaluate_tide` (backend/app/signals/
       // triple_screen.py) computes a genuinely flat weekly MACD-H slope, and
       // -- via its <2-weekly-bar short-circuit -- when it never computes a
-      // slope at all (too little weekly history yet). `TideScreen` doesn't
-      // expose a weekly bar count, so this frontend can't tell those two
-      // apart from `trend`/`slope` alone; naming both possibilities instead
-      // of asserting "genuinely flat" avoids repeating the same
-      // conflation-of-distinct-causes bug this branch itself was added to
-      // fix (see this task's `decisions` entry).
+      // slope at all (too little weekly history yet). `weekly_macd_histogram_
+      // slope` is purely informational now (it no longer decides `trend` --
+      // the weekly Impulse System's own EMA(13)-direction-vs-MACD-Histogram-
+      // direction check does), so a non-'flat' slope here still just proves
+      // there was enough weekly history to compute a real weekly Impulse
+      // color, i.e. Neutral must be a genuine Green/Red disagreement (Blue).
+      // `TideScreen` doesn't expose a weekly bar count, so a 'flat' slope
+      // can't be told apart from "too little history yet" here; naming both
+      // possibilities instead of asserting "genuinely flat" avoids repeating
+      // the same conflation-of-distinct-causes bug this branch itself was
+      // added to fix (see this task's `decisions` entry).
       const cause =
         slope === 'flat'
           ? `${TIDE_INSUFFICIENT_HISTORY_OR_FLAT_SLOPE_HEDGE} -- either way, there’s no clear direction to read`
-          : 'the weekly slope and EMA13/26 relationship disagree'
+          : 'the weekly EMA(13) and weekly MACD-Histogram aren’t moving in the same direction, so the weekly Impulse System reads Blue'
       // Omit the raw "(weekly MACD-H slope Flat)" parenthetical entirely
       // when slope === 'flat': stating it unqualified in the same sentence
       // that then hedges on whether a slope was ever computed at all would
@@ -320,7 +325,7 @@ export const ema13Help = {
   definition:
     'The 13-period Exponential Moving Average of closing price -- a short-term trend-following average.',
   elderContext:
-    'Feeds both the Tide (13-week/26-week EMA relationship, §2 Screen 1) and the Impulse System (EMA13 rising/falling is half of its Green/Red gate, §3). Also the baseline Elder-Ray measures Bull/Bear Power against (§2 Screen 2, §4).',
+    'Its weekly bar-over-bar direction (rising/falling) is half of the weekly Impulse System check that IS the Tide (§2 Screen 1); its daily direction is half of the daily Impulse System’s Green/Red/Blue gate (§3). Also the baseline Elder-Ray measures Bull/Bear Power against (§2 Screen 2, §4).',
   interpretValue(
     ema13: number | null | undefined,
     ema26: number | null | undefined,
@@ -338,7 +343,7 @@ export const ema13Help = {
         : ema13 < ema26
           ? 'a downtrend reading'
           : 'a flat reading'
-    return `Currently ${ema13.toFixed(2)}, ${relation} EMA(26) (${ema26.toFixed(2)}) -- Elder reads 13 EMA above 26 EMA as an uptrend, so this is ${reading} (docs/Analyse.md §2).`
+    return `Currently ${ema13.toFixed(2)}, ${relation} EMA(26) (${ema26.toFixed(2)}) -- the classic EMA13-vs-EMA26 crossover reading treats 13 above 26 as an uptrend, so this is ${reading}, though it’s no longer what this app’s own Tide (Screen 1) computes (docs/Analyse.md §2).`
   },
 }
 
@@ -347,7 +352,7 @@ export const ema26Help = {
   definition:
     'The 26-period Exponential Moving Average of closing price -- the longer of the two trend-following averages Elder pairs together.',
   elderContext:
-    'Paired with EMA(13) as the Tide’s secondary trend confirmation: 13 EMA above 26 EMA reads as an uptrend, below as a downtrend (docs/Analyse.md §2 Screen 1).',
+    'No longer feeds the Tide directly -- Screen 1 is now the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction), which doesn’t use EMA(26) at all (docs/Analyse.md §2). Still paired with EMA(13) to shade the “value zone” on the price chart (Elder’s own term, ch. 41) and as the slower of the two EMAs MACD is built from (12/26/9).',
   interpretValue(
     ema26: number | null | undefined,
     ema13: number | null | undefined,
@@ -359,7 +364,7 @@ export const ema26Help = {
       return `Currently ${ema26.toFixed(2)}.`
     }
     const relation = ema13 > ema26 ? 'above' : ema13 < ema26 ? 'below' : 'equal to'
-    return `Currently ${ema26.toFixed(2)}; EMA(13) is ${relation} it -- Elder reads 13 EMA above 26 EMA as an uptrend, below as a downtrend (docs/Analyse.md §2).`
+    return `Currently ${ema26.toFixed(2)}; EMA(13) is ${relation} it -- the classic EMA13-vs-EMA26 crossover reading treats 13 above 26 as an uptrend, below as a downtrend, though it’s no longer what this app’s own Tide (Screen 1) computes (docs/Analyse.md §2).`
   },
 }
 
@@ -368,7 +373,7 @@ export const macdHistogramHelp = {
   definition:
     'The 12/26/9 MACD Histogram: the difference between the MACD line and its 9-period signal line, on the daily chart.',
   elderContext:
-    'Its slope (not just sign) is the momentum half of the daily Impulse System gate -- rising alongside a rising EMA(13) turns the bar Green, falling alongside a falling EMA(13) turns it Red (docs/Analyse.md §3). The weekly version of the same indicator drives the Tide (§2 Screen 1).',
+    'Its slope (not just sign) is the momentum half of the daily Impulse System gate -- rising alongside a rising EMA(13) turns the bar Green, falling alongside a falling EMA(13) turns it Red (docs/Analyse.md §3). The weekly version of the same indicator is the other half of the weekly Impulse System check that IS the Tide (paired with weekly EMA(13) direction, §2 Screen 1).',
   interpretValue(value: number | null | undefined): string {
     if (!isKnown(value)) {
       return 'Currently unavailable for this ticker.'
