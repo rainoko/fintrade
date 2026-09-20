@@ -234,6 +234,63 @@ describe('StockDetailPage', () => {
     expect(screen.getByTestId('season-badge')).toHaveTextContent('Spring')
   })
 
+  it('wires extended_data through to the FundamentalDataPanel, including the earnings warning banner', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/analysis', ({ params }) =>
+        HttpResponse.json({
+          ticker: String(params.ticker).toUpperCase(),
+          as_of: '2026-09-11',
+          signal: 'BUY',
+          confidence: 72,
+          confidence_band: 'High',
+          screens: {
+            tide: { trend: 'BULLISH', weekly_macd_histogram_slope: 'rising' },
+            impulse: 'GREEN',
+            wave: {
+              stochastic_k: 24.3,
+              force_index_2ema: -18234.5,
+              state: 'OVERSOLD_PULLBACK',
+              showed_pullback_in_lookback: true,
+              showed_rally_in_lookback: false,
+            },
+            trigger: { fired: true, reference: 'close_above_prior_high' },
+          },
+          confidence_breakdown: [
+            { component: 'tide_alignment', weight: 0.3, score: 1.0 },
+          ],
+          indicators: {
+            ema_13: 226.4,
+            ema_26: 220.1,
+            macd_histogram: 1.2,
+            bull_power: 3.4,
+            bear_power: -1.1,
+          },
+          extended_data: {
+            earnings_date: '2026-09-20',
+            earnings_within_warning_days: true,
+            ex_dividend_date: null,
+            shares_short: 5_000_000,
+            short_ratio: 3.1,
+            short_percent_of_float: 0.08,
+            float_shares: 40_000_000,
+            insider_transactions: [],
+            unavailable_reason: null,
+          },
+        }),
+      ),
+    )
+
+    renderStockDetail('AAPL')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+    expect(screen.getByTestId('earnings-warning-banner')).toHaveTextContent(
+      'Earnings expected 2026-09-20 -- within the next 14 days.',
+    )
+    expect(screen.getByText('Short Interest')).toBeInTheDocument()
+  })
+
   it('shows a 404 error for an unknown ticker', async () => {
     renderStockDetail('UNKNOWN')
 

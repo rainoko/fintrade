@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import ErrorState from '../components/common/ErrorState/ErrorState'
 import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
+import FundamentalDataPanel from '../features/stocks/components/FundamentalDataPanel'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
 import ScreensPanel from '../features/stocks/components/ScreensPanel'
 import SignalSummary from '../features/stocks/components/SignalSummary'
@@ -21,13 +22,20 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * frontend-chart-signal-overlay, frontend-oscillator-chart).
  * Stays thin per Frontend.md §3 — all fetching lives in useStockAnalysis/
  * useStockHistory/useIndicatorHistory, all domain rendering lives in
- * SignalSummary/ScreensPanel/IndicatorsPanel/StockCharts.
+ * SignalSummary/FundamentalDataPanel/ScreensPanel/IndicatorsPanel/StockCharts.
  *
  * Renders TickerSearchBox (the same entry point built by
  * frontend-dashboard-page) in its own PageHeader action, so switching to a
  * different ticker doesn't require navigating back to the Dashboard first —
  * see this task's `decisions` entry for why this reuses rather than
  * duplicates that component.
+ *
+ * `FundamentalDataPanel` (earnings/dividend dates, short interest, insider
+ * transactions — frontend-fundamental-data-panel) sits directly below
+ * `SignalSummary`, ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts` —
+ * see that component's own doc comment for why (its earnings-date warning
+ * banner needs to stay visible near the top of the page, not buried below
+ * several other panels and the price chart).
  */
 export default function StockDetailPage() {
   const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
@@ -65,6 +73,8 @@ export default function StockDetailPage() {
             screens={analysisQuery.data.screens}
             profitTarget={analysisQuery.data.profit_target}
           />
+
+          <FundamentalDataPanel extendedData={analysisQuery.data.extended_data} />
 
           <ScreensPanel
             screens={analysisQuery.data.screens}

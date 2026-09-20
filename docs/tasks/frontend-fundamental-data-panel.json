@@ -3,7 +3,7 @@
   "title": "Display earnings/dividend dates, short interest, and insider transactions",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [
     "backend-market-data-extra-fields"
   ],
@@ -15,19 +15,57 @@
   "checklist": [
     {
       "step": "Design the panel layout (earnings/dividend dates, short interest metrics, recent insider transactions) and the prominent earnings-warning treatment for positions/signals within the warning window.",
-      "done": false
+      "done": true
     },
     {
       "step": "Implement, handling the 'data unavailable on this provider path' case explicitly and distinctly from 'no data found.'",
-      "done": false
+      "done": true
     },
     {
       "step": "MetricHelp content explaining each field (what short-percent-of-float and days-to-cover mean and why a squeeze matters for a BUY; why 3+ insider buys/sells in a month is treated as meaningful but a single transaction isn't).",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New `FundamentalDataPanel` (features/stocks/components/) is rendered directly below `SignalSummary` on `StockDetailPage`, ahead of `ScreensPanel`/`IndicatorsPanel`/`StockCharts` -- not appended after the existing panels, and not placed inside `SignalSummary` itself.",
+      "rationale": "The task's own description calls the earnings-date warning 'the highest-value piece... should be visually prominent, not buried.' Appending the panel after ScreensPanel/IndicatorsPanel/StockCharts (the natural 'next new section' spot) would put the warning below several screenfuls of content on a typical viewport. Placing it directly under the signal/confidence summary keeps it above the fold on first load while staying a distinct component (not merged into SignalSummary itself, which already has its own single responsibility -- signal/confidence/profit-target -- and no knowledge of fundamentals data)."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The earnings-within-14-days warning banner is a plain MUI `Alert severity=\"warning\"`, not a reuse of `components/common/RiskBreachBanner`.",
+      "rationale": "RiskBreachBanner exists and is domain-agnostic (just an icon + message), so it was the first thing considered for reuse per the add-frontend-feature skill's step 2 duplication check. Its own doc comment and `theme.ts`'s `riskBreach` palette comment are explicit, though, that the color is deliberately reserved for the portfolio 2%/6% risk-rule breach specifically ('distinct from `signal.sell` so a risk breach banner never reads as \"this is a SELL signal\" -- it's a portfolio-level warning, not a per-stock signal'). Reusing that exact palette/component for an unrelated warning (an earnings date, not a risk-rule breach) would blur a distinction this codebase already established on purpose. A plain MUI `Alert` (already used elsewhere, e.g. `AddPositionDialog.tsx`) gives the same visual severity without repurposing a component whose color/semantics are pinned to a different meaning."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The earnings-warning banner condition is `earnings_within_warning_days` alone (the backend's own 14-day flag), not narrowed to 'only when signal is a fresh BUY or a held position exists' as the task description's phrasing ('when a position or a fresh BUY signal falls within the warning window') might suggest.",
+      "rationale": "This task is scoped to the stock detail page (area: frontend/pages/stocks) for an arbitrary looked-up ticker, which has no notion of 'is this currently a portfolio position' -- that's `features/portfolio/`'s domain, and wiring position awareness into this page would be meaningfully expanded scope beyond what the checklist asks for. The underlying risk Elder describes (an earnings gap defeating a protective stop) is just as real context for anyone considering, or currently holding, this ticker regardless of the page's own signal computation reaching BUY -- backend-market-data-extra-fields's own `earnings_within_warning_days` field is already signal-independent by design (it's computed from wall-clock `date.today()`, not gated on `signal`). Showing it unconditionally whenever the flag is true is the simpler, more broadly useful behavior and avoids duplicating signal-aware logic SignalSummary already owns."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Insider transactions are rendered raw via `common/DataTable` (one row per filing, most-recent-first, exactly as the API returns them) with no client-side buy/sell classification or cluster detection -- `insiderTransactionsHelp`'s `interpretValue` states the filing count and Elder's 3+-within-a-month cluster threshold as an explanatory note, not a computed verdict.",
+      "rationale": "Mirrors the backend's own explicit decision (backend-market-data-extra-fields task) to expose insider transactions raw and defer cluster detection as a separate follow-up -- `transaction_text` is free-text yfinance prose ('Sale at price 220.00 - 225.00...') with no structured direction field to classify from without parsing it, which is exactly the scope that task's own decisions entry deferred. Computing a client-side cluster count here would both duplicate that deferred backend work in the wrong layer (detection logic belongs server-side, consistent with divergence/kangaroo-tail/support-resistance precedent) and risk a classification that disagrees with whatever the eventual backend cluster-detection task computes. The MetricHelp entry still explains the threshold Elder describes (ch. 37) so a reader knows what to look for themselves, satisfying the task's own checklist wording ('why 3+ insider buys/sells in a month is treated as meaningful but a single transaction isn't') without inventing unreviewed classification logic."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`unavailable_reason === 'fallback_provider_active'` renders a distinct dashed-border card (same visual convention `ScreensPanel.tsx`'s Indicator Season card already established for 'informational, not the normal case') stating the cause explicitly, in place of the normal StatCard/short-interest/insider-table layout -- not a per-field '(unavailable)' annotation sprinkled through the normal layout.",
+      "rationale": "The checklist calls for 'unavailable' to read distinctly from 'checked, nothing found,' and the backend's own `ExtendedDataOut.unavailable_reason` field description frames this as a structural, whole-object condition ('every field above is then null/empty, meaning not checked, unsupported by the active provider') rather than a per-field annotation -- every field is null/empty together in this state, so there is nothing meaningful left to show in the normal per-field layout anyway. A single explanatory card reusing the same dashed-border 'not a normal result' visual language already established elsewhere in this page is simpler and reads more clearly than threading an unavailable-vs-null distinction through six separate StatCard/table cells that would all say the same thing."
+    },
+    {
+      "timestamp": "2026-09-20T07:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`FundamentalDataPanel` treats `extendedData` as `ExtendedDataOut | null | undefined` and renders nothing (`return null`) when it's absent, even though the backend schema (`AnalysisResponse.extended_data`) is a non-optional, always-present field.",
+      "rationale": "Several of `StockDetailPage.test.tsx`'s existing tests (the SELL/HOLD/season/lowercase-normalization cases, predating this task) hand-roll a partial `AnalysisResponse` JSON fixture via `HttpResponse.json({...})` that omits several optional-in-practice fields entirely, including (now) `extended_data` -- MSW doesn't validate the mocked response against the OpenAPI schema, so this compiles and runs fine, but would leave `extendedData` `undefined` at runtime for exactly those tests. Rather than rewriting every one of those pre-existing tests just to add a field this task's own scope doesn't require touching, the panel takes the same defensive posture `IndicatorsPanel.tsx`'s `formatValue` already documents toward a generated type it treats as optimistic, not a runtime guarantee -- gracefully rendering nothing rather than crashing. A real backend response always supplies the field, so this defensive branch is unreachable in production, only in this specific test-fixture-completeness gap."
     }
   ]
 }

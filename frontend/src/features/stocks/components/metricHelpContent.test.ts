@@ -18,17 +18,22 @@ import {
   countTideTrends,
   directionalSystemHelp,
   divergenceHelp,
+  earningsDateHelp,
   ema13Help,
   ema26Help,
+  exDividendDateHelp,
   falseBreakoutHelp,
+  fundamentalDataUnavailableHelp,
   getConfidenceComponentHelp,
   impulseHelp,
+  insiderTransactionsHelp,
   kangarooTailHelp,
   macdHistogramHelp,
   obvHelp,
   profitTargetHelp,
   rsiHelp,
   seasonHelp,
+  shortInterestHelp,
   signalHelp,
   supportResistanceZoneHelp,
   tideHelp,
@@ -1251,6 +1256,134 @@ describe('metricHelpContent', () => {
       ]
       const message = atrHelp.interpretValue(points)
       expect(message).toContain('Currently 4.20 as of 2026-09-02')
+    })
+  })
+
+  describe('earningsDateHelp.interpretValue (frontend-fundamental-data-panel)', () => {
+    it('reports no upcoming earnings date on record', () => {
+      expect(earningsDateHelp.interpretValue(null, false)).toBe(
+        'No upcoming earnings date currently on record for this ticker.',
+      )
+    })
+
+    it('flags a date within the 14-day warning window with Elder’s own advice', () => {
+      const message = earningsDateHelp.interpretValue('2026-09-25', true)
+      expect(message).toContain('2026-09-25 -- within the next 14 days')
+      expect(message).toContain('avoid opening a fresh position')
+      expect(message).toContain('no real protection against an overnight earnings-surprise gap')
+    })
+
+    it('describes a date outside the warning window as such', () => {
+      const message = earningsDateHelp.interpretValue('2026-12-01', false)
+      expect(message).toBe(
+        "2026-12-01 -- more than 14 days out, outside this app's 14-day earnings warning window.",
+      )
+    })
+  })
+
+  describe('exDividendDateHelp.interpretValue', () => {
+    it('reports no ex-dividend date currently scheduled', () => {
+      expect(exDividendDateHelp.interpretValue(null)).toBe(
+        'No ex-dividend date currently scheduled for this ticker.',
+      )
+    })
+
+    it('states the scheduled date', () => {
+      expect(exDividendDateHelp.interpretValue('2026-11-15')).toBe('2026-11-15.')
+    })
+  })
+
+  describe('shortInterestHelp.interpretValue', () => {
+    it('reports unavailable when every field is null', () => {
+      expect(shortInterestHelp.interpretValue(null, null, null, null)).toBe(
+        'Currently unavailable for this ticker -- not reported by this data source.',
+      )
+    })
+
+    it('flags an elevated (>=10%) short-percent-of-float as meaningful squeeze fuel for a BUY', () => {
+      const message = shortInterestHelp.interpretValue(5_000_000, 4.2, 0.15, 33_000_000)
+      expect(message).toContain('5,000,000 shares short')
+      expect(message).toContain('15.0% of float')
+      expect(message).toContain('4.2 days to cover')
+      expect(message).toContain('float of 33,000,000 shares')
+      expect(message).toContain('elevated short-percent-of-float (>=10%)')
+      expect(message).toContain('meaningful squeeze fuel if this ticker rallies on a fresh BUY setup')
+    })
+
+    it('describes a modest (<10%) short-percent-of-float as limited squeeze fuel', () => {
+      const message = shortInterestHelp.interpretValue(1_000_000, 2.0, 0.045, 22_000_000)
+      expect(message).toContain('modest short-percent-of-float (<10%)')
+      expect(message).toContain('limited extra squeeze fuel')
+    })
+
+    it('omits the squeeze note entirely when short_percent_of_float alone is unavailable', () => {
+      const message = shortInterestHelp.interpretValue(1_000_000, 2.0, null, 22_000_000)
+      expect(message).toBe(
+        'Currently 1,000,000 shares short, 2.0 days to cover, float of 22,000,000 shares.',
+      )
+    })
+
+    it('reports only the fields yfinance actually returned when shares_short/short_ratio/float_shares are individually missing', () => {
+      // shares_short null, short_ratio null, float_shares null -- only
+      // short_percent_of_float reported (a real yfinance partial-data case,
+      // Elder ch. 37: "yfinance's own data can be incomplete for smaller
+      // tickers").
+      const message = shortInterestHelp.interpretValue(null, null, 0.08, null)
+      expect(message).toBe(
+        'Currently 8.0% of float. A modest short-percent-of-float (<10%) -- limited extra squeeze fuel either way.',
+      )
+    })
+  })
+
+  describe('insiderTransactionsHelp.interpretValue', () => {
+    it('reports no insider transactions for an empty list', () => {
+      expect(insiderTransactionsHelp.interpretValue([])).toBe(
+        'No insider transactions currently reported for this ticker.',
+      )
+    })
+
+    it("notes a single filing falls short of Elder's 3-filing cluster threshold", () => {
+      const message = insiderTransactionsHelp.interpretValue([
+        {
+          insider: 'Cook Timothy D',
+          position: 'Chief Executive Officer',
+          transaction_text: 'Sale at price 220.00 - 225.00 per share.',
+          shares: 50_000,
+          value: 11_000_000,
+          start_date: '2026-08-01',
+          ownership: 'D',
+        },
+      ])
+      expect(message).toContain('1 filing shown, most recent filing dated 2026-08-01')
+      expect(message).toContain('on its own, not usually treated as a meaningful signal')
+    })
+
+    it('notes 3+ filings without auto-classifying them as a confirmed cluster', () => {
+      const transaction = {
+        insider: 'A',
+        position: null,
+        transaction_text: 'Sale.',
+        shares: null,
+        value: null,
+        start_date: null,
+        ownership: null,
+      }
+      const message = insiderTransactionsHelp.interpretValue([
+        transaction,
+        transaction,
+        transaction,
+      ])
+      expect(message).toContain('3 filings shown')
+      expect(message).toContain('Three or more filings are shown')
+      expect(message).not.toContain('most recent filing dated')
+    })
+  })
+
+  describe('fundamentalDataUnavailableHelp.interpretValue', () => {
+    it("explains the fallback-provider-active state distinctly from 'checked, nothing found'", () => {
+      const message = fundamentalDataUnavailableHelp.interpretValue()
+      expect(message).toContain('fallback (Stooq) provider is active')
+      expect(message).toContain('Not the same as "checked, nothing found"')
     })
   })
 })

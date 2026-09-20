@@ -66,6 +66,16 @@ test.describe('stock analysis page', () => {
     const breakdownEmptyState = page.getByText('No confidence breakdown available.')
     await expect(breakdownTable.or(breakdownEmptyState)).toBeVisible()
 
+    // Fundamental data panel (features/stocks/components/FundamentalDataPanel.tsx,
+    // frontend-fundamental-data-panel) -- FixtureDataProvider.get_extended_data returns an
+    // all-null result for every fixture ticker (no synthetic earnings/short-interest/insider
+    // data modeled), so this only asserts the panel's own structure renders (no crash on an
+    // all-null extended_data payload), not a specific earnings-warning state.
+    await expect(page.getByText('Short Interest', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('No insider transactions currently reported for this ticker.'),
+    ).toBeVisible()
+
     // Latest-bar indicator values (features/stocks/components/IndicatorsPanel.tsx).
     await expect(page.getByText('EMA (13)', { exact: true })).toBeVisible()
     await expect(page.getByText('EMA (26)', { exact: true })).toBeVisible()
