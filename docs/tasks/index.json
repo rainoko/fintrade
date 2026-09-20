@@ -1146,8 +1146,8 @@
       "id": "backend-ibkr-data-provider-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-data-provider-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-data-provider-followups.json"
     },
     {
       "id": "frontend-tide-region-chart-shading",
