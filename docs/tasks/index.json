@@ -1132,8 +1132,8 @@
       "id": "backend-weekly-impulse-screen1-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-weekly-impulse-screen1-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-weekly-impulse-screen1-followups-followups.json"
     },
     {
       "id": "backend-force-index-refinements",

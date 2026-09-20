@@ -1,0 +1,53 @@
+{
+  "id": "backend-weekly-impulse-screen1-followups-followups",
+  "title": "Non-blocking follow-up from PR #188 review (backend-weekly-impulse-screen1-followups)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-weekly-impulse-screen1-followups"],
+  "references": [
+    "docs/tasks/backend-weekly-impulse-screen1-followups.json",
+    "https://github.com/rainoko/fintrade/pull/188",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "docs/Analyse.md#screen-1-tide"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #188 (backend-weekly-impulse-screen1-followups), recorded here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges. PR #188 itself was accepted -- this finding is pre-existing (predates PR #188, missed by earlier grep sweeps for stale Tide/Screen-1 wording) and out of scope for PR #188's own diff, so it didn't block it.",
+  "checklist": [
+    {
+      "step": "frontend/src/features/stocks/components/metricHelpContent.ts's valueZoneHelp.elderContext (around line 583) still says \"This exact EMA13/EMA26 pair already drives the Tide (Screen 1), the Impulse System gate, and the Elder-Ray baseline elsewhere on this page (docs/Analyse.md §2-4)\" -- this is stale and now factually wrong: per the `backend-weekly-impulse-screen1` methodology correction (and the already-corrected `ema26Help.elderContext` right below it in the same file, which explicitly says EMA(26) 'no longer feeds the Tide directly'), Tide/Screen 1 is driven by the weekly Impulse System color (weekly EMA(13) direction + weekly MACD-Histogram direction), not by the EMA13/EMA26 level pair. This text is user-facing (rendered via the `MetricHelp` affordance on the price chart's Value Zone legend entry, `PriceChart.tsx` line ~1809), so it's more visible than the two internal JSDoc comments PR #188 itself fixed. Reword to match `ema26Help`'s corrected framing -- e.g. that EMA13/EMA26 still feed the Impulse System's daily gate indirectly (EMA(13) is one of the two Impulse inputs; EMA(26) is MACD's slower input) and the Elder-Ray baseline, but no longer drive the Tide/Screen 1 decision itself.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded valueZoneHelp.elderContext to state EMA(13)/EMA(26) no longer drive the Tide/Screen 1 directly (now the weekly Impulse System color), but that EMA(13) still feeds the daily Impulse System gate as one of its two inputs and both still feed the Elder-Ray baseline -- mirroring ema26Help.elderContext's corrected framing rather than dropping the Impulse-System mention entirely.",
+      "rationale": "The checklist item's own suggested rewording kept an indirect Impulse System connection (EMA(13) is one of the two daily Impulse inputs) rather than removing all mention of it, which matches how ema26Help.elderContext (a few lines above) already frames the same pair post-correction -- keeping the two elderContext strings consistent in how they describe the same underlying fact was preferred over independently wording each one. No existing test asserted the stale copy verbatim, so no test needed updating beyond re-running the suite to confirm nothing else depended on it."
+    },
+    {
+      "timestamp": "2026-09-20T13:15:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Narrowed valueZoneHelp.elderContext's Elder-Ray reference to EMA(13) only ('EMA(13) alone is still the baseline Elder-Ray measures Bull/Bear Power against'), splitting the daily-Impulse-gate clause into EMA(13) feeding the gate directly and EMA(26) feeding that same gate's MACD-Histogram half -- rather than dropping EMA(26) from the sentence entirely.",
+      "rationale": "pr-reviewer's needs_work finding on PR #197 was correct: app/indicators/elder_ray.py's bull_power/bear_power only ever use ema_13, never ema_26 (docs/Analyse.md #4 row 5 confirms 'Elder-Ray (Bull/Bear Power) | Daily | EMA 13'), matching the already-correct sibling ema13Help.elderContext a few lines above. Kept EMA(26)'s genuinely accurate connection (it feeds the daily Impulse gate's MACD-Histogram input) rather than removing EMA(26) from the sentence altogether, since deleting it would lose real, correct information the reviewer explicitly said to keep. No test asserted the exact old wording verbatim, so no test file needed a corresponding edit -- confirmed by grep across frontend/src and frontend/tests before/after."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-weekly-impulse-screen1-followups-followups",
+    "pr_number": 197,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/197",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T13:12:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/197",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Re-review (round 1) after the prior needs_work verdict. Diff since that review: valueZoneHelp.elderContext's Elder-Ray clause narrowed to EMA(13) alone, splitting the daily-Impulse-gate clause into EMA(13) (direct input) and EMA(26) (feeds that gate's MACD-Histogram half) -- exactly the fix requested. Verified the new copy against backend/app/indicators/elder_ray.py: bull_power(high, ema_13) and bear_power(low, ema_13) take only ema_13, never ema_26 -- matches docs/Analyse.md §4 row 5 ('Elder-Ray (Bull/Bear Power) | Daily | EMA 13') and the already-correct sibling ema13Help.elderContext. EMA(26)-feeds-MACD-Histogram half also verified accurate against macd.py/impulse.py. Grepped frontend/src and frontend/tests for any test asserting the exact old/new elderContext wording -- none found (metricHelpContent.test.ts only asserts valueZoneHelp.interpretValue behavior, never the elderContext string), so no test needed updating. Backend: pytest --cov=app --cov-fail-under=90 -- 920 passed, 99.94% coverage (no backend files in this diff). Frontend: vitest run (no coverage) -- 685/685 passed; vitest run --coverage reproduced the same single pre-existing flake as the prior review round (PortfolioPage.test.tsx 'adds a new position end to end', 5000ms timeout under coverage-instrumentation CPU load) -- reran standalone and it passed, confirmed unrelated to this diff, not blocking. tsc -b --noEmit and eslint . both clean. Real browser walkthrough: started backend (FINTRADE_DATA_PROVIDER_MODE=fixture) + frontend dev server, navigated to /stocks/AAPL, opened the Value Zone MetricHelp tooltip via a Playwright script -- new copy renders verbatim, zero console errors, zero failed requests. Ran the code-review skill against the diff independently -- no findings (confirmed the same elder_ray.py/macd.py/impulse.py cross-check). Diff is narrowly scoped to the one elderContext string plus task-board bookkeeping -- no app logic, no API/schema change (no OpenAPI regen needed), no new/changed components (no placement review needed). No blocking or non-blocking findings this round; no follow-up task needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T13:15:39Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend vitest (685/685 passed) and yarn tsc -b --noEmit (clean) plus backend pytest --cov=app (920 passed, 99.94% coverage) -- all match pr-reviewer's reported numbers. Read the full diff (git diff main...task/backend-weekly-impulse-screen1-followups-followups) and confirmed backend/app/indicators/elder_ray.py's bull_power/bear_power take only ema_13 (never ema_26), matching the new valueZoneHelp.elderContext copy's 'EMA(13) alone is still the baseline Elder-Ray measures Bull/Bear Power against.' Also verified the daily-Impulse-gate clause against app/signals/impulse.py (EMA(13) direction is a direct input) and app/indicators/macd.py (default slow=26 feeds MACD-Histogram), and cross-checked the sibling ema13Help/ema26Help.elderContext entries for consistency -- all accurate, no discrepancy found."
+  }
+}
