@@ -39,6 +39,24 @@ describe('WatchlistPage', () => {
     expect(screen.getByText('MSFT')).toBeInTheDocument()
   })
 
+  it('renders the Personal Breadth widget above the table, aggregating the watchlist + portfolio union', async () => {
+    renderWatchlistPage()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Watchlist' })).toBeInTheDocument(),
+    )
+
+    // Seeded mocks: watchlist {AAPL, MSFT}, portfolio {AAPL} -> union {AAPL, MSFT},
+    // with AAPL BULLISH and MSFT NEUTRAL (tests/mocks/handlers.ts's
+    // mockTickerTideTrends), independent of resetPortfolioStore not being
+    // called here.
+    expect(
+      screen.getByText('Personal Breadth (Watchlist + Portfolio)'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('1 (50.0%)')).toHaveLength(2)
+    expect(screen.getByText('0 (0.0%)')).toBeInTheDocument()
+  })
+
   it('shows the empty state when the watchlist has no tickers', async () => {
     server.use(http.get('/api/watchlist', () => HttpResponse.json({ items: [] })))
 

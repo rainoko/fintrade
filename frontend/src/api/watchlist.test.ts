@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { resetWatchlistStore } from '../../tests/mocks/handlers'
-import { addWatchlistItem, getWatchlist, removeWatchlistItem } from './watchlist'
+import {
+  addWatchlistItem,
+  getWatchlist,
+  getWatchlistBreadth,
+  removeWatchlistItem,
+} from './watchlist'
 
 describe('api/watchlist', () => {
   beforeEach(() => {
@@ -66,5 +71,29 @@ describe('api/watchlist', () => {
 
   it('removeWatchlistItem throws a 404 ApiError for a ticker not on the watchlist', async () => {
     await expect(removeWatchlistItem('ZZZZ')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('getWatchlistBreadth aggregates the deduplicated watchlist + portfolio union', async () => {
+    // Seeded: watchlist {AAPL, MSFT}, portfolio {AAPL} -> union {AAPL, MSFT}
+    // (AAPL counted once despite being on both), AAPL BULLISH / MSFT NEUTRAL.
+    const breadth = await getWatchlistBreadth()
+
+    expect(breadth.tracked_ticker_count).toBe(2)
+    expect(breadth.bullish_count).toBe(1)
+    expect(breadth.neutral_count).toBe(1)
+    expect(breadth.bearish_count).toBe(0)
+    expect(breadth.unavailable_count).toBe(0)
+    expect(breadth.bullish_pct).toBe(50.0)
+    expect(breadth.neutral_pct).toBe(50.0)
+  })
+
+  it('getWatchlistBreadth counts a tracked ticker with no computable Tide trend as unavailable, excluded from the percentages', async () => {
+    await addWatchlistItem({ ticker: 'ZZZZ' })
+
+    const breadth = await getWatchlistBreadth()
+
+    expect(breadth.tracked_ticker_count).toBe(3)
+    expect(breadth.unavailable_count).toBe(1)
+    expect(breadth.bullish_count + breadth.bearish_count + breadth.neutral_count).toBe(2)
   })
 })
