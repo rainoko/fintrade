@@ -51,5 +51,11 @@
       "decision": "Widget layout: a heading ('Personal Breadth (Watchlist + Portfolio)') with a `MetricHelp` balloon, three `StatCard`s (Bullish/Bearish/Neutral, each showing count + percentage), an `EmptyState` when nothing is tracked yet, and a small caption footnote naming `unavailable_count` when it's non-zero -- rather than a single-sentence widget matching the task description's literal example ('9 of 15 watchlist tickers are currently BULLISH').",
       "rationale": "The backend's response spans three trend buckets (BULLISH/BEARISH/NEUTRAL) plus an explicit unavailable count, not just a single BULLISH fraction -- showing only the BULLISH count would silently discard the BEARISH/NEUTRAL breakdown and the honesty-relevant unavailable-ticker signal the backend task deliberately added (rather than guessing or dropping unavailable tickers). Reused `StatCard` (already used identically by RiskSummaryCard/DashboardPage) rather than inventing a new stat-tile component, per the skill's 'check for an existing common/ component before building a new one' step. The dynamic sentence form ('X of Y tracked tickers are currently BULLISH...') from the task description instead lives in the `MetricHelp` balloon's `valueInterpretation` (`personalBreadthHelp.ts`), where it's paired with the full BULLISH/BEARISH/NEUTRAL/unavailable breakdown plus the honest personal-proxy framing, rather than being the widget's only visible content."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-breadth-widget",
+    "pr_number": 171,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/171",
+    "pushed_at": "2026-09-20T00:39:05Z"
+  }
 }
