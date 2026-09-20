@@ -29,5 +29,11 @@
       "decision": "Deliberately avoided the 'major' length category (>=730 calendar days) in the fixture, using only 'minor' (16 business-day touch gap, 22 calendar days) and 'intermediate' (45 business-day gap, 63 calendar days) length categories, combined with all three height categories, to reach 4 distinct strength_score tiers (33.33/50.00/66.67/83.33) across 20 candidates. Rejected including a 'major'-length tier: it would need a >=730-calendar-day (roughly 520-business-day) touch span per band, ballooning the already-~850-bar fixture for no extra coverage of the ranking logic itself, since the sort key treats strength_score as an opaque number regardless of which category combination produced it (already covered independently by TestStrengthScoringHelpers).",
       "rationale": "The task only requires 'multiple strength_score values' to exercise real reordering, not full category coverage -- 4 distinct tiers (one fully kept, one fully dropped, one only partially kept requiring correct last_touch_date tie-break, one fully kept) already exercises every edge the cap/sort logic can produce, at a fraction of the fixture size and runtime."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-support-resistance-followups-followups",
+    "pr_number": 199,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/199",
+    "pushed_at": "2026-09-20T13:41:31Z"
+  }
 }
