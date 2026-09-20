@@ -91,14 +91,27 @@ export const theme = createTheme({
     // flagged there since that task's check used raw RGB Euclidean distance
     // (16.3, misleadingly "far enough") rather than a perceptual metric.
     // Shifting hue away from sell (toward magenta-red, same technique used
-    // for `season.spring` below) rather than just changing lightness/
-    // saturation clears both a >=15 ΔE margin from every other palette
-    // color and >=4.5:1 WCAG contrast against white and against
-    // `background` below, while still reading unambiguously as "red/danger"
-    // (not sliding toward the orange of `signal.hold` or the magenta of
-    // `kangarooTail.main`).
+    // for `season.spring` below) clears a >=15 ΔE76 margin from every other
+    // palette color (>=18.6, `kangarooTail.main` is closest) while still
+    // reading unambiguously as "red/danger" (not sliding toward the orange
+    // of `signal.hold` or the magenta of `kangarooTail.main`).
+    //
+    // `main` is also darkened slightly further (same hue/saturation, lower
+    // lightness — L 49.2% -> 46.9%, #d52651 -> #cb244d) from the value the
+    // ΔE fix above first landed on
+    // (frontend-indicator-seasons-badge-followups-followups): that value
+    // computed to only ~4.35:1 WCAG contrast against `background` below
+    // (verified with the same relativeLuminance/contrastRatio formulas
+    // theme.test.ts uses), below the 4.5:1 AA floor RiskBreachBanner.tsx
+    // needs since it paints this color as 16px/bold text directly onto
+    // `background` (bold text below the ~18.7px-bold "large text" threshold
+    // still needs the normal-text 4.5:1 minimum) — a false compliance claim
+    // this comment used to make, flagged in
+    // frontend-indicator-seasons-badge-followups-followups-followups. The
+    // current value clears ~4.71:1 against `background` and ~5.39:1 against
+    // white, both re-verified against theme.test.ts's assertions below.
     riskBreach: {
-      main: '#d52651',
+      main: '#cb244d',
       background: '#fdecea',
     },
     // Divergence markers/connecting line (PriceChart.tsx/OscillatorChart.tsx,

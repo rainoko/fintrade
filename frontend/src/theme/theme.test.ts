@@ -125,6 +125,23 @@ describe('theme', () => {
     expectPerceptuallyDistinct(theme.palette.riskBreach.main, theme.palette.signal.sell)
   })
 
+  it('defines a risk-breach color that clears WCAG AA 4.5:1 text contrast against both white and its own background (frontend-indicator-seasons-badge-followups-followups-followups)', () => {
+    // RiskBreachBanner.tsx paints `riskBreach.main` directly as 16px/
+    // fontWeight:700 text/icon color, both against a white page background
+    // and against `riskBreach.background` as the banner's own fill --
+    // 16px bold is below WCAG's ~18.7px-bold "large text" threshold, so the
+    // normal-text 4.5:1 minimum applies in both places. An earlier revision
+    // of `main` (#d52651, and before that #d32f2f) only cleared ~4.35:1
+    // against `background` -- a false ">=4.5:1" claim recorded in both a
+    // theme.ts comment and a task decisions entry that this test would have
+    // caught had it existed then.
+    const white = '#ffffff'
+    expect(contrastRatio(theme.palette.riskBreach.main, white)).toBeGreaterThanOrEqual(4.5)
+    expect(
+      contrastRatio(theme.palette.riskBreach.main, theme.palette.riskBreach.background),
+    ).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('defines a divergence-marker color distinct from the BUY/SELL signal colors (frontend-divergence-markers)', () => {
     expect(theme.palette.divergence.main).toMatch(/^#/)
     expect(theme.palette.divergence.main).not.toBe(theme.palette.signal.buy)

@@ -3,7 +3,7 @@
   "title": "Follow-up from PR #201 review (frontend-indicator-seasons-badge-followups-followups): riskBreach.main/background WCAG contrast overclaim",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-indicator-seasons-badge-followups-followups"],
   "references": [
     "docs/tasks/frontend-indicator-seasons-badge-followups-followups.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "theme.ts's new riskBreach.main comment (and the corresponding frontend-indicator-seasons-badge-followups-followups `decisions` entry) both claim the new riskBreach.main (#d52651) 'clears both a >=15 ΔE margin from every other palette color and >=4.5:1 WCAG contrast against white and against `background` below'. Independently recomputed (same relativeLuminance/contrastRatio formulas theme.test.ts already uses): #d52651 vs riskBreach.background (#fdecea) is actually ~4.3459:1, below the 4.5:1 AA floor for normal text -- not the claimed >=4.5:1. This is not a regression from this PR (the pre-PR value, #d32f2f vs #fdecea, was ~4.3540:1, also failing, so the change is a wash on this specific pairing) but it is a new, false, permanently-recorded compliance claim in both a code comment and the task's decision-memory log. It matters in practice because components/common/RiskBreachBanner/RiskBreachBanner.tsx:37,41 paints theme.palette.riskBreach.main as 16px/fontWeight:700 text (below WCAG's ~18.7px bold 'large text' threshold, so the 4.5:1 normal-text minimum applies) directly onto theme.palette.riskBreach.background as the box fill -- a real, currently-shipping AA contrast gap that theme.test.ts's WCAG-contrast test block (added by frontend-indicator-seasons-badge-followups) never checks, since that block only covers the four season colors against white. Fix: (a) correct the false comment/decision claims to state the actual ~4.35:1 figure and that it's a known pre-existing gap, and (b) separately decide whether to actually close the gap (e.g. lighten riskBreach.background or further adjust riskBreach.main, while re-verifying the >=15 ΔE76 margins from every other palette color and the >=4.5:1 contrast against white are preserved) or explicitly accept it as a known limitation, and add a theme.test.ts assertion for the riskBreach.main-vs-background pairing either way so this doesn't silently drift again.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Independently re-verified the contrast claim before touching anything: reimplemented theme.test.ts's exact relativeLuminance/contrastRatio formulas in a standalone script and computed contrastRatio('#d52651', '#fdecea') = 4.3459:1 (matches the task description's ~4.35:1 and the prior review chain's figure -- not overclaimed, not underclaimed). Chose option (a) (actually close the gap) rather than (b) (just fix the comment): darkened riskBreach.main from #d52651 to #cb244d, same hue (345.27deg -> 345.27deg) and saturation (69.7% -> 69.9%), lightness only (49.2% -> 46.9%) -- the same 'same hue/saturation, lower lightness' technique already used for the season colors. Verified the new value clears contrastRatio(main, background) = 4.7098:1 and contrastRatio(main, white) = 5.3862:1, both >=4.5:1 with real margin (not borderline), while every pairwise CIE76 ΔE from every other palette color stays >=18.6 (kangarooTail.main is the closest at 18.62, still well above the 15 floor; signal.sell is 20.89). Rejected (b) alone because the gap is easy to close without materially risking the ΔE guards (confirmed by scanning lightness from 49% down to 40% and checking both the contrast curve and the kangarooTail/sell ΔE curves before picking a value with comfortable margin on both), so there was no need to just document-and-accept a fixable AA violation on a currently-shipping banner. Also corrected the theme.ts comment's false '>=4.5:1 WCAG contrast against white and against background' claim (which was true against white at the old value but false against background) to state the actual verified numbers and explain the darkening step, and added a new theme.test.ts assertion (contrastRatio(riskBreach.main, riskBreach.background) >= 4.5 and contrastRatio(riskBreach.main, white) >= 4.5) so this pairing is now locked in by a test rather than only a comment.",
+      "rationale": "Three prior rounds of this followup chain each had someone assert a contrast/distance number the next reviewer had to recompute and found wrong -- the task explicitly asked for independent re-verification before any change, so verifying first (and finding the ~4.35:1 figure accurate) was necessary before deciding whether a color change was even warranted, rather than trusting the description. Picking a lightness with real margin above both the 4.5:1 floor (4.71:1 chosen, not a borderline 4.51:1) and the 15 ΔE76 floor (18.6 minimum remaining, not a borderline 15.1) avoids leaving a value that could silently regress back under either floor from a future rounding change or reviewer's differently-rounded recomputation -- the exact failure mode that caused this three-round chain in the first place."
+    }
+  ],
   "questions": []
 }
