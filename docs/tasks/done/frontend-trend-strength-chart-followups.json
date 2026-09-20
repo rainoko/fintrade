@@ -3,7 +3,7 @@
   "title": "Follow-ups from frontend-trend-strength-chart PR review (#176)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-trend-strength-chart"
   ],
@@ -45,5 +45,12 @@
     "pr_number": 207,
     "pr_url": "https://github.com/rainoko/fintrade/pull/207",
     "pushed_at": "2026-09-20T16:55:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:23:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups, frontend-profit-target-display-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. This task's own change (the new metricHelpContent.test.ts test exercising ADX_RECENT_LOW_LOOKBACK_BARS=20's trailing-window truncation) was hand-verified: 25-bar fixture with a true all-time low (1.0) outside the trailing 20-bar window and a true in-window low (15.0, first occurring at the window's own first bar) -- confirmed the assertion correctly reports the in-window low, not the all-time low. Full frontend suite (690 tests) and backend suite (929 tests) pass, coverage 99.72%/99.94% respectively (gate 90%). eslint/tsc/mypy clean; ruff findings on main are pre-existing in backend test files untouched by this PR. No findings specific to this task's own change."
   }
 }

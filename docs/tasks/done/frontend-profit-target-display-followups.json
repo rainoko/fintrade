@@ -3,7 +3,7 @@
   "title": "Profit target + reward:risk display \u2014 non-blocking review follow-ups",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-profit-target-display"
   ],
@@ -39,5 +39,23 @@
     "pr_number": 207,
     "pr_url": "https://github.com/rainoko/fintrade/pull/207",
     "pushed_at": "2026-09-20T16:55:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T17:23:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/207",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RewardRiskBadge.tsx's new `failureAriaLabel` prop parameterizes the warning icon's `aria-label` content, but doesn't fix the pre-existing (not introduced by this PR) reason that label is never actually announced to a screen reader: MUI's `SvgIcon` defaults `aria-hidden=\"true\"` whenever no `titleAccess` prop is supplied, and neither the old nor the new code passes one -- confirmed live (MU stock detail page): the rendered DOM has both `aria-hidden=\"true\"` and `aria-label=\"...\"` simultaneously on the same `<svg>`, and `aria-hidden=\"true\"` removes it from the accessibility tree regardless of the label. Non-blocking (pre-existing gap, not a regression); tracked as frontend-profit-target-display-followups-followups.",
+        "file": "frontend/src/components/common/RewardRiskBadge/RewardRiskBadge.tsx",
+        "line": 80
+      },
+      {
+        "summary": "The new frontend/src/utils/profitTargetHelpText.ts is domain-specific content (Elder ch.58/53 citations, Autoenvelope/protective-stop terminology) placed in `utils/`, which Frontend.md \u00a73 documents as for domain-agnostic helpers -- a defensible, well-reasoned call given it's genuinely shared by exactly two feature registries and the alternative (one registry importing the other) is the established anti-pattern, but arguable enough to be worth an explicit doc note or a reconsidered location. Non-blocking; tracked as frontend-profit-target-display-followups-followups.",
+        "file": "frontend/src/utils/profitTargetHelpText.ts",
+        "line": null
+      }
+    ],
+    "notes": "Reviewed as part of PR #207, a batched PR covering five followup tasks (this one plus frontend-trend-strength-chart-followups, frontend-volume-indicators-chart-followups, frontend-divergence-markers-followups, frontend-tide-region-chart-shading-followups); see this PR's own COMMENTED-type review for the full cross-task verification detail. Live browser walkthrough (MU, a BUY-signal ticker) confirmed the RewardRiskBadge renders correctly with the warning icon and '0.3:1' ratio below the 2:1 minimum on the stock detail page's ProfitTargetDisplay. The profitTargetHelpText.ts extraction was verified to produce byte-identical concatenated definition/elderContext strings to the pre-PR hardcoded versions in both features/stocks and features/portfolio's metricHelpContent.ts (confirmed via the full metricHelpContent.test.ts suites passing unchanged, which don't assert against the raw definition/elderContext strings directly but do exercise interpretValue against them). Full frontend suite (690 tests, 99.72% coverage) and backend suite (929 tests, 99.94% coverage) pass; eslint/tsc/mypy clean. Two non-blocking findings above, both isolated to this task's own change; filed as docs/tasks/frontend-profit-target-display-followups-followups.json rather than blocking acceptance, since neither is a regression (both are narrow/pre-existing-adjacent) and both have real tradeoffs on the other side (an established, if imperfect, precedent for each)."
   }
 }
