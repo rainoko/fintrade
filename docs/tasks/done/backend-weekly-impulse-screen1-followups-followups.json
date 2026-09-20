@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #188 review (backend-weekly-impulse-screen1-followups)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-weekly-impulse-screen1-followups"],
   "references": [
     "docs/tasks/backend-weekly-impulse-screen1-followups.json",
@@ -39,16 +39,10 @@
     "pushed_at": "2026-09-20T00:00:00Z"
   },
   "review": {
-    "reviewed_at": "2026-09-20T13:02:49Z",
+    "reviewed_at": "2026-09-20T13:12:03Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/197",
-    "verdict": "needs_work",
-    "comments": [
-      {
-        "summary": "valueZoneHelp.elderContext's new copy claims \"this pair [EMA(13)/EMA(26)] still feeds ... the Elder-Ray baseline\" -- factually wrong for EMA(26): app/indicators/elder_ray.py's bull_power/bear_power only ever take ema_13 (high - ema_13, low - ema_13), never EMA(26), per docs/Analyse.md §4 row 5 (\"Elder-Ray (Bull/Bear Power) | Daily | EMA 13\") and the correctly-worded sibling ema13Help.elderContext a few lines above in the same file (\"Also the baseline Elder-Ray measures Bull/Bear Power against\" -- EMA13 only, no EMA26 mention). Predates this PR (the old stale text and the checklist item's own suggested rewording both made the same over-broad claim), but since this PR's whole purpose is fixing inaccurate copy in this exact sentence, the Elder-Ray half needs narrowing to EMA(13) only (the Impulse-gate half of the same sentence is accurate as written -- EMA(26) does feed daily MACD-Histogram, the Impulse System's second input).",
-        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
-        "line": 589
-      }
-    ],
-    "notes": "git diff main...task/backend-weekly-impulse-screen1-followups-followups --stat confirmed only metricHelpContent.ts (the valueZoneHelp.elderContext string) plus task-JSON bookkeeping changed -- no app logic. Backend: pytest --cov=app --cov-fail-under=90 -- 920 passed, 99.94% coverage. Frontend: vitest run --coverage -- 684 passed / 1 failed (PortfolioPage.test.tsx 'adds a new position end to end', a 5000ms timeout under coverage-instrumentation CPU load); confirmed pre-existing environmental flake unrelated to this PR (passes standalone 3/3 reruns, zero relation to the changed file, already documented as this same flake in prior reviews e.g. docs/tasks/done/backend-indicator-rsi.json's pr_decision.notes) -- not blocking. tsc -b --noEmit, eslint ., backend ruff check app/, mypy all clean. Real browser walkthrough: started backend (FINTRADE_DATA_PROVIDER_MODE=fixture) + frontend dev server, loaded /stocks/AAPL, opened the Value Zone MetricHelp tooltip via a Playwright script (no MCP browser tools available this session) -- new copy renders correctly, zero console errors, zero failed requests. make e2e: all 16 Playwright specs passed. Broad grep sweep across frontend/src for any other remaining stale Tide/Screen-1 copy from the PR #187 methodology change found nothing else stale -- every other reference (tideHelp, ema13Help, ema26Help, tideRegionHelp, ScreensPanel.tsx, PriceChart.tsx, signalExplanation.ts, methodologyContent.ts, api/types.ts) already correctly frames Screen 1 as the weekly Impulse System color. One blocking finding (Elder-Ray/EMA26 misattribution, posted inline on the PR) sends this back to implementing rather than accepted."
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Re-review (round 1) after the prior needs_work verdict. Diff since that review: valueZoneHelp.elderContext's Elder-Ray clause narrowed to EMA(13) alone, splitting the daily-Impulse-gate clause into EMA(13) (direct input) and EMA(26) (feeds that gate's MACD-Histogram half) -- exactly the fix requested. Verified the new copy against backend/app/indicators/elder_ray.py: bull_power(high, ema_13) and bear_power(low, ema_13) take only ema_13, never ema_26 -- matches docs/Analyse.md §4 row 5 ('Elder-Ray (Bull/Bear Power) | Daily | EMA 13') and the already-correct sibling ema13Help.elderContext. EMA(26)-feeds-MACD-Histogram half also verified accurate against macd.py/impulse.py. Grepped frontend/src and frontend/tests for any test asserting the exact old/new elderContext wording -- none found (metricHelpContent.test.ts only asserts valueZoneHelp.interpretValue behavior, never the elderContext string), so no test needed updating. Backend: pytest --cov=app --cov-fail-under=90 -- 920 passed, 99.94% coverage (no backend files in this diff). Frontend: vitest run (no coverage) -- 685/685 passed; vitest run --coverage reproduced the same single pre-existing flake as the prior review round (PortfolioPage.test.tsx 'adds a new position end to end', 5000ms timeout under coverage-instrumentation CPU load) -- reran standalone and it passed, confirmed unrelated to this diff, not blocking. tsc -b --noEmit and eslint . both clean. Real browser walkthrough: started backend (FINTRADE_DATA_PROVIDER_MODE=fixture) + frontend dev server, navigated to /stocks/AAPL, opened the Value Zone MetricHelp tooltip via a Playwright script -- new copy renders verbatim, zero console errors, zero failed requests. Ran the code-review skill against the diff independently -- no findings (confirmed the same elder_ray.py/macd.py/impulse.py cross-check). Diff is narrowly scoped to the one elderContext string plus task-board bookkeeping -- no app logic, no API/schema change (no OpenAPI regen needed), no new/changed components (no placement review needed). No blocking or non-blocking findings this round; no follow-up task needed."
   }
 }
