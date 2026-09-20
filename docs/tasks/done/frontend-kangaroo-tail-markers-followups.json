@@ -3,7 +3,7 @@
   "title": "Non-blocking review follow-ups from PR #165 (Kangaroo Tail markers)",
   "area": "frontend/pages/stocks",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-kangaroo-tail-markers"
   ],
@@ -33,5 +33,12 @@
     "pr_number": 203,
     "pr_url": "https://github.com/rainoko/fintrade/pull/203",
     "pushed_at": "2026-09-20T14:55:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T14:58:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/203",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full independent re-verification, not a diff skim. Reimplemented sRGB->XYZ->Lab->CIE76 from scratch in Python (own code, no reuse of any script/number from theme.test.ts or the PR author's session) and confirmed exactly: kangarooTail.main (#ad1457) vs signal.sell (#c62828) = 37.7794 ΔE76; vs warning.main (#ed6c02, MUI default light-theme value, confirmed via `createTheme({palette:{mode:'light'}})`) = 70.9139; vs info.main (#0288d1) = 82.6460; vs riskBreach.main (#cb244d, its actual closest palette neighbor) = 18.6230. All match the PR's claimed ~37.78/~70.9/~82.6/~18.62 to within rounding. A parallel code-review skill pass (own independent Node reimplementation) reached the identical numbers, corroborating both. Confirmed theme.test.ts's two new assertions (`expectPerceptuallyDistinct(main, theme.palette.warning.main)` / `...info.main`) read theme.palette.* live, not hardcoded hex literals, and are not tautological -- MIN_DISTINCT_DELTA_E=15 is a real, independently-satisfiable floor that would fail if kangarooTail.main or warning/info.main's hex ever moved close together. Assessed the no-hex-change decision: the task's checklist item was phrased as \"a future pass could consider\", not a firm defect, and is explicitly non-blocking in its own text (marker shapes already differ on-chart); ΔE76 well over 2x the codebase's own floor is real evidence the raw-hue-degree framing in the original finding doesn't hold up perceptually, so declining to change a well-separated color to avoid unjustified churn/new-collision risk is a sound, non-self-serving rationale, not merely convenient. `decisions` entry meets CLAUDE.md's bar (concrete decision + rationale with rejected alternative). ruff/mypy not re-run (backend untouched by this PR); `yarn eslint`/`yarn tsc -b --noEmit` clean; backend pytest --cov 99.94%, frontend vitest --coverage 99.64%/98.94% branches, both well over the 90% gate, no regressions; `theme.test.ts` 7/7 pass; `scripts/validate_tasks.py` clean. No UI-facing change (comment + test-only diff, no rendered color/component changed) so browser walkthrough and e2e-test (step 9/9a) were correctly skipped -- explicitly noting that here rather than silently omitting. No blocking or new non-blocking findings; no new followups task needed."
   }
 }
