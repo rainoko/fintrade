@@ -130,46 +130,56 @@ def _sum_or_none(values: list[float | None]) -> float | None:
     return sum(present) if present else None
 
 
+@dataclass(frozen=True)
+class _QualifyingTransaction:
+    """A raw `InsiderTransaction` that has already passed `detect_insider_clusters`'s own
+    classification ("buy"/"sell" only) and insider/start_date presence checks, captured once at
+    that filter boundary -- see this task's (`backend-insider-transaction-clusters-followups`)
+    `decisions` entry for why. Unlike `InsiderTransaction` itself, `insider`/`start_date` are
+    guaranteed non-null here by construction, so `_find_clusters` needs no runtime asserts or a
+    mypy `type: ignore` to narrow them back out of `str | None`/`date | None`.
+    """
+
+    insider: str
+    start_date: date
+    shares: float | None
+    value: float | None
+
+
 def _find_clusters(
-    transactions: list[InsiderTransaction],
+    transactions: list[_QualifyingTransaction],
     direction: Direction,
     window_days: int,
     min_distinct_insiders: int,
 ) -> list[InsiderCluster]:
     """Greedy, anchored, non-overlapping scan over `transactions` (already filtered to one
-    direction, sorted by `start_date` ascending, every member has a non-null `insider`/
-    `start_date`): for each not-yet-consumed transaction `i`, extends a window forward while
-    the next transaction's `start_date` is still within `window_days` of transaction `i`'s own
-    date (the window's anchor). If the resulting window's distinct-insider count reaches
-    `min_distinct_insiders`, it's reported as a cluster and the scan resumes strictly after the
-    window (clusters never overlap); otherwise the scan advances by one transaction and
-    re-anchors there. See this module's own docstring for why an anchored, non-overlapping scan
-    was chosen over a continuously-sliding window.
+    direction and sorted by `start_date` ascending): for each not-yet-consumed transaction `i`,
+    extends a window forward while the next transaction's `start_date` is still within
+    `window_days` of transaction `i`'s own date (the window's anchor). If the resulting window's
+    distinct-insider count reaches `min_distinct_insiders`, it's reported as a cluster and the
+    scan resumes strictly after the window (clusters never overlap); otherwise the scan advances
+    by one transaction and re-anchors there. See this module's own docstring for why an anchored,
+    non-overlapping scan was chosen over a continuously-sliding window.
     """
     clusters: list[InsiderCluster] = []
     n = len(transactions)
     i = 0
     while i < n:
         anchor_date = transactions[i].start_date
-        assert anchor_date is not None
         j = i
         while j + 1 < n:
             next_date = transactions[j + 1].start_date
-            assert next_date is not None
             if next_date - anchor_date > timedelta(days=window_days):
                 break
             j += 1
         window = transactions[i : j + 1]
-        distinct_insiders = sorted({t.insider for t in window if t.insider is not None})
+        distinct_insiders = sorted({t.insider for t in window})
         if len(distinct_insiders) >= min_distinct_insiders:
-            window_start = window[0].start_date
-            window_end = window[-1].start_date
-            assert window_start is not None and window_end is not None
             clusters.append(
                 InsiderCluster(
                     direction=direction,
-                    window_start_date=window_start,
-                    window_end_date=window_end,
+                    window_start_date=window[0].start_date,
+                    window_end_date=window[-1].start_date,
                     insiders=distinct_insiders,
                     transaction_count=len(window),
                     total_shares=_sum_or_none([t.shares for t in window]),
@@ -201,17 +211,24 @@ def detect_insider_clusters(
     an empty list if none qualify (including when `transactions` itself is empty, e.g.
     `ExtendedData.unavailable_reason` is set).
     """
-    by_direction: dict[Direction, list[InsiderTransaction]] = {"buy": [], "sell": []}
+    by_direction: dict[Direction, list[_QualifyingTransaction]] = {"buy": [], "sell": []}
     for transaction in transactions:
         if transaction.start_date is None or transaction.insider is None:
             continue
         classification = classify_transaction(transaction.transaction_text)
         if classification == "buy" or classification == "sell":
-            by_direction[classification].append(transaction)
+            by_direction[classification].append(
+                _QualifyingTransaction(
+                    insider=transaction.insider,
+                    start_date=transaction.start_date,
+                    shares=transaction.shares,
+                    value=transaction.value,
+                )
+            )
 
     clusters: list[InsiderCluster] = []
     for direction, direction_transactions in by_direction.items():
-        direction_transactions.sort(key=lambda t: t.start_date)  # type: ignore[arg-type,return-value]
+        direction_transactions.sort(key=lambda t: t.start_date)
         clusters.extend(_find_clusters(direction_transactions, direction, window_days, min_distinct_insiders))
 
     clusters.sort(key=lambda c: c.window_end_date, reverse=True)

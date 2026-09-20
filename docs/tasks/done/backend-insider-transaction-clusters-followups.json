@@ -1,0 +1,68 @@
+{
+  "id": "backend-insider-transaction-clusters-followups",
+  "title": "Insider-transaction cluster detection \u2014 non-blocking review follow-ups",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-insider-transaction-clusters"
+  ],
+  "references": [
+    "docs/tasks/backend-insider-transaction-clusters.json#review",
+    "https://github.com/rainoko/fintrade/pull/193"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #193 (backend-insider-transaction-clusters), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "backend-insider-transaction-clusters's own checklist item 5 asked to 'file/note the frontend-consumption follow-up rather than implementing it here' (a future 'cluster detected' badge alongside the existing raw insider-transactions table added by frontend-fundamental-data-panel) -- that item was marked done but no such follow-up task or note was actually created anywhere (checked docs/tasks/index.json, docs/tasks/*.json, docs/tasks/done/*.json, and the task's own decisions array -- none exist). Create/scope that frontend task (a badge or similar UI surface next to FundamentalDataPanel's insider-transactions table, reading AnalysisResponse.insider_clusters) when it's next prioritized, or otherwise decide it's not worth doing and record why.",
+      "done": true
+    },
+    {
+      "step": "app/signals/insider_clusters.py's `_find_clusters`/`detect_insider_clusters` lean on three separate `assert ... is not None` statements (for anchor_date/next_date/window_start+window_end) plus a blanket `# type: ignore[arg-type,return-value]` on the sort-by-start_date call, all for mypy type-narrowing, with no inline rationale comment next to the ignore. Functionally correct today (mypy and the full test suite pass, and the invariant genuinely holds -- both direction lists are pre-filtered to non-null insider/start_date before reaching this code), but diverges from the pattern in sibling detection modules (support_resistance.py, divergence.py, kangaroo_tail.py), none of which need runtime asserts or a type: ignore for the equivalent logic. Worth a narrower fix next time this module is touched -- e.g. a small typed tuple/dataclass representing 'a transaction with guaranteed non-null insider + start_date' constructed once at the classify/filter boundary, so downstream code (including the sort) doesn't need asserts or an ignore at all.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Filed docs/tasks/frontend-insider-clusters-badge.json (depends_on backend-insider-transaction-clusters, area frontend/pages/stocks, skill add-frontend-feature) as the frontend-consumption follow-up, mirrored in docs/tasks/index.json, rather than implementing the badge itself in this task.",
+      "rationale": "This followups task's own area (backend/signals) and lack of a frontend skill make it the wrong place to actually build UI -- the checklist item itself only asked to 'create/scope that frontend task,' matching this codebase's established pattern of a backend detection task's frontend-consumption follow-up living as its own separately-prioritized task (e.g. backend-support-resistance -> frontend-support-resistance-overlay, backend-kangaroo-tail-pattern -> frontend-kangaroo-tail-markers, backend-profit-target -> frontend-profit-target-display). The new task's checklist was scoped by reading frontend-fundamental-data-panel's own decisions (which deliberately deferred clustering display, not just clustering detection, to a later task) and the InsiderClusterOut schema actually shipped in PR #193, so it asks for a badge/callout over the real field shape (direction, insiders, window dates, transaction_count, total_shares/total_value) rather than a vaguer restatement of the original task description."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the assert+type:ignore pattern with a narrower typed approach: a new frozen `_QualifyingTransaction` dataclass (insider: str, start_date: date, shares: float | None, value: float | None) constructed once in `detect_insider_clusters`'s own classify/filter loop (the exact point where `transaction.start_date is None or transaction.insider is None` is already checked), replacing `list[InsiderTransaction]` as `_find_clusters`'s parameter/working type. All three `assert ... is not None` statements and the blanket `# type: ignore[arg-type,return-value]` on the sort call are removed entirely -- mypy narrows `insider`/`start_date` from the dataclass's own non-Optional field types, with nothing left to assert or ignore.",
+      "rationale": "A clean fix was available and straightforward (no rejected-as-not-viable alternative here), matching exactly the narrower fix this task's own checklist item suggested. `_QualifyingTransaction` is deliberately minimal (only the 4 fields `_find_clusters`/`InsiderCluster` construction actually reads, not a full `InsiderTransaction` copy) and module-private (a leading underscore, not exported), since nothing outside this module needs to see the pre-filtered intermediate representation -- `detect_insider_clusters`'s own public signature (still `list[InsiderTransaction]` in, `list[InsiderCluster]` out) is unchanged. Verified: `ruff check`/`mypy app/signals/insider_clusters.py` clean, `pytest tests/unit/signals/test_insider_clusters.py` (26 passed) and the full backend suite (920 passed, insider_clusters.py at 100% line/branch coverage) both green -- the existing test suite only exercises the public `detect_insider_clusters` function, so no test needed updating. This brings the module back in line with the sibling pattern (support_resistance.py/divergence.py/kangaroo_tail.py), none of which need runtime asserts or a type-narrowing ignore for equivalent Optional-filtering logic."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-insider-transaction-clusters-followups",
+    "pr_number": 194,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/194",
+    "pushed_at": "2026-09-20T11:31:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T11:35:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/194",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "frontend-insider-clusters-badge.json is well-scoped: depends_on backend-insider-transaction-clusters (done), area frontend/pages/stocks + skill add-frontend-feature both appropriate, references resolve to real current files/symbols (FundamentalDataPanel.tsx, metricHelpContent.ts, both done-task decisions arrays it cites, docs/Analyse.md, docs/ideas.md -- checked FundamentalDataPanel.tsx and metricHelpContent.ts exist and referenced concepts are real). Checklist covers all four asked-for concerns (badge placement/content design including multi-cluster handling, implementation, explicit empty-state handling distinct from the unavailable-provider case, MetricHelp content, and tests+Storybook+90% gate) as five discrete items, matching the shape/granularity of done frontend tasks like frontend-profit-target-display.json (spot-checked). No decisions/git/review/pr_decision fields present, correctly matching convention for a fresh planned task.",
+        "file": "docs/tasks/frontend-insider-clusters-badge.json",
+        "line": 1
+      },
+      {
+        "summary": "insider_clusters.py refactor confirmed genuinely behavior-preserving, not just moving the problem: _QualifyingTransaction is constructed at the exact same filter point (`transaction.start_date is None or transaction.insider is None`) the old code already checked before appending to by_direction, so nothing new is being narrowed or assumed -- mypy narrows insider/start_date from the dataclass's own non-Optional field types with nothing left to assert. All three runtime asserts and the blanket `# type: ignore[arg-type,return-value]` are removed with no replacement suppression added anywhere (grepped the full diff for type: ignore/noqa -- only the removed line matches). Public detect_insider_clusters signature/behavior unchanged; the one external caller (app/api/routers/stocks.py) is unaffected. mypy app (53 files) and ruff check on the touched files are both clean; the 7 pre-existing ruff findings elsewhere (test_stochastic.py, test_triple_screen.py, etc.) predate this PR and are untouched by it, confirmed via git show main:... on those files.",
+        "file": "backend/app/signals/insider_clusters.py",
+        "line": 133
+      }
+    ],
+    "notes": "gh pr checkout 194 (already on the branch, clean tree). Backend: pytest --cov=app --cov-fail-under=90 -> 920 passed, 99.94% coverage, insider_clusters.py at 100% line/branch. ruff check . and mypy app both clean except 7 pre-existing findings in files this PR doesn't touch (confirmed pre-existing on main). No test files changed by this PR -- verified correct, since the existing test suite only exercises the public detect_insider_clusters function and its behavior is unchanged. Dispatched code-review (medium effort) against the diff; it independently returned zero findings after checking the diff, removed-behavior, cross-file caller impact, reuse/simplification/efficiency, altitude, and CLAUDE.md-convention angles -- corroborating my own read. git diff main...task/backend-insider-transaction-clusters-followups --stat confirmed exactly the claimed scope: insider_clusters.py (57 changed), the followups task's own JSON, the new frontend-insider-clusters-badge.json, and index.json -- no surprise files. No API route/schema touched, so no backend/openapi.json regeneration required (confirmed empty diff on backend/openapi.json and backend/app/api/). No frontend/UI surface touched by this PR (backend-only refactor + task-board JSON) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as not applicable, not silently omitted. area is backend/signals: read the diff against docs/Analyse.md's insider-transaction/clustering framing (ch. 37 p. 147, per docs/ideas.md) -- purely a type-narrowing refactor with no change to the classification rule, window/threshold, or clustering scan logic, so no methodology drift possible; re-confirmed insider_clusters is still referenced nowhere in confidence.py/triple_screen.py/impulse.py/portfolio/ (unaffected by this PR, already true on main). scripts/validate_tasks.py: 199 files, no violations. index.json mirror correct (state planned->testing for the followups task itself, new frontend-insider-clusters-badge entry added with matching path). Both of this task's own checklist items ('create/scope the frontend follow-up' and 'fix the assert+type:ignore pattern') have real decisions entries with rejected-alternative reasoning, not just a bare 'done' marker. No pre-existing pr_decision or review on this task to clear (first review pass). No new non-blocking findings surfaced beyond what this task itself was already created to track, so no further follow-up task filed. Note: I mistakenly ran `git checkout main -- .` mid-review while diffing against main for the pre-existing-ruff-findings check, which briefly reverted the three tracked files this PR modifies to main's version in the working tree; caught immediately via git status, restored with `git checkout HEAD -- <files>` before any further action, and confirmed a clean zero-diff against HEAD afterward -- no commit was made in between, so nothing was lost."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T11:39:37Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest --cov=app --cov-report=term-missing myself: 920 passed, 99.94% coverage, insider_clusters.py 100% line/branch -- matches pr-reviewer's numbers exactly. ruff check . reproduces the same 7 pre-existing findings (confirmed via a throwaway worktree of main that they pre-date this PR, untouched by its diff) and mypy app is clean. Read the full diff (git diff main...task/backend-insider-transaction-clusters-followups): insider_clusters.py's _QualifyingTransaction dataclass is constructed at the exact same `transaction.start_date is None or transaction.insider is None` filter point the old code already checked before appending to by_direction, and detect_insider_clusters's public signature/behavior is unchanged -- traced the before/after of _find_clusters and the sort call and confirmed no logic changed, only the type-narrowing mechanism. Also read frontend-insider-clusters-badge.json in full: depends_on and references (FundamentalDataPanel.tsx, metricHelpContent.ts, both cited done-task decisions, InsiderClusterOut in backend/openapi.json and frontend/src/api/types.ts) all independently confirmed to exist/resolve, and the five checklist items cover placement/content design, implementation, an explicit empty-state distinct from the unavailable-provider case, MetricHelp content, and tests+Storybook+coverage -- well-scoped. docs/tasks/index.json mirror and scripts/validate_tasks.py (199 files, no violations) both confirmed clean."
+  }
+}
