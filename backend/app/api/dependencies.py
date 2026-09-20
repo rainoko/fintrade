@@ -9,6 +9,7 @@ inline in app/data/cache.py.
 """
 
 from collections.abc import Iterator
+from functools import lru_cache
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -44,7 +45,23 @@ def get_data_provider(db: Session = Depends(get_db)) -> DataProvider:
     return CachedDataProvider(YFinanceProvider(), StooqProvider(), db)
 
 
-_ibkr_provider_singleton: IBKRProvider | None = None
+@lru_cache(maxsize=1)
+def _get_ibkr_provider_singleton() -> IBKRProvider:
+    """The lazily-constructed, process-wide `IBKRProvider` instance backing
+    `get_ibkr_provider` below.
+
+    `@lru_cache(maxsize=1)` gives thread-safe lazy-init for free -- matching
+    `get_settings()`'s own pattern (app/config.py) -- rather than hand-rolled
+    double-checked locking on a plain module global, which (found during PR #190's
+    re-review, docs/tasks/backend-ibkr-data-provider-followups.json) let two
+    concurrent first-requests each observe an unset value and construct their own
+    independent `IBKRProvider`, silently defeating the cross-request scanner-params
+    cache / run_scanner throttle this singleton exists for. Tests reset this between
+    runs via `_get_ibkr_provider_singleton.cache_clear()` (see
+    tests/unit/api/test_dependencies.py's autouse fixture), the same way
+    `get_settings.cache_clear()` is already used.
+    """
+    return IBKRProvider(base_url=get_settings().ibkr_base_url)
 
 
 def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
@@ -62,21 +79,18 @@ def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
     consuming endpoint).
 
     Unlike `get_data_provider` above, this does **not** construct a fresh `IBKRProvider`
-    per request: a process-wide singleton is created once (lazily, on first use while
-    enabled) and reused across every subsequent call, never closed at the end of a
-    request. `IBKRProvider`'s scanner-params TTL cache and `run_scanner` 1-req/sec
-    throttle are both in-memory instance state -- a per-request instance (closed at the
-    end of every request) would silently defeat both, providing zero cross-request rate
-    -limit protection despite the class's own design assuming one instance persists
-    across calls (see this task's followups entry). The singleton's HTTP client is
-    intentionally never closed here; it lives for the app process's lifetime, same as
-    e.g. a module-level SQLAlchemy engine would.
+    per request: a process-wide singleton (`_get_ibkr_provider_singleton` above) is
+    created once (lazily, on first use while enabled) and reused across every
+    subsequent call, never closed at the end of a request. `IBKRProvider`'s
+    scanner-params TTL cache and `run_scanner` 1-req/sec throttle are both in-memory
+    instance state -- a per-request instance (closed at the end of every request) would
+    silently defeat both, providing zero cross-request rate-limit protection despite
+    the class's own design assuming one instance persists across calls. The singleton's
+    HTTP client is intentionally never closed here; it lives for the app process's
+    lifetime, same as e.g. a module-level SQLAlchemy engine would.
     """
     if not get_settings().ibkr_enabled:
         yield None
         return
 
-    global _ibkr_provider_singleton
-    if _ibkr_provider_singleton is None:
-        _ibkr_provider_singleton = IBKRProvider(base_url=get_settings().ibkr_base_url)
-    yield _ibkr_provider_singleton
+    yield _get_ibkr_provider_singleton()
