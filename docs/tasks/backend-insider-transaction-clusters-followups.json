@@ -3,7 +3,7 @@
   "title": "Insider-transaction cluster detection — non-blocking review follow-ups",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-insider-transaction-clusters"
   ],
@@ -15,11 +15,25 @@
   "checklist": [
     {
       "step": "backend-insider-transaction-clusters's own checklist item 5 asked to 'file/note the frontend-consumption follow-up rather than implementing it here' (a future 'cluster detected' badge alongside the existing raw insider-transactions table added by frontend-fundamental-data-panel) -- that item was marked done but no such follow-up task or note was actually created anywhere (checked docs/tasks/index.json, docs/tasks/*.json, docs/tasks/done/*.json, and the task's own decisions array -- none exist). Create/scope that frontend task (a badge or similar UI surface next to FundamentalDataPanel's insider-transactions table, reading AnalysisResponse.insider_clusters) when it's next prioritized, or otherwise decide it's not worth doing and record why.",
-      "done": false
+      "done": true
     },
     {
       "step": "app/signals/insider_clusters.py's `_find_clusters`/`detect_insider_clusters` lean on three separate `assert ... is not None` statements (for anchor_date/next_date/window_start+window_end) plus a blanket `# type: ignore[arg-type,return-value]` on the sort-by-start_date call, all for mypy type-narrowing, with no inline rationale comment next to the ignore. Functionally correct today (mypy and the full test suite pass, and the invariant genuinely holds -- both direction lists are pre-filtered to non-null insider/start_date before reaching this code), but diverges from the pattern in sibling detection modules (support_resistance.py, divergence.py, kangaroo_tail.py), none of which need runtime asserts or a type: ignore for the equivalent logic. Worth a narrower fix next time this module is touched -- e.g. a small typed tuple/dataclass representing 'a transaction with guaranteed non-null insider + start_date' constructed once at the classify/filter boundary, so downstream code (including the sort) doesn't need asserts or an ignore at all.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Filed docs/tasks/frontend-insider-clusters-badge.json (depends_on backend-insider-transaction-clusters, area frontend/pages/stocks, skill add-frontend-feature) as the frontend-consumption follow-up, mirrored in docs/tasks/index.json, rather than implementing the badge itself in this task.",
+      "rationale": "This followups task's own area (backend/signals) and lack of a frontend skill make it the wrong place to actually build UI -- the checklist item itself only asked to 'create/scope that frontend task,' matching this codebase's established pattern of a backend detection task's frontend-consumption follow-up living as its own separately-prioritized task (e.g. backend-support-resistance -> frontend-support-resistance-overlay, backend-kangaroo-tail-pattern -> frontend-kangaroo-tail-markers, backend-profit-target -> frontend-profit-target-display). The new task's checklist was scoped by reading frontend-fundamental-data-panel's own decisions (which deliberately deferred clustering display, not just clustering detection, to a later task) and the InsiderClusterOut schema actually shipped in PR #193, so it asks for a badge/callout over the real field shape (direction, insiders, window dates, transaction_count, total_shares/total_value) rather than a vaguer restatement of the original task description."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the assert+type:ignore pattern with a narrower typed approach: a new frozen `_QualifyingTransaction` dataclass (insider: str, start_date: date, shares: float | None, value: float | None) constructed once in `detect_insider_clusters`'s own classify/filter loop (the exact point where `transaction.start_date is None or transaction.insider is None` is already checked), replacing `list[InsiderTransaction]` as `_find_clusters`'s parameter/working type. All three `assert ... is not None` statements and the blanket `# type: ignore[arg-type,return-value]` on the sort call are removed entirely -- mypy narrows `insider`/`start_date` from the dataclass's own non-Optional field types, with nothing left to assert or ignore.",
+      "rationale": "A clean fix was available and straightforward (no rejected-as-not-viable alternative here), matching exactly the narrower fix this task's own checklist item suggested. `_QualifyingTransaction` is deliberately minimal (only the 4 fields `_find_clusters`/`InsiderCluster` construction actually reads, not a full `InsiderTransaction` copy) and module-private (a leading underscore, not exported), since nothing outside this module needs to see the pre-filtered intermediate representation -- `detect_insider_clusters`'s own public signature (still `list[InsiderTransaction]` in, `list[InsiderCluster]` out) is unchanged. Verified: `ruff check`/`mypy app/signals/insider_clusters.py` clean, `pytest tests/unit/signals/test_insider_clusters.py` (26 passed) and the full backend suite (920 passed, insider_clusters.py at 100% line/branch coverage) both green -- the existing test suite only exercises the public `detect_insider_clusters` function, so no test needed updating. This brings the module back in line with the sibling pattern (support_resistance.py/divergence.py/kangaroo_tail.py), none of which need runtime asserts or a type-narrowing ignore for equivalent Optional-filtering logic."
     }
   ]
 }

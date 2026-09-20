@@ -1097,7 +1097,7 @@
       "id": "backend-insider-transaction-clusters-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-insider-transaction-clusters-followups.json"
     },
     {
@@ -1393,6 +1393,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-fundamental-data-panel-followups.json"
+    },
+    {
+      "id": "frontend-insider-clusters-badge",
+      "area": "frontend/pages/stocks",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-insider-clusters-badge.json"
     }
   ]
 }

@@ -1,0 +1,41 @@
+{
+  "id": "frontend-insider-clusters-badge",
+  "title": "\"Cluster detected\" badge for insider-transaction clusters",
+  "area": "frontend/pages/stocks",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": [
+    "backend-insider-transaction-clusters"
+  ],
+  "references": [
+    "frontend/src/features/stocks/components/FundamentalDataPanel.tsx",
+    "frontend/src/features/stocks/components/metricHelpContent.ts",
+    "docs/tasks/done/backend-insider-transaction-clusters.json#decisions",
+    "docs/tasks/done/frontend-fundamental-data-panel.json#decisions",
+    "docs/Analyse.md#extended-data-earningsdividend-dates-short-interest-insider-transactions",
+    "docs/ideas.md"
+  ],
+  "description": "Scoped out of backend-insider-transaction-clusters (PR #193) and tracked via backend-insider-transaction-clusters-followups's checklist: the backend now computes `AnalysisResponse.insider_clusters: InsiderClusterOut[]` (buy/sell direction, distinct insiders, window start/end dates, transaction count, total shares/value -- see backend/openapi.json's `InsiderClusterOut` schema), but nothing in the frontend reads it yet (grep-confirmed at the time this task was filed). `frontend-fundamental-data-panel` deliberately rendered the raw `insider_transactions` table with no client-side clustering, explicitly deferring cluster *detection* to the backend task and cluster *display* to this one (see that task's own decisions entry, 'Insider transactions are rendered raw...'). This task is the display-only follow-through: surface `insider_clusters` next to `FundamentalDataPanel`'s existing insider-transactions table -- a badge/callout naming the direction (buy/sell), the distinct-insider count, and the window dates, not a re-derivation of the clustering logic itself (that stays server-side, per the established divergence/kangaroo-tail/support-resistance precedent of detection-lives-in-the-backend). `insider_clusters` is purely informational (not wired into signal/confidence anywhere) -- this task must not change that; it's a display concern only.",
+  "checklist": [
+    {
+      "step": "Design the badge/callout placement and content: where it sits relative to FundamentalDataPanel's existing 'Insider Transactions' card/table (e.g. inline next to the section header, or a small callout above the table), what it shows per qualifying cluster (direction, distinct-insider count, window start/end dates, and optionally total shares/value when present), and how multiple simultaneous clusters (e.g. one buy cluster and one sell cluster, or several non-overlapping clusters of the same direction over the available filing history) are handled -- decide and record whether all clusters in the array are shown, or only the most recent one(s), consistent with `AnalysisResponse.insider_clusters` being an unbounded list.",
+      "done": false
+    },
+    {
+      "step": "Implement the badge/callout component, reading `AnalysisResponse.insider_clusters` (already present in the generated `frontend/src/api/types.ts` -- no backend/openapi.json change needed for this task).",
+      "done": false
+    },
+    {
+      "step": "Explicit empty/no-cluster-detected state: when `insider_clusters` is an empty array (the common case -- most tickers won't have a qualifying cluster at any given time), decide and implement how that reads -- e.g. no badge shown at all (silence-as-signal, matching the existing table's own 'no transactions' empty-state convention) vs. a quiet 'no cluster currently detected' note -- and make sure it's visually distinct from the unavailable-provider case (`ExtendedDataOut.unavailable_reason` set), which already suppresses the whole Insider Transactions card per frontend-fundamental-data-panel's own decision.",
+      "done": false
+    },
+    {
+      "step": "MetricHelp content for the badge (new metricHelpContent.ts registry entry, or extend the existing `insiderTransactionsHelp` entry if the badge is judged part of the same metric rather than a separate one -- decide and record which) explaining what a cluster is (Elder ch. 37 p. 147, 'several insiders buying/selling within a one-month period'), the 3-distinct-insiders/30-day-window threshold this app's own backend uses, and an interpretation of the CURRENT value (which cluster(s), if any, are showing) -- not a static definition alone.",
+      "done": false
+    },
+    {
+      "step": "Tests (component + any updated FundamentalDataPanel/StockDetailPage tests and fixtures) and a Storybook story covering: a buy cluster present, a sell cluster present, no clusters (empty array), and the unavailable-provider case; confirm the 90% coverage gate holds.",
+      "done": false
+    }
+  ]
+}
