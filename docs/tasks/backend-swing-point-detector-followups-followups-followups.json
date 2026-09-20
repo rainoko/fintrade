@@ -3,7 +3,7 @@
   "title": "_swing_extremes.py: rolling_extreme_masks re-implements _rolling's min_periods logic instead of calling it -- non-blocking review follow-up (round 3)",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-swing-point-detector-followups-followups"],
   "references": [
     "docs/tasks/backend-swing-point-detector-followups-followups.json#review",
@@ -14,9 +14,16 @@
   "checklist": [
     {
       "step": "PR #208 added a private `_rolling(series, span, *, require_full_window)` helper to backend/app/signals/_swing_extremes.py (computing `min_periods = span if require_full_window else 1` then `series.rolling(span, center=True, min_periods=min_periods)`), and both new `rolling_max_mask`/`rolling_min_mask` correctly call it. But the pre-existing `rolling_extreme_masks` function was left with its own inline duplicate of the exact same two lines (`min_periods = span if require_full_window else 1; rolling = series.rolling(span, center=True, min_periods=min_periods)`) instead of also calling `_rolling(...)`. Not a correctness bug today -- backend/tests/unit/signals/test_swing_extremes.py's own cross-check tests (`pd.testing.assert_series_equal(combined_max, solo_max)` etc.) would actually catch a future divergence between the two implementations, since they compare `rolling_extreme_masks`'s output against `rolling_max_mask`/`rolling_min_mask`'s. But it's still two hand-written copies of the same window-construction logic in one small module that just added a shared helper for exactly this purpose -- a future change to `_rolling`'s NaN-handling contract (e.g. a new `min_periods` policy) would need to be applied in two places to stay consistent, relying on the test suite to notice rather than there being only one place to change. Have `rolling_extreme_masks` call `_rolling(series, span, require_full_window=require_full_window)` too, the same way its two new sibling functions do.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "rolling_extreme_masks now calls _rolling(series, span, require_full_window=require_full_window) instead of re-deriving min_periods/.rolling(...) inline, matching rolling_max_mask/rolling_min_mask.",
+      "rationale": "This is the exact change the followup asked for; verified byte-identical behavior via the existing test_swing_extremes.py cross-check tests (which compare rolling_extreme_masks's output against rolling_max_mask/rolling_min_mask) and the full backend suite (935 passed), plus ruff/mypy clean on the file. No alternative approach was considered -- the shared helper already exists and has the exact same contract."
+    }
+  ],
   "questions": []
 }

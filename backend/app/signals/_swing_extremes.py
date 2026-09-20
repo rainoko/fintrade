@@ -70,6 +70,5 @@ def rolling_extreme_masks(
     ``.min()``) whose result it then throws away -- see
     ``docs/tasks/backend-swing-point-detector-followups-followups.json``'s ``decisions`` entry.
     """
-    min_periods = span if require_full_window else 1
-    rolling = series.rolling(span, center=True, min_periods=min_periods)
+    rolling = _rolling(series, span, require_full_window=require_full_window)
     return series == rolling.max(), series == rolling.min()
