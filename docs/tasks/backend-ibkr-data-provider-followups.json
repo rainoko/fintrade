@@ -36,10 +36,16 @@
       "rationale": "pr-reviewer's original review comment explicitly invited fixing these 'if convenient since you're already in this area' as part of resolving the two blocking findings on the same branch -- doing so avoids a near-duplicate PR re-touching the same two files (app/api/dependencies.py, docs/architecture/Backend.md) moments later. state is left as 'planned' (not flipped to 'done') because moving a task to done -- including the git mv into docs/tasks/done/ -- is documented as pr-reviewer's/pr-merger's call once a PR is actually reviewed and merged, not task-worker's to make unilaterally; pr-reviewer re-reviewing PR #190 will see both checklist items already checked and the actual diff (get_ibkr_provider now a process-wide singleton; Backend.md §3's httpx row updated) and can move this task to done in that same pass once PR #190 merges."
     },
     {
-      "timestamp": "2026-09-20T00:00:00Z",
+      "timestamp": "2026-09-20T10:20:00Z",
       "recorded_by": "task-worker",
       "decision": "Replaced app.api.dependencies's plain-module-global `_ibkr_provider_singleton` + hand-rolled `if ... is None:` check-then-set with a new private `@lru_cache(maxsize=1)`-wrapped factory function `_get_ibkr_provider_singleton()` that `get_ibkr_provider()` now calls instead of touching a global directly. Updated tests/unit/api/test_dependencies.py's two tests that previously did `monkeypatch.setattr(\"app.api.dependencies._ibkr_provider_singleton\", None)` to no longer need that (the module global no longer exists), and added a new `_reset_ibkr_provider_singleton` autouse pytest fixture in that same file that calls `_get_ibkr_provider_singleton.cache_clear()` before and after every test in the module.",
       "rationale": "This is exactly the fix the checklist item itself suggested (an lru_cache-wrapped factory matching get_settings()'s already-thread-safe pattern in app/config.py), so no alternative was seriously considered -- a hand-rolled threading.Lock double-checked-locking implementation was rejected as reinventing what functools.lru_cache already provides for a zero-argument factory. The autouse fixture placement (test_dependencies.py itself, not a shared conftest.py) mirrors this module's existing pattern of ad hoc get_settings().cache_clear() calls scattered through its own tests rather than centralizing them, since no other test module in the suite currently touches get_ibkr_provider/the IBKR singleton -- if a future test elsewhere in the suite needs the same reset (e.g. an integration test hitting a route that consumes get_ibkr_provider), it should move to a shared conftest.py fixture at that point rather than pre-emptively generalizing here for a need that doesn't exist yet. Verified: full backend test suite (890 tests), ruff, and mypy all pass on the changed files; the pre-existing ruff/mypy findings elsewhere in the backend tree (tests/unit/indicators/test_stochastic.py, tests/unit/signals/test_triple_screen.py, several tests/integration/*.py untyped-def/arg-type findings) were confirmed present on main before this change and are unrelated to this task's scope."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-data-provider-followups",
+    "pr_number": 191,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/191",
+    "pushed_at": "2026-09-20T10:33:53Z"
+  }
 }
