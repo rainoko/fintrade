@@ -29,5 +29,11 @@
       "decision": "Removed FundamentalDataPanel.test.tsx's two direct-unit tests that exercised the now-removed `if (!extendedData) return null` guard (`extendedData={undefined}`/`extendedData={null}`) rather than keeping them with a type-cast workaround, since `extendedData: ExtendedDataOut` (no longer `| null | undefined`) makes passing null/undefined a compile error, not just a behavior change -- the guard they tested no longer exists to test.",
       "rationale": "A type-cast (`as any`/`as ExtendedDataOut`) to keep the old tests compiling would reintroduce exactly the kind of type-system bypass this followup task exists to remove; deleting the tests for dead behavior is more honest than forcing them to compile against a type they now violate."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-fundamental-data-panel-followups",
+    "pr_number": 204,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/204",
+    "pushed_at": "2026-09-20T15:07:10Z"
+  }
 }
