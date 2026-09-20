@@ -61,6 +61,9 @@
     }
   ],
   "git": {
-    "branch": "task/backend-followups-batch-2"
+    "branch": "task/backend-followups-batch-2",
+    "pr_number": 206,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/206",
+    "pushed_at": "2026-09-20T16:31:38Z"
   }
 }
