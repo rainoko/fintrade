@@ -82,5 +82,11 @@
       "decision": "extended_data is added to GET /api/stocks/{ticker}/analysis (not a new dedicated endpoint), fetched in the same try/except block as daily/weekly OHLCV so a DataProviderUnavailableError from it maps to the same existing 503.",
       "rationale": "The checklist explicitly allowed 'or wherever makes sense'; /analysis is already this app's single per-ticker aggregation point for signal + supporting context (divergence, kangaroo_tail, support_resistance_zones, profit_target all followed the same precedent of being added here rather than as their own endpoints), and every consumer that cares about a ticker's signal also plausibly cares about an earnings-date warning on it. Folding the fetch into the existing try/except (rather than a separate try/except that degrades gracefully) keeps the error-handling surface simple; in practice this 503 path is nearly unreachable for extended_data specifically, since StooqProvider.get_extended_data never raises (see the unavailable_reason decision above) -- the only way to reach it is both providers genuinely failing on this one call, the same bar the existing 503 case already represents for daily/weekly OHLCV."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-market-data-extra-fields",
+    "pr_number": 183,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/183",
+    "pushed_at": "2026-09-20T07:00:08Z"
+  }
 }
