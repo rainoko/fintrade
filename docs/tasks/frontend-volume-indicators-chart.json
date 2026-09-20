@@ -60,6 +60,8 @@
   ],
   "git": {
     "branch": "task/frontend-volume-indicators-chart",
-    "pushed_at": "2026-09-20T00:00:00Z"
+    "pr_number": 174,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/174",
+    "pushed_at": "2026-09-20T02:36:44Z"
   }
 }
