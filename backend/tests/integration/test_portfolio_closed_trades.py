@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+import app.api.routers.portfolio as portfolio_router
 from app.api.dependencies import get_data_provider
 from app.data.exceptions import TickerNotFoundError
 from app.db.models import ClosedTradeORM
@@ -238,3 +239,36 @@ class TestGetClosedTradesSharesOneFetchPerTicker:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_data_provider, None)
+
+    def test_two_trades_same_ticker_only_filter_and_channel_once(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`backend-trade-grading-followups`: `drop_malformed_daily_bars`/`autoenvelope` --
+        the two more expensive per-ticker derivations `grade_closed_trade` used to redo once
+        per row -- must also be shared across every closed-trade row for the same ticker, not
+        just the underlying `get_daily_ohlcv` fetch (already covered above)."""
+        dropna_calls = 0
+        autoenvelope_calls = 0
+        real_drop_malformed = portfolio_router.drop_malformed_daily_bars
+        real_autoenvelope = portfolio_router.autoenvelope
+
+        def _counting_drop_malformed(*args: object, **kwargs: object) -> pd.DataFrame:
+            nonlocal dropna_calls
+            dropna_calls += 1
+            return real_drop_malformed(*args, **kwargs)  # type: ignore[arg-type]
+
+        def _counting_autoenvelope(*args: object, **kwargs: object) -> pd.DataFrame:
+            nonlocal autoenvelope_calls
+            autoenvelope_calls += 1
+            return real_autoenvelope(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(portfolio_router, "drop_malformed_daily_bars", _counting_drop_malformed)
+        monkeypatch.setattr(portfolio_router, "autoenvelope", _counting_autoenvelope)
+
+        _add_closed_trade(db_session, id="a", ticker="AAPL")
+        _add_closed_trade(db_session, id="b", ticker="AAPL", exit_date=date(2020, 1, 2))
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        assert dropna_calls == 1
+        assert autoenvelope_calls == 1
