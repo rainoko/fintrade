@@ -14,13 +14,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.data.base import ExtendedData, InsiderTransaction
 from app.data.cache import CachedDataProvider
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.db.models import Base, OHLCVCacheORM
+from app.db.models import Base, ExtendedDataCacheORM, OHLCVCacheORM
 
 
 def _now() -> datetime:
@@ -46,13 +47,25 @@ class _StubProvider:
     return a fixed frame or raise a fixed exception per method.
     """
 
-    def __init__(self, *, daily=None, weekly=None, daily_exc=None, weekly_exc=None) -> None:
+    def __init__(
+        self,
+        *,
+        daily=None,
+        weekly=None,
+        daily_exc=None,
+        weekly_exc=None,
+        extended=None,
+        extended_exc=None,
+    ) -> None:
         self.daily = daily
         self.weekly = weekly
         self.daily_exc = daily_exc
         self.weekly_exc = weekly_exc
+        self.extended = extended
+        self.extended_exc = extended_exc
         self.daily_calls: list[str] = []
         self.weekly_calls: list[str] = []
+        self.extended_calls: list[str] = []
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         self.daily_calls.append(ticker)
@@ -65,6 +78,12 @@ class _StubProvider:
         if self.weekly_exc is not None:
             raise self.weekly_exc
         return self.weekly
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        self.extended_calls.append(ticker)
+        if self.extended_exc is not None:
+            raise self.extended_exc
+        return self.extended
 
 
 @pytest.fixture
@@ -465,3 +484,196 @@ class TestUpsertDuplicateDateWithinFrame:
         assert len(rows) == 2
         assert rows[0].close == 32.0
         assert rows[1].close == 40.0
+
+
+def _extended(**overrides) -> ExtendedData:
+    defaults = dict(
+        earnings_date=None,
+        ex_dividend_date=None,
+        shares_short=None,
+        short_ratio=None,
+        short_percent_of_float=None,
+        float_shares=None,
+        insider_transactions=[],
+    )
+    defaults.update(overrides)
+    return ExtendedData(**defaults)
+
+
+class TestExtendedDataFullyCached:
+    def test_serves_from_cache_without_calling_source(self, session: Session) -> None:
+        session.add(
+            ExtendedDataCacheORM(
+                ticker="AAPL",
+                earnings_date=datetime(2026, 10, 29).date(),
+                ex_dividend_date=None,
+                shares_short=12_345_678,
+                short_ratio=2.3,
+                short_percent_of_float=0.045,
+                float_shares=1_000_000_000,
+                insider_transactions_json="[]",
+                unavailable_reason=None,
+                fetched_at=_now(),
+            )
+        )
+        session.commit()
+        primary = _StubProvider()
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_extended_data("AAPL")
+
+        assert primary.extended_calls == []
+        assert fallback.extended_calls == []
+        assert result.earnings_date == datetime(2026, 10, 29).date()
+        assert result.shares_short == 12_345_678
+        assert result.insider_transactions == []
+
+
+class TestExtendedDataEmptyOrStaleCache:
+    def test_fetches_and_caches_on_empty_cache(self, session: Session) -> None:
+        fetched = _extended(shares_short=1_000, insider_transactions=[
+            InsiderTransaction(
+                insider="Jane Doe",
+                position="Director",
+                transaction_text="Purchase at price 10.00 per share.",
+                shares=100.0,
+                value=1_000.0,
+                start_date=datetime(2026, 5, 1).date(),
+                ownership="D",
+            )
+        ])
+        primary = _StubProvider(extended=fetched)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_extended_data("AAPL")
+
+        assert primary.extended_calls == ["AAPL"]
+        assert result.shares_short == 1_000
+        assert len(result.insider_transactions) == 1
+        assert result.insider_transactions[0].insider == "Jane Doe"
+        row = session.query(ExtendedDataCacheORM).filter_by(ticker="AAPL").one()
+        assert row.shares_short == 1_000
+        assert row.insider_transactions_json != "[]"
+
+        # A second call within the TTL must be served from cache, not re-fetched.
+        provider.get_extended_data("AAPL")
+        assert primary.extended_calls == ["AAPL"]
+
+    def test_refetches_when_stale(self, session: Session) -> None:
+        session.add(
+            ExtendedDataCacheORM(
+                ticker="AAPL",
+                earnings_date=None,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions_json="[]",
+                unavailable_reason=None,
+                fetched_at=_now() - timedelta(days=4),  # older than _EXTENDED_DATA_CACHE_TTL
+            )
+        )
+        session.commit()
+        fresh = _extended(shares_short=999)
+        primary = _StubProvider(extended=fresh)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_extended_data("AAPL")
+
+        assert primary.extended_calls == ["AAPL"]
+        assert result.shares_short == 999
+
+
+class TestExtendedDataFallback:
+    def test_falls_back_when_primary_unavailable(self, session: Session) -> None:
+        unavailable = _extended(unavailable_reason="fallback_provider_active")
+        primary = _StubProvider(extended_exc=DataProviderUnavailableError("yfinance down"))
+        fallback = _StubProvider(extended=unavailable)
+        provider = CachedDataProvider(primary, fallback, session)
+
+        result = provider.get_extended_data("AAPL")
+
+        assert primary.extended_calls == ["AAPL"]
+        assert fallback.extended_calls == ["AAPL"]
+        assert result.unavailable_reason == "fallback_provider_active"
+        row = session.query(ExtendedDataCacheORM).filter_by(ticker="AAPL").one()
+        assert row.unavailable_reason == "fallback_provider_active"
+
+    def test_raises_when_both_providers_fail(self, session: Session) -> None:
+        primary = _StubProvider(extended_exc=DataProviderUnavailableError("yfinance down"))
+        fallback = _StubProvider(extended_exc=DataProviderUnavailableError("stooq down"))
+        provider = CachedDataProvider(primary, fallback, session)
+
+        with pytest.raises(DataProviderUnavailableError):
+            provider.get_extended_data("AAPL")
+
+        assert session.query(ExtendedDataCacheORM).count() == 0
+
+
+class TestExtendedDataConcurrentFirstPopulation:
+    def test_integrity_error_on_upsert_commit_is_swallowed_not_raised(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same benign race as `TestConcurrentFirstPopulation` above, reproduced for
+        `_upsert_extended`'s own commit."""
+        fetched = _extended(shares_short=42)
+        primary = _StubProvider(extended=fetched)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        original_commit = session.commit
+
+        def _commit_raises_once():
+            monkeypatch.setattr(session, "commit", original_commit)
+            session.rollback()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(session, "commit", _commit_raises_once)
+
+        result = provider.get_extended_data("AAPL")
+
+        assert result.shares_short == 42
+        assert session.query(ExtendedDataCacheORM).filter_by(ticker="AAPL").count() == 0
+
+
+class TestExtendedDataRoundTrip:
+    def test_insider_transactions_round_trip_through_json_cache(self, session: Session) -> None:
+        fetched = _extended(
+            insider_transactions=[
+                InsiderTransaction(
+                    insider="Jane Doe",
+                    position="Director",
+                    transaction_text="Purchase at price 10.00 per share.",
+                    shares=100.0,
+                    value=1_000.0,
+                    start_date=datetime(2026, 5, 1).date(),
+                    ownership="D",
+                ),
+                InsiderTransaction(
+                    insider=None,
+                    position=None,
+                    transaction_text="",
+                    shares=None,
+                    value=None,
+                    start_date=None,
+                    ownership=None,
+                ),
+            ]
+        )
+        primary = _StubProvider(extended=fetched)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+        provider.get_extended_data("AAPL")
+
+        # Force a fresh instance (no in-memory pointer reuse) to actually exercise the
+        # cache-read/deserialize path, not just this same call's already-returned object.
+        second_provider = CachedDataProvider(_StubProvider(), _StubProvider(), session)
+        result = second_provider.get_extended_data("AAPL")
+
+        assert len(result.insider_transactions) == 2
+        assert result.insider_transactions[0] == fetched.insider_transactions[0]
+        assert result.insider_transactions[1] == fetched.insider_transactions[1]

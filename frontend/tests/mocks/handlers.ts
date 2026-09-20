@@ -119,6 +119,17 @@ const analysisFixture: AnalysisResponse = {
     reward_risk_ratio: 2.0,
     meets_minimum_reward_risk: true,
   },
+  extended_data: {
+    earnings_date: '2026-10-29',
+    earnings_within_warning_days: false,
+    ex_dividend_date: '2026-11-15',
+    shares_short: 12345678,
+    short_ratio: 2.3,
+    short_percent_of_float: 0.045,
+    float_shares: 1000000000,
+    insider_transactions: [],
+    unavailable_reason: null,
+  },
 }
 
 function buildHistoryFixture(ticker: string, interval: HistoryInterval): HistoryResponse {

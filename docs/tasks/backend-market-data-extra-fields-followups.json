@@ -1,0 +1,19 @@
+{
+  "id": "backend-market-data-extra-fields-followups",
+  "title": "Extended market data — non-blocking review follow-ups",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-market-data-extra-fields"],
+  "references": [
+    "docs/tasks/done/backend-market-data-extra-fields.json#review",
+    "https://github.com/rainoko/fintrade/pull/183"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #183 (backend-market-data-extra-fields), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "Insider-transaction cluster detection (3+ buys or sells within a month, Elder ch. 37's secondary signal) was explicitly deferred by this task's own `decisions` entry -- this PR only exposes the raw `insider_transactions` list, no buy/sell classification or time-windowed grouping. The scoping itself is reasonable (matches this codebase's established pattern of a separate detection task after the underlying data is exposed, e.g. divergence/kangaroo-tail/support-resistance-zone detection), but no follow-up task existed yet to actually pick this up later -- create/scope that detection task (parsing yfinance's free-text `Text` field into a buy/sell direction, then the time-windowed clustering pass) when it's next prioritized.",
+      "done": false
+    }
+  ]
+}

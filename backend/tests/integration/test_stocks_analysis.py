@@ -11,17 +11,34 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 `AnalysisResponse` mapping together, plus the 404/422/503 error mapping.
 """
 
+from datetime import date, timedelta
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_data_provider
+from app.data.base import ExtendedData, InsiderTransaction
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
     TickerNotFoundError,
 )
 from app.main import app
+
+# The all-null/empty ExtendedData every `_StubProvider` ticker gets unless a test explicitly
+# overrides it via `extended` -- keeps every pre-existing test in this file (written before
+# `get_extended_data` existed) passing unchanged, since AnalysisResponse.extended_data is a
+# required field regardless of what a given test actually cares about.
+_EMPTY_EXTENDED_DATA = ExtendedData(
+    earnings_date=None,
+    ex_dividend_date=None,
+    shares_short=None,
+    short_ratio=None,
+    short_percent_of_float=None,
+    float_shares=None,
+    insider_transactions=[],
+)
 
 
 class _StubProvider:
@@ -33,13 +50,17 @@ class _StubProvider:
         *,
         daily: dict[str, pd.DataFrame] | None = None,
         weekly: dict[str, pd.DataFrame] | None = None,
+        extended: dict[str, ExtendedData] | None = None,
         failing_daily: dict[str, Exception] | None = None,
         failing_weekly: dict[str, Exception] | None = None,
+        failing_extended: dict[str, Exception] | None = None,
     ) -> None:
         self._daily = daily or {}
         self._weekly = weekly or {}
+        self._extended = extended or {}
         self._failing_daily = failing_daily or {}
         self._failing_weekly = failing_weekly or {}
+        self._failing_extended = failing_extended or {}
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         if ticker in self._failing_daily:
@@ -50,6 +71,11 @@ class _StubProvider:
         if ticker in self._failing_weekly:
             raise self._failing_weekly[ticker]
         return self._weekly[ticker]
+
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        if ticker in self._failing_extended:
+            raise self._failing_extended[ticker]
+        return self._extended.get(ticker, _EMPTY_EXTENDED_DATA)
 
 
 def _make_client(provider: _StubProvider) -> TestClient:
@@ -487,6 +513,181 @@ class TestGetAnalysis:
         response = _get_analysis(provider)
 
         assert response.status_code == 503
+
+    def test_extended_data_provider_unavailable_returns_503(self) -> None:
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            failing_extended={
+                "AAPL": DataProviderUnavailableError("both providers failed for AAPL")
+            },
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 503
+
+
+class TestExtendedData:
+    """GET /api/stocks/{ticker}/analysis's `extended_data` field (earnings/dividend dates,
+    short interest, insider transactions -- see the backend-market-data-extra-fields task)."""
+
+    def test_default_stub_is_all_null_and_available(self) -> None:
+        """No test above this class passes an explicit `extended=`, so every one of them
+        implicitly relies on `_StubProvider`'s default (`_EMPTY_EXTENDED_DATA`) round-tripping
+        through the real `AnalysisResponse` schema -- this pins that default's exact shape."""
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()}
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        assert response.json()["extended_data"] == {
+            "earnings_date": None,
+            "earnings_within_warning_days": False,
+            "ex_dividend_date": None,
+            "shares_short": None,
+            "short_ratio": None,
+            "short_percent_of_float": None,
+            "float_shares": None,
+            "insider_transactions": [],
+            "unavailable_reason": None,
+        }
+
+    def test_populated_fields_and_insider_transactions_pass_through(self) -> None:
+        extended = ExtendedData(
+            earnings_date=date(2026, 12, 1),
+            ex_dividend_date=date(2026, 11, 15),
+            shares_short=12_345_678,
+            short_ratio=2.3,
+            short_percent_of_float=0.045,
+            float_shares=1_000_000_000,
+            insider_transactions=[
+                InsiderTransaction(
+                    insider="Cook Timothy D",
+                    position="Chief Executive Officer",
+                    transaction_text="Sale at price 220.00 - 225.00 per share.",
+                    shares=50_000.0,
+                    value=11_125_000.0,
+                    start_date=date(2026, 8, 15),
+                    ownership="D",
+                )
+            ],
+        )
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": extended},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.status_code == 200
+        body = response.json()["extended_data"]
+        assert body["earnings_date"] == "2026-12-01"
+        assert body["ex_dividend_date"] == "2026-11-15"
+        assert body["shares_short"] == 12_345_678
+        assert body["short_ratio"] == 2.3
+        assert body["short_percent_of_float"] == 0.045
+        assert body["float_shares"] == 1_000_000_000
+        assert body["unavailable_reason"] is None
+        assert body["insider_transactions"] == [
+            {
+                "insider": "Cook Timothy D",
+                "position": "Chief Executive Officer",
+                "transaction_text": "Sale at price 220.00 - 225.00 per share.",
+                "shares": 50_000.0,
+                "value": 11_125_000.0,
+                "start_date": "2026-08-15",
+                "ownership": "D",
+            }
+        ]
+
+    def test_earnings_within_warning_window_is_flagged_true(self) -> None:
+        soon = date.today() + timedelta(days=5)
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": ExtendedData(
+                earnings_date=soon,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions=[],
+            )},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["extended_data"]["earnings_within_warning_days"] is True
+
+    def test_earnings_beyond_warning_window_is_flagged_false(self) -> None:
+        far_off = date.today() + timedelta(days=90)
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": ExtendedData(
+                earnings_date=far_off,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions=[],
+            )},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["extended_data"]["earnings_within_warning_days"] is False
+
+    def test_past_earnings_date_is_flagged_false(self) -> None:
+        past = date.today() - timedelta(days=1)
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": ExtendedData(
+                earnings_date=past,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions=[],
+            )},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["extended_data"]["earnings_within_warning_days"] is False
+
+    def test_unavailable_reason_surfaces_when_fallback_provider_active(self) -> None:
+        """Reproduces `StooqProvider.get_extended_data`'s always-unavailable result reaching
+        the API response unmodified through `CachedDataProvider`'s fallback path (unit-tested
+        directly in tests/unit/data/test_cache.py) -- here just confirming the API layer's own
+        mapping (`_extended_data_to_schema`) passes `unavailable_reason` through rather than
+        dropping or reinterpreting it."""
+        provider = _StubProvider(
+            daily={"AAPL": _hold_daily_ohlcv()},
+            weekly={"AAPL": _hold_weekly_ohlcv()},
+            extended={"AAPL": ExtendedData(
+                earnings_date=None,
+                ex_dividend_date=None,
+                shares_short=None,
+                short_ratio=None,
+                short_percent_of_float=None,
+                float_shares=None,
+                insider_transactions=[],
+                unavailable_reason="fallback_provider_active",
+            )},
+        )
+
+        response = _get_analysis(provider)
+
+        assert response.json()["extended_data"]["unavailable_reason"] == "fallback_provider_active"
 
 
 def _bar(high: float, low: float, close: float, volume: float = 1_000_000.0) -> dict:

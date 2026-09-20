@@ -2,7 +2,7 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFRateLimitError
 
-from app.data.base import DataProvider
+from app.data.base import DataProvider, ExtendedData, InsiderTransaction
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -50,6 +50,50 @@ class YFinanceProvider(DataProvider):
             raise InsufficientHistoryError(ticker, available=len(df), required=_MIN_WEEKLY_BARS)
         return df
 
+    def get_extended_data(self, ticker: str) -> ExtendedData:
+        """Earnings/dividend dates (`Ticker.calendar`), short interest (`Ticker.info`), and
+        recent insider transactions (`Ticker.insider_transactions`) for `ticker` --
+        docs/ideas.md's confirmed-live-in-yfinance fields (Elder ch. 37/53/58).
+
+        Raises:
+            DataProviderUnavailableError: yfinance itself failed (rate limit, network error,
+                unexpected response) on any of the three underlying calls -- caught as one
+                unit since they're all part of the same "extended data" fetch, unlike
+                `get_daily_ohlcv`/`get_weekly_ohlcv` which callers fetch independently.
+
+        Individual fields are `None`/empty when yfinance itself succeeded but simply has no
+        value for this ticker (e.g. a smaller/thinly-covered company with no reported short
+        interest, docs/ideas.md's own "yfinance's own data can be incomplete for smaller
+        tickers" caveat) -- distinct from the provider-level failure above, which raises
+        rather than returning a half-populated result.
+        """
+        try:
+            yf_ticker = yf.Ticker(ticker)
+            calendar = yf_ticker.calendar or {}
+            info = yf_ticker.info or {}
+            insider_df = yf_ticker.insider_transactions
+        except YFRateLimitError as exc:
+            raise DataProviderUnavailableError(f"yfinance rate-limited: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001 - yfinance's own errors are broad/undocumented
+            raise DataProviderUnavailableError(f"yfinance request failed: {exc}") from exc
+
+        # `Ticker.calendar`'s "Earnings Date" is a list -- Yahoo sometimes reports an
+        # unconfirmed 2-day estimate window rather than a single confirmed date -- so the
+        # earliest entry is used as the single date this app surfaces (see this task's
+        # `decisions` entry for why the window's upper bound isn't also exposed).
+        earnings_dates = calendar.get("Earnings Date") or []
+        earnings_date = min(earnings_dates) if earnings_dates else None
+
+        return ExtendedData(
+            earnings_date=earnings_date,
+            ex_dividend_date=calendar.get("Ex-Dividend Date"),
+            shares_short=_int_or_none(info.get("sharesShort")),
+            short_ratio=_float_or_none(info.get("shortRatio")),
+            short_percent_of_float=_float_or_none(info.get("shortPercentOfFloat")),
+            float_shares=_int_or_none(info.get("floatShares")),
+            insider_transactions=_parse_insider_transactions(insider_df),
+        )
+
     def _fetch(self, ticker: str, *, interval: str) -> pd.DataFrame:
         """Fetch and normalize one interval's worth of bars for `ticker`.
 
@@ -82,3 +126,52 @@ class YFinanceProvider(DataProvider):
             df.index = df.index.tz_localize(None)
         df.index.name = "date"
         return df
+
+
+def _int_or_none(value: int | float | str | None) -> int | None:
+    """`Ticker.info` uses plain `None` for a genuinely missing key, but a present-but-NaN
+    float for some fields yfinance still populates from an incomplete upstream record --
+    both must map to `None` here rather than a Pydantic-rejecting `nan`."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    return int(value)
+
+
+def _float_or_none(value: int | float | str | None) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    return float(value)
+
+
+def _str_or_none(value: object) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    return str(value)
+
+
+def _parse_insider_transactions(raw: pd.DataFrame | None) -> list[InsiderTransaction]:
+    """`Ticker.insider_transactions` columns (yfinance's `Holders._parse_insider_transactions`):
+    `Insider`, `Position`, `Transaction`, `Text`, `Shares`, `Value`, `Start Date`, `Ownership`.
+    `None`/an empty frame (no filings reported, or yfinance's own request failure swallowed
+    internally rather than raised -- see this method's own docstring) both map to `[]`, not an
+    error: an empty list is this app's normal "nothing to report" representation, distinct
+    from `ExtendedData.unavailable_reason`'s "not supported by this provider at all"."""
+    if raw is None or raw.empty:
+        return []
+    transactions: list[InsiderTransaction] = []
+    for _, row in raw.iterrows():
+        start_date_raw = row.get("Start Date")
+        transactions.append(
+            InsiderTransaction(
+                insider=_str_or_none(row.get("Insider")),
+                position=_str_or_none(row.get("Position")),
+                transaction_text=_str_or_none(row.get("Text")) or "",
+                shares=_float_or_none(row.get("Shares")),
+                value=_float_or_none(row.get("Value")),
+                start_date=(
+                    start_date_raw.date() if hasattr(start_date_raw, "date") else None
+                ),
+                ownership=_str_or_none(row.get("Ownership")),
+            )
+        )
+    return transactions

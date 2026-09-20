@@ -61,7 +61,7 @@ export interface paths {
          *
          *     Each trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`
          *     (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7 / docs/ideas.md ch. 55) --
-         *     `app.portfolio.grading.grade_closed_trade`, sourced from the ticker's daily OHLCV (that
+         *     `app.portfolio.grading.grade_trade_from_filtered_history`, sourced from the ticker's daily OHLCV (that
          *     day's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation
          *     `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is
          *     preferred over judging it by raw P&L alone, since it accounts for how much was
@@ -241,6 +241,14 @@ export interface paths {
          *     is only ever computed for a fresh BUY `signal` -- see that module's own docstring and the
          *     `backend-profit-target` task's `decisions` entry for why this app's long-only protective-
          *     stop formula rules out a symmetric SELL-side reward:risk ratio.
+         *
+         *     `extended_data` (earnings/dividend dates, short interest, insider transactions -- see
+         *     `ExtendedDataOut`'s own field descriptions) is fetched in the same try/except as
+         *     `daily_ohlcv`/`weekly_ohlcv` above, so a `DataProviderUnavailableError` from it maps to the
+         *     same 503 -- in practice this only happens if *both* the primary and fallback providers fail
+         *     on this specific call, since the fallback (Stooq) provider always succeeds with an
+         *     explicit "unsupported" result rather than raising (see `app.data.stooq_provider.
+         *     StooqProvider.get_extended_data`'s own docstring and this task's `decisions` entry).
          */
         get: operations["get_stock_analysis"];
         put?: never;
@@ -469,6 +477,8 @@ export interface components {
             confidence_breakdown: components["schemas"]["ConfidenceBreakdownItem"][];
             /** @description The most recent qualifying MACD-Histogram/Stochastic/RSI divergence detected between price's own swing points and each indicator's value at those dates (docs/ideas.md, Elder ch. 15/23/26/27) -- null if none currently qualifies. When more than one indicator qualifies with the same second_extreme_date (common, since all three are checked against the same price swing points), MACD-Histogram wins, then Stochastic, then RSI. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-divergence-detection task's decisions). */
             divergence: components["schemas"]["DivergenceOut"] | null;
+            /** @description Earnings/dividend dates, short interest, and recent insider transactions (docs/ideas.md; Elder ch. 37/53/58) -- confirmed-live-in-yfinance data this app didn't previously expose. Always a present object; see `ExtendedDataOut.unavailable_reason` for when the fallback (Stooq) provider means every field inside it is null/empty rather than a real 'checked, nothing found' result. See the backend-market-data-extra-fields task's `decisions` entry. */
+            extended_data: components["schemas"]["ExtendedDataOut"];
             /** @description Latest-bar-only snapshot. For the same 10 indicator values (plus stochastic_k/force_index_2ema, which live under screens.wave here) as a historical time series across every bar instead, see GET /api/stocks/{ticker}/indicators. */
             indicators: components["schemas"]["Indicators"];
             /** @description The most recently confirmed Kangaroo Tail reversal pattern (docs/ideas.md, Elder ch. 20 'fingers') -- a single bar's range roughly 2.5x the recent average, protruding from a tight recent range, closing back near its own open, flanked by two normal-height bars, and confirmed by the very next bar continuing in the implied direction. Null if none currently qualifies. Detection + exposure only -- not wired into signal/confidence_breakdown (see the backend-kangaroo-tail-pattern task's decisions). */
@@ -710,6 +720,54 @@ export interface components {
          * @enum {string}
          */
         ExitReason: "target_hit" | "stop_hit" | "reached_value_zone" | "going_nowhere" | "starting_to_turn" | "couldnt_stand_the_pain" | "recognized_junk_trade_after_entry" | "unspecified";
+        /** ExtendedDataOut */
+        ExtendedDataOut: {
+            /**
+             * Earnings Date
+             * @description Soonest upcoming earnings date (yfinance `Ticker.calendar`'s 'Earnings Date' list, earliest entry -- Yahoo sometimes reports a multi-day estimate window rather than one confirmed date). Null when yfinance has no upcoming earnings date on record for this ticker, or when `unavailable_reason` is set below.
+             */
+            earnings_date: string | null;
+            /**
+             * Earnings Within Warning Days
+             * @description True when `earnings_date` falls within the next 14 calendar days from today (Elder ch. 58: 'most traders avoid holding stocks whose earnings are about to be reported... a nasty earnings surprise can do serious damage' -- a gap-through-the-stop risk no technical stop protects against). Always False when `earnings_date` is null or already in the past.
+             */
+            earnings_within_warning_days: boolean;
+            /**
+             * Ex Dividend Date
+             * @description Next ex-dividend date (`Ticker.calendar`'s 'Ex-Dividend Date'). Null when none is scheduled, or when `unavailable_reason` is set below.
+             */
+            ex_dividend_date: string | null;
+            /**
+             * Float Shares
+             * @description Freely tradeable share count the short-interest ratios above are computed against (`Ticker.info`'s `floatShares`). Null under the same conditions as `shares_short`.
+             */
+            float_shares: number | null;
+            /**
+             * Insider Transactions
+             * @description Recent officer/director buy/sell filings (`Ticker.insider_transactions`, Elder ch. 37), in the order yfinance itself returns them (most-recent-first). Empty when none are reported, or when `unavailable_reason` is set below -- an empty list either way, since 'no filings' and 'not checked' aren't distinguished at the per-field level (only `unavailable_reason` itself distinguishes them). Raw exposure only -- clustering detection (3+ buys or sells within a month, Elder's own secondary signal) isn't computed here; see the backend-market-data-extra-fields task's `decisions` entry.
+             */
+            insider_transactions: components["schemas"]["InsiderTransactionOut"][];
+            /**
+             * Shares Short
+             * @description Most recently reported short interest -- shares sold short and not yet covered (`Ticker.info`'s `sharesShort`, Elder ch. 37 pp.146-148). Null when not reported for this ticker, or when `unavailable_reason` is set below.
+             */
+            shares_short: number | null;
+            /**
+             * Short Percent Of Float
+             * @description Shares short as a fraction (0-1, not a percentage) of the freely tradeable float (`Ticker.info`'s `shortPercentOfFloat`). Null under the same conditions as `shares_short`.
+             */
+            short_percent_of_float: number | null;
+            /**
+             * Short Ratio
+             * @description 'Days to cover' -- `shares_short` divided by average daily trading volume (`Ticker.info`'s `shortRatio`). Higher means more trading days it would take short-sellers to cover their position if they all tried at once -- a rough measure of short-squeeze fuel. Null under the same conditions as `shares_short`.
+             */
+            short_ratio: number | null;
+            /**
+             * Unavailable Reason
+             * @description Set only when the fallback (Stooq) provider is currently serving market data instead of yfinance, which has no equivalent for any of the fields above (docs/architecture/Backend.md's data-provider section) -- every field above is then null/empty, meaning 'not checked, unsupported by the active provider' rather than 'checked, nothing found'. Null in the normal case (yfinance active), in which every null/empty field above genuinely means 'checked, nothing found'.
+             */
+            unavailable_reason: "fallback_provider_active" | null;
+        };
         /** FalseBreakoutOut */
         FalseBreakoutOut: {
             /**
@@ -901,6 +959,44 @@ export interface components {
             season?: ("Spring" | "Summer" | "Autumn" | "Winter") | null;
             /** @description Directional System / ADX (docs/Analyse.md §4, Elder ch. 24) -- always present as an object, but every one of its own fields is independently nullable during its own warm-up window (see `TrendStrength`'s own field descriptions), the same shape convention as this `Indicators` object itself. Purely informational -- not wired into `screens`/`confidence_breakdown` (see the backend-indicator-atr-adx task's own explicit scope note: Elder's usage rules for this data -- trade trend-following only while ADX rises, a 4-step rise off its own low 'rings a bell' on a new trend -- are a separate methodology decision, not indicator plumbing). */
             trend_strength: components["schemas"]["TrendStrength"];
+        };
+        /** InsiderTransactionOut */
+        InsiderTransactionOut: {
+            /**
+             * Insider
+             * @description Filing insider's name, e.g. 'Cook Timothy D'. Null on the rare row yfinance itself didn't populate a name for.
+             */
+            insider: string | null;
+            /**
+             * Ownership
+             * @description yfinance's raw ownership flag for this filing (e.g. 'D' direct / 'I' indirect) -- passed through unmapped since Yahoo's own code list isn't publicly documented beyond these two common values. Null when not reported.
+             */
+            ownership: string | null;
+            /**
+             * Position
+             * @description Insider's role/relation to the company, e.g. 'Chief Executive Officer' or 'Director' (yfinance's `Position` column). Null when not reported.
+             */
+            position: string | null;
+            /**
+             * Shares
+             * @description Number of shares in this transaction. Null when not reported.
+             */
+            shares: number | null;
+            /**
+             * Start Date
+             * @description Transaction's filed/effective date. Null when not reported.
+             */
+            start_date: string | null;
+            /**
+             * Transaction Text
+             * @description yfinance's own free-text transaction description, e.g. 'Sale at price 220.00 - 225.00 per share.' -- kept raw rather than parsed into a structured buy/sell direction (see the backend-market-data-extra-fields task's `decisions` entry).
+             */
+            transaction_text: string;
+            /**
+             * Value
+             * @description Dollar value of this transaction. Null when not reported.
+             */
+            value: number | null;
         };
         /** KangarooTailOut */
         KangarooTailOut: {

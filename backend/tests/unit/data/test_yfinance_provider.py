@@ -10,9 +10,11 @@ DataFrame shaped like yfinance's own `Ticker.history()` return value" rather
 than raw Yahoo Chart API JSON.
 """
 
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pytest
 from yfinance.exceptions import YFRateLimitError
@@ -168,3 +170,174 @@ class TestGetWeeklyOhlcv:
 
         with pytest.raises(DataProviderUnavailableError):
             YFinanceProvider().get_weekly_ohlcv("AAPL")
+
+
+def _insider_transactions_df() -> pd.DataFrame:
+    """Shaped like yfinance's own `Ticker.insider_transactions` (see
+    `yfinance.scrapers.holders.Holders._parse_insider_transactions`'s column-rename map)."""
+    return pd.DataFrame(
+        {
+            "Insider": ["Cook Timothy D", "Maestri Luca"],
+            "Position": ["Chief Executive Officer", "Chief Financial Officer"],
+            "URL": ["https://example.com/a", "https://example.com/b"],
+            "Transaction": ["Sale", "Sale"],
+            "Text": [
+                "Sale at price 220.00 - 225.00 per share.",
+                "Sale at price 218.50 per share.",
+            ],
+            "Shares": [50_000.0, 12_000.0],
+            "Value": [11_125_000.0, 2_622_000.0],
+            "Start Date": [pd.Timestamp("2026-08-15"), pd.Timestamp("2026-08-10")],
+            "Ownership": ["D", "D"],
+        }
+    )
+
+
+class TestGetExtendedData:
+    def test_full_response_maps_calendar_info_and_insider_transactions(self, mocker) -> None:
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = {
+            "Dividend Date": date(2026, 11, 20),
+            "Ex-Dividend Date": date(2026, 11, 15),
+            "Earnings Date": [date(2026, 10, 29), date(2026, 10, 30)],
+        }
+        mock_ticker.info = {
+            "sharesShort": 12_345_678,
+            "shortRatio": 2.3,
+            "shortPercentOfFloat": 0.045,
+            "sharesShortPriorMonth": 13_000_000,
+            "floatShares": 1_000_000_000,
+        }
+        mock_ticker.insider_transactions = _insider_transactions_df()
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("AAPL")
+
+        # Earliest of the two "Earnings Date" entries -- Yahoo's own unconfirmed-window
+        # convention (see get_extended_data's docstring).
+        assert result.earnings_date == date(2026, 10, 29)
+        assert result.ex_dividend_date == date(2026, 11, 15)
+        assert result.shares_short == 12_345_678
+        assert result.short_ratio == pytest.approx(2.3)
+        assert result.short_percent_of_float == pytest.approx(0.045)
+        assert result.float_shares == 1_000_000_000
+        assert result.unavailable_reason is None
+        assert len(result.insider_transactions) == 2
+        first = result.insider_transactions[0]
+        assert first.insider == "Cook Timothy D"
+        assert first.position == "Chief Executive Officer"
+        assert first.transaction_text == "Sale at price 220.00 - 225.00 per share."
+        assert first.shares == pytest.approx(50_000.0)
+        assert first.value == pytest.approx(11_125_000.0)
+        assert first.start_date == date(2026, 8, 15)
+        assert first.ownership == "D"
+
+    def test_missing_calendar_info_and_insider_transactions_yield_all_none(self, mocker) -> None:
+        """yfinance's own data can be incomplete for smaller tickers (docs/ideas.md) --
+        an empty calendar/info dict and a `None` insider_transactions frame must degrade to a
+        fully-null/empty result, not raise."""
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = {}
+        mock_ticker.info = {}
+        mock_ticker.insider_transactions = None
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("SMALLCAP")
+
+        assert result.earnings_date is None
+        assert result.ex_dividend_date is None
+        assert result.shares_short is None
+        assert result.short_ratio is None
+        assert result.short_percent_of_float is None
+        assert result.float_shares is None
+        assert result.insider_transactions == []
+        assert result.unavailable_reason is None
+
+    def test_nan_insider_transaction_string_fields_map_to_none(self, mocker) -> None:
+        """`Insider`/`Position`/`Ownership` can themselves be NaN on an incomplete filing row
+        (`_str_or_none`'s NaN-float branch), not just the numeric `info` fields above."""
+        df = pd.DataFrame(
+            {
+                "Insider": [np.nan],
+                "Position": [np.nan],
+                "URL": ["https://example.com/a"],
+                "Transaction": ["Sale"],
+                "Text": ["Sale at price 220.00 per share."],
+                "Shares": [1_000.0],
+                "Value": [220_000.0],
+                "Start Date": [pd.Timestamp("2026-08-15")],
+                "Ownership": [np.nan],
+            }
+        )
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = {}
+        mock_ticker.info = {}
+        mock_ticker.insider_transactions = df
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("AAPL")
+
+        assert len(result.insider_transactions) == 1
+        transaction = result.insider_transactions[0]
+        assert transaction.insider is None
+        assert transaction.position is None
+        assert transaction.ownership is None
+        assert transaction.transaction_text == "Sale at price 220.00 per share."
+
+    def test_empty_insider_transactions_frame_yields_empty_list(self, mocker) -> None:
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = {}
+        mock_ticker.info = {}
+        mock_ticker.insider_transactions = pd.DataFrame()
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("AAPL")
+
+        assert result.insider_transactions == []
+
+    def test_nan_info_fields_map_to_none(self, mocker) -> None:
+        """A field yfinance's own JSON populated as NaN (rather than omitting it outright)
+        must still map to `None`, not a Pydantic-rejecting float('nan')."""
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = {}
+        mock_ticker.info = {
+            "sharesShort": np.nan,
+            "shortRatio": np.nan,
+            "shortPercentOfFloat": np.nan,
+            "floatShares": np.nan,
+        }
+        mock_ticker.insider_transactions = pd.DataFrame()
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("AAPL")
+
+        assert result.shares_short is None
+        assert result.short_ratio is None
+        assert result.short_percent_of_float is None
+        assert result.float_shares is None
+
+    def test_none_calendar_is_treated_as_empty(self, mocker) -> None:
+        mock_ticker = MagicMock()
+        mock_ticker.calendar = None
+        mock_ticker.info = None
+        mock_ticker.insider_transactions = None
+        mocker.patch("app.data.yfinance_provider.yf.Ticker", return_value=mock_ticker)
+
+        result = YFinanceProvider().get_extended_data("AAPL")
+
+        assert result.earnings_date is None
+        assert result.insider_transactions == []
+
+    def test_rate_limit_raises_data_provider_unavailable(self, mocker) -> None:
+        mock_ticker_cls = mocker.patch("app.data.yfinance_provider.yf.Ticker")
+        mock_ticker_cls.side_effect = YFRateLimitError()
+
+        with pytest.raises(DataProviderUnavailableError):
+            YFinanceProvider().get_extended_data("AAPL")
+
+    def test_unexpected_failure_raises_data_provider_unavailable(self, mocker) -> None:
+        mock_ticker_cls = mocker.patch("app.data.yfinance_provider.yf.Ticker")
+        mock_ticker_cls.side_effect = ConnectionError("boom")
+
+        with pytest.raises(DataProviderUnavailableError):
+            YFinanceProvider().get_extended_data("AAPL")

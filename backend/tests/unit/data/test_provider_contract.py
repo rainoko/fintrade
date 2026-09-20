@@ -32,7 +32,7 @@ YFINANCE_FIXTURES_DIR = FIXTURES_DIR / "yfinance"
 # entry.
 _PROVIDER_CLASSES = [StooqProvider, YFinanceProvider, FixtureDataProvider]
 
-_PROTOCOL_METHODS = ["get_daily_ohlcv", "get_weekly_ohlcv"]
+_PROTOCOL_METHODS = ["get_daily_ohlcv", "get_weekly_ohlcv", "get_extended_data"]
 
 
 class TestProviderProtocolConformance:
