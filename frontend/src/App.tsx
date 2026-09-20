@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import DashboardPage from './pages/DashboardPage'
+import MethodologyPage from './pages/MethodologyPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PortfolioPage from './pages/PortfolioPage'
 import StockDetailPage from './pages/StockDetailPage'
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/watchlist" element={<WatchlistPage />} />
         <Route path="/stocks/:ticker" element={<StockDetailPage />} />
+        <Route path="/methodology" element={<MethodologyPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

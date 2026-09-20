@@ -1,6 +1,8 @@
+import MenuBookIcon from '@mui/icons-material/MenuBook'
+import Link from '@mui/material/Link'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import { useParams } from 'react-router-dom'
+import { Link as RouterLink, useParams } from 'react-router-dom'
 import ErrorState from '../components/common/ErrorState/ErrorState'
 import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
@@ -36,6 +38,12 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * see that component's own doc comment for why (its earnings-date warning
  * banner needs to stay visible near the top of the page, not buried below
  * several other panels and the price chart).
+ *
+ * A "Methodology reference" link to `/methodology`
+ * (frontend-methodology-explainer) sits directly under the page header,
+ * visible regardless of loading/error/data state — this is the page a user
+ * is most likely to want the full Elder-methodology explainer from, since
+ * every screen/indicator shown below is exactly what that page catalogs.
  */
 export default function StockDetailPage() {
   const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
@@ -53,6 +61,16 @@ export default function StockDetailPage() {
   return (
     <>
       <PageHeader title={displayTicker || 'Stock Detail'} action={<TickerSearchBox />} />
+
+      <Link
+        component={RouterLink}
+        to="/methodology"
+        underline="hover"
+        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mb: 3 }}
+      >
+        <MenuBookIcon fontSize="small" />
+        Methodology reference
+      </Link>
 
       {analysisQuery.isLoading && (
         <LoadingState message={`Loading analysis for ${ticker}...`} />

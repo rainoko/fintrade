@@ -3,7 +3,7 @@
   "title": "\"Signals we considered\" \u2014 a dedicated Elder-methodology reference page",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/Analyse.md",
@@ -15,23 +15,64 @@
   "checklist": [
     {
       "step": "Decide the page's structure: grouped by Elder's own Triple Screen taxonomy (Screen 1/2/3, Impulse, risk rules) vs. by implementation status (active / available-but-unused / not yet built) -- or both as filterable dimensions; record as a decisions entry.",
-      "done": false
+      "done": true
     },
     {
       "step": "Populate initial content for every signal already implemented (Tide, Impulse, Wave, Trigger, Force Index, Elder-Ray, Stochastic, 2%/6% Rules) plus every one logged in docs/ideas.md, each with a book/chapter citation and an honest current-status label.",
-      "done": false
+      "done": true
     },
     {
       "step": "Decide and record how this page's content stays in sync as other tasks in this batch land (a living reference each dependent task's own checklist updates, vs. a point-in-time snapshot) -- avoid letting it silently go stale.",
-      "done": false
+      "done": true
     },
     {
       "step": "Make it genuinely discoverable (linked from stock detail and/or the app's main navigation), not a hidden route.",
-      "done": false
+      "done": true
     },
     {
       "step": "Tests + Storybook story if new common/ pieces were introduced; confirm 90% coverage gate holds.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Structure the page around Elder's own Triple Screen taxonomy as the primary axis (Overview, Screen 1/Tide, Screen 2/Wave, Screen 3/Trigger, Impulse System, Confidence Scoring, Portfolio Risk Rules), with two catch-all sections at the end ('Other Indicators -- Computed & Exposed, Not (Yet) Wired Into the Signal' and 'Considered But Not (Yet) Implemented'), and a click-to-filter status chip row (core_signal / risk_management / informational / considered) as a second, independent filterable dimension across every section.",
+      "rationale": "Mirroring docs/Analyse.md's own section order keeps this page's content directly auditable against its source of truth -- a future drift check just diffs section-by-section. A single flat list sorted only by status would lose Elder's own screen-by-screen narrative structure the task explicitly asked to preserve ('grouped by Elder's own Triple Screen taxonomy'); a single list grouped only by taxonomy with no status distinction would lose the equally-explicit 'honestly, whether/how it currently affects the signal' requirement. Doing both (taxonomy as the fixed section structure, status as an orthogonal filter) satisfies the checklist's own 'or both as filterable dimensions' option without duplicating content into two separate page layouts."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Used four status values, not two: core_signal, risk_management, informational, considered -- distinguishing 'built, computed, and exposed in this app today but not wired into signal/confidence' (informational) from 'never built at all, only logged in docs/ideas.md' (considered), rather than lumping both under one 'not load-bearing' bucket.",
+      "rationale": "By the time this task was picked up, most of the indicators the task description calls 'considered/available-but-not-load-bearing' (RSI, divergence, support/resistance, Kangaroo Tail, Indicator Seasons, OBV/A-D, ATR/ADX, the channel/value zone, extended fundamental data) were already fully implemented and exposed in the app by earlier tasks in this same batch -- only genuinely calling them 'considered' would be inaccurate and would misrepresent real, tested, shipped code as a mere idea. Splitting risk_management out from core_signal separately (rather than one 'active' bucket) reflects docs/Analyse.md §7's own point that portfolio risk rules are evaluated independently of, and can override, the entry signal -- collapsing them would obscure that a position can be flagged SELL by risk management alone even when the entry-signal logic never fires one."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Treat this page as a living reference: content is accurate as of this task landing (verified directly against the current docs/Analyse.md and docs/ideas.md), and the data file's own top-of-file doc comment states the convention that a future task which adds, removes, or rewires a signal should update features/methodology/data/methodologyContent.ts as part of its own checklist, rather than this page being revisited as a separate periodic task.",
+      "rationale": "A point-in-time snapshot with no update contract would silently go stale the moment the very next signal-related task in this batch lands -- exactly the risk the checklist called out. A fully automated sync mechanism (e.g. generating this content from backend code/docstrings) doesn't exist anywhere in this codebase and would be a disproportionately large new piece of infrastructure to build just for one documentation page; the cheaper, consistent-with-existing-convention fix is the same one this app already uses for its own decision-memory rule (CLAUDE.md's 'Decision memory' section) -- record the expectation in the file itself so the next agent/human touching a signal sees it directly, rather than only in this task's own (eventually archived) JSON."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Made the page discoverable two ways: a persistent 'Methodology' item in the main NavDrawer (between Watchlist and the end of the list), and a direct 'Methodology reference' link on the Stock Detail page immediately under its PageHeader, visible in every load state (loading/error/data).",
+      "rationale": "The checklist explicitly allowed either; both were cheap and serve different moments -- the nav item is the general-purpose discoverability path from anywhere in the app, while the Stock Detail link meets a user exactly when they're most likely to want it (already looking at a specific ticker's screens/indicators and wondering what they mean or don't yet do). Placed on Stock Detail specifically (not Dashboard/Portfolio/Watchlist) since that's the one page whose whole content this reference page directly explains."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "This page deliberately does not duplicate the live, per-value interpretive text already served by common/MetricHelp (features/stocks/components/metricHelpContent.ts, features/portfolio/components/metricHelpContent.ts). Instead, each methodology entry carries an optional crossLinksTo field naming where the same metric's live, current-value explanation can be found elsewhere in the app.",
+      "rationale": "MetricHelp's whole design (per its own doc comment) is to interpret *this specific ticker's current value* next to where it's shown; this page explains the *methodology itself* (what the technique is, its book citation, and its honest current status in this app) independent of any one ticker. Re-authoring MetricHelp's interpretive copy here would create two texts describing the same indicator that could drift out of sync with each other over time -- naming the live location instead keeps a single source of truth for the per-value interpretation while still letting this page be self-contained for the methodology/citation/status content, which MetricHelp itself doesn't carry (it has no citation or 'is this wired into the signal' field today)."
+    },
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No new components/ pieces were introduced -- MethodologyStatusFilter, MethodologyEntryCard, and MethodologySectionView all live under features/methodology/components/, not components/common/, and status-color mapping uses MUI's built-in Chip color prop (success/primary/info/default) rather than a new theme.palette entry.",
+      "rationale": "Frontend.md §3's placement test puts a component under common/ only if it doesn't know a feature's own domain concepts; all three components here are built directly around MethodologyStatus/MethodologyEntry, a domain concept specific to this one feature/page, so features/methodology/components/ is the correct home per that same test the codebase already applies elsewhere (metricHelpContent.ts, ScreensPanel.tsx). Since no common/ piece was added, no Storybook story is required (Frontend.md §4 scopes that requirement to components/common/ only); these three components instead get full vitest coverage of their own rendering/filtering logic, confirmed at 100% statement/line coverage for every new file and >=98% across the frontend suite overall (well above the 90% gate)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-methodology-explainer"
+  }
 }
