@@ -1356,8 +1356,8 @@
       "id": "backend-indicator-seasons-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-indicator-seasons-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-seasons-followups.json"
     },
     {
       "id": "backend-safezone-stop-coefficient-fix-followups",

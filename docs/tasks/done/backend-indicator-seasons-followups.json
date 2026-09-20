@@ -1,0 +1,45 @@
+{
+  "id": "backend-indicator-seasons-followups",
+  "title": "Indicator Seasons — non-blocking review follow-up from PR #159",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-indicator-seasons"],
+  "references": [
+    "docs/tasks/done/backend-indicator-seasons.json#review",
+    "https://github.com/rainoko/fintrade/pull/159"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #159 (backend-indicator-seasons), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "frontend/src/pages/PortfolioPage.test.tsx's 'adds a new position end to end and reflects it in the refreshed table' test times out (default 5000ms) whenever the full frontend suite is run with `--coverage` (v8 instrumentation overhead pushes it past the timeout) -- reproduced twice during this PR's review, though this PR touches no frontend logic (only the generated api/types.ts). Passes reliably in isolation, on a coverage-less full run, and on a coverage run with the timeout bumped (`--testTimeout=15000`). Not caused by this PR -- pr-decision's notes on at least two prior PRs (backend-indicator-rsi, frontend-trade-journal) already independently observed the identical flake -- but it has now recurred often enough across reviews that it's worth either raising this one test's own timeout or investigating why coverage instrumentation makes it this much slower, rather than each reviewer re-diagnosing it as 'a pre-existing flake' from scratch every time.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Diagnosed the 'adds a new position end to end' flake as legitimately slow, not a fixable inefficiency, and fixed it by raising only that one test's own vitest timeout to 15000ms (third arg to `it(...)`) rather than bumping the project-wide `testTimeout` default or changing the component/test's interaction sequence.",
+      "rationale": "Traced the full chain: PortfolioPage.tsx renders four data-fetching children at once (positions table, RiskPanel, TradeJournalPanel, plus the AddPositionDialog) under the real MUI theme, and this specific test additionally drives userEvent.type() across all 4 AddPositionDialog form fields (Ticker/Quantity/Avg Cost Basis/Entry Date, ~18 keystrokes total) plus 3 real clicks through a mounted MUI Dialog -- by far the most real DOM/event work of any test in the file (the other 3 tests in PortfolioPage.test.tsx only click buttons or wait for GETs; even AddPositionDialog.test.tsx's own 'fills and submits' test, which does more user.type() calls, renders only the dialog in isolation, not the whole page). Checked for a genuinely fixable cause and found none: useAddPosition.ts (backend/.venv n/a here) is a plain useMutation with no debounce/setTimeout; AddPositionDialog.tsx has no artificial delay; tests/renderWithProviders.tsx already sets `retry: false` on both queries and mutations so a mocked response settles immediately; tests/setup.ts installs no fake timers. userEvent v14's type()/click() are inherently real (not instant) by design -- there's no unmocked slow operation or missing waitFor to fix, only real work whose wall-clock cost varies with V8 coverage instrumentation overhead, which per the task's own prior reproduction (passes in isolation, passes on a coverage-less full run, passes on a coverage run with --testTimeout=15000) is exactly what's tipping this one test past the default 5000ms under full-suite instrumentation load. Rejected: (1) reducing the test's real work (e.g. user.paste instead of user.type per field) -- would weaken the 'end to end' coverage of the real per-keystroke form-entry path for no good reason, just to dodge a timing artifact; (2) raising the project-wide vitest `testTimeout` default -- would mask a future genuinely-hung/broken test suite-wide instead of tolerating slack only where it's actually earned; (3) leaving it unfixed as 'known flake' -- explicitly the thing this task exists to stop happening, since every PR review was re-diagnosing it from scratch. Verified the fix with 4 consecutive full `yarn test:coverage` runs (69 files / 685 tests passing every time, no other change needed) plus a plain `yarn test` run, eslint, and tsc, all clean."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-seasons-followups",
+    "pr_number": 198,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/198",
+    "pushed_at": "2026-09-20T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T13:29:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/198",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review, not a rubber stamp, given the fix pattern's risk of masking a real regression. (1) Independently read PortfolioPage.tsx/AddPositionDialog.tsx/useAddPosition.ts: plain controlled form, bare useMutation, no debounce/setTimeout, retries already disabled in renderWithProviders.tsx -- no unmocked slow op or N+1 to fix. Confirmed with --reporter=verbose that under a full-suite `yarn test:coverage` run the test genuinely takes 5271ms (vs 1747ms in isolation), while the next-slowest test in the whole suite under the same load is only 3327ms -- a real, reproducible, isolated outlier caused by genuinely more DOM/event work (whole PortfolioPage mounted + 4 userEvent.type() fields + 3 real MUI Dialog clicks), not a fixable inefficiency. (2) Confirmed the flake predates this PR: docs/tasks/done/backend-indicator-rsi.json and docs/tasks/done/frontend-trade-journal-followups.json's own review/pr_decision notes both independently hit the identical timeout on unrelated prior PRs that touched no frontend rendering logic. (3) Independently re-ran `yarn test:coverage` 5 times myself (not just trusting the implementer's 4 runs): 685/685 passing every time. Backend: 920 passed, 99.94% coverage. (4) Checked every other test's timing under the same full-coverage run for a similar undiagnosed flake -- none found; this test is the clear single outlier and no project-wide testTimeout override exists anywhere in the repo, confirming the fix is correctly scoped. Static analysis (ruff/mypy/eslint/tsc) all clean. code-review skill (medium effort): no correctness or reuse/simplification findings, pure timeout-arg change. scripts/validate_tasks.py: no violations. No app/signals or app/portfolio code touched, so the Elder-signal checklist doesn't apply (noted explicitly). No API/schema change, so no OpenAPI check applies. No new/changed frontend component, so the common/-vs-feature placement check doesn't apply. No UI-facing application code changed (test file only) -- browser walkthrough and persisted e2e suite explicitly do not apply here. No blocking findings; no new non-blocking findings, so no new follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T13:33:11Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: git diff origin/main...HEAD confirms the change is genuinely scoped to a comment plus the `it(...)` third-arg 15000ms bump on exactly one test in PortfolioPage.test.tsx -- no project-wide testTimeout change (grepped repo-wide, none found), no other test file touched. Read the test file myself and confirmed the flagged test does more real DOM/interaction work than any other test in the file: 4 userEvent.type() calls (~18 keystrokes) plus 3 real clicks through a mounted MUI Dialog, vs. the other tests which do no interaction or (the delete test) only 2 clicks with no typing. Ran `yarn test:coverage` twice myself plus reviewed the third run's output: 69/69 test files, 685/685 tests passing all three times, no flake. Ran backend `pytest --cov=app --cov-report=term-missing` myself: 920 passed, 99.94% coverage, matching pr-reviewer's reported numbers exactly."
+  }
+}
