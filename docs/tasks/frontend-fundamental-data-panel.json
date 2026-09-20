@@ -3,7 +3,7 @@
   "title": "Display earnings/dividend dates, short interest, and insider transactions",
   "area": "frontend/pages/stocks",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-market-data-extra-fields"
   ],
@@ -67,5 +67,11 @@
       "decision": "`FundamentalDataPanel` treats `extendedData` as `ExtendedDataOut | null | undefined` and renders nothing (`return null`) when it's absent, even though the backend schema (`AnalysisResponse.extended_data`) is a non-optional, always-present field.",
       "rationale": "Several of `StockDetailPage.test.tsx`'s existing tests (the SELL/HOLD/season/lowercase-normalization cases, predating this task) hand-roll a partial `AnalysisResponse` JSON fixture via `HttpResponse.json({...})` that omits several optional-in-practice fields entirely, including (now) `extended_data` -- MSW doesn't validate the mocked response against the OpenAPI schema, so this compiles and runs fine, but would leave `extendedData` `undefined` at runtime for exactly those tests. Rather than rewriting every one of those pre-existing tests just to add a field this task's own scope doesn't require touching, the panel takes the same defensive posture `IndicatorsPanel.tsx`'s `formatValue` already documents toward a generated type it treats as optimistic, not a runtime guarantee -- gracefully rendering nothing rather than crashing. A real backend response always supplies the field, so this defensive branch is unreachable in production, only in this specific test-fixture-completeness gap."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-fundamental-data-panel",
+    "pr_number": 184,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/184",
+    "pushed_at": "2026-09-20T07:25:36Z"
+  }
 }
