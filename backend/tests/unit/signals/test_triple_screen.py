@@ -594,6 +594,21 @@ class TestIsForceIndexReversalSpike:
         series = pd.Series(self._baseline[:10] + [-50.0])
         assert is_force_index_reversal_spike(series) is False
 
+    def test_baseline_window_with_a_leading_nan_is_not_a_full_window_despite_its_length(
+        self,
+    ) -> None:
+        # A 13-element baseline window (satisfying the raw-length guard) that contains a leading
+        # NaN -- e.g. `force_index()`'s own EMA warm-up NaN when a caller hands this a minimal
+        # slice -- has only 12 *valid* values, not a full 13-bar history. `.abs().mean()`'s
+        # default `skipna=True` would silently average just those 12 real values (mean abs ==
+        # 24 / 12 == 2.0, same as the 13-bar `_baseline` fixture above, so 5x == 10.0) and
+        # incorrectly classify a -10.0 latest value as a reversal spike unless the guard counts
+        # valid (non-NaN) values rather than raw window length. Regression test for exactly this
+        # too-few-valid-values-within-a-full-length-window case.
+        baseline_with_leading_nan = [float("nan")] + self._baseline[1:]
+        series = pd.Series(baseline_with_leading_nan + [-10.0])
+        assert is_force_index_reversal_spike(series) is False
+
     def test_zero_usual_depth_is_not_a_reversal_spike(self) -> None:
         # A perfectly flat recent baseline (mean abs == 0) -- any nonzero spike would trivially
         # "exceed" a zero baseline, so this is explicitly guarded against.

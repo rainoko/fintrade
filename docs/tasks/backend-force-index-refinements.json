@@ -3,7 +3,7 @@
   "title": "Force Index spike-magnitude and directional-asymmetry refinements",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/triple_screen.py",

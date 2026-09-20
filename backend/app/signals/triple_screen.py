@@ -260,9 +260,9 @@ def _is_force_index_spike(force_index_2ema: pd.Series, *, negative: bool) -> boo
         return False
 
     multiplier = (
-        _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH
-        if not negative
-        else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH
+        _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH
+        if negative
+        else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH
     )
     return bool(abs(latest) > multiplier * rolling_std)
 
@@ -307,7 +307,7 @@ def is_force_index_reversal_spike(force_index_2ema: pd.Series) -> bool:
     baseline_window = force_index_2ema.iloc[
         -(_FORCE_INDEX_REVERSAL_DEPTH_WINDOW + 1) : -1
     ]
-    if len(baseline_window) < _FORCE_INDEX_REVERSAL_DEPTH_WINDOW:
+    if baseline_window.count() < _FORCE_INDEX_REVERSAL_DEPTH_WINDOW:
         return False
 
     baseline_mean_abs = baseline_window.abs().mean()
