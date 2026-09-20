@@ -1,0 +1,47 @@
+{
+  "id": "backend-market-data-extra-fields-followups",
+  "title": "Extended market data \u2014 non-blocking review follow-ups",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-market-data-extra-fields"
+  ],
+  "references": [
+    "docs/tasks/done/backend-market-data-extra-fields.json#review",
+    "https://github.com/rainoko/fintrade/pull/183"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #183 (backend-market-data-extra-fields), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "Insider-transaction cluster detection (3+ buys or sells within a month, Elder ch. 37's secondary signal) was explicitly deferred by this task's own `decisions` entry -- this PR only exposes the raw `insider_transactions` list, no buy/sell classification or time-windowed grouping. The scoping itself is reasonable (matches this codebase's established pattern of a separate detection task after the underlying data is exposed, e.g. divergence/kangaroo-tail/support-resistance-zone detection), but no follow-up task existed yet to actually pick this up later -- create/scope that detection task (parsing yfinance's free-text `Text` field into a buy/sell direction, then the time-windowed clustering pass) when it's next prioritized.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T08:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "This checklist item's job is to author and board a new, separately-worked task (docs/tasks/backend-insider-transaction-clusters.json, id `backend-insider-transaction-clusters`, area backend/signals, skill add-indicator, depends_on backend-market-data-extra-fields, state planned) that scopes the free-text-parsing + time-windowed-clustering work in detail, not to implement cluster detection itself in this task.",
+      "rationale": "The checklist item's own wording is 'create/scope that detection task ... when it's next prioritized' -- an explicit request to produce the task-board artifact (matching this codebase's established pattern of a dedicated later task for pattern/cluster detection: backend-divergence-detection, backend-kangaroo-tail-pattern, backend-support-resistance were each scoped this way after their underlying data became available), not a request to build the classifier/clustering algorithm now. Implementing detection here would both go beyond what this specific checklist item asks and skip the two genuine judgment calls the new task itself should record when it's actually worked (how to classify yfinance's free-text `transaction_text` into buy/sell/neither, and the exact rolling-window/distinct-insider clustering rule) -- deferring those to the dedicated task, with a checklist that explicitly requires recording them as `decisions`, follows the same 'concept precise, mechanism not' precedent set by backend-support-resistance's own zone-detection algorithm and backend-kangaroo-tail-pattern's threshold choices. Rejected: implementing the classifier/clustering logic directly in this followups task -- rejected because this task's sole remaining checklist item is explicitly a scoping request, and folding actual detection-algorithm work into a task titled/scoped as 'non-blocking review follow-ups' would blur task-board granularity in a way this codebase otherwise avoids (every prior instance of this exact pattern -- deferred detection logic after a data-exposure PR -- got its own dedicated task id rather than being implemented inline in the follow-ups task that flagged it)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-data-extra-fields-followups",
+    "pr_number": 192,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/192",
+    "pushed_at": "2026-09-20T11:00:13Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T11:01:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/192",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Task-board-only PR (confirmed via git diff main...task/backend-market-data-extra-fields-followups --stat: only docs/tasks/backend-insider-transaction-clusters.json (new), this file, and docs/tasks/index.json changed) -- no application code, so no test/coverage/lint run needed and no browser walkthrough applies (no UI surface). Read this task's own checklist item wording myself: it literally says 'create/scope that detection task ... when it's next prioritized', which is an explicit scoping request, not an implementation request -- the PR's interpretation is correct and matches the codebase's established precedent (backend-divergence-detection, backend-kangaroo-tail-pattern, backend-support-resistance were each scoped as their own task after the underlying data became available). Read the new docs/tasks/backend-insider-transaction-clusters.json in full: depends_on backend-market-data-extra-fields (already done) is correct; area backend/signals + skill add-indicator matches the direct precedents (backend-divergence-detection, backend-kangaroo-tail-pattern use the same pair for pattern/cluster-detection work); the checklist genuinely captures both real judgment calls as decide-and-record items rather than glossing over them -- buy/sell classification from transaction_text's free text (including option-exercise/gift/tax-withholding/unparseable handling) and the rolling-window/distinct-insider clustering definition; remaining checklist items (implementation, hand-computed reference tests including an unparseable-text case, API/docs exposure without silently wiring into Screen/Impulse/Confidence/Portfolio-Risk) follow the same shape as the three precedent tasks. All references resolve (backend/app/data/base.py, backend/app/api/schemas.py, backend/app/data/yfinance_provider.py, docs/ideas.md exist; docs/Analyse.md#extended-data-earningsdividend-dates-short-interest-insider-transactions matches that doc's actual heading; both docs/tasks/done/...json references correctly point at already-done tasks). docs/tasks/index.json mirrors both tasks' state/path correctly, no drift. python3 scripts/validate_tasks.py passes clean (197 task files, no violations) against the branch as checked out. No new findings -- nothing filed as a new followups task this pass."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-20T11:03:19Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran git diff main...task/backend-market-data-extra-fields-followups --stat myself and confirmed only task-board JSON changed (no application code). Read this task's checklist item wording ('create/scope that detection task ... when it's next prioritized') and confirmed the scoping-not-implementation interpretation is correct. Read docs/tasks/backend-insider-transaction-clusters.json in full and spot-checked it against docs/tasks/done/backend-kangaroo-tail-pattern.json: area/skill (backend/signals, add-indicator), depends_on, and the decide-and-record checklist shape all match established precedent. index.json mirrors both tasks' state/path correctly. Re-ran python3 scripts/validate_tasks.py myself: 197 task files, no violations. No test/coverage suite applicable (no application code in this PR)."
+  }
+}
