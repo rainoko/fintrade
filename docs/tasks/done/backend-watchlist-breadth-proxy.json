@@ -3,7 +3,7 @@
   "title": "\"Personal breadth\" proxy across watchlist/portfolio tickers",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/watchlist.py",
@@ -60,5 +60,63 @@
     "pr_number": 170,
     "pr_url": "https://github.com/rainoko/fintrade/pull/170",
     "pushed_at": "2026-09-20T00:14:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-20T00:20:29Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/170",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Backend suite: 746 passed, 99.92% overall coverage, backend/app/api/routers/watchlist.py at 100% line/branch coverage. ruff/mypy both clean. Frontend suite (unaffected by this backend-only PR): all tests pass, ~99.5%+ coverage, eslint/tsc both clean.",
+        "file": "backend/app/api/routers/watchlist.py"
+      },
+      {
+        "summary": "backend/openapi.json and frontend/src/api/types.ts both independently regenerated from the checked-out branch and diffed byte-for-byte against the committed versions -- no drift. New route has response_model, operation_id, summary, and a full docstring; every BreadthResponse field has a Field(description=...).",
+        "file": "backend/openapi.json"
+      },
+      {
+        "summary": "Verified the dedup logic directly: both POST /api/watchlist and POST /api/portfolio/positions upper() the ticker before storing, so a plain set union (watchlist_tickers | portfolio_tickers) correctly dedups a ticker held in both without any case-mismatch risk. Confirmed by this PR's own test (GOOG on both watchlist and portfolio -> tracked_ticker_count=4, not 5, counted once) and independently reasoned through the storage-side normalization.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 170
+      },
+      {
+        "summary": "Empty watchlist+portfolio is handled gracefully and is genuinely tested: returns 200 with all-zero counts and 0.0 percentages (ternary guard against the computable==0 division), not an error -- matches test_empty_watchlist_and_portfolio_returns_all_zero.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 186
+      },
+      {
+        "summary": "Methodology conformance (verify-elder-signal): _tide_trend reads only result.screens['tide']['trend'] from the existing analyse() pipeline -- confirmed Tide itself still outputs exactly BULLISH|BEARISH|NEUTRAL with no silent default (app/signals/triple_screen.py's evaluate_tide). The aggregate is read-only and purely additive to its own response; it doesn't feed back into any per-ticker signal/confidence computation for any other endpoint. docs/Analyse.md's new section honestly frames this as a proxy/approximation ('not a substitute for the real thing... reflecting only the tickers this particular user happens to be tracking, not the market as a whole'), not overclaiming equivalence to true market breadth.",
+        "file": "docs/Analyse.md",
+        "line": 214
+      },
+      {
+        "summary": "No new module/dependency/layer added (new route + schema in an existing router file) -- architecture-review not separately invoked as not applicable. No frontend component touched by this PR (only the generated types.ts) -- step 7a placement assessment doesn't apply.",
+        "file": "backend/app/api/routers/watchlist.py"
+      },
+      {
+        "summary": "No UI surface in this PR: grepped frontend/src for 'breadth' and found only the generated types.ts referencing the new operation -- no hook/component wires it up yet (that's the separate frontend-breadth-widget task). Browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as inapplicable rather than silently omitted.",
+        "file": "frontend/src/api/types.ts"
+      },
+      {
+        "summary": "Decisions cross-check: the one checklist item phrased as 'decide X' (refresh/caching behavior) has a corresponding decisions entry with rationale. No undocumented judgment call found.",
+        "file": "docs/tasks/done/backend-watchlist-breadth-proxy.json"
+      },
+      {
+        "summary": "code-review skill (medium effort): found no correctness bugs. Non-blocking: _tide_trend (watchlist.py line 71) duplicates _compute_signal's fetch-and-catch logic verbatim instead of delegating to it, risking the two drifting apart later. Also non-blocking: the docstring/decisions claim of 'no new provider calls result either way... already being fetched for this same request's own per-ticker signal computation' overstates the case, since GET /api/watchlist/breadth is its own separate request -- whether the fetch is actually cache-warm depends on whether another endpoint was hit recently within the cache TTL. Both filed to backend-watchlist-breadth-proxy-followups.json.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 71
+      },
+      {
+        "summary": "Own finding, non-blocking: bullish_pct/bearish_pct/neutral_pct are each independently rounded to 1 decimal, so they don't always sum to exactly 100.0 (e.g. a 1/3-1/3-1/3 computable split yields 33.3+33.3+33.3=99.9, exactly reproduced by this PR's own mixed-watchlist test). Not a bug, but worth a doc note or a remainder-based computation so the frontend-breadth-widget task doesn't end up displaying something that looks like a rounding error. Filed to backend-watchlist-breadth-proxy-followups.json.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 193
+      },
+      {
+        "summary": "Own finding, non-blocking and arguable (not clear-cut): the new 'Personal breadth proxy' subsection sits under docs/Analyse.md's '## 7. Portfolio-Level Rules (risk management overlay)' alongside the 2%/6% rules and stop-loss/grading logic, but it isn't itself a risk-management rule -- it's an informational context aggregate closer in kind to Screen 1/Tide (section 2). Reasonable to keep it where it is (it does span the portfolio), but worth reconsidering a top-level section instead. Filed to backend-watchlist-breadth-proxy-followups.json.",
+        "file": "docs/Analyse.md",
+        "line": 214
+      }
+    ],
+    "notes": "No blocking findings across tests/coverage (backend 99.92%, frontend ~99.5%+, both suites passing), static analysis (ruff/mypy/eslint/tsc all clean), OpenAPI/frontend-types sync (both independently regenerated and diffed clean), methodology conformance (Tide output unchanged, aggregate is read-only/additive, docs honestly frame this as a proxy not a substitute for real market breadth), dedup logic (verified via consistent upper()-on-write normalization on both the watchlist and portfolio write paths, plus the PR's own GOOG-on-both-lists test), and the empty-watchlist+portfolio edge case (tested and gracefully returns all-zero, not an error). Three non-blocking findings (one from the code-review skill's reuse observation plus a documentation-accuracy nit, one on percentage rounding not always summing to 100.0, one on Analyse.md section placement) filed to backend-watchlist-breadth-proxy-followups.json rather than left only as PR comments."
   }
 }
