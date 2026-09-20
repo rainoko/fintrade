@@ -3,7 +3,7 @@
   "title": "Force Index refinements — non-blocking review follow-up from PR #185",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-force-index-refinements"],
   "references": [
     "docs/tasks/done/backend-force-index-refinements.json#review",
@@ -16,5 +16,12 @@
       "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Closing this task with a JSON-only PR (no source change) rather than re-applying the fix. Verified `_is_force_index_spike` in backend/app/signals/triple_screen.py already uses the direct (non-double-negative) form `_FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BULLISH if negative else _FORCE_INDEX_SPIKE_STDEV_MULTIPLIER_BEARISH`, matching what the checklist item asked for, and matching PR #185's own review notes (backend-force-index-refinements.json#review) which independently confirmed this same opportunistic fix landed in commit ae3007c. Full backend suite re-run clean (850 passed) as a sanity check before closing.",
+      "rationale": "The task's only checklist item was already marked done:true with a note that the fix landed opportunistically in PR #185; re-doing the fix here would be redundant and risks a spurious no-op diff. Formally closing (state -> testing, git block recorded) lets it proceed through the normal review pipeline to done rather than sitting in planned indefinitely despite having nothing left to implement."
+    }
+  ]
 }
