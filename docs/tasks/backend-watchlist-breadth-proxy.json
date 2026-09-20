@@ -56,6 +56,9 @@
     }
   ],
   "git": {
-    "branch": "task/backend-watchlist-breadth-proxy"
+    "branch": "task/backend-watchlist-breadth-proxy",
+    "pr_number": 170,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/170",
+    "pushed_at": "2026-09-20T00:14:48Z"
   }
 }
