@@ -3,7 +3,7 @@
   "title": "Compute weekly Impulse System and reconcile it with Screen 1 (Tide)",
   "area": "backend/signals",
   "skill": "add-indicator",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/signals/impulse.py",
@@ -79,5 +79,11 @@
       "decision": "Updated `.claude/skills/verify-elder-signal/SKILL.md`'s own checklist (Screen 1 and Impulse Gate sections) to describe the corrected weekly-Impulse-is-Screen-1 methodology, in the same change as the code/doc correction.",
       "rationale": "Running the skill against this PR's own diff surfaced that its Screen 1 checklist item still said \"Weekly MACD-Histogram slope and 13/26-week EMA relationship both feed the tide determination\" -- the exact pre-correction rule this task replaces. Left as-is, every future run of this skill (or the elder-signal-reviewer agent that loads it) would flag the corrected code as a bug and could push a future worker to regress Screen 1 back to the superseded methodology. This is the skill-file equivalent of the doc-staleness case the skill's own \"If a Mismatch Is Found\" section already tells reviewers to fix in the same change rather than leaving inconsistent -- so it was fixed here rather than filed as a separate follow-up, since leaving it stale would actively mislead the very verification step this task's checklist requires (item 7)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-weekly-impulse-screen1",
+    "pr_number": 187,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/187",
+    "pushed_at": "2026-09-20T08:36:35Z"
+  }
 }
