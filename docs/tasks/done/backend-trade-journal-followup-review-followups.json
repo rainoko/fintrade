@@ -57,5 +57,10 @@
       }
     ],
     "notes": "No UI surface -- this PR only touches backend/app/api/routers/portfolio.py (an internal helper extraction) with no schema/route change, so the browser walkthrough and e2e-test steps don't apply; explicitly skipped rather than silently omitted. area is backend/db (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer added, so architecture-review doesn't apply. Filed docs/tasks/backend-trade-journal-followup-review-followups-followups.json for the one non-blocking finding (field-count inaccuracy in the decision record)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T09:20:50Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv pytest --cov=app --cov-report=term-missing myself: 1109 passed, 99.95% overall coverage, app/api/routers/portfolio.py at 100% line/branch -- matches pr-reviewer's reported numbers exactly. Independently regex-extracted all ClosedTradeOut(...) constructions from origin/main's portfolio.py and the new _to_closed_trade_out helper's body: both original inline call sites are byte-identical to each other (17 fields each) and, after normalizing grade.X -> grades[row.id].X (the call sites pass grades[row.id] as the grade arg), field-by-field identical in name, order, and source expression to the helper -- no field dropped, added, retyped, or given a different value. Confirmed `git diff origin/main...HEAD -- backend/openapi.json` is empty (zero diff) and no route/schema signature changed. Also confirmed schemas.py's ClosedTradeOut has exactly 17 fields via direct read, matching the tracked follow-up's correction of the decision record's '18 fields' claim. Checked ruff/mypy: portfolio.py itself is ruff/format/mypy-clean; the 7 ruff findings in unrelated test files pre-exist on origin/main (verified via a throwaway worktree) and aren't introduced by this diff, so they don't affect this PR's mergeability. No human PR comments found on #227."
   }
 }
