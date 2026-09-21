@@ -1482,7 +1482,7 @@
       "id": "backend-trailing-profit-stop",
       "area": "backend/portfolio",
       "skill": "verify-elder-signal",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-trailing-profit-stop.json"
     },
     {

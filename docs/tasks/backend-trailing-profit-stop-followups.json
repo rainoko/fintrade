@@ -19,6 +19,14 @@
     {
       "step": "Reconsider `trailing_stop`'s 'detection + exposure only' scope (documented in docs/Analyse.md and this task's own decisions): it is not wired into `evaluate_exit_flags`/the SELL-trigger logic the way `protective_stop` is, so a close below it currently has no actionable consequence anywhere in the app -- unlike protective_stop, whose own doc explicitly says a close below it is itself a SELL trigger. Worth a deliberate decision (not just an implicit non-decision) on whether/how Elder ch. 54's trailing stop should eventually gate an exit the same way, now that the field exists and is live in the API.",
       "done": false
+    },
+    {
+      "step": "The `trailing_stop_high_water_mark` write-back comparison (`if position_row.trailing_stop_high_water_mark is None or trailing_stop > position_row.trailing_stop_high_water_mark: position_row.trailing_stop_high_water_mark = trailing_stop`) is inlined directly in `app.api.routers.portfolio.get_risk`'s per-position loop rather than encapsulated as a small helper in `app.portfolio.risk` alongside `ratchet_trailing_profit_stop` itself. Minor 'thin router' deviation (docs/Architecture.md's 'business logic in signals/portfolio/, not embedded in route handlers' rule) -- worth moving into risk.py (e.g. an `advance_high_water_mark(position_row, candidate)`-shaped helper) for consistency with how every other risk computation in this file already lives in risk.py, not portfolio.py.",
+      "done": false
+    },
+    {
+      "step": "Concurrency: two overlapping `GET /api/portfolio/risk` requests for the same position each read `position_row.trailing_stop_high_water_mark` before either commits, so a lost-update race is possible (the lower of two concurrently-computed candidates could win the final `db.commit()`). Narrow window, and self-limiting in practice (the stateless recompute still floors most cases correctly), but now that this GET route mutates state at all, its write needs the same concurrency scrutiny any other mutating endpoint gets -- worth a `SELECT ... FOR UPDATE`-style guard or an atomic `UPDATE ... SET trailing_stop_high_water_mark = MAX(trailing_stop_high_water_mark, :candidate)` instead of read-compare-write from Python, if this is judged worth closing rather than accepting as a low-probability, self-healing race.",
+      "done": false
     }
   ],
   "decisions": []
