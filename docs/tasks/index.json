@@ -1713,8 +1713,15 @@
       "id": "backend-profit-target-weekly-channel-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-profit-target-weekly-channel-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target-weekly-channel-followups.json"
+    },
+    {
+      "id": "backend-profit-target-weekly-channel-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json"
     }
   ]
 }
