@@ -58,5 +58,10 @@
       }
     ],
     "notes": "No UI-facing surface in this PR (backend-only change; only the generated frontend/src/api/types.ts changed, no consuming component/page) -- browser walkthrough and the persisted e2e suite were both skipped for that reason rather than silently omitted. Not an architecture-review trigger (no new module/dependency/layer). Both checklist items phrased as 'decide X' have corresponding decisions entries with real rationale."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T04:24:14Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv pytest --cov=app myself: 1100 passed, 99.94% coverage, matching pr-reviewer's numbers exactly. Re-generated backend/openapi.json from the branch and confirmed zero diff. Read the actual portfolio.py filter (exit_date >= today-10w AND exit_date <= today-8w, both inclusive) and its tests: hand-checked that the 8w/10w boundary tests and the one-day-past-boundary tests use genuinely computed dates (today() - timedelta(weeks=8/10) +/- timedelta(days=1)), not just similarly-named fixtures, and the arithmetic matches the filter exactly. Confirmed an already-reviewed trade is excluded from the due-list filter both as a static fixture (test_already_reviewed_trade_is_excluded_even_inside_window) and end-to-end via POST then re-GET (test_reviewed_trade_drops_out_of_the_due_filter). Traced record_follow_up_review's call path: it calls _grade_closed_trades([row], provider) after committing the new follow_up fields and builds ClosedTradeOut from that fresh grade -- a genuinely recomputed grade, not a stale/placeholder one, matching test_returns_recomputed_grades. Skimmed every changed file in the diff; nothing pr-reviewer's summary underweighted."
   }
 }
