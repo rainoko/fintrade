@@ -474,6 +474,103 @@ class TestAddPosition:
         assert second.status_code == 201
         assert second.json()["entry_notes"] == "Added on pullback to value zone."
 
+    def test_create_position_with_strategy(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["strategy"] == "Pullback to value"
+
+    def test_create_position_without_strategy_is_null(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["strategy"] is None
+
+    def test_merge_with_no_incoming_strategy_keeps_existing_strategy_unchanged(
+        self, client: TestClient
+    ) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 50, "avg_cost_basis": 130.0, "entry_date": "2026-06-01"},
+        )
+
+        assert second.status_code == 201
+        assert second.json()["strategy"] == "Pullback to value"
+
+    def test_merge_with_incoming_strategy_overwrites_existing_strategy(
+        self, client: TestClient
+    ) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "strategy": "False breakout with a divergence",
+            },
+        )
+
+        assert second.status_code == 201
+        # Overwritten, not appended -- unlike entry_notes, see this task's `decisions` entry.
+        assert second.json()["strategy"] == "False breakout with a divergence"
+
+    def test_merge_with_incoming_strategy_and_no_existing_strategy_sets_strategy(
+        self, client: TestClient
+    ) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 100.0, "entry_date": "2026-05-14"},
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        assert second.status_code == 201
+        assert second.json()["strategy"] == "Pullback to value"
+
     def test_whitespace_padded_ticker_is_stripped_and_merges_with_existing(
         self, client: TestClient
     ) -> None:

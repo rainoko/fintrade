@@ -125,6 +125,8 @@ class TestGetClosedTradesFields:
         # No entry_notes was passed to _add_closed_trade above -- defaults to null, not an
         # empty string or omitted field.
         assert item["entry_notes"] is None
+        # Same for strategy: not passed above, so null rather than an empty string.
+        assert item["strategy"] is None
 
     def test_entry_notes_is_carried_through_when_present(
         self, client: TestClient, db_session: Session
@@ -134,6 +136,15 @@ class TestGetClosedTradesFields:
         response = client.get("/api/portfolio/closed-trades")
         [item] = response.json()["items"]
         assert item["entry_notes"] == "Breakout above resistance."
+
+    def test_strategy_is_carried_through_when_present(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", strategy="Pullback to value")
+
+        response = client.get("/api/portfolio/closed-trades")
+        [item] = response.json()["items"]
+        assert item["strategy"] == "Pullback to value"
 
     def test_grades_match_the_formulas_applied_to_the_fixture_frame(
         self, client: TestClient, db_session: Session

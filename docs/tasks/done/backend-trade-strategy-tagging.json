@@ -1,0 +1,80 @@
+{
+  "id": "backend-trade-strategy-tagging",
+  "title": "Add a personal named 'strategy' tag to positions and closed trades",
+  "area": "backend/portfolio",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/schemas.py",
+    "backend/app/db/models.py",
+    "docs/ideas.md#letter-grade-scores-abcd-not-just-raw-grade-percentages",
+    "docs/ideas.md#trade-apgar--pre-trade-go-no-go-scoring-ch-58"
+  ],
+  "description": "Elder ch. 55/56/58/59 all lean on the trader tagging every trade with a personal, named strategy/setup type (his own examples: 'false breakout with a divergence,' 'pullback to value') to later see which of their own setups perform best. Nothing in this app's schema captures this today. This is foundational: backend-trade-apgar depends on it, and the ch.59 idea's 'equity curves segmented by strategy' needs it too. Scope here is just the field and its plumbing, not the Apgar or equity-curve features themselves.",
+  "checklist": [
+    { "step": "Add a nullable `strategy` string field to PositionIn/PositionOut/PositionORM.", "done": true },
+    { "step": "Carry `strategy` through to ClosedTradeORM/ClosedTradeOut when a position is closed (DELETE /api/portfolio/positions/{id}).", "done": true },
+    { "step": "Decide free-text vs. a user-managed fixed list of strategies, and record the rationale (Elder's own framing is that strategies are personal and evolve over time -- 'you may develop new strategies and drop others').", "done": true },
+    { "step": "Unit/integration tests covering a position created with and without a strategy tag, and that it carries through correctly to the closed-trade row on close.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T02:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`strategy` is free-text, not a user-managed fixed/enum list of strategy names.",
+      "rationale": "Elder's own framing (docs/ideas.md's ch. 55/56 entry, quoting the book) is that a trader's named strategies are personal and evolve over time ('you may develop new strategies and drop others') -- a fixed list would need its own CRUD surface (create/rename/retire a strategy) that nothing in this task's scope calls for, and would block tagging a trade with a brand-new strategy the moment it's invented rather than after a separate list-management step. This also matches the existing `entry_notes` field's own free-text precedent (backend-trade-journal-entry-notes task) for the same kind of personal, unstructured trader input on `PositionIn`/`PositionOut`/`ClosedTradeOut`. Downstream consumers that need to group by strategy (the future backend-trade-apgar task, and the ch. 59 'equity curves segmented by strategy' idea) can still group by exact string match on whatever the user has typed -- a fixed list isn't a precondition for that, just a nicer UX a later task could add without changing this field's fundamental shape."
+    },
+    {
+      "timestamp": "2026-09-21T02:40:00Z",
+      "recorded_by": "task-worker",
+      "decision": "On `POST /api/portfolio/positions` merging into an existing same-ticker position, an incoming `strategy` *overwrites* the existing tag (if any) rather than being appended to it the way `entry_notes` is. A merge with no incoming `strategy` leaves the existing tag untouched.",
+      "rationale": "This deliberately diverges from `entry_notes`' own merge-append convention (backend-trade-journal-entry-notes task), even though the two fields look superficially similar (both nullable free-text strings carried the same way from PositionIn through to ClosedTradeOut). `entry_notes` is a narrative, human-readable note where preserving every buy's own rationale has value and concatenation reads fine. `strategy` is meant to be a single, consistent tag a later feature groups/aggregates on exactly -- the ch. 59 'equity curves segmented by strategy' idea and the future backend-trade-apgar task both need one clean value per trade to bucket by, not a growing concatenation of every strategy ever associated with a ticker's position (e.g. 'Pullback to value\\n\\nFalse breakout with a divergence' would be its own distinct, never-repeated bucket, defeating the whole point of grouping). Overwriting keeps the field usable for that purpose; rejecting the merge or erroring on a strategy mismatch was considered and rejected as unnecessarily strict for what is otherwise a totally ordinary, always-allowed same-ticker merge (api-portfolio-add-position task's own `decisions`)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-strategy-tagging",
+    "pr_number": 218,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/218",
+    "pushed_at": "2026-09-21T02:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T02:59:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/218",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The overwrite-on-merge divergence from entry_notes' append-on-merge convention is genuinely justified (single clean value needed for exact-match grouping by future backend-trade-apgar/equity-curves-by-strategy consumers) and is documented in both this task's `decisions` and inline code comments/docstrings (schemas.py, models.py, routers/portfolio.py, docs/architecture/API.md). The overwrite behavior is directly tested: test_merge_with_incoming_strategy_overwrites_existing_strategy asserts a position tagged \"Pullback to value\" merged with an incoming \"False breakout with a divergence\" ends up exactly \"False breakout with a divergence\", not a concatenation. test_merge_with_no_incoming_strategy_keeps_existing_strategy_unchanged and test_merge_with_incoming_strategy_and_no_existing_strategy_sets_strategy cover the other two merge combinations.",
+        "file": "backend/tests/integration/test_portfolio_positions.py",
+        "line": 526
+      },
+      {
+        "summary": "Position-vs-EnrichedPosition placement handled correctly: `strategy` was added to `EnrichedPosition` (backend/app/portfolio/pricing.py), not to the bare `Position` domain model (backend/app/portfolio/models.py), mirroring the entry_notes precedent -- Position has no use for it and its serialization is pinned to the docs/architecture/API.md example.",
+        "file": "backend/app/portfolio/pricing.py",
+        "line": 43
+      },
+      {
+        "summary": "Full backend test suite passes (1030 tests) with 99.94% coverage; frontend vitest suite passes with 99.7%+ coverage (no frontend logic changed besides regenerated types.ts). Backend ruff/mypy and frontend eslint/tsc are all clean on touched files. backend/openapi.json regenerated and matches the code (verified by re-running scripts/export_openapi.py and diffing -- no changes). No frontend component/page touches this field yet, so no UI walkthrough or e2e run applies -- explicitly a backend-only, no-UI-surface change.",
+        "file": "backend/openapi.json",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: PositionIn.strategy has no normalization/stripping validator, so a whitespace-only incoming value (e.g. \"   \") is truthy under `if position.strategy:` and would silently overwrite an existing tag with whitespace on merge -- untested today. Mirrors the same already-tracked gap on entry_notes (backend-trade-journal-entry-notes-followups). Tracked in backend-trade-strategy-tagging-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 380
+      },
+      {
+        "summary": "Non-blocking: no case/whitespace normalization is enforced on `strategy`, so two otherwise-identical tags differing only in casing/incidental whitespace would land in separate exact-match buckets once a future consumer (backend-trade-apgar, equity-curves-by-strategy) actually groups by this field -- undermines the stated rationale for overwrite-on-merge somewhat. Worth reconsidering before those consumers land. Tracked in backend-trade-strategy-tagging-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 396
+      }
+    ],
+    "notes": "Full review: tests+coverage (backend 99.94%, frontend 99.7%+), static analysis (ruff/mypy/eslint/tsc all clean), code-review skill pass (no blocking findings), verify-elder-signal checklist walked (no signal/confidence/risk logic touched by this PR, so no methodology divergence possible), openapi.json snapshot confirmed current, decisions cross-checked against checklist's two 'decide X' items (both recorded). No frontend component changes and no UI-facing surface, so browser walkthrough (step 9) and e2e suite (step 9a) are explicitly skipped rather than silently omitted. Two non-blocking findings filed as backend-trade-strategy-tagging-followups."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T03:03:33Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing myself: 1030 passed, 99.94% coverage, matching pr-reviewer's numbers exactly. Skimmed full diff (git diff origin/main...HEAD): confirmed test_merge_with_incoming_strategy_overwrites_existing_strategy (test_portfolio_positions.py:523-550) asserts the merged result is exactly 'False breakout with a divergence', not a concatenation; confirmed `strategy` was added to EnrichedPosition (pricing.py) not the shared Position domain model; confirmed `git diff --stat` shows zero changes under app/signals/, app/portfolio/risk.py, or app/portfolio/exits.py. Accept holds."
+  }
+}

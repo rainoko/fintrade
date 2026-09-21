@@ -254,7 +254,8 @@ Current positions plus account equity.
       "signal": "BUY",
       "confidence": 72,
       "confidence_band": "High",
-      "entry_notes": "Breakout above resistance, strong earnings beat."
+      "entry_notes": "Breakout above resistance, strong earnings beat.",
+      "strategy": "Pullback to value"
     }
   ]
 }
@@ -264,24 +265,26 @@ Each position is also annotated with its current `signal`/`confidence`/`confiden
 
 `entry_notes` is the free-text "why did I take this trade" note from Elder ch. 59's Trade Journal Section A (`docs/ideas.md`'s ch. 59 entry) — optional, `null` if none was ever recorded (see `POST /api/portfolio/positions` below).
 
+`strategy` is the trader's own personal, named strategy/setup tag (Elder ch. 55/56/58/59, `docs/ideas.md`'s ch. 55/56 entry — his own examples: "false breakout with a divergence," "pullback to value") — optional free-text, `null` if none was ever given. Free-text rather than a fixed, predefined list, since Elder is explicit that a trader's strategies are personal and evolve over time ("you may develop new strategies and drop others") — see the `backend-trade-strategy-tagging` task's `decisions`.
+
 ### `POST /api/portfolio/positions`
 
 Add or update a position (manual entry / CSV-import row).
 
 Request:
 ```json
-{ "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14", "entry_notes": "Breakout above resistance, strong earnings beat." }
+{ "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14", "entry_notes": "Breakout above resistance, strong earnings beat.", "strategy": "Pullback to value" }
 ```
 
-`entry_notes` is optional and free-text. Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct`/`signal`/`confidence`/`confidence_band` are always `null` in this response — price/signal enrichment happens on read, not on write.
+`entry_notes`/`strategy` are both optional and free-text. Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct`/`signal`/`confidence`/`confidence_band` are always `null` in this response — price/signal enrichment happens on read, not on write.
 
-Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale). `entry_notes` merges by **appending**: an incoming note is added to the existing one separated by a blank line rather than overwriting it (so notes from multiple buys into the same position are all preserved); a merge with no incoming note leaves the existing note untouched — see the `backend-trade-journal-entry-notes` task's `decisions`.
+Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale). `entry_notes` merges by **appending**: an incoming note is added to the existing one separated by a blank line rather than overwriting it (so notes from multiple buys into the same position are all preserved); a merge with no incoming note leaves the existing note untouched — see the `backend-trade-journal-entry-notes` task's `decisions`. `strategy` merges differently, by **overwriting**: an incoming `strategy` replaces the existing tag outright rather than being concatenated onto it, so this field stays a single clean value for future strategy-segmented grouping/equity-curve use (`docs/ideas.md`'s ch. 59 "equity curves segmented by strategy" idea); a merge with no incoming `strategy` leaves the existing one untouched — see the `backend-trade-strategy-tagging` task's `decisions`.
 
 ### `DELETE /api/portfolio/positions/{id}`
 
 Removes a position. `204 No Content` on success.
 
-Query params: `exit_reason` (optional, one of `target_hit` | `stop_hit` | `reached_value_zone` | `going_nowhere` | `starting_to_turn` | `couldnt_stand_the_pain` | `recognized_junk_trade_after_entry` | `unspecified` — Elder's own exit-reason taxonomy per Analyse.md §7/ideas.md's ch. 51 note, plus `unspecified` as this app's own default); `exit_price`/`exit_date` (optional, must be supplied together or not at all — see below). Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date, realized P&L, exit_reason, entry_notes) for the trade-history/ledger this app previously had no model for at all. `entry_notes` is carried over verbatim from the position's own note.
+Query params: `exit_reason` (optional, one of `target_hit` | `stop_hit` | `reached_value_zone` | `going_nowhere` | `starting_to_turn` | `couldnt_stand_the_pain` | `recognized_junk_trade_after_entry` | `unspecified` — Elder's own exit-reason taxonomy per Analyse.md §7/ideas.md's ch. 51 note, plus `unspecified` as this app's own default); `exit_price`/`exit_date` (optional, must be supplied together or not at all — see below). Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date, realized P&L, exit_reason, entry_notes, strategy) for the trade-history/ledger this app previously had no model for at all. `entry_notes`/`strategy` are both carried over verbatim from the position's own values.
 
 By default (`exit_price`/`exit_date` omitted), the closed trade is priced at today's latest close for this ticker (the same market-data lookup `current_price` uses elsewhere, not a caller-supplied price) — see the `backend-trade-history-table` task's `decisions`. If that price fetch fails, the position is still deleted but no `closed_trades` row is recorded (there's no exit price to compute a realized P&L from). Callers may instead supply `exit_price` (positive, finite) and `exit_date` (not before the position's `entry_date`) together to backfill a trade that already happened in the past — e.g. importing real trading history, or logging a sale a few days late with its actual fill price — bypassing the live-price lookup entirely for that request. `422` if only one of the pair is given, or if `exit_date` predates `entry_date`. See the `backend-close-position-manual-exit` task's `decisions` for why this is a deliberate, narrow exception to `backend-trade-history-table`'s original "always price from live market data" rule rather than a silent override of it.
 
@@ -333,7 +336,8 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
       "buy_grade_pct": 97.3,
       "sell_grade_pct": 35.5,
       "trade_grade_pct": 32.1,
-      "entry_notes": "Breakout above resistance, strong earnings beat."
+      "entry_notes": "Breakout above resistance, strong earnings beat.",
+      "strategy": "Pullback to value"
     }
   ]
 }
@@ -341,7 +345,7 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
 
 The three grade fields are `null` whenever they can't currently be computed — the ticker's daily-history fetch failed, `entry_date`/`exit_date` isn't an exact trading-day row in that history (e.g. it predates the fetched history), or (`trade_grade_pct` only) `entry_date` falls inside the Autoenvelope/channel's own ~100-bar warm-up window (same warm-up `GET /api/stocks/{ticker}/analysis`'s `indicators.channel_upper`/`channel_lower` document) — never a request-level error; the row itself is always present with its recorded price/date/P&L fields intact. See `app.portfolio.grading` for the formulas themselves.
 
-`entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded.
+`entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded. `strategy` is carried over the same way (Elder ch. 55/56/58/59's personal named strategy tag) — `null` if the position never had a strategy tag recorded.
 
 ### `GET /api/watchlist`
 

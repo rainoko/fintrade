@@ -23,6 +23,17 @@ class PositionORM(Base):
     closes (`DELETE /api/portfolio/positions/{id}`) -- see the backend-trade-journal-entry-
     notes task's `decisions` entry for how a merge with an existing position (same ticker)
     combines an incoming note with an existing one rather than silently overwriting it."""
+    strategy: Mapped[str | None] = mapped_column(String, nullable=True)
+    """The trader's own personal, named strategy/setup tag for this trade (Elder ch. 55/56/
+    58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: "false breakout with a
+    divergence," "pullback to value") -- optional free-text, set at POST
+    /api/portfolio/positions time. Unlike `entry_notes` (a narrative note, appended on merge),
+    an incoming `strategy` *overwrites* the existing one on a same-ticker merge rather than
+    being concatenated onto it -- see the backend-trade-strategy-tagging task's `decisions`
+    entry for why: this field is meant to be grouped/aggregated on exactly
+    (docs/ideas.md's ch. 59 "equity curves segmented by strategy" idea, and the future
+    backend-trade-apgar task), which a multi-value concatenated string would break. Carried
+    over onto the corresponding `ClosedTradeORM.strategy` row when the position closes."""
 
 
 class AccountORM(Base):
@@ -84,6 +95,9 @@ class ClosedTradeORM(Base):
     """Carried over verbatim from `PositionORM.entry_notes` (see its own docstring) at the
     moment the position closes -- null if the position never had a note recorded, matching
     `PositionORM.entry_notes`'s own optionality rather than inventing a placeholder string."""
+    strategy: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Carried over verbatim from `PositionORM.strategy` (see its own docstring) at the moment
+    the position closes -- null if the position never had a strategy tag recorded."""
 
 
 class DailyHomeworkEntryORM(Base):
