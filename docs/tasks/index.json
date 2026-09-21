@@ -1475,8 +1475,8 @@
       "id": "backend-profit-target-weekly-channel",
       "area": "backend/signals",
       "skill": "verify-elder-signal",
-      "state": "done",
-      "path": "docs/tasks/done/backend-profit-target-weekly-channel.json"
+      "state": "implementing",
+      "path": "docs/tasks/backend-profit-target-weekly-channel.json"
     },
     {
       "id": "backend-profit-target-open-position",

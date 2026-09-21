@@ -1,0 +1,69 @@
+{
+  "id": "backend-profit-target-weekly-channel",
+  "title": "Fix suggest_profit_target to use the weekly chart's channel, not the daily",
+  "area": "backend/signals",
+  "skill": "verify-elder-signal",
+  "state": "implementing",
+  "depends_on": [],
+  "references": [
+    "backend/app/portfolio/profit_target.py",
+    "docs/Analyse.md",
+    "docs/ideas.md#surface-suggested-stop-lossprofit-target-more-prominently-for-open-positions"
+  ],
+  "description": "Ch. 39 p.161 ('Stops and Profit Targets' section), read directly: 'Triple Screen calls for setting profit targets using long-term charts and stops on the charts of your intermediate timeframe... When buying a dip on a daily chart, the value zone on a weekly chart presents a good target.' This app's intermediate timeframe is daily (Wave/Screen 2) and long-term is weekly (Tide/Screen 1) -- but suggest_profit_target's channel/support-resistance target and protective_stop's SafeZone stop are both currently computed entirely off daily data. Per this explicit rule, the profit target should be drawn from the weekly chart's channel/value-zone instead; the stop staying on daily is already correct and does not change.",
+  "checklist": [
+    { "step": "Change suggest_profit_target's channel computation to use weekly OHLCV instead of daily, per ch.39 p.161's explicit stops-vs-targets timeframe rule.", "done": true },
+    { "step": "Confirm protective_stop remains on daily data (already correct per the same rule) -- no change needed there, but verify explicitly rather than assuming.", "done": true },
+    { "step": "Update the existing hand-computed reference-value tests for suggest_profit_target with new expected values reflecting the weekly-based target.", "done": true },
+    { "step": "Record a decisions entry noting this corrects a prior implementation now that the primary source (ch. 39 p.161) has been read directly rather than inferred.", "done": true },
+    { "step": "elder-signal-reviewer pass before merge.", "done": true },
+    { "step": "Regenerate backend/openapi.json/frontend types if the response shape changes (should not -- this only changes which data feeds an existing field).", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T04:41:01Z",
+      "recorded_by": "task-worker",
+      "decision": "suggest_profit_target's signature changed from taking already-computed `channel_upper`/`channel_lower: float | None` (previously sourced by the caller from app.signals.engine.analyse's DAILY Autoenvelope pass) to taking a `weekly_ohlcv: pd.DataFrame` parameter and computing the weekly Autoenvelope channel internally via a new private `_weekly_channel_bounds` helper (autoenvelope(weekly_ohlcv['close'], ema_period=13), default deviation_lookback=100 -- i.e. a ~100-WEEK warm-up, not 100-day). The support/resistance ('Position-style') candidate and the caller's already-detected `zones` stay daily and unchanged -- ch. 39 p.161's quoted rule is specifically about the channel/value-zone target ('the value zone on a weekly chart'), not the support/resistance technique, and app.signals.support_resistance has no weekly variant. protective_stop/stop_from_price_action (app.portfolio.risk) was verified unchanged and still daily-only, per the same rule (it is Triple Screen's intermediate-timeframe half of the stops-vs-targets split, already correct before this fix).",
+      "rationale": "Considered and rejected: (1) keeping the channel_upper/channel_lower float parameters and just having the caller (get_analysis in stocks.py) source them from a NEW weekly autoenvelope pass computed in the router instead -- rejected because the channel computation itself is what the checklist calls out as needing to move ('Change suggest_profit_target's channel computation'), and because this weekly channel has no other consumer to share a precompute-and-share pattern with (unlike `zones`, which IS shared with AnalysisResponse.support_resistance_zones) -- computing it fresh inside profit_target.py from a raw weekly_ohlcv input keeps the caller simpler (one fewer explicit computation in the router) and keeps the 'what feeds this candidate' logic colocated with the rest of the target-selection code. (2) Exposing ema_period/deviation_lookback as overridable kwargs on suggest_profit_target purely to make unit tests easier to hand-verify with a small window -- rejected as unnecessary production-signature bloat for a test-only need; the unit tests instead build a realistic-length (120-row) weekly fixture and cross-check the expected channel bounds via a direct call to the already-independently-hand-verified `autoenvelope()` function (see tests/unit/indicators/test_autoenvelope.py), the same 'reuse an already-verified building block as the reference value' pattern this test file already used for its protective-stop fixture (cross-referenced from test_portfolio_risk.py) before this change. (3) Deriving deviation_lookback specifically for weekly use (e.g. a shorter number since 100 weeks is ~2 years) -- rejected since nothing in docs/Analyse.md or Elder's own text calls for a different lookback just because the bar interval changed from daily to weekly, and introducing an unexplained second number would be exactly the kind of undocumented judgment call this app's decision-memory convention exists to avoid; kept autoenvelope's own existing default unchanged."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel",
+    "pr_number": 222,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/222",
+    "pushed_at": "2026-09-21T04:41:01Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T04:50:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/222",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "pr-decision override (2026-09-21): the backend fix itself re-verified sound (1102 tests passed/99.95% coverage reproduced; ch.39 p.161 read directly; risk.py/grading.py/exits.py/engine.py confirmed untouched; the new unit test test_channel_is_derived_from_weekly_ohlcv_not_daily_ohlcv and the integration test's weekly_channel_height != daily_channel_height assertion do prove the target now genuinely differs from the old daily-derived channel). But the frontend MetricHelp explanatory copy for this exact metric was left stale: it still describes the OLD (pre-fix) daily computation, which is a real user-facing regression given this app's explanatory-text-accuracy design goal, not a cosmetic nit. No existing test (unit/integration/component/e2e) asserts on this wording, so nothing caught it.",
+        "file": "frontend/src/utils/profitTargetHelpText.ts",
+        "line": 29
+      },
+      {
+        "summary": "PROFIT_TARGET_DEFINITION reads 'current price plus 30% of today's Autoenvelope/channel height' -- 'today's' was accurate pre-fix (daily channel); post-fix the channel is the WEEKLY chart's, per ch.39 p.161. Shared verbatim by both the stocks and portfolio MetricHelp registries.",
+        "file": "frontend/src/utils/profitTargetHelpText.ts",
+        "line": 29
+      },
+      {
+        "summary": "sourceLabel repeats the identical stale '30% of today's Autoenvelope/channel height' phrase for the 'channel' source case.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 163
+      },
+      {
+        "summary": "Same stale sourceLabel phrase duplicated in the portfolio registry (held-position variant).",
+        "file": "frontend/src/features/portfolio/components/metricHelpContent.ts",
+        "line": 64
+      },
+      {
+        "summary": "No-candidate explanation still says 'a young ticker with under ~100 days of history' -- the channel candidate's warm-up is now ~100 WEEKS of weekly history, not days; imprecise about the actual failure condition post-fix. Same phrase duplicated in both registries.",
+        "file": "frontend/src/features/stocks/components/metricHelpContent.ts",
+        "line": 159
+      }
+    ],
+    "notes": "ORIGINAL pr-reviewer verdict was 'accepted' (see below, preserved) -- overridden to needs_work by pr-decision after independent re-verification surfaced a real gap pr-reviewer's own accept reasoning didn't cover. pr-decision re-ran the backend suite (1102 passed, 99.95% coverage, matches), read ch.39 p.161 directly, confirmed risk.py/grading.py/exits.py/engine.py untouched via diff, and confirmed the new tests actually prove weekly-vs-daily divergence (not just non-error) -- the backend change itself holds up. The override is specifically because pr-reviewer's disclosed gap (no live Playwright walkthrough of ProfitTargetDisplay.tsx/PositionProfitTargetCell.tsx, judged 'acceptable... given the unchanged response shape and full unit/integration/e2e coverage') turned out to actually matter: a grep-level check (which needed no browser tooling at all) found that three MetricHelp copy locations describing this exact metric's computation ('today's Autoenvelope/channel height', 'under ~100 days of history') were never updated to reflect the weekly-channel fix, and no test in the suite -- including the e2e suite the review ran -- asserts on this text, so the gap was real, not hypothetical. See the appended pr-decision comments above (file:line) and the PR comment posted on #222. Sent back to implementing to update this copy, then needs a fresh pr-reviewer pass (not just another pr-decision rerun) since the underlying facts changed.\n\n--- ORIGINAL pr-reviewer notes (2026-09-21T04:50:56Z, verdict accepted) ---\nFull review of PR #222. Read ch. 39 p.161 directly (via docs/ideas.md's quote) and confirmed the correction is genuine and correctly scoped: only the channel/value-zone profit-target candidate moves to weekly; support/resistance candidate and protective_stop correctly stay daily (the rule is specifically about the value-zone/channel target, and there's no weekly support/resistance variant in this app). Confirmed via diff and grep that app/portfolio/risk.py (protective_stop/stop_from_price_action), app/portfolio/grading.py (entry-day channel height), app/portfolio/exits.py (upper-band exit flag), and app/signals/engine.py's daily channel_upper/channel_lower are all untouched and still correctly daily. suggest_profit_target has exactly one call site (get_analysis in app/api/routers/stocks.py), correctly updated to reuse the already-fetched weekly_ohlcv (no extra data fetch). Verified the new tests actually prove the target now differs from the old daily-based channel, not just that the function runs: test_channel_is_derived_from_weekly_ohlcv_not_daily_ohlcv (a daily_ohlcv long enough to itself clear the ~100-bar warm-up, paired with a too-short weekly_ohlcv, asserts None -- proving no silent daily fallback) and the integration test's explicit assertion that the independently-derived weekly channel height != the daily indicators.channel_upper/lower height, with profit_target.price matching the weekly-derived number specifically. Reusing the already-hand-verified autoenvelope() as an oracle for the unit-test expected values (rather than a fresh hand derivation) is a reasonable, explicitly-justified choice per this task's decisions entry -- what's newly hand-verified is suggest_profit_target's own composition logic (30% formula, weekly-vs-daily sourcing, tighter-of-two selection, reward:risk arithmetic). Tests/coverage: backend pytest 1102 passed, 99.95% coverage (no regression); frontend vitest 700 passed across 70 files, 99.72%/99.19%/99.72%/99.78% stmt/branch/fn/line coverage (unaffected by this backend-only PR, checked anyway, no regression). Static analysis: backend ruff + mypy clean; frontend eslint + tsc -b --noEmit clean (unaffected, run anyway). code-review skill (medium effort, backgrounded) found zero bugs after checking NaN propagation through weekly ewm, the single-call-site signature change, and an untested-branch concern (immaterial, short-circuited by .empty) -- full pass. OpenAPI: no schema/response-shape change (profit_target's shape is identical, only which data feeds it changed) -- regenerated backend/openapi.json locally, zero diff, consistent with the checklist's own expectation. UI-facing check: GET /api/stocks/{ticker}/analysis has a frontend consumer (ProfitTargetDisplay.tsx, PositionProfitTargetCell.tsx) and the underlying values now differ post-fix, so ran the persisted e2e suite (make e2e): all 18 specs across 6 files passed, including stock-analysis and methodology specs that render this endpoint's response. No live Playwright MCP browser tools were available in this review session for an additional from-scratch exploratory walkthrough beyond the e2e suite -- noted explicitly rather than silently skipped; risk is low given the unchanged response shape and the unit/integration/e2e coverage of the affected path, but this is a real gap relative to the full step-9 browser-walkthrough expectation, tracked as a process note rather than a PR-code finding. Decisions cross-check: the checklist's 'Record a decisions entry' item has a substantive matching decisions entry (what changed + three rejected alternatives with rationale); no checklist item phrased as 'decide X' lacks one. No open questions. No blocking or non-blocking findings -- no followups task filed for this PR."
+  }
+}
