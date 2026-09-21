@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -39,5 +39,11 @@
       "decision": "Frontend display of the new trailing_stop field (e.g. a PositionsTable/RiskPanel column) is out of scope for this task -- backend computation + API exposure only.",
       "rationale": "The task's own checklist only asks for the backend function, its tests, and wiring into GET /api/portfolio/risk's response contract (regenerating openapi.json/types.ts) -- it doesn't include a frontend checklist item, matching the established split in this same docs/ideas.md ch.53/54 batch (backend-profit-target landed the backend field first; frontend-profit-target-display was a separate, later task that added the UI). A companion frontend task can be filed the same way once this lands, rather than scope-creeping this one."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trailing-profit-stop",
+    "pr_number": 240,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/240",
+    "pushed_at": "2026-09-21T22:35:00Z"
+  }
 }
