@@ -3,7 +3,7 @@
   "title": "'Am I ready to trade?' daily psychological readiness self-test",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
@@ -34,13 +34,19 @@
       "recorded_by": "task-worker",
       "decision": "GET /api/daily-homework/today returns a wrapper object (`DailyHomeworkTodayResponse { entry: DailyHomeworkOut | null }`) rather than a nullable top-level response body, and never 404s when today's entry doesn't exist yet.",
       "rationale": "This codebase's existing convention for 'this might not be available yet' is a wrapper/sibling field that's null under a documented condition (IBKRScannerParamsResponse.categories gated by state, WatchlistItemOut.signal/confidence/confidence_band, BreadthResponse's unavailable_count) rather than the whole response body itself being absent or null -- keeping this endpoint consistent with that pattern, rather than introducing the only nullable-top-level-body response in the API, was preferred over the alternative of a raw `response_model=DailyHomeworkOut | None`. Not recording today's entry yet is the normal state for most of every day (before the trader has done the self-test that morning), not an error condition, so 404 (this codebase's convention for a genuinely missing/wrong-key resource, e.g. DELETE /api/watchlist/{ticker} for an unwatched ticker) would misrepresent it."
+    },
+    {
+      "timestamp": "2026-09-21T02:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed PR #216's blocking review finding by rounding net_realized_pnl to cents (round(net_realized_pnl, 2)) before the >0/==0 comparisons in suggested_yesterday_trading_score, rather than using math.isclose. Added a regression test using sum([100.10, 5.05, -105.15]) (which lands on ~-1.15e-14, not exactly 0.0) asserting it now suggests 1 (neutral), plus a sanity assertion that the raw sum really doesn't equal 0.0 so the test can't silently pass for the wrong reason.",
+      "rationale": "Rejected math.isclose(net_realized_pnl, 0, abs_tol=...) because choosing a defensible abs_tol is more arbitrary here than it looks: too small (e.g. 1e-9) barely improves on exact equality against real floating-point noise from summing many rows, while too large (e.g. 0.01) starts silently treating a genuine one-cent gain/loss as breakeven. Rounding to the cent is a tighter fit for this specific domain (US-dollar currency amounts, which have no unit finer than a cent) than a generic float-closeness tolerance, and doubles as documentation of *why* the comparison is safe: the values being compared are money, and money is defined to the cent."
     }
   ],
   "git": {
     "branch": "task/backend-daily-homework-self-test",
     "pr_number": 216,
     "pr_url": "https://github.com/rainoko/fintrade/pull/216",
-    "pushed_at": "2026-09-21T01:36:12Z"
+    "pushed_at": "2026-09-21T02:15:00Z"
   },
   "review": {
     "reviewed_at": "2026-09-21T01:45:49Z",

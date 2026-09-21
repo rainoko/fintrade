@@ -45,11 +45,21 @@ def suggested_yesterday_trading_score(net_realized_pnl: float | None) -> int | N
     `None` if `net_realized_pnl` is `None` (no `closed_trades` rows exited yesterday --
     nothing to base a suggestion on; the question stays fully manual for that day). Otherwise
     a net gain suggests 2 (traded well), exactly breakeven suggests 1 (neutral), and a net
-    loss suggests 0 (traded poorly) -- the same 0/1/2 scale as every other question."""
+    loss suggests 0 (traded poorly) -- the same 0/1/2 scale as every other question.
+
+    `net_realized_pnl` is a sum over one or more `ClosedTradeORM.realized_pnl` floats, so a
+    genuinely breakeven day (the individual trades' currency amounts summing to exactly zero)
+    essentially never reaches this function as an exact `0.0` once more than one trade is
+    involved -- binary floating point can't represent most two-decimal currency sums exactly,
+    so e.g. ``sum([100.10, 5.05, -105.15])`` lands on something like ``-1.15e-14`` rather than
+    ``0.0``. Rounding to the cent before comparing (currency has no finer-grained unit here)
+    absorbs that representation noise while still telling a real one-cent-or-more gain/loss
+    apart from breakeven."""
     if net_realized_pnl is None:
         return None
-    if net_realized_pnl > 0:
+    rounded_to_cents = round(net_realized_pnl, 2)
+    if rounded_to_cents > 0:
         return 2
-    if net_realized_pnl == 0:
+    if rounded_to_cents == 0:
         return 1
     return 0

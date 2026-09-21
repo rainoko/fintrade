@@ -61,3 +61,13 @@ class TestSuggestedYesterdayTradingScore:
 
     def test_tiny_net_loss_still_suggests_0(self) -> None:
         assert suggested_yesterday_trading_score(-0.01) == 0
+
+    def test_multi_trade_breakeven_sum_still_suggests_1(self) -> None:
+        """Regression test: a multi-trade day whose individual currency amounts sum to exactly
+        zero can still land on a non-zero float like -1.15e-14 due to binary floating point,
+        because sum() accumulates each ClosedTradeORM.realized_pnl in order rather than
+        rounding to cents first. A naive `net_realized_pnl == 0` check misses this and falls
+        through to "traded poorly" (0) instead of "neutral" (1)."""
+        net_realized_pnl = sum([100.10, 5.05, -105.15])
+        assert net_realized_pnl != 0  # sanity check that this really doesn't hit exact 0.0
+        assert suggested_yesterday_trading_score(net_realized_pnl) == 1

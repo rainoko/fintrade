@@ -8,7 +8,7 @@ color-banding and the yesterday's-trading-suggestion are pure computations in
 `app.portfolio.homework`, so they're testable without any of this router's I/O.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -23,19 +23,9 @@ from app.api.schemas import (
 from app.db.models import ClosedTradeORM, DailyHomeworkEntryORM
 from app.db.session import get_db
 from app.portfolio.homework import band_for_total_score, suggested_yesterday_trading_score
+from app.time_utils import today, utcnow
 
 router = APIRouter(prefix="/api/daily-homework", tags=["daily-homework"])
-
-
-def _today() -> date:
-    """Naive UTC 'today', matching `app.api.routers.portfolio._today`/
-    `app.api.routers.watchlist._utcnow`'s identical convention elsewhere in this codebase."""
-    return datetime.now(UTC).date()
-
-
-def _utcnow() -> datetime:
-    """Naive UTC 'now', matching `app.api.routers.watchlist._utcnow`."""
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _to_out(row: DailyHomeworkEntryORM) -> DailyHomeworkOut:
@@ -76,7 +66,7 @@ def record_daily_homework(
     or overwrote an existing one, mirroring `POST /api/portfolio/positions`/
     `POST /api/watchlist`'s identical "same status code either way" convention -- see this
     task's `decisions` entry."""
-    entry_date = entry.date if entry.date is not None else _today()
+    entry_date = entry.date if entry.date is not None else today()
     row = db.get(DailyHomeworkEntryORM, entry_date)
     if row is None:
         row = DailyHomeworkEntryORM(date=entry_date)
@@ -87,7 +77,7 @@ def record_daily_homework(
     row.trade_planning_score = entry.trade_planning_score
     row.mood_score = entry.mood_score
     row.schedule_score = entry.schedule_score
-    row.recorded_at = _utcnow()
+    row.recorded_at = utcnow()
 
     db.commit()
     db.refresh(row)
@@ -104,7 +94,7 @@ def get_daily_homework_today(db: Session = Depends(get_db)) -> DailyHomeworkToda
     """Today's (server UTC date) recorded entry, or a null `entry` if today's self-test
     hasn't been recorded yet -- never a `404`, since "not done yet today" is the normal,
     expected state at the start of every day, not an error."""
-    row = db.get(DailyHomeworkEntryORM, _today())
+    row = db.get(DailyHomeworkEntryORM, today())
     return DailyHomeworkTodayResponse(entry=_to_out(row) if row is not None else None)
 
 
@@ -137,7 +127,7 @@ def get_yesterday_trading_suggestion(
     `suggested_score` to pre-fill the field, but `POST /api/daily-homework`'s
     `yesterday_trading_score` is always the caller's own explicit answer -- see this task's
     `decisions` entry for why this stays a suggestion rather than an auto-populated field."""
-    yesterday = _today() - timedelta(days=1)
+    yesterday = today() - timedelta(days=1)
     rows = db.query(ClosedTradeORM).filter(ClosedTradeORM.exit_date == yesterday).all()
     net_realized_pnl = sum(row.realized_pnl for row in rows) if rows else None
     return YesterdayTradingSuggestionOut(

@@ -1,6 +1,6 @@
 import math
 import uuid
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import cast
 
@@ -43,6 +43,7 @@ from app.portfolio.risk import (
     total_open_risk_pct,
 )
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
+from app.time_utils import today
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -61,14 +62,6 @@ def _ordered_positions(db: Session) -> list[PositionORM]:
     neither relies on incidental SQLite row-return order -- see this task's `decisions`
     entry."""
     return db.query(PositionORM).order_by(PositionORM.entry_date, PositionORM.id).all()
-
-
-def _today() -> date:
-    """Naive UTC 'today', matching how other date/datetime "now" values in this codebase are
-    derived (`app.data.cache._utcnow`, `app.api.routers.watchlist._utcnow`) -- used for
-    `ClosedTradeORM.exit_date` (delete_position below) and as the "as of" date for the 6%
-    Rule's this-calendar-month realized-losses window (`_realized_losses_this_month_pct`)."""
-    return datetime.now(UTC).date()
 
 
 def _realized_losses_this_month_pct(db: Session, account: Account, as_of: date) -> float:
@@ -502,7 +495,7 @@ def delete_position(
         resolved_exit_date = exit_date
     else:
         resolved_exit_price, _ = latest_close(provider, row.ticker)
-        resolved_exit_date = _today()
+        resolved_exit_date = today()
 
     if resolved_exit_price is not None:
         db.add(
@@ -632,7 +625,7 @@ def get_risk(
         open_risk = 0.0
     # _realized_losses_this_month_pct degrades to 0.0 itself on the same account.equity.total
     # <= 0 precondition failure (see its own docstring), so no try/except is needed here.
-    realized_losses_this_month = _realized_losses_this_month_pct(db, account, _today())
+    realized_losses_this_month = _realized_losses_this_month_pct(db, account, today())
     total_risk = open_risk + realized_losses_this_month
     six_percent_rule_breached = total_risk > _SIX_PERCENT_RULE_THRESHOLD
 
