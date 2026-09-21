@@ -44,5 +44,11 @@
       "decision": "None of ch.34-36's numeric thresholds (weekly NH-NL -4000/+2500, 20-day NH-NL -500, 50-day-MA 75%/25%) are exposed as reference-line fields on `IBKRBreadthSnapshotResponse` or anywhere else in this API -- they're documented in docs/Analyse.md as illustrative-only context, with an explicit note that this endpoint's `count`/`rolling_5d`/`rolling_20d` are not comparable to them.",
       "rationale": "Every one of these thresholds assumes a real, full-market NH-NL/Advance-Decline magnitude (hundreds to thousands) -- this endpoint's `count` is capped by IBKR's own single-scan result-set size (see this task's first `decisions` entry), which can never reach those magnitudes regardless of true market conditions. Surfacing e.g. a '-4000' reference line next to a value that structurally cannot exceed IBKR's scan cap would actively mislead a caller into thinking the threshold is meaningfully comparable, which is worse than omitting it. The 50-day-MA 75%/25% thresholds don't apply at all since that indicator isn't implemented here (see this task's first `decisions` entry). A future task with a genuine full-market count source (a real broad-ticker-universe scan, not a single capped IBKR result set) could reintroduce these as real reference lines -- not attempted here."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-market-breadth-indicators",
+    "pr_number": 217,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/217",
+    "pushed_at": "2026-09-21T02:25:59Z"
+  }
 }
