@@ -31,6 +31,7 @@ from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
 from app.portfolio.risk import protective_stop
+from app.signals.engine import analyse
 
 
 def _today() -> date:
@@ -60,6 +61,15 @@ _FLAT_WEEKLY_CLOSES = [100.0] * 5
 
 
 def _daily_frame(closes: list[float], lows: list[float]) -> pd.DataFrame:
+    # A real `pd.DatetimeIndex` (matching every real data provider's own daily frame shape),
+    # not the plain `RangeIndex` a bare `pd.DataFrame({...})` would default to -- needed since
+    # `get_risk` now also runs `app.signals.support_resistance.detect_support_resistance_zones`
+    # over this same frame for `profit_target` (backend-profit-target-open-position), which
+    # computes `length_days` as a genuine `Timestamp` subtraction (`.days`) whenever a
+    # multi-touch cluster forms; a `RangeIndex` int64 has no `.days` attribute and would raise
+    # an unhandled `AttributeError` the moment a fixture happened to contain a real repeated-
+    # price cluster (see `test_stop_hit_flag_surfaces_in_exit_flags`, whose 10 identical-close
+    # rows are exactly such a cluster).
     return pd.DataFrame(
         {
             "open": closes,
@@ -67,7 +77,8 @@ def _daily_frame(closes: list[float], lows: list[float]) -> pd.DataFrame:
             "low": lows,
             "close": closes,
             "volume": [1_000_000.0] * len(closes),
-        }
+        },
+        index=pd.date_range("2026-01-01", periods=len(closes), freq="D", name="date"),
     )
 
 
@@ -79,7 +90,8 @@ def _weekly_frame(closes: list[float]) -> pd.DataFrame:
             "low": [c - 1.0 for c in closes],
             "close": closes,
             "volume": [1_000_000.0] * len(closes),
-        }
+        },
+        index=pd.date_range("2020-01-06", periods=len(closes), freq="W", name="date"),
     )
 
 
@@ -594,6 +606,122 @@ class TestGetRisk:
         assert response.status_code == 200
         [position] = response.json()["positions"]
         assert "stop_hit" in position["exit_flags"]
+
+
+class TestProfitTarget:
+    """backend-profit-target-open-position: `RiskPosition.profit_target` must still be
+    computed for an already-open position even once its own live technical signal has drifted
+    away from BUY -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
+    /analysis, which is only ever computed for a fresh BUY signal (see that task's `decisions`
+    entry, which revisits `backend-profit-target`'s original BUY-only decision for this exact
+    open-position case)."""
+
+    # A smooth, pullback-free uptrend never fires Screen 3's Trigger (no prior-high/low cross
+    # following an oversold Screen 2 dip) -- confirmed HOLD below via a direct `analyse()` call
+    # on this exact fixture, not just assumed.
+    _DAILY_CLOSES = [100.0 + i * 0.2 for i in range(150)]
+    _DAILY_LOWS = [c - 0.5 for c in _DAILY_CLOSES]
+    # >=100 weeks clears the Autoenvelope's own warm-up window (`autoenvelope`'s default
+    # `deviation_lookback=100`), with a periodic bump giving a real, non-degenerate channel --
+    # same construction as tests/unit/test_portfolio_profit_target.py's own narrow-channel
+    # fixture (`_WEEKLY_OHLCV_NARROW_CHANNEL`).
+    _WEEKLY_CLOSES = [100.0 + i * 0.3 + (2.0 if i % 7 == 0 else 0.0) for i in range(120)]
+
+    def test_signal_drifted_to_hold_still_shows_a_profit_target(self, db_session: Session) -> None:
+        daily = _daily_frame(self._DAILY_CLOSES, self._DAILY_LOWS)
+        weekly = _weekly_frame(self._WEEKLY_CLOSES)
+
+        # Sanity-check the premise: this exact daily/weekly pair's own live signal (the same
+        # engine GET /api/stocks/{ticker}/analysis uses for AnalysisResponse.signal) is NOT
+        # BUY -- so AnalysisResponse.profit_target would be null for this ticker right now,
+        # while RiskPosition.profit_target must still be non-null for an already-open position
+        # on this exact same data.
+        assert analyse("AAPL", daily, weekly).signal != "BUY"
+
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["profit_target"] is not None
+        assert position["profit_target"]["source"] == "channel"
+        assert position["profit_target"]["price"] > daily["close"].iloc[-1]
+        assert position["profit_target"]["reward_risk_ratio"] is not None
+        assert isinstance(position["profit_target"]["meets_minimum_reward_risk"], bool)
+
+    def test_no_qualifying_target_candidate_degrades_profit_target_to_null_not_position_exclusion(
+        self, db_session: Session
+    ) -> None:
+        """Mirrors `suggest_profit_target`'s own
+        `test_returns_none_when_no_channel_and_no_qualifying_zone` (tests/unit/test_portfolio_
+        profit_target.py), wired end to end: too little weekly history for a channel and no
+        qualifying support/resistance zone leaves `profit_target` null, but the position
+        itself must still appear in `positions` with its other (unrelated) fields intact --
+        `profit_target` degrades independently of the rest of the position, per this
+        endpoint's own docstring."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["ticker"] == "AAPL"
+        assert position["profit_target"] is None
+
+    def test_profit_target_column_validation_failure_degrades_to_null_not_position_exclusion(
+        self, db_session: Session
+    ) -> None:
+        """`app.signals.support_resistance.detect_support_resistance_zones` requires `volume`
+        (unlike `protective_stop`/`evaluate_exit_flags`, which only need `low`/`close`) -- a
+        daily frame missing it raises `ValueError` from `profit_target`'s own computation while
+        every other field on this position still computes fine. Must degrade `profit_target`
+        to `None` for just this position, not exclude the whole position from `positions` (the
+        `AttributeError`-vs-`ValueError` distinction doesn't matter here -- this is
+        specifically the *documented* `ValueError` column-validation path, not the unrelated
+        `RangeIndex` artifact `_daily_frame`'s own `pd.DatetimeIndex` already guards other
+        tests in this file against)."""
+        db_session.add(AccountORM(id=1, cash=1_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10.0, avg_cost_basis=90.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily_no_volume = pd.DataFrame(
+            {
+                "open": _QUIET_CLOSES,
+                "high": [c + 1.0 for c in _QUIET_CLOSES],
+                "low": _QUIET_LOWS,
+                "close": _QUIET_CLOSES,
+            },
+            index=pd.date_range("2026-01-01", periods=len(_QUIET_CLOSES), freq="D", name="date"),
+        )
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily_no_volume}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["ticker"] == "AAPL"
+        assert position["profit_target"] is None
+        # protective_stop/exit_flags are computed off only low/close, so this position's other
+        # fields are entirely unaffected by profit_target's own missing-column failure.
+        assert position["protective_stop"] == pytest.approx(_QUIET_STOP)
 
 
 class TestRealizedLossesThisMonth:

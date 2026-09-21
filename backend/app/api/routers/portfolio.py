@@ -19,6 +19,7 @@ from app.api.schemas import (
     PortfolioResponse,
     PositionIn,
     PositionOut,
+    ProfitTargetOut,
     RiskPosition,
     RiskResponse,
     TradeApgarIn,
@@ -45,6 +46,7 @@ from app.portfolio.pricing import (
     latest_close,
     positions_value,
 )
+from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
@@ -54,6 +56,7 @@ from app.portfolio.risk import (
 from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
+from app.signals.support_resistance import detect_support_resistance_zones
 from app.time_utils import today, utcnow
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
@@ -554,6 +557,25 @@ def delete_position(
     db.commit()
 
 
+def _profit_target_to_schema(target: ProfitTarget) -> ProfitTargetOut:
+    """Maps `app.portfolio.profit_target.ProfitTarget` (the domain type) onto `ProfitTargetOut`
+    (the API schema) -- identical straight 1:1 field copy to `app.api.routers.stocks
+    ._profit_target_to_schema` (no `pd.Timestamp` fields, so nothing to convert). Duplicated
+    here rather than imported across routers: this codebase has no existing precedent for one
+    router importing another's private per-router mapping helper (every `_..._to_schema`
+    function here and in `stocks.py` is private to its own module), and `ProfitTargetOut`'s five
+    fields are an already-reviewed, stable shape -- see the backend-profit-target-open-position
+    task's `decisions` entry."""
+    return ProfitTargetOut(
+        price=target.price,
+        source=target.source,
+        distance_to_stop=target.distance_to_stop,
+        distance_to_target=target.distance_to_target,
+        reward_risk_ratio=target.reward_risk_ratio,
+        meets_minimum_reward_risk=target.meets_minimum_reward_risk,
+    )
+
+
 @router.get(
     "/risk",
     response_model=RiskResponse,
@@ -603,7 +625,25 @@ def get_risk(
     settled yet, desyncing `position.current_price` from `daily_ohlcv`'s last row and making
     `evaluate_exit_flags` test yesterday's close against today's stop instead of today's — see
     the api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
-    reasoning and the regression this reconciles."""
+    reasoning and the regression this reconciles.
+
+    `profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md §7)
+    is computed for every position that reaches the per-position loop below, from that same
+    filtered `daily_ohlcv`/its already-fetched `weekly_ohlcv` and a fresh support/resistance
+    pass (`app.signals.support_resistance.detect_support_resistance_zones`) over that same
+    `daily_ohlcv` -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
+    /analysis, this is never gated on that ticker's current live signal being BUY: this is an
+    already-open long position with a real entry, and ch. 53 read directly doesn't gate an
+    open position's target to entry-day/fresh-BUY-signal only ("a target set at entry ... is
+    meant to be tracked for the life of the trade") -- see the
+    backend-profit-target-open-position task's `decisions` entry, which revisits
+    `backend-profit-target`'s original BUY-only decision for this exact open-position case.
+    `profit_target` is independently nullable within a `RiskPosition` entry (unlike every
+    other field on this schema, which are all non-nullable and instead gate whether the whole
+    position appears in `positions` at all) -- a `ValueError` computing it (or neither target
+    technique producing a candidate) degrades to `profit_target=None` for that one position
+    rather than excluding it from `positions` entirely, since a missing profit target is far
+    less consequential than a missing stop/risk-pct/exit-flags."""
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
@@ -679,6 +719,23 @@ def get_risk(
         except ValueError:
             continue
 
+        # profit_target degrades to None on its own -- independently of the try/except above,
+        # which governs whether this POSITION appears in `positions` at all. Computed
+        # regardless of this ticker's current live signal (unlike AnalysisResponse.
+        # profit_target's BUY-only gate) -- see this handler's own docstring and the
+        # backend-profit-target-open-position task's `decisions` entry.
+        profit_target = None
+        try:
+            domain_target = suggest_profit_target(
+                daily_by_id[e.position.id],
+                detect_support_resistance_zones(daily_by_id[e.position.id]),
+                weekly_ohlcv=weekly_by_id[e.position.id],
+            )
+            if domain_target is not None:
+                profit_target = _profit_target_to_schema(domain_target)
+        except ValueError:
+            profit_target = None
+
         risk_positions.append(
             RiskPosition(
                 id=e.position.id,
@@ -687,6 +744,7 @@ def get_risk(
                 position_risk_pct=risk_pct,
                 two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD,
                 exit_flags=exit_flags,
+                profit_target=profit_target,
             )
         )
 

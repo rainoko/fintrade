@@ -476,6 +476,24 @@ export interface paths {
          *     `evaluate_exit_flags` test yesterday's close against today's stop instead of today's — see
          *     the api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
          *     reasoning and the regression this reconciles.
+         *
+         *     `profit_target` (`app.portfolio.profit_target.suggest_profit_target`, docs/Analyse.md §7)
+         *     is computed for every position that reaches the per-position loop below, from that same
+         *     filtered `daily_ohlcv`/its already-fetched `weekly_ohlcv` and a fresh support/resistance
+         *     pass (`app.signals.support_resistance.detect_support_resistance_zones`) over that same
+         *     `daily_ohlcv` -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
+         *     /analysis, this is never gated on that ticker's current live signal being BUY: this is an
+         *     already-open long position with a real entry, and ch. 53 read directly doesn't gate an
+         *     open position's target to entry-day/fresh-BUY-signal only ("a target set at entry ... is
+         *     meant to be tracked for the life of the trade") -- see the
+         *     backend-profit-target-open-position task's `decisions` entry, which revisits
+         *     `backend-profit-target`'s original BUY-only decision for this exact open-position case.
+         *     `profit_target` is independently nullable within a `RiskPosition` entry (unlike every
+         *     other field on this schema, which are all non-nullable and instead gate whether the whole
+         *     position appears in `positions` at all) -- a `ValueError` computing it (or neither target
+         *     technique producing a candidate) degrades to `profit_target=None` for that one position
+         *     rather than excluding it from `positions` entirely, since a missing profit target is far
+         *     less consequential than a missing stop/risk-pct/exit-flags.
          */
         get: operations["get_portfolio_risk"];
         put?: never;
@@ -1868,6 +1886,8 @@ export interface components {
              * @description Fraction of current account equity lost if this position hits its protective_stop (the 2% rule).
              */
             position_risk_pct: number;
+            /** @description Suggested profit target + reward:risk ratio for this position (docs/Analyse.md §7, Elder ch. 53), computed from this ticker's current daily/weekly OHLCV the same way as AnalysisResponse.profit_target -- but, unlike that field, NOT gated on this ticker's current live signal being BUY: this is an already-open long position with a real entry, so ch. 53 read directly ('a target set at entry ... is meant to be tracked for the life of the trade, not recomputed only while the signal happens to say BUY') means a target keeps showing even once the live signal has drifted to HOLD or SELL -- see the backend-profit-target-open-position task's `decisions` entry, which revisits AnalysisResponse.profit_target's original BUY-only rationale for this open-position case specifically. Null when neither target technique currently produces a candidate for this position (e.g. under ~100 weeks of weekly history and no yet-detected resistance zone above current price), or under the same rare column-validation failure any other per-position field on this schema could degrade under. */
+            profit_target?: components["schemas"]["ProfitTargetOut"] | null;
             /**
              * Protective Stop
              * @description Recent swing low minus 2x a volatility buffer (SafeZone concept, docs/Analyse.md §7).

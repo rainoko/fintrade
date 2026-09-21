@@ -1,9 +1,13 @@
-"""Suggested profit target + reward:risk ratio for a fresh BUY signal (Elder ch. 53 "How to
-Set Profit Targets" plus ch. 58's Tradebill formula -- docs/ideas.md, docs/Analyse.md §7). See
-the `backend-profit-target` task's `decisions` entry for the full rationale behind every
-judgment call below (BUY-only scope, target-source selection, endpoint placement), and the
+"""Suggested profit target + reward:risk ratio for a position (fresh BUY signal, or an already
+open long position -- see the BUY-only paragraph below for the distinction) per Elder ch. 53
+"How to Set Profit Targets" plus ch. 58's Tradebill formula (docs/ideas.md, docs/Analyse.md
+§7). See the `backend-profit-target` task's `decisions` entry for the full rationale behind
+every judgment call below (target-source selection, endpoint placement), the
 `backend-profit-target-weekly-channel` task's `decisions` entry for the weekly-vs-daily
-channel-timeframe correction below.
+channel-timeframe correction below, and the `backend-profit-target-open-position` task's
+`decisions` entry for why this function itself has never taken (and still doesn't take) a
+`signal` parameter to gate on -- that gating is each *caller's* own choice, not something
+`suggest_profit_target` enforces internally.
 
 Two of Elder's three style-dependent target techniques are implemented here (the third -- a
 day-trade's first-sign-of-opposing-divergence exit -- is explicitly out of this app's scope,
@@ -38,12 +42,27 @@ the more conservative choice wherever Elder's own text leaves a range rather tha
 number (e.g. docs/Analyse.md §7's SafeZone coefficient uses the book's stated 2x minimum, not a
 wider multiple).
 
-BUY-only: this app's protective-stop formula (`app.portfolio.risk.stop_from_price_action`,
-which this module calls to get a risk distance) is explicitly long-only, with no symmetric
-short-side stop formula anywhere in the app to pair with a SELL-side reward:risk ratio -- see
-that module's own comments and the `backend-safezone-stop-coefficient-fix` task's `decisions`
-entry (a future short-position feature would need its own short-side stop coefficient before a
-SELL-side profit target/reward:risk ratio could be computed the same way).
+Long-only, not BUY-only: this app's protective-stop formula
+(`app.portfolio.risk.stop_from_price_action`, which this module calls to get a risk distance)
+is explicitly long-only, with no symmetric short-side stop formula anywhere in the app to pair
+with a SELL-side reward:risk ratio -- see that module's own comments and the
+`backend-safezone-stop-coefficient-fix` task's `decisions` entry (a future short-position
+feature would need its own short-side stop coefficient before a SELL-side profit target/
+reward:risk ratio could be computed the same way). That constraint only actually rules out
+computing a target for a *fresh SELL signal* (a candidate new short entry, which this app has
+no long-only-safe way to size a target for) -- it says nothing about an *already-open* long
+position, which is unconditionally a long trade no matter what today's live signal happens to
+read. `GET /api/stocks/{ticker}/analysis` (`app.api.routers.stocks.get_analysis`) gates its own
+call to this function on `signal == "BUY"` (a fresh-entry candidate, so HOLD/SELL both mean "no
+candidate to target" there), but `GET /api/portfolio/risk` (`app.api.routers.portfolio.
+get_risk`) calls this function for every position with usable OHLCV regardless of that
+ticker's current live signal -- ch. 53, read directly, doesn't gate an open position's target
+to entry day/fresh-BUY-signal only ("a target set at entry ... is meant to be tracked for the
+life of the trade, not recomputed only while the signal happens to say BUY"), and a held
+position already has a real entry to track, unlike a fresh-signal candidate. See the
+`backend-profit-target-open-position` task's `decisions` entry, which revisits this exact
+question (previously answered BUY-only for both callers, before ch. 53 had been read directly)
+for the full rationale.
 """
 
 import math
@@ -81,9 +100,10 @@ _MIN_REWARD_RISK_RATIO = 2.0
 
 @dataclass(frozen=True)
 class ProfitTarget:
-    """One suggested target for a fresh BUY signal, plus the reward:risk ratio it implies
-    against the ticker's current protective-stop distance. See `suggest_profit_target`'s own
-    docstring for how each field is derived."""
+    """One suggested target for a long position (a fresh BUY signal, or an already-open
+    position), plus the reward:risk ratio it implies against the ticker's current
+    protective-stop distance. See `suggest_profit_target`'s own docstring for how each field is
+    derived."""
 
     price: float
     source: TargetSource
@@ -146,9 +166,14 @@ def suggest_profit_target(
     weekly_ohlcv: pd.DataFrame,
     short_ema: pd.Series | None = None,
 ) -> ProfitTarget | None:
-    """A suggested profit target + reward:risk ratio for a FRESH BUY signal on `daily_ohlcv`
+    """A suggested profit target + reward:risk ratio for a long position on `daily_ohlcv`
     (already cleaned of malformed bars via `app.signals.engine.drop_malformed_daily_bars`,
-    most-recent bar last). See this module's docstring for why this is BUY-only.
+    most-recent bar last) -- a fresh BUY-signal candidate, or an already-open position,
+    whichever the caller is using this for. This function itself takes no `signal` parameter
+    and enforces no BUY-only gate -- see this module's own docstring for why that gating is
+    each caller's own choice (`GET /api/stocks/{ticker}/analysis` only calls this for a fresh
+    BUY; `GET /api/portfolio/risk` calls this for every open position regardless of that
+    ticker's current live signal).
 
     `weekly_ohlcv` is this same ticker's weekly OHLCV (most-recent bar last, the same frame
     passed to `app.signals.engine.analyse`'s own `weekly_ohlcv` parameter) -- used here ONLY to

@@ -1482,7 +1482,7 @@
       "id": "backend-profit-target-open-position",
       "area": "backend/signals",
       "skill": "verify-elder-signal",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-profit-target-open-position.json"
     },
     {

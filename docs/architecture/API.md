@@ -304,13 +304,23 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
       "protective_stop": 210.15,
       "position_risk_pct": 1.8,
       "two_percent_rule_breached": false,
-      "exit_flags": []
+      "exit_flags": [],
+      "profit_target": {
+        "price": 224.30,
+        "source": "channel",
+        "distance_to_stop": 9.85,
+        "distance_to_target": 14.15,
+        "reward_risk_ratio": 1.44,
+        "meets_minimum_reward_risk": false
+      }
     }
   ]
 }
 ```
 
 `exit_flags` is a list of strings drawn from Analyse.md §7's existing-position exit conditions, e.g. `["stop_hit", "tide_flipped_bearish", "six_percent_rule_contributor"]` — empty if none apply.
+
+`profit_target` is the same `ProfitTargetOut` shape as `GET /api/stocks/{ticker}/analysis`'s own `profit_target` field (see above), computed from `app.portfolio.profit_target.suggest_profit_target` the same way — but, unlike that field, **not** gated on this ticker's current live signal being BUY: this is an already-open long position with a real entry, and Analyse.md §7's "Profit target" section explains why an open position's target isn't gated to a fresh BUY signal the way a new-entry candidate's is (`backend-profit-target-open-position` task's `decisions`). Null when neither target technique currently produces a candidate for this position, or under the rare column-validation failure any other per-position computation on this response could hit — independently of, and without excluding, the rest of that position's fields (see the `api-portfolio-risk` task's `decisions` for why every *other* field here is instead all-or-nothing per position).
 
 `total_open_risk_pct` is the book's actual *two-part* 6% Rule total (Analyse.md §7, per `docs/ideas.md`'s ch. 51 cross-check — the book's own worked example sums "the sum of your losses for the current month" AND "the risks in open trades"): `realized_losses_this_month_pct` (this calendar month's realized losses from `closed_trades`, populated by `DELETE /api/portfolio/positions/{id}` — only losing trades count, a profitable month contributes 0) plus the sum of `position_risk_pct` across every open position with a known stop. The field keeps its original name despite now covering both halves (see the `backend-trade-history-table` task's `decisions`).
 
