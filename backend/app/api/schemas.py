@@ -693,6 +693,131 @@ class IBKRScannerRunResponse(BaseModel):
     )
 
 
+# --- /api/daily-homework ----------------------------------------------------
+
+HomeworkBandOut = Literal["red", "yellow", "green"]
+
+# A plain `date: date | None = Field(...)` annotated-assignment inside a class body is a
+# genuine Python gotcha (not a pydantic one): for `x: T = v`, CPython evaluates/stores `v`
+# into the name `x` *before* evaluating the annotation `T` (see SETUP_ANNOTATIONS's bytecode
+# ordering) -- so when the field name and the type name are both the bare word `date`, `T`
+# (`date | None`) is evaluated with `date` already rebound to the `Field(...)` default,
+# raising "unsupported operand type(s) for |: 'FieldInfo' and 'NoneType'". Every *other*
+# `date`-typed field in this module (`OHLCVBar.date`, `HistoryRequest`-adjacent fields, etc.)
+# has no default value, so it never hits this ordering bug. `_OptionalDate` sidesteps it by
+# giving the annotation a name distinct from the field name.
+_OptionalDate = date | None
+
+
+class DailyHomeworkIn(BaseModel):
+    date: _OptionalDate = Field(
+        default=None,
+        description="Calendar day this self-test is for. Defaults to today (server UTC "
+        "date) if omitted -- a caller may also supply a past date to backfill/correct an "
+        "earlier day's entry. Submitting a date that already has a recorded entry overwrites "
+        "that day's scores rather than rejecting the request or creating a second row -- see "
+        "this task's `decisions` entry.",
+    )
+    physical_state_score: int = Field(
+        ge=0, le=2, description="'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good)."
+    )
+    yesterday_trading_score: int = Field(
+        ge=0,
+        le=2,
+        description="'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / "
+        "2 (well). GET /api/daily-homework/yesterday-trading-suggestion offers a suggested "
+        "value for this field derived from yesterday's closed_trades realized P&L, but never "
+        "auto-fills or overrides it -- this is always the caller's own manual answer.",
+    )
+    trade_planning_score: int = Field(
+        ge=0, le=2, description="'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully)."
+    )
+    mood_score: int = Field(
+        ge=0, le=2, description="'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good)."
+    )
+    schedule_score: int = Field(
+        ge=0,
+        le=2,
+        description="'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / "
+        "2 (clear) -- a busier day leaves less attention for trading well.",
+    )
+
+
+class DailyHomeworkOut(BaseModel):
+    date: date
+    physical_state_score: int = Field(
+        ge=0, le=2, description="'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good)."
+    )
+    yesterday_trading_score: int = Field(
+        ge=0,
+        le=2,
+        description="'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / "
+        "2 (well). See DailyHomeworkIn's field of the same name for the (never "
+        "auto-applied) suggestion endpoint.",
+    )
+    trade_planning_score: int = Field(
+        ge=0, le=2, description="'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully)."
+    )
+    mood_score: int = Field(
+        ge=0, le=2, description="'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good)."
+    )
+    schedule_score: int = Field(
+        ge=0,
+        le=2,
+        description="'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / "
+        "2 (clear) -- a busier day leaves less attention for trading well.",
+    )
+    total_score: int = Field(
+        description="Sum of the five scores above, 0-10 (docs/ideas.md's ch. 57 entry)."
+    )
+    band: HomeworkBandOut = Field(
+        description="The book's own color-banding of `total_score`: <=4 'red' (don't trade), "
+        "5-6 'yellow' (trade cautiously), 7-8 'green', 9-10 'yellow' again (Elder's own note: "
+        "\"with everything so perfect, any change is bound to be for the worse\") -- see "
+        "app.portfolio.homework.band_for_total_score."
+    )
+    recorded_at: datetime = Field(
+        description="When this day's entry was last recorded/updated (UTC)."
+    )
+
+
+class DailyHomeworkListResponse(BaseModel):
+    items: list[DailyHomeworkOut] = Field(
+        description="Every recorded self-test entry, most recent `date` first."
+    )
+
+
+class DailyHomeworkTodayResponse(BaseModel):
+    entry: DailyHomeworkOut | None = Field(
+        default=None,
+        description="Today's (server UTC date) recorded entry, or null if today's self-test "
+        "hasn't been recorded yet -- the normal, expected state at the start of every day, "
+        "not an error.",
+    )
+
+
+class YesterdayTradingSuggestionOut(BaseModel):
+    as_of_date: date = Field(
+        description="The 'yesterday' this suggestion is computed for (today's date minus "
+        "one calendar day, server UTC 'today')."
+    )
+    net_realized_pnl: float | None = Field(
+        default=None,
+        description="Sum of `realized_pnl` across every `closed_trades` row exited on "
+        "`as_of_date`. Null if no position was closed that day -- there is nothing to base a "
+        "suggestion on.",
+    )
+    suggested_score: int | None = Field(
+        default=None,
+        description="A suggested (not authoritative) `yesterday_trading_score` for "
+        "`POST /api/daily-homework`, derived from `net_realized_pnl`: 2 for a net gain, 1 "
+        "for exactly breakeven, 0 for a net loss. Null whenever `net_realized_pnl` is null -- "
+        "this endpoint never guesses a value with nothing to base it on. The caller decides "
+        "whether to use it; this app never writes `yesterday_trading_score` on the user's "
+        "behalf -- see the backend-daily-homework-self-test task's `decisions` entry.",
+    )
+
+
 # --- shared error shape (FastAPI default, documented for clarity) ---------
 
 

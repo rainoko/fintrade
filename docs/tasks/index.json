@@ -1524,7 +1524,7 @@
       "id": "backend-daily-homework-self-test",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-daily-homework-self-test.json"
     },
     {

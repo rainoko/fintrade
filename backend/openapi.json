@@ -337,6 +337,179 @@
         "title": "ConfidenceBreakdownItem",
         "type": "object"
       },
+      "DailyHomeworkIn": {
+        "properties": {
+          "date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Calendar day this self-test is for. Defaults to today (server UTC date) if omitted -- a caller may also supply a past date to backfill/correct an earlier day's entry. Submitting a date that already has a recorded entry overwrites that day's scores rather than rejecting the request or creating a second row -- see this task's `decisions` entry.",
+            "title": "Date"
+          },
+          "mood_score": {
+            "description": "'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Mood Score",
+            "type": "integer"
+          },
+          "physical_state_score": {
+            "description": "'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Physical State Score",
+            "type": "integer"
+          },
+          "schedule_score": {
+            "description": "'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / 2 (clear) -- a busier day leaves less attention for trading well.",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Schedule Score",
+            "type": "integer"
+          },
+          "trade_planning_score": {
+            "description": "'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Trade Planning Score",
+            "type": "integer"
+          },
+          "yesterday_trading_score": {
+            "description": "'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / 2 (well). GET /api/daily-homework/yesterday-trading-suggestion offers a suggested value for this field derived from yesterday's closed_trades realized P&L, but never auto-fills or overrides it -- this is always the caller's own manual answer.",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Yesterday Trading Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "physical_state_score",
+          "yesterday_trading_score",
+          "trade_planning_score",
+          "mood_score",
+          "schedule_score"
+        ],
+        "title": "DailyHomeworkIn",
+        "type": "object"
+      },
+      "DailyHomeworkListResponse": {
+        "properties": {
+          "items": {
+            "description": "Every recorded self-test entry, most recent `date` first.",
+            "items": {
+              "$ref": "#/components/schemas/DailyHomeworkOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "DailyHomeworkListResponse",
+        "type": "object"
+      },
+      "DailyHomeworkOut": {
+        "properties": {
+          "band": {
+            "description": "The book's own color-banding of `total_score`: <=4 'red' (don't trade), 5-6 'yellow' (trade cautiously), 7-8 'green', 9-10 'yellow' again (Elder's own note: \"with everything so perfect, any change is bound to be for the worse\") -- see app.portfolio.homework.band_for_total_score.",
+            "enum": [
+              "red",
+              "yellow",
+              "green"
+            ],
+            "title": "Band",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "mood_score": {
+            "description": "'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Mood Score",
+            "type": "integer"
+          },
+          "physical_state_score": {
+            "description": "'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Physical State Score",
+            "type": "integer"
+          },
+          "recorded_at": {
+            "description": "When this day's entry was last recorded/updated (UTC).",
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "schedule_score": {
+            "description": "'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / 2 (clear) -- a busier day leaves less attention for trading well.",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Schedule Score",
+            "type": "integer"
+          },
+          "total_score": {
+            "description": "Sum of the five scores above, 0-10 (docs/ideas.md's ch. 57 entry).",
+            "title": "Total Score",
+            "type": "integer"
+          },
+          "trade_planning_score": {
+            "description": "'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully).",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Trade Planning Score",
+            "type": "integer"
+          },
+          "yesterday_trading_score": {
+            "description": "'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / 2 (well). See DailyHomeworkIn's field of the same name for the (never auto-applied) suggestion endpoint.",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Yesterday Trading Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "physical_state_score",
+          "yesterday_trading_score",
+          "trade_planning_score",
+          "mood_score",
+          "schedule_score",
+          "total_score",
+          "band",
+          "recorded_at"
+        ],
+        "title": "DailyHomeworkOut",
+        "type": "object"
+      },
+      "DailyHomeworkTodayResponse": {
+        "properties": {
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyHomeworkOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Today's (server UTC date) recorded entry, or null if today's self-test hasn't been recorded yet -- the normal, expected state at the start of every day, not an error."
+          }
+        },
+        "title": "DailyHomeworkTodayResponse",
+        "type": "object"
+      },
       "DivergenceOut": {
         "properties": {
           "aborted": {
@@ -2228,6 +2401,45 @@
         ],
         "title": "WaveScreen",
         "type": "object"
+      },
+      "YesterdayTradingSuggestionOut": {
+        "properties": {
+          "as_of_date": {
+            "description": "The 'yesterday' this suggestion is computed for (today's date minus one calendar day, server UTC 'today').",
+            "format": "date",
+            "title": "As Of Date",
+            "type": "string"
+          },
+          "net_realized_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of `realized_pnl` across every `closed_trades` row exited on `as_of_date`. Null if no position was closed that day -- there is nothing to base a suggestion on.",
+            "title": "Net Realized Pnl"
+          },
+          "suggested_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A suggested (not authoritative) `yesterday_trading_score` for `POST /api/daily-homework`, derived from `net_realized_pnl`: 2 for a net gain, 1 for exactly breakeven, 0 for a net loss. Null whenever `net_realized_pnl` is null -- this endpoint never guesses a value with nothing to base it on. The caller decides whether to use it; this app never writes `yesterday_trading_score` on the user's behalf -- see the backend-daily-homework-self-test task's `decisions` entry.",
+            "title": "Suggested Score"
+          }
+        },
+        "required": [
+          "as_of_date"
+        ],
+        "title": "YesterdayTradingSuggestionOut",
+        "type": "object"
       }
     }
   },
@@ -2238,6 +2450,112 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/daily-homework": {
+      "get": {
+        "description": "Every recorded self-test entry, most recent `date` first -- a history/trend view of\nhow \"ready to trade\" scores have looked over time.",
+        "operationId": "list_daily_homework",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyHomeworkListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List recorded self-test entries, most recent day first",
+        "tags": [
+          "daily-homework"
+        ]
+      },
+      "post": {
+        "description": "Records the day's five 0/1/2 scores (`entry.date`, defaulting to today) as one\n`daily_homework_entries` row. A second submission for a day that already has a recorded\nentry overwrites that day's scores (and `recorded_at`) rather than rejecting the request\nor creating a second row for the same day -- always `201`, whether this created a new row\nor overwrote an existing one, mirroring `POST /api/portfolio/positions`/\n`POST /api/watchlist`'s identical \"same status code either way\" convention -- see this\ntask's `decisions` entry.",
+        "operationId": "record_daily_homework",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyHomeworkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyHomeworkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record (or overwrite) a calendar day's 5-question self-test scores",
+        "tags": [
+          "daily-homework"
+        ]
+      }
+    },
+    "/api/daily-homework/today": {
+      "get": {
+        "description": "Today's (server UTC date) recorded entry, or a null `entry` if today's self-test\nhasn't been recorded yet -- never a `404`, since \"not done yet today\" is the normal,\nexpected state at the start of every day, not an error.",
+        "operationId": "get_daily_homework_today",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyHomeworkTodayResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get today's self-test entry, if recorded",
+        "tags": [
+          "daily-homework"
+        ]
+      }
+    },
+    "/api/daily-homework/yesterday-trading-suggestion": {
+      "get": {
+        "description": "A suggested (never auto-applied) `yesterday_trading_score` derived from the net\n`realized_pnl` of every `closed_trades` row exited yesterday (server UTC 'today' minus one\nday) -- a cheap, optional enhancement over Elder's own fully-manual-recall version of this\nquestion. Never writes anything; a caller (e.g. the daily homework form) may use\n`suggested_score` to pre-fill the field, but `POST /api/daily-homework`'s\n`yesterday_trading_score` is always the caller's own explicit answer -- see this task's\n`decisions` entry for why this stays a suggestion rather than an auto-populated field.",
+        "operationId": "get_yesterday_trading_suggestion",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YesterdayTradingSuggestionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Suggest today's 'how did I trade yesterday?' score from yesterday's closed trades",
+        "tags": [
+          "daily-homework"
+        ]
+      }
+    },
     "/api/ibkr/scanner/params": {
       "get": {
         "description": "Lists IBKR's own predefined scan categories (`IBKRProvider.get_scanner_params`'s\n`scan_type_list`, e.g. 52-week-high/low, hot-by-volume, top % gainers/losers) so a\ncaller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56\nmarket-scanning entry.\n\n'disabled' when IBKR isn't enabled at all (no gateway call attempted). Otherwise,\n`IBKRProvider.get_scanner_params()` is tried directly (itself served from its own\n15-minute cache on a hit, per this task's \"don't add a second, conflicting throttle\nlayer\" requirement) -- only on an `IBKRUnavailableError` (a cache miss) does this\nhandler make the one extra `get_gateway_status()` call needed to report *which*\nunavailable state applies, instead of parsing that information back out of the\nexception's message string. If that fresh check disagrees with the exception (gateway\nreports `available` even though the scanner-params call itself just failed), this is a\ngenuine transient failure of this specific call, not a `state`-shaped unavailability --\nsee `_resolve_scanner_unavailable` -- and is raised as a `503` instead.",
