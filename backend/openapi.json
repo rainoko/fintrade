@@ -78,7 +78,7 @@
                 "type": "null"
               }
             ],
-            "description": "Suggested profit target + reward:risk ratio for this ticker's CURRENT signal (docs/Analyse.md \u00a77, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). Only ever non-null when `signal` is 'BUY': this app's protective-stop formula (and its whole portfolio model) is explicitly long-only, so there's no symmetric short-side stop to pair with a SELL-side reward:risk ratio -- see the backend-profit-target task's `decisions` entry. Also null for a BUY when neither target technique currently produces a candidate (e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above current price)."
+            "description": "Suggested profit target + reward:risk ratio for this ticker's CURRENT signal (docs/Analyse.md \u00a77, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). Only ever non-null when `signal` is 'BUY': this app's protective-stop formula (and its whole portfolio model) is explicitly long-only, so there's no symmetric short-side stop to pair with a SELL-side reward:risk ratio -- see the backend-profit-target task's `decisions` entry. Also null for a BUY when neither target technique currently produces a candidate (e.g. a young ticker with under ~100 weeks of weekly history and no yet-detected resistance zone above current price)."
           },
           "screens": {
             "$ref": "#/components/schemas/Screens"
@@ -2075,7 +2075,7 @@
             "title": "Reward Risk Ratio"
           },
           "source": {
-            "description": "Which technique produced `price`: 'channel' -- ch. 58's own Tradebill formula, current close + 30% of today's Autoenvelope/channel height (same channel `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose); 'support_resistance' -- the nearest `support_resistance_zones` level above current close. Whichever of the two is TIGHTER (closer to current close) is used -- see the backend-profit-target task's `decisions` entry for why the more conservative target is preferred over a fixed preference order.",
+            "description": "Which technique produced `price`: 'channel' -- ch. 58's own Tradebill formula, current close + 30% of the weekly chart's Autoenvelope/channel height (ch. 39 p.161 -- a different channel than the daily one `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose for the price-chart overlay); 'support_resistance' -- the nearest `support_resistance_zones` level above current close. Whichever of the two is TIGHTER (closer to current close) is used -- see the backend-profit-target task's `decisions` entry for why the more conservative target is preferred over a fixed preference order.",
             "enum": [
               "channel",
               "support_resistance"

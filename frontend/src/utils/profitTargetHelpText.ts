@@ -26,7 +26,7 @@
 
 /** Identical, word-for-word, in both `profitTargetHelp.definition` entries. */
 export const PROFIT_TARGET_DEFINITION =
-  'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of today’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.'
+  'A suggested exit price for a fresh BUY signal, computed two ways -- current price plus 30% of the weekly chart’s Autoenvelope/channel height (Elder ch. 58’s Tradebill "A" target formula, per ch. 39 p.161’s rule that a profit target is set from the long-term chart), or the nearest support/resistance zone above current price (Elder ch. 18) -- using whichever is TIGHTER (closer to the current price), since a closer target is the more conservative, more probable one to actually be reached.'
 
 /**
  * The shared trailing portion of both `profitTargetHelp.elderContext`

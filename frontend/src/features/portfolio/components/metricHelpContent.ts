@@ -57,11 +57,11 @@ export const profitTargetHelp = {
       return `Not applicable -- a profit target is only ever computed for a fresh BUY signal; this position’s ticker is currently ${signal}.`
     }
     if (!profitTarget) {
-      return 'Currently unavailable for this BUY signal -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 days of history and no yet-detected resistance zone above the current price.'
+      return 'Currently unavailable for this BUY signal -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 weeks of weekly history and no yet-detected resistance zone above the current price.'
     }
     const sourceLabel =
       profitTarget.source === 'channel'
-        ? 'the channel/Tradebill formula (current price + 30% of today’s Autoenvelope/channel height)'
+        ? 'the channel/Tradebill formula (current price + 30% of the weekly chart’s Autoenvelope/channel height)'
         : 'the nearest detected support/resistance zone above current price'
     const ratioClause =
       profitTarget.reward_risk_ratio == null

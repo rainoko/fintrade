@@ -148,6 +148,18 @@ describe('metricHelpContent', () => {
       )
       expect(text).toMatch(/reward:risk ratio is undefined right now/)
     })
+
+    it('describes the channel technique as sourced from the WEEKLY chart, not "today\'s"/daily (regression test for the backend-profit-target-weekly-channel PR review finding: the channel moved to weekly OHLCV, but this copy was initially left describing the old daily behavior)', () => {
+      const text = profitTargetHelp.interpretValue(target, 'BUY')
+      expect(text).toContain('weekly chart’s Autoenvelope/channel height')
+      expect(text).not.toMatch(/today’s Autoenvelope/)
+    })
+
+    it('describes the no-candidate warm-up window in WEEKS, not days (the channel candidate\'s warm-up is ~100 weekly bars, not ~100 daily bars)', () => {
+      const text = profitTargetHelp.interpretValue(null, 'BUY')
+      expect(text).toMatch(/~100 weeks of weekly history/)
+      expect(text).not.toMatch(/100 days of history/)
+    })
   })
 
   describe('confidence breakdown component lookup', () => {
