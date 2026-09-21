@@ -62,5 +62,10 @@
       }
     ],
     "notes": "No code changes to review (task-board JSON only); verification consisted of confirming both claimed items exist on main (via direct file read + git blame to PR #231/bf2b86e), confirming this PR's diff itself is JSON-only, running the full backend+frontend test/coverage suites and static analysis as the review's own independent evidence, and cross-checking the decisions entry's claims against the actual code/docs state. No UI surface in this PR; browser walkthrough and e2e suite (steps 9/9a) explicitly skipped for that reason. No API route/schema change, so no openapi.json regen expected."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T11:20:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: git diff main...HEAD is task-board JSON only (docs/tasks/index.json, the moved done/ task file, and the new -followups-followups.json). Both claimed items are genuinely on main via git blame: test_daily_failure_takes_priority_when_both_fetches_fail in backend/tests/integration/test_stocks_indicator_history.py and the same-calendar-day docstring caveat in app/api/routers/stocks.py plus its two mirrored paragraphs in docs/architecture/API.md, all landed in bf2b86e (PR #231). Re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly. Also ran scripts/validate_tasks.py: board validates cleanly (251 files, no violations)."
   }
 }
