@@ -633,6 +633,75 @@ class ClosedTradesResponse(BaseModel):
     )
 
 
+# --- /api/portfolio/trade-apgar ---------------------------------------------
+
+FalseBreakoutStatusIn = Literal["none", "already_happened", "on_the_verge"]
+PerfectionIn = Literal["neither", "one", "both"]
+
+
+class TradeApgarIn(BaseModel):
+    ticker: str = Field(min_length=1, description="Ticker to score. Normalized to uppercase (leading/trailing whitespace is stripped), matching PositionIn.ticker/POST /api/portfolio/positions.")
+    false_breakout_status: FalseBreakoutStatusIn = Field(
+        description="Manual input (Elder ch. 58, docs/ideas.md): whether a false breakout has "
+        "recently happened or is currently developing for this ticker -- 'none' (0 points), "
+        "'already_happened' (1 point), or 'on_the_verge' (2 points, a false breakout actively "
+        "developing right now). Not auto-populated in this first version -- see this task's "
+        "`decisions` entry for why `app.signals.kangaroo_tail`/`app.signals.support_resistance` "
+        "aren't used to suggest a starting value here."
+    )
+    perfection: PerfectionIn = Field(
+        description="Manual input (Elder ch. 58): whether the weekly and daily timeframes "
+        "both look ideal for this setup -- 'neither' (0 points), 'one' does (1 point), or "
+        "'both' do (2 points, rare per Elder's own note -- one perfect timeframe plus one "
+        "merely good is fine). Inherently subjective; never auto-populated."
+    )
+
+    @field_validator("ticker")
+    @classmethod
+    def _strip_and_require_non_blank_ticker(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("ticker must not be blank or whitespace-only")
+        return stripped
+
+
+class TradeApgarQuestionOut(BaseModel):
+    key: Literal["weekly_impulse", "daily_impulse", "price_vs_value", "false_breakout", "perfection"] = Field(
+        description="Which of the fixed 5 questions this is, in Elder's own ch. 58 order."
+    )
+    label: str = Field(description="Human-readable question text.")
+    value: str = Field(
+        description="The underlying classification this question's score was derived from -- "
+        "one of Impulse's own 'GREEN'/'RED'/'BLUE' for weekly_impulse/daily_impulse, "
+        "'above_value'/'in_value_zone'/'below_value' for price_vs_value, or the caller's own "
+        "TradeApgarIn.false_breakout_status/perfection value, echoed back, for the two manual "
+        "questions."
+    )
+    score: int = Field(ge=0, le=2, description="0, 1, or 2 -- this question's own score per Elder's ch. 58 scoring table (docs/ideas.md).")
+    source: Literal["auto", "manual"] = Field(
+        description="'auto' -- weekly_impulse/daily_impulse/price_vs_value, derived from "
+        "app.signals.engine.analyse()'s own output for `ticker` at the time of this request, "
+        "not a value the caller can override. 'manual' -- false_breakout/perfection, the "
+        "caller's own TradeApgarIn inputs, echoed back."
+    )
+
+
+class TradeApgarOut(BaseModel):
+    ticker: str = Field(description="Uppercased ticker this score was computed for.")
+    questions: list[TradeApgarQuestionOut] = Field(
+        description="All 5 fixed questions, always in Elder's own ch. 58 order (weekly "
+        "Impulse, daily Impulse, price vs. value, false breakout, perfection) -- never a "
+        "variable-length or reordered list."
+    )
+    total_score: int = Field(ge=0, le=10, description="Sum of every question's score, 0-10.")
+    go: bool = Field(
+        description="Elder's own go/no-go rule (docs/ideas.md's ch. 58 entry): true only when "
+        "total_score >= 7 AND no single question scored 0 -- both conditions are required "
+        "together, not just the total. A trade scoring 8 total with one question at 0 still "
+        "gets `go=false`."
+    )
+
+
 # --- /api/ibkr/status ------------------------------------------------------
 
 IBKRGatewayState = Literal["disabled", "available", "gateway_unreachable", "not_authenticated"]

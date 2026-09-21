@@ -350,6 +350,43 @@ The three grade fields are `null` whenever they can't currently be computed — 
 
 `entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded. `strategy` is carried over the same way (Elder ch. 55/56/58/59's personal named strategy tag) — `null` if the position never had a strategy tag recorded.
 
+### `POST /api/portfolio/trade-apgar`
+
+Elder ch. 58's "Trade Apgar" (Analyse.md §7 / docs/ideas.md ch. 58) — a fixed 5-question, 0/1/2-each pre-trade go/no-go score matching Elder's own example strategy, the pre-trade counterpart to `GET /api/portfolio/closed-trades`'s after-the-fact grading. Stateless — nothing is persisted, this just scores whatever `ticker`/manual answers the request supplies at the time of the call.
+
+Request:
+
+```json
+{
+  "ticker": "AAPL",
+  "false_breakout_status": "on_the_verge",
+  "perfection": "one"
+}
+```
+
+Response:
+
+```json
+{
+  "ticker": "AAPL",
+  "questions": [
+    { "key": "weekly_impulse", "label": "Weekly Impulse", "value": "GREEN", "score": 1, "source": "auto" },
+    { "key": "daily_impulse", "label": "Daily Impulse", "value": "BLUE", "score": 2, "source": "auto" },
+    { "key": "price_vs_value", "label": "Daily price vs. value", "value": "below_value", "score": 2, "source": "auto" },
+    { "key": "false_breakout", "label": "False breakout status", "value": "on_the_verge", "score": 2, "source": "manual" },
+    { "key": "perfection", "label": "\"Perfection\" (both timeframes look ideal)", "value": "one", "score": 1, "source": "manual" }
+  ],
+  "total_score": 8,
+  "go": true
+}
+```
+
+Three of the five questions are auto-populated (`source: "auto"`) from the same `app.signals.engine.analyse()` pipeline every other signal-facing endpoint uses for `ticker`: `weekly_impulse`/`daily_impulse` are the weekly/daily Impulse System colors (Analyse.md §3, `weekly_impulse` via `app.signals.impulse.evaluate_impulse` run directly on the fetched weekly OHLCV — the same computation Screen 1/Tide uses internally, since `analyse()` itself only exposes that color already mapped onto BULLISH/BEARISH/NEUTRAL), and `price_vs_value` classifies today's close against ch. 41's EMA(13)/EMA(26) "value zone" — **not** the Autoenvelope/channel band `channel_upper`/`channel_lower` (a distinct indicator drawn on the same chart) — into `above_value` (0)/`in_value_zone` (1)/`below_value` (2). `false_breakout_status`/`perfection` are always the caller's own manual inputs (`none`/`already_happened`/`on_the_verge` and `neither`/`one`/`both` respectively), echoed back verbatim as `value` — this first version derives no suggested starting value for either from `app.signals.kangaroo_tail`/`app.signals.support_resistance`, even though both detect closely related patterns (see the `backend-trade-apgar` task's `decisions`).
+
+`go` is Elder's own explicit rule: `total_score >= 7` **and** no single question scored 0 — both conditions required together. A trade scoring 8 total with one question at 0 still gets `go: false`.
+
+Errors: unknown ticker → `404`; `ticker`'s fetched weekly history has fewer than 26 weeks (same minimum `GET /api/stocks/{ticker}/analysis`'s weekly fetch enforces), or its fetched daily history is empty once any malformed bar is dropped → `422`; market data provider unavailable → `503`.
+
 ### `GET /api/watchlist`
 
 Every watched ticker, annotated with its current signal/confidence via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check.

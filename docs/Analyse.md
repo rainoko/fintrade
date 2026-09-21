@@ -271,6 +271,20 @@ Implementation: `app.portfolio.grading` (pure formulas, hand-verified against th
 
 Elder's own framing of these grades is a **letter grade**, not a raw number ("A is excellent, B good, C mediocre, and D poor") — `trade_grade_pct` is additionally mapped to a letter (`trade_letter_grade`): `A` >= 30%, `B` in [20%, 30%), `C` in [10%, 20%), `D` < 10%. Only the A (30%) and C (10%) thresholds are ever stated numerically in the book; B and D fill that gap via even 10-point-per-letter spacing implied by those two anchors being exactly two letter-steps apart — see the `backend-trade-grade-letter` task's `decisions` for the full rationale. `buy_grade_pct`/`sell_grade_pct` stay percentage-only (no letter grade) since the book gives them only a single ">50% = very good" anchor each, with no letter scale attached.
 
+### Trade Apgar (pre-trade go/no-go score)
+Before entering a trade, ch. 58's "Trade Apgar" scores 5 questions 0/1/2 each against a *specific* trading strategy — Elder is explicit this test is strategy-specific ("the scoring method you're about to see is designed for one system... all other systems will require a different test"), so this app implements a single **fixed** question set matching Elder's own worked example strategy, not a per-strategy-configurable builder (a first version, not the eventual "real" shape — see the `backend-trade-apgar` task's `decisions`). Go/no-go rule: **total score ≥7 AND no single question scored 0** — both conditions required together, not just the sum.
+
+Elder's own example strategy's five questions:
+1. **Weekly Impulse** — Red=0, Green=1, Blue=2.
+2. **Daily Impulse** — same scale.
+3. **Daily price vs. value** — above value=0, in value zone=1, below value=2 (a strategy that buys weakness, so cheaper scores higher).
+4. **False breakout status** — none=0, already happened=1, on the verge=2. Manual input.
+5. **"Perfection"** (both timeframes look ideal) — neither=0, one=1, both=2 (Elder's own note: both being perfect is rare — one perfect plus one merely good is fine). Manual input.
+
+Three of the five questions are auto-populated from data this app already computes for any ticker via `app.signals.engine.analyse()`: weekly/daily Impulse color (§3), and the daily price-vs-value classification against the EMA(13)/EMA(26) "value zone" (ch. 41 — distinct from the Autoenvelope/channel band `channel_upper`/`channel_lower` expose, even though both are drawn on the same price chart). False-breakout status and "perfection" stay manual inputs for this first version.
+
+Implementation: `app.portfolio.trade_apgar` (pure scoring functions), exposed via `POST /api/portfolio/trade-apgar` (see `docs/architecture/API.md`) — stateless, nothing persisted.
+
 ### Existing-position exit signals (beyond fresh technical SELL)
 A held position should be flagged **SELL/reduce** if any of:
 - Price closes below its computed protective stop.
