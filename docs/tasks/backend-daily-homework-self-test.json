@@ -35,5 +35,11 @@
       "decision": "GET /api/daily-homework/today returns a wrapper object (`DailyHomeworkTodayResponse { entry: DailyHomeworkOut | null }`) rather than a nullable top-level response body, and never 404s when today's entry doesn't exist yet.",
       "rationale": "This codebase's existing convention for 'this might not be available yet' is a wrapper/sibling field that's null under a documented condition (IBKRScannerParamsResponse.categories gated by state, WatchlistItemOut.signal/confidence/confidence_band, BreadthResponse's unavailable_count) rather than the whole response body itself being absent or null -- keeping this endpoint consistent with that pattern, rather than introducing the only nullable-top-level-body response in the API, was preferred over the alternative of a raw `response_model=DailyHomeworkOut | None`. Not recording today's entry yet is the normal state for most of every day (before the trader has done the self-test that morning), not an error condition, so 404 (this codebase's convention for a genuinely missing/wrong-key resource, e.g. DELETE /api/watchlist/{ticker} for an unwatched ticker) would misrepresent it."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-daily-homework-self-test",
+    "pr_number": 216,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/216",
+    "pushed_at": "2026-09-21T01:36:12Z"
+  }
 }
