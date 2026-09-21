@@ -1552,8 +1552,8 @@
       "id": "backend-close-position-manual-exit",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
-      "path": "docs/tasks/backend-close-position-manual-exit.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-close-position-manual-exit.json"
     },
     {
       "id": "backend-cftc-cot-data",
