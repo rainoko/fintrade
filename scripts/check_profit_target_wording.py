@@ -38,7 +38,7 @@ negative check, since several of them intentionally reference the banned wording
 regex literal *inside a `not.toMatch`/similar negative assertion* -- that's the guard
 working as intended at the unit-test level, not a regression.
 
-Stdlib-only (re, sys, pathlib), matching `scripts/validate_tasks.py`'s own
+Stdlib-only (os, re, sys, pathlib), matching `scripts/validate_tasks.py`'s own
 zero-setup philosophy -- no venv/install step needed either.
 
 Usage: python3 scripts/check_profit_target_wording.py
@@ -48,6 +48,7 @@ otherwise.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -121,10 +122,15 @@ _KNOWN_PROFIT_TARGET_CHANNEL_FILES: list[tuple[str, str | None, str | None]] = [
 
 _CHANNEL_CONTEXT_RE = re.compile(r"autoenvelope|channel height", re.IGNORECASE)
 _PROFIT_TARGET_CONTEXT_RE = re.compile(
-    r"profit[\s_]target|suggest_profit_target|tradebill|profittargetout",
+    # `[\s_-]` also matches the hyphenated "profit-target" -- the literal text of
+    # methodologyContent.ts's own `id: 'profit-target'` start_anchor -- not just the
+    # space/underscore forms used elsewhere.
+    r"profit[\s_-]target|suggest_profit_target|tradebill|profittargetout",
     re.IGNORECASE,
 )
-_WEEKLY_RE = re.compile(r"\bweek(ly)?\b", re.IGNORECASE)
+# `s?` also matches the plural noun "weeks" on its own (not just "week"/"weekly") --
+# `\bweek(ly)?\b` alone left "100 weeks" unmatched since `s` broke the trailing `\b`.
+_WEEKLY_RE = re.compile(r"\bweek(s|ly)?\b", re.IGNORECASE)
 
 # Character window (before/after a channel-context match) searched for the paired
 # profit-target-context and "weekly" wording -- a character count rather than a fixed
@@ -158,19 +164,48 @@ def _is_excluded_path(path: Path) -> bool:
 def _should_scan_for_banned_patterns(path: Path) -> bool:
     if path.suffix not in _SCANNED_SUFFIXES:
         return False
+    # _iter_scanned_files already prunes _EXCLUDED_DIR_NAMES during its own os.walk
+    # traversal below, so this is a redundant (but cheap) safety net for any other
+    # caller of this predicate.
     if any(part in _EXCLUDED_DIR_NAMES for part in path.parts):
         return False
     if _is_excluded_path(path):
         return False
     if path.resolve() == Path(__file__).resolve():
         return False
-    if _is_test_file(path):
-        return False
-    return True
+    return not _is_test_file(path)
 
 
 def _iter_scanned_files() -> list[Path]:
-    return sorted(p for p in REPO_ROOT.rglob("*") if p.is_file() and _should_scan_for_banned_patterns(p))
+    # Prune excluded directories (node_modules/.venv/.git/dist/build/coverage/etc.)
+    # during traversal via os.walk's own `dirnames[:] = ...` idiom, rather than
+    # enumerating every file under them with rglob("*") first and filtering
+    # afterwards -- this script runs unconditionally as static-verify's own step 5 on
+    # every PR review and QA pass, so an unpruned walk's cost only grows as those
+    # directories grow.
+    matched: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in _EXCLUDED_DIR_NAMES]
+        for filename in filenames:
+            path = Path(dirpath) / filename
+            if _should_scan_for_banned_patterns(path):
+                matched.append(path)
+    return sorted(matched)
+
+
+# Two adjacent string literals separated only by whitespace across a line break --
+# Python's own implicit string concatenation, a style already used throughout
+# schemas.py's own long Field descriptions -- join into one logical string at parse
+# time, but a naive line-by-line scan sees two separate, shorter lines and can miss a
+# banned phrase split across the join. Recognize the join (a quote, whitespace
+# spanning a newline, then the same quote character) and drop just the quote pair,
+# preserving every newline exactly, so a match found in the joined text still maps
+# back to the right physical line via a plain newline count.
+_STRING_CONCAT_JOIN_RE = re.compile(r"([\"'])(\s*\n\s*)\1")
+
+
+def _join_implicit_string_concatenation(text: str) -> str:
+    return _STRING_CONCAT_JOIN_RE.sub(r"\2", text)
 
 
 def check_banned_patterns(paths: list[Path]) -> list[str]:
@@ -178,33 +213,49 @@ def check_banned_patterns(paths: list[Path]) -> list[str]:
     violations = []
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            for pattern in _BANNED_PATTERNS:
-                if pattern.search(line):
-                    rel = path.relative_to(REPO_ROOT)
-                    violations.append(
-                        f"{rel}:{lineno}: stale daily-channel wording found: {line.strip()!r}"
-                    )
+        joined = _join_implicit_string_concatenation(text)
+        joined_lines = joined.splitlines()
+        rel = path.relative_to(REPO_ROOT)
+        reported: set[tuple[int, int]] = set()
+        for pattern_index, pattern in enumerate(_BANNED_PATTERNS):
+            for match in pattern.finditer(joined):
+                lineno = joined.count("\n", 0, match.start()) + 1
+                key = (pattern_index, lineno)
+                if key in reported:
+                    continue
+                reported.add(key)
+                line_text = joined_lines[lineno - 1].strip()
+                violations.append(
+                    f"{rel}:{lineno}: stale daily-channel wording found: {line_text!r}"
+                )
     return violations
 
 
-def _extract_region(text: str, start_anchor: str | None, end_anchor: str | None) -> tuple[str, int] | None:
-    """Return `(region_text, offset_of_region_start_in_text)`, or `None` if
-    `start_anchor` doesn't match anywhere (a signal the caller's file structure has
-    changed enough that this guard's anchors need updating too)."""
+def _extract_region(
+    text: str, start_anchor: str | None, end_anchor: str | None
+) -> tuple[str, int, bool] | None:
+    """Return `(region_text, offset_of_region_start_in_text, end_anchor_missing)`, or
+    `None` if `start_anchor` doesn't match anywhere (a signal the caller's file
+    structure has changed enough that this guard's anchors need updating too).
+
+    `end_anchor_missing` is True precisely when a (non-`None`) `end_anchor` was given
+    but didn't match anywhere after the start anchor -- the caller should flag this
+    the same way as a failed start anchor (this guard's own scoping no longer matches
+    the file's real structure), even though, unlike a failed start anchor, there's
+    still a region to fall back to scanning (from the start anchor to end of file)."""
     if start_anchor is None:
-        return text, 0
+        return text, 0, False
     start_match = re.search(start_anchor, text)
     if start_match is None:
         return None
     region_start = start_match.start()
     if end_anchor is None:
-        return text[region_start:], region_start
+        return text[region_start:], region_start, False
     end_match = re.search(end_anchor, text[start_match.end() :])
     if end_match is None:
-        return text[region_start:], region_start
+        return text[region_start:], region_start, True
     region_end = start_match.end() + end_match.start()
-    return text[region_start:region_end], region_start
+    return text[region_start:region_end], region_start, False
 
 
 def check_known_files_mention_weekly(repo_root: Path = REPO_ROOT) -> list[str]:
@@ -228,7 +279,15 @@ def check_known_files_mention_weekly(repo_root: Path = REPO_ROOT) -> list[str]:
                 "structure legitimately changed"
             )
             continue
-        region, region_offset = extracted
+        region, region_offset, end_anchor_missing = extracted
+        if end_anchor_missing:
+            violations.append(
+                f"{rel_str}: this guard's end anchor ({end_anchor!r}) no longer "
+                "matches -- update _KNOWN_PROFIT_TARGET_CHANNEL_FILES if the file's "
+                "structure legitimately changed (falling back to scanning from the "
+                "start anchor to end of file in the meantime, which risks bleeding "
+                "into unrelated later content)"
+            )
 
         found_channel_context = False
         for match in _CHANNEL_CONTEXT_RE.finditer(region):

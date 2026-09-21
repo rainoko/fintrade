@@ -23,7 +23,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "check_profit_target_wording.py"
 
@@ -128,6 +128,22 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         violations = cptw.check_banned_patterns([path])
         self.assertEqual(len(violations), 1)
 
+    def test_banned_pattern_split_across_lines_via_implicit_concatenation_is_flagged(self) -> None:
+        # backend/app/api/schemas.py's own IndicatorsOut field descriptions (ATR, ADX,
+        # +DI/-DI, channel_upper/channel_lower, RSI) all wrap a long Field
+        # `description=(...)` across two adjacent string literals joined by Python's
+        # implicit string concatenation. A banned phrase split across that same join
+        # must still be caught, not silently missed by a naive per-line scan.
+        path = self.repo.write(
+            "backend/app/api/example.py",
+            "description=(\n"
+            "    \"Current price + 30% of today's \"\n"
+            "    \"Autoenvelope/channel height.\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",
@@ -176,12 +192,34 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         scanned = cptw._iter_scanned_files()
         self.assertEqual(scanned, [])
 
+    def test_excluded_directory_is_pruned_during_traversal(self) -> None:
+        # _iter_scanned_files walks via os.walk and prunes _EXCLUDED_DIR_NAMES as it
+        # goes (rather than enumerating every file underneath first and filtering
+        # afterwards) -- functionally this should still simply exclude any file under
+        # one of those directories, same as before the traversal was changed.
+        self.repo.write("node_modules/some-package/index.ts", "today's Autoenvelope/channel height")
+        self.repo.write(".venv/lib/example.py", "today's Autoenvelope/channel height")
+        scanned = cptw._iter_scanned_files()
+        self.assertEqual(scanned, [])
+
     # -- check_known_files_mention_weekly: the positive, per-file check ---------
+
+    # Trailing content satisfying each known entry's own end_anchor, so a "correctly
+    # written" fixture file is bounded the same way a real file is -- otherwise
+    # _extract_region's own end-anchor-missing fallback (see
+    # test_anchor_end_not_found_is_flagged below) would trip on every fixture that
+    # has an end_anchor at all, not just the one deliberately testing that case.
+    _END_ANCHOR_TRAILING_CONTENT: ClassVar[dict[str, str]] = {
+        r"\nexport const \w": "\nexport const nextThing = {}\n",
+        r"\n\s*id: '": "\n  id: 'next-thing'\n",
+    }
 
     def _write_all_known_files_correctly(self) -> None:
         correct_content = "profit target channel: weekly chart's Autoenvelope/channel height (Tradebill)"
-        for rel_path, start_anchor, _end in cptw._KNOWN_PROFIT_TARGET_CHANNEL_FILES:
+        for rel_path, start_anchor, end_anchor in cptw._KNOWN_PROFIT_TARGET_CHANNEL_FILES:
             content = f"{start_anchor}\n{correct_content}" if start_anchor else correct_content
+            if end_anchor:
+                content += self._END_ANCHOR_TRAILING_CONTENT[end_anchor]
             self.repo.write(rel_path, content)
 
     def test_all_known_files_present_and_correct_has_no_violations(self) -> None:
@@ -201,6 +239,31 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         )
         violations = cptw.check_known_files_mention_weekly(self.tmp_path)
         self.assertTrue(any("profit_target.py" in v for v in violations))
+
+    def test_plural_weeks_alone_satisfies_the_weekly_check(self) -> None:
+        # _WEEKLY_RE must recognize the plural noun "weeks" on its own, not just the
+        # adjective "weekly" -- e.g. a warm-up window phrased as "~100 weeks of price
+        # history" with no separate "weekly" nearby.
+        self._write_all_known_files_correctly()
+        self.repo.write(
+            "backend/app/portfolio/profit_target.py",
+            "profit target channel: Autoenvelope/channel height over ~100 weeks of price "
+            "history (Tradebill)",
+        )
+        violations = cptw.check_known_files_mention_weekly(self.tmp_path)
+        self.assertEqual([v for v in violations if "profit_target.py" in v], [])
+
+    def test_hyphenated_profit_target_satisfies_context(self) -> None:
+        # _PROFIT_TARGET_CONTEXT_RE must match the hyphenated "profit-target" form --
+        # the literal text of methodologyContent.ts's own `id: 'profit-target'`
+        # start_anchor -- not just the space/underscore forms.
+        self._write_all_known_files_correctly()
+        self.repo.write(
+            "backend/app/portfolio/profit_target.py",
+            "profit-target channel: weekly chart's Autoenvelope/channel height",
+        )
+        violations = cptw.check_known_files_mention_weekly(self.tmp_path)
+        self.assertEqual([v for v in violations if "profit_target.py" in v], [])
 
     def test_known_file_with_no_channel_mention_at_all_is_flagged(self) -> None:
         self._write_all_known_files_correctly()
@@ -231,6 +294,25 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         violations = cptw.check_known_files_mention_weekly(self.tmp_path)
         self.assertEqual(
             [v for v in violations if "features/portfolio/components/metricHelpContent.ts" in v], []
+        )
+
+    def test_anchor_end_not_found_is_flagged(self) -> None:
+        # Regression test for the asymmetry this guard used to have: a failed
+        # start_anchor raised an explicit violation, but a failed end_anchor silently
+        # fell back to scanning to end of file with no signal at all.
+        self._write_all_known_files_correctly()
+        self.repo.write(
+            "frontend/src/features/portfolio/components/metricHelpContent.ts",
+            "export const profitTargetHelp = {\n"
+            "  definition: 'profit target: weekly chart Autoenvelope/channel height (Tradebill)',\n"
+            "}\n",
+        )
+        violations = cptw.check_known_files_mention_weekly(self.tmp_path)
+        self.assertTrue(
+            any(
+                "features/portfolio/components/metricHelpContent.ts" in v and "end anchor" in v
+                for v in violations
+            )
         )
 
     def test_anchor_start_not_found_is_flagged(self) -> None:
