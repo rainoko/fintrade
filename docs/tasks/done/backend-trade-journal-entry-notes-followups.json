@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-trade-journal-entry-notes review (PR #213)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-trade-journal-entry-notes"
   ],
@@ -31,5 +31,12 @@
     "pr_number": 236,
     "pr_url": "https://github.com/rainoko/fintrade/pull/236",
     "pushed_at": "2026-09-21T20:53:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T20:58:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/236",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified the task-worker's claims directly rather than trusting the merge-branch comment. Instantiated PositionIn directly with '   ', '', '  hello  ', None for entry_notes -- got None, None, 'hello', None, exactly as claimed. Traced add_position's code path: `position` is the already Pydantic-validated PositionIn instance by the time the handler runs, so the field_validator's normalization has already happened before `if position.entry_notes:` in the merge branch evaluates it -- the merge-append bug fix is real, not just documented. Confirmed the existing non-blank merge-append test (test_merge_with_incoming_notes_appends_to_existing_notes) still passes, so normal append behavior is unaffected. Diffed backend/openapi.json and frontend/src/api/types.ts against main: description-string-only, no shape change. Full suites green: backend pytest --cov=app 1134 passed/99.95% coverage, frontend vitest --coverage 704 passed/~99.7% coverage; ruff/mypy/eslint/tsc all clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py clean. Ran the code-review skill (background) independently, which corroborated: no correctness bugs, no removed guards/broken call sites, no CLAUDE.md violations. No frontend consumer of entry_notes exists yet (only present in generated types.ts), so no UI surface to walk through -- browser walkthrough and e2e run explicitly skipped on that basis. Checklist's 'decide X' item has a substantive corresponding decisions entry. No blocking or non-blocking findings; no followups task filed."
   }
 }
