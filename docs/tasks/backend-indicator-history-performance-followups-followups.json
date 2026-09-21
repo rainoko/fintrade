@@ -1,0 +1,19 @@
+{
+  "id": "backend-indicator-history-performance-followups-followups",
+  "title": "Non-blocking follow-up from PR #232 review (backend-indicator-history-performance-followups)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-indicator-history-performance-followups"],
+  "references": [
+    "docs/tasks/done/backend-indicator-history-performance-followups.json",
+    "https://github.com/rainoko/fintrade/pull/232"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #232 (verification-only close-out of backend-indicator-history-performance-followups), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/backend-indicator-history-performance-followups.json's second `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time (per CLAUDE.md's guidance to run `date -u +%Y-%m-%dT%H:%M:%SZ` rather than estimating/guessing a timestamp), and it sorts *before* the first `decisions` entry's `2026-09-21T11:20:00Z` timestamp even though it was recorded later chronologically. Doesn't affect the substance of the record (both entries are otherwise accurate and verified), but worth correcting the timestamp (or at minimum noting why it's approximate) so the array stays chronologically meaningful for anyone reading it later.",
+      "done": false
+    }
+  ]
+}
