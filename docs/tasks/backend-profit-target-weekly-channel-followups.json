@@ -14,6 +14,14 @@
     {
       "step": "This one PR's stale-daily-channel-copy bug has now recurred across 5 separate locations over 2 review rounds (frontend/src/utils/profitTargetHelpText.ts, both features/{stocks,portfolio}/components/metricHelpContent.ts, backend/app/api/schemas.py's ProfitTargetOut.source, and docs/architecture/API.md's profit_target paragraph) -- each fix pass caught the previously-named locations but missed at least one more. Worth a lightweight, cheap guard against a 6th recurrence: e.g. a small unit/doc test (or a simple grep-based check run in CI/static-verify) asserting that every place describing suggest_profit_target's channel source uses 'weekly'/'weeks' wording and never 'today'/'daily'/'100 days' -- so this specific bug class is caught by tooling next time a related change touches this metric, rather than depending on a human/reviewer re-grepping the whole repo by hand each time.",
       "done": false
+    },
+    {
+      "step": "A 6th instance of this bug class was found and fixed during the final (accepted) review round: frontend/src/features/methodology/data/methodologyContent.ts's profit-target entry summary. Note that methodologyContent.test.ts (unlike profitTargetHelpText.test.ts and both metricHelpContent.test.ts files) only asserts structural invariants (non-empty fields, unique ids) and has no content-specific regression test guarding this string against reverting to 'daily'/'today's' wording -- worth folding into the same guard as the item above, or adding a dedicated assertion, rather than relying solely on manual review to keep it correct going forward.",
+      "done": false
+    },
+    {
+      "step": "docs/ideas.md's 'Surface suggested stop-loss/profit-target more prominently for open positions' idea entry -- specifically its 'Correction from reading ch. 39 \"Triple Screen Trading System\" directly (p. 161...)' bullet -- still states in the present tense that 'suggest_profit_target's channel/support-resistance target ... [is] computed entirely off daily data', which is now stale: the channel candidate moved to weekly as of this PR. Non-blocking (docs/ideas.md is an explicit scratch pad per its own header, not one of CLAUDE.md's designated source-of-truth docs, and this task's own decisions record treats analogous historical text -- docs/tasks/done/backend-profit-target.json -- as an intentionally-preserved record rather than a living doc), but worth a follow-up pass to either update the bullet to reflect the fix or note it's now resolved, so a future reader of docs/ideas.md isn't misled about current behavior.",
+      "done": false
     }
   ],
   "decisions": [],
