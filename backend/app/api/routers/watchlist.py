@@ -11,8 +11,6 @@ different, aggregate view spanning both the watchlist and the portfolio -- see i
 docstring below.
 """
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -29,14 +27,9 @@ from app.data.exceptions import DataProviderError
 from app.db.models import PositionORM, WatchlistItemORM
 from app.db.session import get_db
 from app.signals.engine import SignalResult, analyse
+from app.time_utils import utcnow
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
-
-
-def _utcnow() -> datetime:
-    """Naive UTC 'now', matching how `WatchlistItemORM.added_at` / `OHLCVCacheORM.fetched_at`
-    (app/data/cache.py's `_utcnow`) are stored/compared."""
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
@@ -224,7 +217,7 @@ def add_watchlist_item(item: WatchlistItemIn, db: Session = Depends(get_db)) -> 
     ticker = item.ticker.upper()
     row = db.get(WatchlistItemORM, ticker)
     if row is None:
-        row = WatchlistItemORM(ticker=ticker, added_at=_utcnow())
+        row = WatchlistItemORM(ticker=ticker, added_at=utcnow())
         db.add(row)
         db.commit()
         db.refresh(row)

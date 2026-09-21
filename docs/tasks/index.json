@@ -1524,8 +1524,8 @@
       "id": "backend-daily-homework-self-test",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
-      "path": "docs/tasks/backend-daily-homework-self-test.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-daily-homework-self-test.json"
     },
     {
       "id": "backend-trade-journal-entry-notes",
@@ -1666,6 +1666,13 @@
       "skill": null,
       "state": "waiting_input",
       "path": "docs/tasks/backend-day-trader-timeframe-mode.json"
+    },
+    {
+      "id": "backend-daily-homework-self-test-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-daily-homework-self-test-followups.json"
     }
   ]
 }

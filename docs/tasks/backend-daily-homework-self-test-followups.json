@@ -1,0 +1,36 @@
+{
+  "id": "backend-daily-homework-self-test-followups",
+  "title": "Non-blocking follow-ups from backend-daily-homework-self-test PR #216 review",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-daily-homework-self-test"],
+  "references": [
+    "docs/tasks/backend-daily-homework-self-test.json",
+    "https://github.com/rainoko/fintrade/pull/216"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #216 (backend-daily-homework-self-test), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md §7's persistence table enumeration (the sentence listing positions/account/watchlist/ohlcv_cache) doesn't mention the new daily_homework_entries table -- update it, and while there, note it's already missing closed_trades/extended_data_cache too (a pre-existing staleness this PR's own omission continues; see commit 5d5b86d which filed an identical follow-up for watchlist_items previously).",
+      "done": true
+    },
+    {
+      "step": "_today()/_utcnow() naive-UTC helper functions are now duplicated a 4th time (app/api/routers/portfolio.py, app/api/routers/watchlist.py, app/api/routers/homework.py, app/data/cache.py) with near-identical docstrings cross-referencing each other -- consider consolidating into one shared module (e.g. app/api/time_utils.py or similar) rather than continuing to copy-paste it into every new router.",
+      "done": true
+    },
+    {
+      "step": "Found during PR #216's re-review (backend-daily-homework-self-test): after the _today()/_utcnow() consolidation into app/time_utils.py, two integration test files still have local test-only _today() helpers whose docstrings say 'Matches app.api.routers.portfolio._today() exactly' -- that function no longer exists (moved/renamed to app.time_utils.today()). The test helpers themselves are self-contained and still correct, this is purely a stale docstring cross-reference. Update the docstrings in backend/tests/integration/test_portfolio_delete_position.py (around line 32) and backend/tests/integration/test_portfolio_risk.py (around line 36) to reference app.time_utils.today() instead.",
+      "done": false
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T02:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Both follow-up items implemented directly on PR #216's branch (task/backend-daily-homework-self-test) rather than on a separate branch/PR for this -followups task, while addressing that PR's blocking review finding in the same area. Consolidated the four duplicated _today()/_utcnow() helpers into a new app/time_utils.py (today()/utcnow(), module-level, no leading underscore since it's now a shared public helper) imported by app/data/cache.py and app/api/routers/{portfolio,watchlist,homework}.py; updated docs/architecture/Backend.md §7's persistence-table sentence to list closed_trades, extended_data_cache, and daily_homework_entries alongside the tables already named.",
+      "rationale": "The task dispatch for backend-daily-homework-self-test explicitly authorized folding these two non-blocking items into the same PR 'if convenient while in this area', and both touch exactly the files already being edited for the float-equality fix -- opening a second PR for a few lines of docs/import consolidation would be pure process overhead. Left this task's own state as 'planned' rather than moving it to 'done' myself: that transition is normally driven by task-qa-reviewer/pr-reviewer verifying the claim, and this task has no git.pr_number of its own to point at (the work landed via PR #216, not a dedicated PR for this id) -- a human/reviewer can confirm and close it out once PR #216 merges, rather than this task-worker self-certifying its own follow-up task as done with no independent check."
+    }
+  ],
+  "questions": []
+}

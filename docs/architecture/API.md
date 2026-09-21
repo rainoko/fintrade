@@ -408,6 +408,69 @@ A tracked ticker whose Tide can't be computed right now (unknown/delisted ticker
 
 `bullish_pct`/`bearish_pct`/`neutral_pct` are each rounded independently to 1 decimal place, so they don't always sum to exactly 100.0 (an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) — a client rendering all three should not assume they total 100, and shouldn't "fix" the display by silently adjusting one bucket. See `docs/Analyse.md`'s Personal breadth proxy section.
 
+### `POST /api/daily-homework`
+
+Records Elder ch. 57's "Am I ready to trade?" 5-question daily psychological readiness self-test (`docs/ideas.md`'s ch. 57 entry) — purely subjective, no market data or data-provider dependency at all. Scoped to just this 5-question self-test, not ch. 57's broader 17-line market-context homework spreadsheet.
+
+Request:
+
+```json
+{
+  "date": "2026-09-21",
+  "physical_state_score": 2,
+  "yesterday_trading_score": 1,
+  "trade_planning_score": 2,
+  "mood_score": 2,
+  "schedule_score": 1
+}
+```
+
+`date` is optional, defaulting to today (server UTC date) — a caller may also backfill/correct a past day. Each of the five scores is an integer `0`/`1`/`2` per the book's own scale; any other value is `422`. Submitting a `date` that already has a recorded entry **overwrites** that day's scores rather than rejecting the request or creating a second row for the same day — always `201` either way (mirrors `POST /api/portfolio/positions`/`POST /api/watchlist`'s identical "same status code whether created or updated/merged" convention).
+
+Response, `201 Created`:
+
+```json
+{
+  "date": "2026-09-21",
+  "physical_state_score": 2,
+  "yesterday_trading_score": 1,
+  "trade_planning_score": 2,
+  "mood_score": 2,
+  "schedule_score": 1,
+  "total_score": 8,
+  "band": "green",
+  "recorded_at": "2026-09-21T13:05:00Z"
+}
+```
+
+`total_score` (0-10) and `band` are pure computations over the five scores (`app.portfolio.homework.band_for_total_score`), never stored themselves. `band` follows the book's own color thresholds: `<=4` → `red` ("don't trade"), `5`-`6` → `yellow` ("trade cautiously"), `7`-`8` → `green`, `9`-`10` → `yellow` again (Elder's own note: "with everything so perfect, any change is bound to be for the worse").
+
+### `GET /api/daily-homework/today`
+
+Today's (server UTC date) recorded entry, or a null `entry` if today's self-test hasn't been recorded yet — never a `404`, since "not done yet today" is the normal, expected state at the start of every day, not an error.
+
+```json
+{ "entry": null }
+```
+
+### `GET /api/daily-homework`
+
+Every recorded self-test entry (same shape as `POST /api/daily-homework`'s response), most recent `date` first.
+
+```json
+{ "items": [ { "date": "2026-09-21", "physical_state_score": 2, "yesterday_trading_score": 1, "trade_planning_score": 2, "mood_score": 2, "schedule_score": 1, "total_score": 8, "band": "green", "recorded_at": "2026-09-21T13:05:00Z" } ] }
+```
+
+### `GET /api/daily-homework/yesterday-trading-suggestion`
+
+A suggested (never auto-applied) value for the "how did I trade yesterday?" question, derived from the net `realized_pnl` of every `closed_trades` row exited yesterday (server UTC "today" minus one day) — a cheap, optional enhancement over Elder's own fully-manual-recall version of this question (see the `backend-daily-homework-self-test` task's `decisions` entry for why this stays a suggestion, never a value this app writes on the user's behalf).
+
+```json
+{ "as_of_date": "2026-09-20", "net_realized_pnl": 150.0, "suggested_score": 2 }
+```
+
+`net_realized_pnl` and `suggested_score` are both `null` when no position was closed yesterday — there's nothing to base a suggestion on, so the question stays fully manual for that day. Otherwise a net gain suggests `2`, exactly breakeven suggests `1`, and a net loss suggests `0` — the same 0/1/2 scale as every other question. A caller (e.g. the daily homework form) may use `suggested_score` to pre-fill `POST /api/daily-homework`'s `yesterday_trading_score`, but that field is always the user's own explicit answer, never overwritten automatically.
+
 ### `GET /api/ibkr/status`
 
 Whether the optional IBKR Client Portal Gateway integration (`app.data.ibkr_provider.IBKRProvider`, gated behind `Settings.ibkr_enabled` — `false` by default, since no environment other than a real user's own machine has a locally-running, authenticated IB Gateway) is usable right now. Read-only — never triggers a login attempt or any data fetch itself, and never fails: every state below is returned as a normal `200`.
@@ -467,6 +530,8 @@ Response, same `state`/`detail` convention as `GET /api/ibkr/scanner/params`, pl
 - `DELETE /api/watchlist/{ticker}` for a ticker not on the watchlist → `404`.
 - A tracked ticker (watchlist or portfolio) whose Tide can't be computed → counted in `GET /api/watchlist/breadth`'s `unavailable_count`, not a failed request (see `GET /api/watchlist/breadth` above).
 - A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).
+- A `POST /api/daily-homework` score outside `0`-`2` → `422` (standard per-field validation error shape).
+- `GET /api/daily-homework/today` before today's entry has been recorded, or `GET /api/daily-homework/yesterday-trading-suggestion` with no `closed_trades` row exited yesterday → a normal `200` with a null `entry`/`net_realized_pnl`+`suggested_score`, never a failed request (see both endpoints above).
 - IBKR disabled/gateway unreachable/not authenticated on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run` → a normal `200` with the corresponding `state`, `categories`/`results` both `null`, never a failed request (see both endpoints above).
 - `POST /api/ibkr/scanner/run` called again sooner than `IBKRProvider`'s own 1-request/second `run_scanner` throttle allows → `429` (see `POST /api/ibkr/scanner/run` above).
 - The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).

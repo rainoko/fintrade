@@ -86,6 +86,36 @@ class ClosedTradeORM(Base):
     `PositionORM.entry_notes`'s own optionality rather than inventing a placeholder string."""
 
 
+class DailyHomeworkEntryORM(Base):
+    """One row per calendar day of Elder's ch. 57 "Am I ready to trade?" 5-question
+    psychological readiness self-test (docs/ideas.md's ch. 57 entry) -- purely subjective,
+    no market data or provider calls involved. `date` is the primary key (not a synthetic
+    id) since the whole point is exactly one entry per calendar day; a second `POST
+    /api/daily-homework` for the same day overwrites that day's scores rather than creating
+    a second row -- see the backend-daily-homework-self-test task's `decisions` entry.
+
+    Each of the five scores is 0/1/2 per the book's own scale (validated at the Pydantic
+    schema layer, `DailyHomeworkIn`/`DailyHomeworkOut` in app/api/schemas.py -- SQLite has no
+    native CHECK-constraint enforcement wired up here, matching this codebase's existing
+    "string-enum-like column, Python-layer validation only" convention for
+    `ClosedTradeORM.exit_reason`/`OHLCVCacheORM.interval`). Their sum (0-10) and its
+    book-defined red/yellow/green band are pure computations over these five columns
+    (`app.portfolio.homework.band_for_total_score`) -- deliberately not stored themselves, so
+    the derived value can never drift out of sync with a schema/threshold change the way a
+    persisted copy could.
+    """
+
+    __tablename__ = "daily_homework_entries"
+
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    physical_state_score: Mapped[int] = mapped_column(Integer)
+    yesterday_trading_score: Mapped[int] = mapped_column(Integer)
+    trade_planning_score: Mapped[int] = mapped_column(Integer)
+    mood_score: Mapped[int] = mapped_column(Integer)
+    schedule_score: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class OHLCVCacheORM(Base):
     """Cached market data, keyed by ticker + date + interval (docs/architecture/Backend.md §7)."""
 

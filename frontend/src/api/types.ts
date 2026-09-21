@@ -4,6 +4,85 @@
  */
 
 export interface paths {
+    "/api/daily-homework": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recorded self-test entries, most recent day first
+         * @description Every recorded self-test entry, most recent `date` first -- a history/trend view of
+         *     how "ready to trade" scores have looked over time.
+         */
+        get: operations["list_daily_homework"];
+        put?: never;
+        /**
+         * Record (or overwrite) a calendar day's 5-question self-test scores
+         * @description Records the day's five 0/1/2 scores (`entry.date`, defaulting to today) as one
+         *     `daily_homework_entries` row. A second submission for a day that already has a recorded
+         *     entry overwrites that day's scores (and `recorded_at`) rather than rejecting the request
+         *     or creating a second row for the same day -- always `201`, whether this created a new row
+         *     or overwrote an existing one, mirroring `POST /api/portfolio/positions`/
+         *     `POST /api/watchlist`'s identical "same status code either way" convention -- see this
+         *     task's `decisions` entry.
+         */
+        post: operations["record_daily_homework"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/daily-homework/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get today's self-test entry, if recorded
+         * @description Today's (server UTC date) recorded entry, or a null `entry` if today's self-test
+         *     hasn't been recorded yet -- never a `404`, since "not done yet today" is the normal,
+         *     expected state at the start of every day, not an error.
+         */
+        get: operations["get_daily_homework_today"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/daily-homework/yesterday-trading-suggestion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest today's 'how did I trade yesterday?' score from yesterday's closed trades
+         * @description A suggested (never auto-applied) `yesterday_trading_score` derived from the net
+         *     `realized_pnl` of every `closed_trades` row exited yesterday (server UTC 'today' minus one
+         *     day) -- a cheap, optional enhancement over Elder's own fully-manual-recall version of this
+         *     question. Never writes anything; a caller (e.g. the daily homework form) may use
+         *     `suggested_score` to pre-fill the field, but `POST /api/daily-homework`'s
+         *     `yesterday_trading_score` is always the caller's own explicit answer -- see this task's
+         *     `decisions` entry for why this stays a suggestion rather than an auto-populated field.
+         */
+        get: operations["get_yesterday_trading_suggestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ibkr/scanner/params": {
         parameters: {
             query?: never;
@@ -752,6 +831,102 @@ export interface components {
              * @description This component's fixed weight (0-1); all five weights sum to 1.0.
              */
             weight: number;
+        };
+        /** DailyHomeworkIn */
+        DailyHomeworkIn: {
+            /**
+             * Date
+             * @description Calendar day this self-test is for. Defaults to today (server UTC date) if omitted -- a caller may also supply a past date to backfill/correct an earlier day's entry. Submitting a date that already has a recorded entry overwrites that day's scores rather than rejecting the request or creating a second row -- see this task's `decisions` entry.
+             */
+            date?: string | null;
+            /**
+             * Mood Score
+             * @description 'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good).
+             */
+            mood_score: number;
+            /**
+             * Physical State Score
+             * @description 'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good).
+             */
+            physical_state_score: number;
+            /**
+             * Schedule Score
+             * @description 'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / 2 (clear) -- a busier day leaves less attention for trading well.
+             */
+            schedule_score: number;
+            /**
+             * Trade Planning Score
+             * @description 'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully).
+             */
+            trade_planning_score: number;
+            /**
+             * Yesterday Trading Score
+             * @description 'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / 2 (well). GET /api/daily-homework/yesterday-trading-suggestion offers a suggested value for this field derived from yesterday's closed_trades realized P&L, but never auto-fills or overrides it -- this is always the caller's own manual answer.
+             */
+            yesterday_trading_score: number;
+        };
+        /** DailyHomeworkListResponse */
+        DailyHomeworkListResponse: {
+            /**
+             * Items
+             * @description Every recorded self-test entry, most recent `date` first.
+             */
+            items: components["schemas"]["DailyHomeworkOut"][];
+        };
+        /** DailyHomeworkOut */
+        DailyHomeworkOut: {
+            /**
+             * Band
+             * @description The book's own color-banding of `total_score`: <=4 'red' (don't trade), 5-6 'yellow' (trade cautiously), 7-8 'green', 9-10 'yellow' again (Elder's own note: "with everything so perfect, any change is bound to be for the worse") -- see app.portfolio.homework.band_for_total_score.
+             * @enum {string}
+             */
+            band: "red" | "yellow" | "green";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Mood Score
+             * @description 'What is my mood?' 0 (poor) / 1 (neutral) / 2 (good).
+             */
+            mood_score: number;
+            /**
+             * Physical State Score
+             * @description 'How do I feel physically?' 0 (poor) / 1 (okay) / 2 (good).
+             */
+            physical_state_score: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             * @description When this day's entry was last recorded/updated (UTC).
+             */
+            recorded_at: string;
+            /**
+             * Schedule Score
+             * @description 'How busy is my schedule today?' 0 (very busy) / 1 (somewhat busy) / 2 (clear) -- a busier day leaves less attention for trading well.
+             */
+            schedule_score: number;
+            /**
+             * Total Score
+             * @description Sum of the five scores above, 0-10 (docs/ideas.md's ch. 57 entry).
+             */
+            total_score: number;
+            /**
+             * Trade Planning Score
+             * @description 'Have I done my trade planning?' 0 (no) / 1 (partially) / 2 (fully).
+             */
+            trade_planning_score: number;
+            /**
+             * Yesterday Trading Score
+             * @description 'How did I trade yesterday?' 0 (poorly) / 1 (neutral, or no trades) / 2 (well). See DailyHomeworkIn's field of the same name for the (never auto-applied) suggestion endpoint.
+             */
+            yesterday_trading_score: number;
+        };
+        /** DailyHomeworkTodayResponse */
+        DailyHomeworkTodayResponse: {
+            /** @description Today's (server UTC date) recorded entry, or null if today's self-test hasn't been recorded yet -- the normal, expected state at the start of every day, not an error. */
+            entry?: components["schemas"]["DailyHomeworkOut"] | null;
         };
         /** DivergenceOut */
         DivergenceOut: {
@@ -1708,6 +1883,25 @@ export interface components {
              */
             stochastic_k: number;
         };
+        /** YesterdayTradingSuggestionOut */
+        YesterdayTradingSuggestionOut: {
+            /**
+             * As Of Date
+             * Format: date
+             * @description The 'yesterday' this suggestion is computed for (today's date minus one calendar day, server UTC 'today').
+             */
+            as_of_date: string;
+            /**
+             * Net Realized Pnl
+             * @description Sum of `realized_pnl` across every `closed_trades` row exited on `as_of_date`. Null if no position was closed that day -- there is nothing to base a suggestion on.
+             */
+            net_realized_pnl?: number | null;
+            /**
+             * Suggested Score
+             * @description A suggested (not authoritative) `yesterday_trading_score` for `POST /api/daily-homework`, derived from `net_realized_pnl`: 2 for a net gain, 1 for exactly breakeven, 0 for a net loss. Null whenever `net_realized_pnl` is null -- this endpoint never guesses a value with nothing to base it on. The caller decides whether to use it; this app never writes `yesterday_trading_score` on the user's behalf -- see the backend-daily-homework-self-test task's `decisions` entry.
+             */
+            suggested_score?: number | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1717,6 +1911,99 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_daily_homework: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyHomeworkListResponse"];
+                };
+            };
+        };
+    };
+    record_daily_homework: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DailyHomeworkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyHomeworkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_daily_homework_today: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyHomeworkTodayResponse"];
+                };
+            };
+        };
+    };
+    get_yesterday_trading_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YesterdayTradingSuggestionOut"];
+                };
+            };
+        };
+    };
     get_ibkr_scanner_params: {
         parameters: {
             query?: never;

@@ -1,0 +1,79 @@
+{
+  "id": "backend-daily-homework-self-test",
+  "title": "'Am I ready to trade?' daily psychological readiness self-test",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
+  ],
+  "description": "Ch. 57's 5-question psychological readiness self-test (how do I feel physically / how did I trade yesterday / have I done my trade planning / how is my mood / how busy is my schedule), each scored 0/1/2, summed 0-10, color-coded per the book's own bands (<=4 red = don't trade, 5-6 yellow = trade cautiously, 7-8 green, 9-10 yellow again). Purely subjective, no market data, no provider calls -- the cheapest, most self-contained piece of ch. 57. Store one entry per calendar day. Scoped to just this self-test, not the broader 17-line market-context homework spreadsheet from the same chapter (that needs new/unavailable data sources and is a separate, larger idea).",
+  "checklist": [
+    { "step": "Add a data model + endpoint(s) to record and retrieve a daily 5-question self-test score, one entry per calendar day (per user, if the app has any per-user concept -- otherwise one global entry per day, matching how the rest of this single-user app works).", "done": true },
+    { "step": "Implement the book's own color-banding thresholds (<=4 red, 5-6 yellow, 7-8 green, 9-10 yellow) as a pure function over the summed score.", "done": true },
+    { "step": "Decide whether 'how did I trade yesterday' auto-populates from yesterday's closed_trades realized P&L (a reasonable, cheap enhancement over Elder's own manual-recall version) or stays a fully manual input, and record the rationale.", "done": true },
+    { "step": "Unit tests covering each score band boundary (4/5, 6/7, 8/9) and the auto-population behavior if implemented.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T01:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "'How did I trade yesterday?' stays a fully manual score field on POST /api/daily-homework (yesterday_trading_score, still required, still 0/1/2, still the caller's own explicit answer). A separate read-only GET /api/daily-homework/yesterday-trading-suggestion endpoint offers a *suggested* value (2 for a net gain, 1 for exactly breakeven, 0 for a net loss, derived from the sum of closed_trades.realized_pnl for rows exited yesterday; null suggested_score/net_realized_pnl when nothing closed that day) that a form may use to pre-fill the field, but this app never writes yesterday_trading_score on the user's behalf.",
+      "rationale": "Considered and rejected auto-computing yesterday_trading_score server-side and either (a) silently substituting it whenever the caller omits it, or (b) always overriding whatever the caller submits. Elder's own question is a subjective self-assessment ('how did I trade', not 'what was my P&L') -- a mechanical net-P&L read can't distinguish a profitable trade taken by breaking the trading plan from a small disciplined loss taken exactly on-stop, both of which a trader may reasonably want to score differently than the raw dollar sign alone implies. A separate suggestion endpoint gets the 'cheap enhancement over manual recall' benefit the task description calls out (the frontend form can pre-fill the field so most days require zero extra typing) without ever silently overriding the trader's own subjective judgment, and keeps the pure suggestion logic (app.portfolio.homework.suggested_yesterday_trading_score) independently testable from the persistence/upsert logic."
+    },
+    {
+      "timestamp": "2026-09-21T01:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "One `daily_homework_entries` row per calendar day, keyed by `date` as the primary key (not a synthetic id). POST /api/daily-homework upserts: a second submission for a date that already has a recorded entry overwrites that day's five scores and recorded_at rather than rejecting with 409/422 or creating a second row, and always returns 201 either way -- mirroring POST /api/portfolio/positions' and POST /api/watchlist's identical 'same status code whether created or merged/no-op' convention. `date` is optional on the request, defaulting to today (server UTC date) if omitted, so a caller can also backfill/correct an earlier day's entry.",
+      "rationale": "This is a single-user app (per CLAUDE.md/docs/Architecture.md's existing single-row-account/no-auth convention) with no per-user concept to key on, so 'one entry per calendar day' reduces to date-as-primary-key, the same pattern OHLCVCacheORM/ExtendedDataCacheORM already use for their own per-key uniqueness. Upsert-over-reject was chosen because Elder's own homework habit is a same-morning, possibly-redone task (re-scoring after further reflection, or correcting a mis-click) rather than an audit log that must preserve every historical submission attempt -- a 409 would just force the client to DELETE-then-POST for no real benefit, and total_score/band are pure computed fields anyway so there's no other data to reconcile from a prior submission the way, say, POST /api/portfolio/positions' quantity-merge has to."
+    },
+    {
+      "timestamp": "2026-09-21T01:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "GET /api/daily-homework/today returns a wrapper object (`DailyHomeworkTodayResponse { entry: DailyHomeworkOut | null }`) rather than a nullable top-level response body, and never 404s when today's entry doesn't exist yet.",
+      "rationale": "This codebase's existing convention for 'this might not be available yet' is a wrapper/sibling field that's null under a documented condition (IBKRScannerParamsResponse.categories gated by state, WatchlistItemOut.signal/confidence/confidence_band, BreadthResponse's unavailable_count) rather than the whole response body itself being absent or null -- keeping this endpoint consistent with that pattern, rather than introducing the only nullable-top-level-body response in the API, was preferred over the alternative of a raw `response_model=DailyHomeworkOut | None`. Not recording today's entry yet is the normal state for most of every day (before the trader has done the self-test that morning), not an error condition, so 404 (this codebase's convention for a genuinely missing/wrong-key resource, e.g. DELETE /api/watchlist/{ticker} for an unwatched ticker) would misrepresent it."
+    },
+    {
+      "timestamp": "2026-09-21T02:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed PR #216's blocking review finding by rounding net_realized_pnl to cents (round(net_realized_pnl, 2)) before the >0/==0 comparisons in suggested_yesterday_trading_score, rather than using math.isclose. Added a regression test using sum([100.10, 5.05, -105.15]) (which lands on ~-1.15e-14, not exactly 0.0) asserting it now suggests 1 (neutral), plus a sanity assertion that the raw sum really doesn't equal 0.0 so the test can't silently pass for the wrong reason.",
+      "rationale": "Rejected math.isclose(net_realized_pnl, 0, abs_tol=...) because choosing a defensible abs_tol is more arbitrary here than it looks: too small (e.g. 1e-9) barely improves on exact equality against real floating-point noise from summing many rows, while too large (e.g. 0.01) starts silently treating a genuine one-cent gain/loss as breakeven. Rounding to the cent is a tighter fit for this specific domain (US-dollar currency amounts, which have no unit finer than a cent) than a generic float-closeness tolerance, and doubles as documentation of *why* the comparison is safe: the values being compared are money, and money is defined to the cent."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-daily-homework-self-test",
+    "pr_number": 216,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/216",
+    "pushed_at": "2026-09-21T02:15:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T02:01:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/216",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Re-review confirms the prior blocking finding (exact float equality on net_realized_pnl misclassifying a genuinely-breakeven multi-trade day as a loss) is fixed correctly. Traced it by hand: sum([100.10, 5.05, -105.15]) == -1.1546319456101628e-14 in this Python/pandas build; round(that, 2) == -0.0, and -0.0 == 0 is True in Python, so suggested_yesterday_trading_score now returns 1 (neutral) as intended. The new regression test asserts the raw sum != 0.0 before asserting the fixed classification, so it genuinely exercises the reported failure mode rather than passing for an unrelated reason. Full test suite re-run confirms it: 1008 passed (was 1007), 99.94% backend coverage.",
+        "file": "backend/app/portfolio/homework.py",
+        "line": 56
+      },
+      {
+        "summary": "Both non-blocking follow-ups from the prior review are also correctly addressed in this same commit: docs/architecture/Backend.md §7 now lists closed_trades/extended_data_cache/daily_homework_entries alongside the tables already named, and the four duplicated _today()/_utcnow() helpers (app/api/routers/{portfolio,watchlist,homework}.py, app/data/cache.py) are consolidated into a new backend/app/time_utils.py (today()/utcnow()), imported consistently at every former call site with no behavior change. Verified docs/tasks/backend-daily-homework-self-test-followups.json's checklist items are marked done for both, while that followups task's own state correctly stays 'planned' rather than being self-closed (it has no PR of its own to point at, per its own decisions entry) -- exactly right, not a scope-widening or a premature close.",
+        "file": "backend/app/time_utils.py",
+        "line": 1
+      },
+      {
+        "summary": "Minor/non-blocking, newly introduced by this same consolidation: backend/tests/integration/test_portfolio_delete_position.py and backend/tests/integration/test_portfolio_risk.py each have a local _today() test helper whose docstring says 'Matches app.api.routers.portfolio._today() exactly' -- that function no longer exists (renamed/moved to app.time_utils.today() by this PR). The test helpers themselves still work correctly (self-contained, not importing the removed name), this is purely a stale doc-comment cross-reference. Tracked as a follow-up.",
+        "file": "backend/tests/integration/test_portfolio_delete_position.py",
+        "line": 32
+      }
+    ],
+    "notes": "Full re-verification, not a rubber-stamp of the fix report: re-ran the entire backend suite (1008 passed, 99.94% coverage, unchanged gate pass), ruff (clean except pre-existing failures in indicator/stooq/triple-screen test files untouched by this branch -- confirmed via `git diff main..HEAD --stat` showing zero changes to those paths, so not a regression), mypy (clean -- note: hit a false failure mid-review from my own mistaken `git checkout main -- .` while trying to diff, which staged main's older schemas.py/models.py/openapi.json over the branch's working tree; caught it immediately via checksum mismatch against HEAD, ran `git checkout HEAD -- .` to restore, and reconfirmed the working tree matched HEAD exactly before re-running mypy clean and tests green again -- no application code was touched, just a transient working-tree state during my own review), openapi.json (re-ran scripts/export_openapi.py and yarn generate:api-types, zero diff against committed snapshots), frontend lint/tsc (clean, no frontend logic touched -- only generated src/api/types.ts). Also ran the code-review skill against 573df59..HEAD, which independently reported zero further bugs, confirming the time_utils consolidation preserves the four original helpers' exact behavior at every call site. No new API route/schema in this fix commit, no UI-facing change (backend-only + generated types file, same as originally noted), so no browser walkthrough/e2e run applies here either -- confirmed by file list."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T02:05:06Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite: 1008 passed, 99.94% coverage, matching pr-reviewer's report exactly. Hand-traced sum([100.10, 5.05, -105.15]) myself: -1.1546319456101628e-14 (not exactly 0.0), round(...,2) == -0.0, and -0.0 == 0 is True, so suggested_yesterday_trading_score correctly returns 1 (breakeven), confirmed against backend/app/portfolio/homework.py:56-63. Verified backend/tests/unit/test_portfolio_homework.py:65-73's regression test asserts net_realized_pnl != 0 (line 72, genuine sanity check) before asserting the classification (line 73). Diffed origin/main...HEAD file-by-file: the time_utils.py consolidation (backend/app/api/routers/portfolio.py, watchlist.py, backend/app/data/cache.py) is a pure extraction of identical datetime.now(UTC)-based logic with no behavior change at any of the three pre-existing call sites, and backend/app/api/routers/homework.py is new code that is the 4th consumer, built directly against the shared module rather than a duplicated helper. Re-ran scripts/export_openapi.py -- zero diff against the committed snapshot. The one remaining non-blocking item (stale _today() docstring cross-references in two integration test files) is correctly tracked as an open, undone checklist item on backend-daily-homework-self-test-followups.json rather than silently dropped. Accept holds."
+  }
+}

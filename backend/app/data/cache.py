@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.data.base import DataProvider, ExtendedData, InsiderTransaction
 from app.data.exceptions import DataProviderUnavailableError
 from app.db.models import ExtendedDataCacheORM, OHLCVCacheORM
+from app.time_utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +51,6 @@ _CACHE_TTL = timedelta(hours=24)
 # still catching a genuinely new earnings-date announcement or insider filing reasonably
 # promptly (not, say, a full week later) -- see this task's `decisions` entry.
 _EXTENDED_DATA_CACHE_TTL = timedelta(days=3)
-
-
-def _utcnow() -> datetime:
-    """Naive UTC 'now', matching how `OHLCVCacheORM.fetched_at` is stored/compared."""
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class CachedDataProvider(DataProvider):
@@ -111,7 +107,7 @@ class CachedDataProvider(DataProvider):
 
     @staticmethod
     def _is_extended_fresh(row: ExtendedDataCacheORM) -> bool:
-        return _utcnow() - row.fetched_at < _EXTENDED_DATA_CACHE_TTL
+        return utcnow() - row.fetched_at < _EXTENDED_DATA_CACHE_TTL
 
     def _fetch_extended_from_source(self, ticker: str) -> ExtendedData:
         """Same primary-then-fallback structure as `_fetch_from_source` (only a
@@ -157,7 +153,7 @@ class CachedDataProvider(DataProvider):
             [_insider_transaction_to_dict(t) for t in data.insider_transactions]
         )
         row.unavailable_reason = data.unavailable_reason
-        row.fetched_at = _utcnow()
+        row.fetched_at = utcnow()
         try:
             self._db.commit()
         except (IntegrityError, OperationalError) as exc:
@@ -241,7 +237,7 @@ class CachedDataProvider(DataProvider):
         fetches.
         """
         most_recent_fetch = max(row.fetched_at for row in rows)
-        return _utcnow() - most_recent_fetch < _CACHE_TTL
+        return utcnow() - most_recent_fetch < _CACHE_TTL
 
     def _fetch_from_source(self, ticker: str, interval: str) -> pd.DataFrame:
         """Fetch full history from the primary provider, falling back to the
@@ -306,7 +302,7 @@ class CachedDataProvider(DataProvider):
         which the bulk-dict rewrite above had otherwise dropped. See this
         task's `decisions` entry.
         """
-        fetched_at = _utcnow()
+        fetched_at = utcnow()
         # Deliberately re-runs the same query `_get`'s `cached_rows` already
         # ran, rather than reusing that earlier snapshot -- this is a known,
         # accepted trade-off, not an oversight. `cached_rows` was read
