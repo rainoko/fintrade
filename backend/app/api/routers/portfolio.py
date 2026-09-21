@@ -631,7 +631,12 @@ def get_risk(
     is computed for every position that reaches the per-position loop below, from that same
     filtered `daily_ohlcv`/its already-fetched `weekly_ohlcv` and a fresh support/resistance
     pass (`app.signals.support_resistance.detect_support_resistance_zones`) over that same
-    `daily_ohlcv` -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
+    `daily_ohlcv`, with this same position's already-computed `stop` (the identical
+    `daily_ohlcv.iloc[:-1]`-derived value `protective_stop` below reports) passed straight
+    through into its reward:risk math -- so `profit_target`'s own notion of the stop can never
+    silently disagree with `RiskPosition.protective_stop` within the same response (previously
+    `suggest_profit_target` recomputed its own, different stop from the full frame; see this
+    task's `decisions` entry) -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
     /analysis, this is never gated on that ticker's current live signal being BUY: this is an
     already-open long position with a real entry, and ch. 53 read directly doesn't gate an
     open position's target to entry-day/fresh-BUY-signal only ("a target set at entry ... is
@@ -723,13 +728,20 @@ def get_risk(
         # which governs whether this POSITION appears in `positions` at all. Computed
         # regardless of this ticker's current live signal (unlike AnalysisResponse.
         # profit_target's BUY-only gate) -- see this handler's own docstring and the
-        # backend-profit-target-open-position task's `decisions` entry.
+        # backend-profit-target-open-position task's `decisions` entry. `stop=stop` passes this
+        # same position's already-computed `daily_ohlcv.iloc[:-1]`-derived protective stop
+        # (identical to `RiskPosition.protective_stop` above) into suggest_profit_target's
+        # reward:risk math, instead of letting it recompute a DIFFERENT stop from the full
+        # daily_by_id[id] frame (today's bar included) -- see app.portfolio.profit_target's
+        # module docstring and this task's `decisions` entry for why the two must never
+        # silently disagree.
         profit_target = None
         try:
             domain_target = suggest_profit_target(
                 daily_by_id[e.position.id],
                 detect_support_resistance_zones(daily_by_id[e.position.id]),
                 weekly_ohlcv=weekly_by_id[e.position.id],
+                stop=stop,
             )
             if domain_target is not None:
                 profit_target = _profit_target_to_schema(domain_target)

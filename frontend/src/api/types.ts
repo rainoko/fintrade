@@ -481,7 +481,12 @@ export interface paths {
          *     is computed for every position that reaches the per-position loop below, from that same
          *     filtered `daily_ohlcv`/its already-fetched `weekly_ohlcv` and a fresh support/resistance
          *     pass (`app.signals.support_resistance.detect_support_resistance_zones`) over that same
-         *     `daily_ohlcv` -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
+         *     `daily_ohlcv`, with this same position's already-computed `stop` (the identical
+         *     `daily_ohlcv.iloc[:-1]`-derived value `protective_stop` below reports) passed straight
+         *     through into its reward:risk math -- so `profit_target`'s own notion of the stop can never
+         *     silently disagree with `RiskPosition.protective_stop` within the same response (previously
+         *     `suggest_profit_target` recomputed its own, different stop from the full frame; see this
+         *     task's `decisions` entry) -- UNLIKE `AnalysisResponse.profit_target` on GET /api/stocks/{ticker}
          *     /analysis, this is never gated on that ticker's current live signal being BUY: this is an
          *     already-open long position with a real entry, and ch. 53 read directly doesn't gate an
          *     open position's target to entry-day/fresh-BUY-signal only ("a target set at entry ... is

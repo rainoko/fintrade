@@ -56,56 +56,48 @@ describe('portfolio metricHelpContent', () => {
       meets_minimum_reward_risk: true,
     }
 
-    it('explains a null signal (couldn’t be computed) distinctly from a definite non-BUY signal', () => {
-      expect(profitTargetHelp.interpretValue(null, null)).toMatch(
-        /couldn’t be computed/,
-      )
-    })
-
-    it('explains a non-BUY signal by name', () => {
-      expect(profitTargetHelp.interpretValue(null, 'HOLD')).toBe(
-        'Not applicable -- a profit target is only ever computed for a fresh BUY signal; this position’s ticker is currently HOLD.',
-      )
-    })
-
-    it('explains a BUY signal with no current candidate', () => {
-      expect(profitTargetHelp.interpretValue(null, 'BUY')).toMatch(
-        /Currently unavailable for this BUY signal/,
-      )
+    it('explains a null target as "no candidate" -- not gated on/mentioning any signal, since RiskPosition.profit_target is computed regardless of the ticker\'s current live signal (backend-profit-target-open-position)', () => {
+      const text = profitTargetHelp.interpretValue(null)
+      expect(text).toMatch(/neither technique.*currently produces a candidate/)
+      expect(text).not.toMatch(/BUY/)
+      expect(text).not.toMatch(/signal/)
     })
 
     it('names the channel technique and reward:risk ratio, and confirms it clears the 2:1 minimum', () => {
-      const text = profitTargetHelp.interpretValue(target, 'BUY')
+      const text = profitTargetHelp.interpretValue(target)
       expect(text).toContain('Currently 245.00, from the channel/Tradebill formula')
       expect(text).toContain('Reward:risk ratio 2.0:1')
       expect(text).toContain('This clears Elder’s 2:1 minimum.')
     })
 
     it('names the support/resistance technique and flags a ratio that fails the 2:1 minimum', () => {
-      const text = profitTargetHelp.interpretValue(
-        { ...target, source: 'support_resistance', reward_risk_ratio: 0.9, meets_minimum_reward_risk: false },
-        'BUY',
-      )
+      const text = profitTargetHelp.interpretValue({
+        ...target,
+        source: 'support_resistance',
+        reward_risk_ratio: 0.9,
+        meets_minimum_reward_risk: false,
+      })
       expect(text).toContain('nearest detected support/resistance zone')
       expect(text).toContain('This FAILS Elder’s 2:1 minimum')
     })
 
     it('explains an undefined ratio (stop distance <= 0) instead of a fabricated number', () => {
-      const text = profitTargetHelp.interpretValue(
-        { ...target, reward_risk_ratio: null, meets_minimum_reward_risk: false },
-        'BUY',
-      )
+      const text = profitTargetHelp.interpretValue({
+        ...target,
+        reward_risk_ratio: null,
+        meets_minimum_reward_risk: false,
+      })
       expect(text).toMatch(/reward:risk ratio is undefined right now/)
     })
 
     it('describes the channel technique as sourced from the WEEKLY chart, not "today\'s"/daily (regression test for the backend-profit-target-weekly-channel PR review finding: the channel moved to weekly OHLCV, but this copy was initially left describing the old daily behavior)', () => {
-      const text = profitTargetHelp.interpretValue(target, 'BUY')
+      const text = profitTargetHelp.interpretValue(target)
       expect(text).toContain('weekly chart’s Autoenvelope/channel height')
       expect(text).not.toMatch(/today’s Autoenvelope/)
     })
 
     it('describes the no-candidate warm-up window in WEEKS, not days (the channel candidate\'s warm-up is ~100 weekly bars, not ~100 daily bars)', () => {
-      const text = profitTargetHelp.interpretValue(null, 'BUY')
+      const text = profitTargetHelp.interpretValue(null)
       expect(text).toMatch(/~100 weeks of weekly history/)
       expect(text).not.toMatch(/100 days of history/)
     })

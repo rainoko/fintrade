@@ -63,6 +63,14 @@ position already has a real entry to track, unlike a fresh-signal candidate. See
 `backend-profit-target-open-position` task's `decisions` entry, which revisits this exact
 question (previously answered BUY-only for both callers, before ch. 53 had been read directly)
 for the full rationale.
+
+`get_risk` passes its own already-computed protective-stop (derived from `daily_ohlcv.iloc[:-1]`,
+excluding today's bar -- see that handler's own docstring for why) into `suggest_profit_target`'s
+`stop` parameter below, rather than letting this module derive a second, different stop from the
+full `daily_ohlcv` -- otherwise `RiskPosition.profit_target`'s own reward:risk math could disagree
+with that same position's `RiskPosition.protective_stop` field within one API response. See
+`suggest_profit_target`'s own docstring for the full reasoning and this same task's `decisions`
+entry for the discrepancy this fixes.
 """
 
 import math
@@ -165,6 +173,7 @@ def suggest_profit_target(
     *,
     weekly_ohlcv: pd.DataFrame,
     short_ema: pd.Series | None = None,
+    stop: float | None = None,
 ) -> ProfitTarget | None:
     """A suggested profit target + reward:risk ratio for a long position on `daily_ohlcv`
     (already cleaned of malformed bars via `app.signals.engine.drop_malformed_daily_bars`,
@@ -174,6 +183,24 @@ def suggest_profit_target(
     each caller's own choice (`GET /api/stocks/{ticker}/analysis` only calls this for a fresh
     BUY; `GET /api/portfolio/risk` calls this for every open position regardless of that
     ticker's current live signal).
+
+    `stop`, if given, is used directly as the protective-stop value the reward:risk math is
+    computed against, instead of this function deriving its own via
+    `app.portfolio.risk.stop_from_price_action(daily_ohlcv, ...)` internally. `GET
+    /api/portfolio/risk` (`app.api.routers.portfolio.get_risk`) MUST pass its own
+    already-computed `stops[position.id]` here -- that value comes from
+    `protective_stop(position, daily_ohlcv.iloc[:-1])`, deliberately excluding today's bar to
+    avoid a lookahead desync between today's close and today's stop (see that handler's own
+    docstring) -- rather than let this function recompute a *different* stop from the FULL
+    `daily_ohlcv` (today's bar included) via `short_ema`/the default `None` path below: doing so
+    would make `RiskPosition.profit_target`'s own internal reward:risk math disagree with that
+    same position's `RiskPosition.protective_stop` field within one API response, silently
+    reintroducing the exact class of bug this module's `stop` passthrough exists to prevent (see
+    the `backend-profit-target-open-position` task's `decisions` entry for the discrepancy this
+    fixes -- verified via a fixture where the full-frame stop and the `iloc[:-1]` stop diverged
+    by ~21 points on identical underlying data). `GET /api/stocks/{ticker}/analysis` has no
+    separate `protective_stop` field to desync from, so it leaves `stop` at its default `None`
+    and lets this function derive its own from the full `daily_ohlcv` as before.
 
     `weekly_ohlcv` is this same ticker's weekly OHLCV (most-recent bar last, the same frame
     passed to `app.signals.engine.analyse`'s own `weekly_ohlcv` parameter) -- used here ONLY to
@@ -253,11 +280,18 @@ def suggest_profit_target(
     # The TIGHTER (closer to current price) candidate wins -- see this module's own docstring.
     price, source = min(candidates, key=lambda candidate: abs(candidate[0] - current_price))
 
+    # `stop` passed in by the caller (see this function's own docstring for why get_risk MUST
+    # do this) wins outright -- only derive our own from `daily_ohlcv` when the caller hasn't
+    # already computed one against the correct (possibly today's-bar-excluded) frame.
     # columns_validated=True: validate_daily_ohlcv_columns(daily_ohlcv) above already checked
     # the identical low/close requirement -- avoids a redundant second pass, mirroring
     # app.portfolio.exits.evaluate_exit_flags's own convention.
-    stop = stop_from_price_action(daily_ohlcv, short_ema=short_ema, columns_validated=True)
-    distance_to_stop = current_price - stop
+    resolved_stop = (
+        stop
+        if stop is not None
+        else stop_from_price_action(daily_ohlcv, short_ema=short_ema, columns_validated=True)
+    )
+    distance_to_stop = current_price - resolved_stop
     distance_to_target = price - current_price
     reward_risk_ratio = distance_to_target / distance_to_stop if distance_to_stop > 0 else None
     meets_minimum_reward_risk = (

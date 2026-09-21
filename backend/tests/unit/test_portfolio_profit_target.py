@@ -256,6 +256,66 @@ class TestRewardRiskRatioFlagging:
         assert target.meets_minimum_reward_risk is False
 
 
+class TestExplicitStopOverride:
+    """`stop`, when given, must be used verbatim for the reward:risk math instead of this
+    function deriving its own via `stop_from_price_action(daily_ohlcv, ...)` -- the fix for the
+    `backend-profit-target-open-position` PR #224 review finding: `get_risk` passes its own
+    `daily_ohlcv.iloc[:-1]`-derived stop here so it can never disagree with that same position's
+    `RiskPosition.protective_stop` field."""
+
+    def test_explicit_stop_is_used_verbatim_instead_of_recomputed(self) -> None:
+        """An explicit `stop` far from the internally-derived one (~97.930612 for this fixture)
+        must flow straight through into `distance_to_stop`/`reward_risk_ratio` -- proving the
+        internal `stop_from_price_action` recomputation is skipped entirely, not blended or
+        overridden after the fact."""
+        explicit_stop = 90.0
+
+        target = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV,
+            zones=[],
+            weekly_ohlcv=_WEEKLY_OHLCV_WIDE_CHANNEL,
+            stop=explicit_stop,
+        )
+
+        assert target is not None
+        expected_distance_to_stop = _CURRENT_PRICE - explicit_stop
+        assert target.distance_to_stop == pytest.approx(expected_distance_to_stop, abs=1e-9)
+        assert target.distance_to_stop != pytest.approx(_EXPECTED_DISTANCE_TO_STOP, abs=1e-3)
+        expected_distance_to_target = 0.30 * _WIDE_HEIGHT
+        assert target.reward_risk_ratio == pytest.approx(
+            expected_distance_to_target / expected_distance_to_stop, abs=1e-6
+        )
+
+    def test_omitted_stop_still_derives_its_own_as_before(self) -> None:
+        """No regression for the `GET /api/stocks/{ticker}/analysis` caller, which never passes
+        `stop` and must keep deriving one internally from the full `daily_ohlcv`."""
+        target = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV,
+            zones=[],
+            weekly_ohlcv=_WEEKLY_OHLCV_WIDE_CHANNEL,
+        )
+
+        assert target is not None
+        assert target.distance_to_stop == pytest.approx(_EXPECTED_DISTANCE_TO_STOP, abs=1e-5)
+
+    def test_explicit_stop_above_current_price_yields_null_ratio(self) -> None:
+        """A non-positive `distance_to_stop` (explicit stop at/above current price) must still
+        yield `reward_risk_ratio=None`/`meets_minimum_reward_risk=False`, exactly as the
+        internally-derived path already does -- the `stop` override doesn't bypass that
+        guard."""
+        target = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV,
+            zones=[],
+            weekly_ohlcv=_WEEKLY_OHLCV_WIDE_CHANNEL,
+            stop=_CURRENT_PRICE,
+        )
+
+        assert target is not None
+        assert target.distance_to_stop == pytest.approx(0.0, abs=1e-9)
+        assert target.reward_risk_ratio is None
+        assert target.meets_minimum_reward_risk is False
+
+
 class TestNoCandidateOrEmptyInput:
     def test_returns_none_when_no_channel_and_no_qualifying_zone(self) -> None:
         target = suggest_profit_target(

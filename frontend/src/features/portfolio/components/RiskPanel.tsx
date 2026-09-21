@@ -138,19 +138,14 @@ export default function RiskPanel({ positions }: RiskPanelProps) {
     },
     {
       // Synthetic column, same convention as the Signal column above:
-      // `RiskPosition` has no `profit_target` field of its own (see
-      // `PositionProfitTargetCell`'s own doc comment for why), so this
-      // reuses another of `RiskPosition`'s own otherwise-column-key-unused
-      // fields purely for DataTable's required unique `key` typing.
+      // `key` can't be `'profit_target'` since `DataTableColumn<T>.key` is
+      // only ever used as this column's own React key, not a lookup into
+      // the row -- reuses another of `RiskPosition`'s own otherwise-column-
+      // key-unused fields purely for that typing.
       key: 'two_percent_rule_breached',
       header: 'Profit Target',
       align: 'right',
-      render: (row) => (
-        <PositionProfitTargetCell
-          ticker={row.ticker}
-          signal={signalByTicker.get(row.ticker) ?? null}
-        />
-      ),
+      render: (row) => <PositionProfitTargetCell profitTarget={row.profit_target ?? null} />,
     },
   ]
 

@@ -61,6 +61,17 @@ describe('RiskPanel', () => {
           position_risk_pct: 1.8,
           two_percent_rule_breached: false,
           exit_flags: [],
+          // Non-null even though AAPL's own live signal below is BUY here --
+          // proven distinctly non-BUY-gated by MSFT's HOLD row below still
+          // also getting a real (different) target, not an em dash.
+          profit_target: {
+            price: 245.0,
+            source: 'channel',
+            distance_to_stop: 9.3,
+            distance_to_target: 18.6,
+            reward_risk_ratio: 2.0,
+            meets_minimum_reward_risk: true,
+          },
         },
         {
           id: 'pos_456',
@@ -69,6 +80,17 @@ describe('RiskPanel', () => {
           position_risk_pct: 1.4,
           two_percent_rule_breached: false,
           exit_flags: [],
+          // MSFT's own live signal (below) is HOLD -- backend-profit-target-
+          // open-position's whole point is that RiskPosition.profit_target
+          // still shows here, unlike AnalysisResponse.profit_target would.
+          profit_target: {
+            price: 420.0,
+            source: 'support_resistance',
+            distance_to_stop: 12.0,
+            distance_to_target: 9.5,
+            reward_risk_ratio: 0.79,
+            meets_minimum_reward_risk: false,
+          },
         },
       ],
     })
@@ -84,14 +106,15 @@ describe('RiskPanel', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
-    // AAPL's own BUY signal resolves a real profit target from GET
-    // /api/stocks/AAPL/analysis (PositionProfitTargetCell); MSFT's HOLD
-    // signal never fires that fetch at all, so its own Profit Target cell
-    // is an immediate em dash, same as both rows' (empty) Exit Flags cells:
-    // 3 dashes total once AAPL's async fetch has settled.
-    await waitFor(() => expect(screen.getByText('$245.00')).toBeInTheDocument())
+    // Both rows' Profit Target cells read straight off GET /api/portfolio
+    // /risk's own `profit_target` field -- no per-row /analysis fetch, and
+    // MSFT's still shows despite its HOLD signal. Both rows' (empty) Exit
+    // Flags cells are the only remaining dashes.
+    expect(screen.getByText('$245.00')).toBeInTheDocument()
     expect(screen.getByText('2.0:1')).toBeInTheDocument()
-    expect(screen.getAllByText('—')).toHaveLength(3)
+    expect(screen.getByText('$420.00')).toBeInTheDocument()
+    expect(screen.getByText('0.8:1')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(2)
 
     // Ticker cells link into stock detail (common/TickerLink).
     expect(screen.getByRole('link', { name: 'AAPL' })).toHaveAttribute(
@@ -150,9 +173,9 @@ describe('RiskPanel', () => {
     const aaplRow = screen.getByText('AAPL').closest('tr') as HTMLElement
     expect(within(aaplRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
     // The (empty) Exit Flags cell, the null-signal Signal cell, and the
-    // Profit Target cell (never fetched at all -- a null signal isn't
-    // 'BUY', so PositionProfitTargetCell shows its own immediate em dash)
-    // all fall back to '—'.
+    // Profit Target cell (the mocked risk position above omits
+    // `profit_target` entirely, matching the real backend's optional-field
+    // "no candidate" case) all fall back to '—'.
     expect(within(aaplRow).getAllByText('—')).toHaveLength(3)
   })
 

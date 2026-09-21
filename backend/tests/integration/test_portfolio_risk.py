@@ -30,7 +30,7 @@ from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
-from app.portfolio.risk import protective_stop
+from app.portfolio.risk import protective_stop, stop_from_price_action
 from app.signals.engine import analyse
 
 
@@ -655,6 +655,49 @@ class TestProfitTarget:
         assert position["profit_target"]["price"] > daily["close"].iloc[-1]
         assert position["profit_target"]["reward_risk_ratio"] is not None
         assert isinstance(position["profit_target"]["meets_minimum_reward_risk"], bool)
+
+    def test_profit_target_never_disagrees_with_this_position_s_own_protective_stop(
+        self, db_session: Session
+    ) -> None:
+        """PR #224 review finding: `suggest_profit_target` used to recompute its OWN stop from
+        the full `daily_by_id[id]` frame (today's bar included), which can genuinely differ from
+        `RiskPosition.protective_stop` (deliberately computed from `daily_ohlcv.iloc[:-1]`, per
+        this endpoint's own docstring, to avoid a lookahead desync). Today's bar here has an
+        anomalously low `low` -- low enough to pull the FULL-frame swing low (and so its stop)
+        far below the `iloc[:-1]` one -- while `close` stays on the same smooth uptrend so the
+        channel-based target candidate/`current_price` are unaffected. Confirms the two really
+        do diverge for this fixture (so the assertion below isn't vacuous), then confirms
+        `profit_target.distance_to_stop`'s IMPLIED stop matches `protective_stop` exactly, not
+        the stale full-frame one."""
+        daily_lows = list(self._DAILY_LOWS)
+        daily_lows[-1] = 10.0  # today's anomalous low -- excluded from protective_stop's window
+        daily = _daily_frame(self._DAILY_CLOSES, daily_lows)
+        weekly = _weekly_frame(self._WEEKLY_CLOSES)
+
+        correct_stop = stop_from_price_action(daily.iloc[:-1])
+        stale_full_frame_stop = stop_from_price_action(daily)
+        assert correct_stop != pytest.approx(stale_full_frame_stop, rel=1e-3), (
+            "fixture must actually produce two different stops, or this test proves nothing"
+        )
+
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["protective_stop"] == pytest.approx(correct_stop)
+        assert position["profit_target"] is not None
+        current_price = daily["close"].iloc[-1]
+        implied_stop = current_price - position["profit_target"]["distance_to_stop"]
+        assert implied_stop == pytest.approx(correct_stop)
+        assert implied_stop != pytest.approx(stale_full_frame_stop, rel=1e-3)
 
     def test_no_qualifying_target_candidate_degrades_profit_target_to_null_not_position_exclusion(
         self, db_session: Session

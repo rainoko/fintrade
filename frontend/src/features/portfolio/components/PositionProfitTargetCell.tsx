@@ -1,80 +1,64 @@
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import type { PositionOut } from '../../../api/portfolio'
+import type { RiskPosition } from '../../../api/portfolio'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import RewardRiskBadge from '../../../components/common/RewardRiskBadge/RewardRiskBadge'
 import { formatCurrency } from '../../../utils/format'
-import { usePositionProfitTarget } from '../hooks/usePositionProfitTarget'
 import { profitTargetHelp } from './metricHelpContent'
 
 export interface PositionProfitTargetCellProps {
-  ticker: string
   /**
-   * This position's own current signal -- `RiskPanel`'s `signalByTicker`
-   * cross-reference (same source `PositionsTable`'s own Signal column
-   * reads, `PositionOut.signal`). Gates whether an analysis fetch is even
-   * attempted (`usePositionProfitTarget`'s `enabled` param) and drives which
-   * of `profitTargetHelp.interpretValue`'s three null-cause branches
-   * applies when there's no target to show.
+   * `RiskPosition.profit_target` (`GET /api/portfolio/risk`), passed straight
+   * through by `RiskPanel` -- normalized to `null` there (the field is
+   * optional/nullable on the wire; both mean "no target" here). Purely
+   * presentational: no fetch of its own. See this module's own doc comment
+   * for why not.
    */
-  signal: PositionOut['signal']
+  profitTarget: RiskPosition['profit_target'] | null
 }
 
 /**
  * `RiskPanel`'s Profit Target column: one row's own suggested target price +
- * reward:risk ratio, fetched per-ticker from `GET /api/stocks/{ticker}/
- * analysis` (`usePositionProfitTarget`) since `GET /api/portfolio/risk`
- * itself doesn't carry `profit_target` (see that hook's own doc comment).
- * Only fires the fetch at all when `signal === 'BUY'` -- otherwise renders
- * the explained em-dash immediately, no network round trip needed, since
- * `profit_target` is contractually null for every other signal.
+ * reward:risk ratio, read directly off `RiskPosition.profit_target` (`GET
+ * /api/portfolio/risk`) -- computed for every open position regardless of
+ * that ticker's current live signal (unlike `AnalysisResponse.profit_target`
+ * on `GET /api/stocks/{ticker}/analysis`, still BUY-only), see the
+ * `backend-profit-target-open-position` task's `decisions` entry.
  *
- * Shares `RewardRiskBadge`/`profitTargetHelp`'s exact rendering/wording with
- * `features/stocks/components/ProfitTargetDisplay.tsx` (the stock-detail
- * placement) as far as the `common/` layer allows, so the same profit
- * target for the same ticker can never visually disagree between the two
- * pages -- see this task's `decisions` entry for why the two feature-level
- * wrapper components themselves are still separate, not one shared
- * component imported across features.
+ * This component previously fetched `GET /api/stocks/{ticker}/analysis`
+ * itself (`usePositionProfitTarget`), gated on `signal === 'BUY'` -- that
+ * meant a held position whose signal had drifted to HOLD/SELL rendered an
+ * em dash even though this app now has a real target for it. Removed
+ * entirely (rather than kept alongside the new field) once `GET
+ * /api/portfolio/risk` started carrying `profit_target` itself: `RiskPanel`
+ * already has that response in hand for every other column, so a second,
+ * redundant per-row network round trip added no information a fresh signal
+ * ever needed either -- see this task's `decisions` entry for the full
+ * reasoning against keeping both.
+ *
+ * Shares `RewardRiskBadge`/`profitTargetHelp`'s exact rendering/wording
+ * pattern with `features/stocks/components/ProfitTargetDisplay.tsx` (the
+ * stock-detail placement) as far as the `common/` layer allows, so the same
+ * profit target for the same ticker can never visually disagree between the
+ * two pages -- see the `frontend-profit-target-display` task's `decisions`
+ * entry for why the two feature-level wrapper components themselves are
+ * still separate, not one shared component imported across features.
  */
 export default function PositionProfitTargetCell({
-  ticker,
-  signal,
+  profitTarget,
 }: PositionProfitTargetCellProps) {
-  // Normalizes `undefined` (an omitted-from-the-fixture PositionOut.signal,
-  // never actually produced by the real backend) to `null`, matching
-  // `RiskPanel`'s own `signalByTicker.get(...) ?? null` convention -- keeps
-  // `profitTargetHelp.interpretValue`'s signature to the two states that
-  // are actually meaningfully distinct (a definite signal, or "couldn't be
-  // computed"), not three.
-  const normalizedSignal = signal ?? null
-  const isBuy = normalizedSignal === 'BUY'
-  const query = usePositionProfitTarget(ticker, isBuy)
-
-  if (isBuy && query.isLoading) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        Checking…
-      </Typography>
-    )
-  }
-
-  // A fetch error is folded into the same "unavailable" null-cause branch
-  // as "BUY but no candidate" (both render the same explained em dash) --
-  // see this task's `decisions` entry for why a fetch-specific message
-  // wasn't added as a fourth branch.
-  const profitTarget = isBuy && !query.isError ? (query.data?.profit_target ?? null) : null
+  const resolvedTarget = profitTarget ?? null
 
   const help = (
     <MetricHelp
       metricLabel={profitTargetHelp.metricLabel}
       definition={profitTargetHelp.definition}
       elderContext={profitTargetHelp.elderContext}
-      valueInterpretation={profitTargetHelp.interpretValue(profitTarget, normalizedSignal)}
+      valueInterpretation={profitTargetHelp.interpretValue(resolvedTarget)}
     />
   )
 
-  if (!profitTarget) {
+  if (!resolvedTarget) {
     return (
       <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
         <Typography variant="body2" color="text.secondary">
@@ -91,10 +75,10 @@ export default function PositionProfitTargetCell({
       spacing={1}
       sx={{ alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}
     >
-      <Typography variant="body2">{formatCurrency(profitTarget.price)}</Typography>
+      <Typography variant="body2">{formatCurrency(resolvedTarget.price)}</Typography>
       <RewardRiskBadge
-        ratio={profitTarget.reward_risk_ratio ?? null}
-        meetsMinimum={profitTarget.meets_minimum_reward_risk}
+        ratio={resolvedTarget.reward_risk_ratio ?? null}
+        meetsMinimum={resolvedTarget.meets_minimum_reward_risk}
       />
       {help}
     </Stack>
