@@ -2403,7 +2403,7 @@ export interface operations {
             429: {
                 headers: {
                     /** @description Number of seconds to wait before retrying the scanner run */
-                    "Retry-After"?: number;
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2485,7 +2485,7 @@ export interface operations {
             429: {
                 headers: {
                     /** @description Number of seconds to wait before retrying the scanner run */
-                    "Retry-After"?: number;
+                    "Retry-After": number;
                     [name: string]: unknown;
                 };
                 content: {

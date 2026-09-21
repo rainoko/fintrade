@@ -18,17 +18,40 @@ type HTTPValidationError = components['schemas']['HTTPValidationError']
  * backend can send (a single ErrorDetail vs. FastAPI's per-field
  * HTTPValidationError list, see API.md) are normalized here so callers never
  * need to know which one they got.
+ *
+ * `retryAfterSeconds` surfaces the `Retry-After` header a 429 response (e.g.
+ * POST /api/ibkr/scanner/run, POST /api/ibkr/breadth/snapshot) carries —
+ * `null` for every other status, or if the header is present but not a
+ * plain integer-seconds value (a HTTP-date `Retry-After` is legal per RFC
+ * 9110 §10.2.3, but neither backend route in this app ever sends one).
+ * `Response.headers.get()` always returns a `string | null` — never the
+ * generated OpenAPI `number` type response bodies get — so this parses it
+ * explicitly rather than casting.
  */
 export class ApiError extends Error {
   readonly status: number
   readonly detail: string
+  readonly retryAfterSeconds: number | null
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, retryAfterSeconds: number | null = null) {
     super(detail)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.retryAfterSeconds = retryAfterSeconds
   }
+}
+
+function parseRetryAfterSeconds(response: Response): number | null {
+  const header = response.headers.get('Retry-After')
+  if (header === null) {
+    return null
+  }
+  // Only the integer-seconds form is parsed (see class doc above) — reject
+  // anything Number() would otherwise coerce oddly (e.g. '', whitespace), via
+  // a digits-only regex rather than a direct cast.
+  const trimmed = header.trim()
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : null
 }
 
 // Decision (frontend-api-client task): base URL is read from
@@ -107,7 +130,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const parsed = await safeParseJson(response)
 
   if (!response.ok) {
-    throw new ApiError(response.status, extractDetail(parsed, response.status))
+    throw new ApiError(
+      response.status,
+      extractDetail(parsed, response.status),
+      parseRetryAfterSeconds(response),
+    )
   }
 
   return parsed as T

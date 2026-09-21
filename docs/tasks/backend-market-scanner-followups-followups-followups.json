@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-market-scanner-followups-followups review (PR #239)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-market-scanner-followups-followups"],
   "references": [
     "docs/tasks/done/backend-market-scanner-followups-followups.json",
@@ -13,15 +13,29 @@
   "checklist": [
     {
       "step": "The generated `\"Retry-After\"?: number` field on both 429 responses (frontend/src/api/types.ts) is currently unreachable from any actual frontend code: the hand-rolled frontend/src/api/client.ts `request()`/`ApiError` never surfaces `response.headers` to callers at all (`ApiError` only carries `status`/`detail`). Before any future feature actually reads Retry-After to schedule a UI retry, thread response headers through the client (or a dedicated typed accessor) -- and note that a real `Headers` instance is read via `.get('Retry-After')` (returns a string) rather than bracket access on a plain object, so the generated `number` type needs an explicit parse step, not a direct cast.",
-      "done": false
+      "done": true
     },
     {
       "step": "The `Retry-After` header spec in backend/app/api/routers/ibkr.py's `responses={}` (both routes) omits `required: true`, even though `_rate_limited_http_exception` unconditionally sets this header on every 429 these two routes raise. Add `required: true` so the generated type is `\"Retry-After\": number` (non-optional) instead of `\"Retry-After\"?: number`, and regenerate backend/openapi.json + frontend/src/api/types.ts.",
-      "done": false
+      "done": true
     },
     {
       "step": "The `headers: {\"Retry-After\": {...}}` dict literal (and its enclosing 429 `description` string) is duplicated verbatim between run_ibkr_scanner's and record_ibkr_breadth_snapshot's `responses={}` in backend/app/api/routers/ibkr.py. Factor it into a shared module-level constant (e.g. `_RETRY_AFTER_HEADER_SPEC`) referenced by both routes' `responses={}` dicts so the two 429 specs can't silently drift out of sync.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `retryAfterSeconds: number | null` as a new field on `ApiError` (frontend/src/api/client.ts), populated only for a non-2xx response via a new `parseRetryAfterSeconds()` helper that reads `response.headers.get('Retry-After')` and accepts only a digits-only integer-seconds string (the form these two backend routes always send), returning `null` otherwise -- including for an RFC 9110-legal HTTP-date `Retry-After` value, which no route in this app ever actually sends. Rejected alternatives: (1) a separate `getResponseHeaders()`/typed accessor threaded alongside the parsed body through `request()`'s return value, which would force every one of the ~30 existing `ApiError` call sites across api/*.ts and their tests to change shape for a header only two routes ever set; (2) casting the header string directly to `number` per the generated OpenAPI type, which is simply wrong for a real `Headers.get()` return value (always `string | null`) and would produce `NaN`/type-lies for a non-numeric header.",
+      "rationale": "This is the narrowest change that actually makes Retry-After reachable from frontend code (closing the checklist's core gap) without reshaping `request()`'s generic success-path return type or every existing caller. `retryAfterSeconds` defaults to `null` on the constructor and every other error path (network failure, 4xx/5xx without the header), so no existing test asserting on `status`/`detail` needed to change."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Factored the duplicated 429 `responses={}` entry (description + `headers` dict, now with `required: true` added) into a single module-level `_RETRY_AFTER_429_RESPONSE` dict in backend/app/api/routers/ibkr.py, referenced by both `run_ibkr_scanner` and `record_ibkr_breadth_snapshot`'s `responses={}`, rather than the checklist's suggested name `_RETRY_AFTER_HEADER_SPEC` (which described only the inner `headers` sub-dict, not the full 429 entry that was actually duplicated including its `description` and `model`).",
+      "rationale": "Factoring the whole 429 entry (not just the `headers` sub-dict) is what actually prevents the two specs from drifting -- the checklist's own repro line named the `description` string as also duplicated. The renamed constant reflects what it actually holds."
     }
   ]
 }

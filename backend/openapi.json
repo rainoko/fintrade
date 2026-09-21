@@ -2959,6 +2959,7 @@
             "headers": {
               "Retry-After": {
                 "description": "Number of seconds to wait before retrying the scanner run",
+                "required": true,
                 "schema": {
                   "type": "integer"
                 }
@@ -3061,6 +3062,7 @@
             "headers": {
               "Retry-After": {
                 "description": "Number of seconds to wait before retrying the scanner run",
+                "required": true,
                 "schema": {
                   "type": "integer"
                 }
