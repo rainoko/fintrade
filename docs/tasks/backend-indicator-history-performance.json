@@ -3,7 +3,7 @@
   "title": "Speed up GET /api/stocks/{ticker}/indicators (cache response, fetch concurrently)",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -54,7 +54,7 @@
     "branch": "task/backend-indicator-history-performance",
     "pr_number": 231,
     "pr_url": "https://github.com/rainoko/fintrade/pull/231",
-    "pushed_at": "2026-09-21T10:23:29Z"
+    "pushed_at": "2026-09-21T11:30:00Z"
   },
   "review": {
     "reviewed_at": "2026-09-21T10:36:46Z",
