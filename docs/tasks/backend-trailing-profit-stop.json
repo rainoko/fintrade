@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "waiting_input",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -106,5 +106,13 @@
       }
     ],
     "notes": "Third re-review of PR #240. Round 2's two blocking findings (doc staleness on docs/Analyse.md and docs/architecture/API.md, and the side-effecting-GET architectural concern) are both independently verified resolved this round: GET /api/portfolio/risk is a genuine pure read (traced the whole handler, confirmed via a dedicated commit-mocking test), the merge-time floor capture order is correct (old cost basis captured before overwrite), the round-1 same-ticker-merge regression stays fixed under the new design (reproduced both via the existing regression test and independently via a live manual walkthrough against a running dev-mode backend), the data-provider-fetch-failure degrade path is genuinely graceful, the live-network-call regression in test_portfolio_positions.py is genuinely fixed (confirmed by code reading and suite runtime), and both docs are now accurate. Full backend suite: 1170 passed, 99.95% coverage (ruff/mypy clean). Full frontend suite: 704 passed, ~99.7% coverage (eslint/tsc -b --noEmit/yarn build all clean, build succeeds). backend/openapi.json regenerated and confirmed byte-identical to the committed snapshot. Migration chain has a single clean head. Full e2e suite (make e2e): 18/18 specs passed, including the add-position-then-view-risk-panel flow. No Playwright MCP browser tool was available in this session; used the e2e run plus a manual curl-driven walkthrough against a freshly started fixture-mode backend (add position, merge, inspect GET /api/portfolio/risk and the persisted DB row directly, checked server logs for errors) as the closest equivalent evidence, consistent with the prior round's approach -- this round's own diff is backend-only with no new frontend/UI surface (trailing_stop still isn't rendered by any component, per this task's own explicit frontend-out-of-scope decision). validate_tasks.py reports the whole board clean. However, a code-review pass (skill, high effort) surfaced a genuine, independently-reproduced new blocking bug in this round's own fix: add_position's merge branch never runs daily_ohlcv through drop_malformed_daily_bars before computing the persisted trailing_stop floor, unlike every other OHLCV consumer in this file -- since that floor is a permanent MAX-floor, a single malformed history bar at merge time can lock in an arbitrarily wrong value with no way to ever self-correct. See that finding for the full reproduction. This is why the verdict is needs_work again despite round 2's findings being cleanly resolved."
-  }
+  },
+  "questions": [
+    {
+      "timestamp": "2026-09-21T23:40:00Z",
+      "raised_by": "orchestrate-tasks",
+      "question": "PR #240 has now hit 3 needs_work rounds (round 1: ratchet-vs-merge regression + broken frontend build; round 2: side-effecting-GET architecture fix; round 3: missing drop_malformed_daily_bars filter before the merge-time floor capture, concretely reproduced -- unfiltered=1730.0 vs. correctly-filtered=97.0 on the reviewer's test fixture). Per the orchestrator's 3-round retry cap, no further automatic fix round will be dispatched. Authorize one more fix round (the fix itself is narrow and mechanical: filter daily_ohlcv through drop_malformed_daily_bars, mirroring get_risk's own require_full_ohlc_on_latest_bar=False call, before passing it to trailing_stop_floor_before_merge in add_position's merge branch -- see review.comments for the exact finding and repro), or would you rather review/patch this one yourself given how many rounds it's already taken?",
+      "context": "Unlike the earlier check_profit_target_wording.py saga (3 rounds of genuinely obscure, hard-to-anticipate edge cases in a static-analysis guard script), this round's finding is a single well-understood one-line fix matching an existing established pattern already used 2 other places in the same file -- there's no product/policy ambiguity here, just the retry-count cap doing its job. Flagging for a quick authorize-or-take-it-yourself decision rather than silently spending a 4th automated round."
+    }
+  ]
 }
