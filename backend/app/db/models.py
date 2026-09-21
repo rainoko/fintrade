@@ -36,9 +36,10 @@ class PositionORM(Base):
     over onto the corresponding `ClosedTradeORM.strategy` row when the position closes."""
     trailing_stop_high_water_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
     """The highest `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder
-    ch. 54 "Don't Let a Winning Trade Turn into a Loss") ever reported for this position,
-    persisted here and used as a floor on every subsequent `GET /api/portfolio/risk` call --
-    `None` until this position's profit has crossed the breakeven trigger for the first time.
+    ch. 54 "Don't Let a Winning Trade Turn into a Loss") ever locked in for this position,
+    used as a floor on every `GET /api/portfolio/risk` call -- `None` until this position's
+    profit has crossed the breakeven trigger for the first time AND a same-ticker merge has
+    happened at least once (see below for why it's written only on a merge, not on every read).
 
     Added after this task's (backend-trailing-profit-stop) own original `decisions` entry
     explicitly rejected a persisted column in favor of a purely stateless recomputation from
@@ -51,13 +52,19 @@ class PositionORM(Base):
     call incorrectly. A live PR review (see docs/tasks/backend-trailing-profit-stop.json's
     `review`/`decisions` for the reproduction and the revised rationale) caught this precise
     bug, which is what this column exists to close: the persisted high-water mark can only
-    ever go up (`GET /api/portfolio/risk` writes `max(persisted, freshly_computed_candidate)`
-    back on every call), so a subsequent `avg_cost_basis` change can lower the freshly
-    *computed* candidate but never the *reported* value, which is always at least the floor.
-    This does make `GET /api/portfolio/risk` the first side-effecting-write GET route in this
-    codebase -- an accepted, narrow deviation now that the alternative (a value that can
-    silently decrease, contradicting this field's own contract and docs/Analyse.md's "Move
-    Your Stop Only in the Direction of Your Trade") has been shown to be unacceptable."""
+    ever go up, so a subsequent `avg_cost_basis` change can lower the freshly *computed*
+    candidate but never the *reported* value, which is always at least the floor.
+
+    This column is written **only** by `POST /api/portfolio/positions`'s same-ticker-merge
+    branch (`app.portfolio.risk.trailing_stop_floor_before_merge`, called against the
+    position's OLD, pre-merge cost basis before it's overwritten) -- `GET /api/portfolio/risk`
+    only ever reads it as a floor. An earlier revision had `GET /api/portfolio/risk` write
+    `max(persisted, freshly_computed_candidate)` back on every call instead, making it this
+    codebase's first side-effecting-write GET route; a second PR review round correctly flagged
+    that as violating HTTP GET's safe/idempotent contract, so the write moved to the one path
+    that actually invalidates this floor (the merge itself) -- see
+    `ratchet_trailing_profit_stop`'s own docstring and this task's `decisions` entry for the
+    full round-2 history."""
 
 
 class AccountORM(Base):

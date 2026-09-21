@@ -263,7 +263,7 @@ def ratchet_trailing_profit_stop(
        the fold with new bars alone can only hold the result steady or raise it.
     2. A **persisted high-water mark floor** (``persisted_high_water_mark``, backed by
        ``PositionORM.trailing_stop_high_water_mark``): the caller passes in the highest value
-       this function has ever returned for this position before, and this function returns
+       ever locked in for this position before, and this function returns
        ``max(<freshly recomputed candidate>, persisted_high_water_mark)`` -- never lower than
        that floor, regardless of what the fresh recompute alone would say.
 
@@ -282,12 +282,24 @@ def ratchet_trailing_profit_stop(
     all-stateless design -- see this task's (backend-trailing-profit-stop) `decisions` entry
     for the full history: a persisted column was considered and rejected there for exactly this
     kind of avg_cost_basis-changing merge, without realizing the chosen stateless alternative
-    had the identical defect via a different mechanism. `PositionORM
-    .trailing_stop_high_water_mark` is written back by `app.api.routers.portfolio.get_risk` as
-    `max(existing persisted value, this function's return value)` every call, making
-    `GET /api/portfolio/risk` this codebase's first side-effecting-write GET route -- an
-    accepted, narrow deviation once the purely-stateless alternative was shown not to actually
-    satisfy the "never decreases" contract this field's own schema description promises.
+    had the identical defect via a different mechanism.
+
+    ``PositionORM.trailing_stop_high_water_mark`` is written **only** by `POST
+    /api/portfolio/positions`'s same-ticker-merge branch (`trailing_stop_floor_before_merge`
+    below, called there against the position's OLD, pre-merge `avg_cost_basis`/`entry_date`
+    before they're overwritten) -- `GET /api/portfolio/risk` only ever *reads*
+    `persisted_high_water_mark` as a floor here, never advances or persists it itself. An
+    earlier revision of this fix had `GET /api/portfolio/risk` do that advancing/persisting
+    instead (on every call whose fresh recompute exceeded the stored value), making it this
+    codebase's first side-effecting-write GET route -- reverted after a second PR review round
+    correctly flagged that as violating HTTP GET's safe/idempotent contract (including on
+    ordinary TanStack Query window-refocus refetches) and this codebase's own established
+    "annotation happens on read, not on write" convention elsewhere (`POST
+    /api/portfolio/positions`/`POST /api/watchlist`'s null-on-write fields). Capturing the floor
+    at the one write path that can actually invalidate it (the merge itself) instead keeps GET
+    /api/portfolio/risk a pure read, matching every other GET in this app, while still closing
+    the exact gap layer 2 exists for -- see this task's `decisions` entry for the full round-2
+    history.
 
     `safezone_stop` (today's live, independently -- and non-monotonically -- fluctuating
     SafeZone value) is deliberately used only as a *pre-trigger* pass-through (matching
@@ -358,6 +370,53 @@ def ratchet_trailing_profit_stop(
     if persisted_high_water_mark is None:
         return fresh_candidate
     return max(fresh_candidate, persisted_high_water_mark)
+
+
+def trailing_stop_floor_before_merge(
+    position: Position,
+    daily_ohlcv: pd.DataFrame | None,
+    persisted_high_water_mark: float | None,
+) -> float | None:
+    """The `PositionORM.trailing_stop_high_water_mark` value `POST /api/portfolio/positions`
+    must persist for `position` the moment BEFORE its same-ticker-merge branch overwrites
+    `avg_cost_basis`/`entry_date` -- the *only* write path for that column now that `GET
+    /api/portfolio/risk` is a pure read again (see `ratchet_trailing_profit_stop`'s own
+    docstring, and this task's `decisions` entry, for the round-2 history of why the write
+    moved here).
+
+    `position` must carry the OLD, pre-merge `avg_cost_basis`/`entry_date` -- i.e. the caller
+    (`app.api.routers.portfolio.add_position`) must call this *before* mutating
+    `existing.avg_cost_basis`/`existing.entry_date`, not after, or the captured floor would
+    already reflect the NEW cost basis and reopen the exact regression this function exists to
+    close. Internally, this is just `protective_stop` (position-independent, so safe to compute
+    from either the old or the new cost basis) feeding `ratchet_trailing_profit_stop` the same
+    pre-trigger pass-through value a real `GET /api/portfolio/risk` call would have used for
+    this position at this exact moment, folded against `persisted_high_water_mark` the same way.
+
+    `daily_ohlcv` is this ticker's latest available daily history (full, unfiltered is fine --
+    the same shape `app.data.base.DataProvider.get_daily_ohlcv` returns everywhere else in this
+    app), most recent row last. Returns `None` (meaning: leave `persisted_high_water_mark`
+    exactly as it was) when `daily_ohlcv` is `None` (the caller's own price fetch already
+    failed) or has fewer than 2 rows, or when `protective_stop`/`ratchet_trailing_profit_stop`
+    raise `ValueError` for it (a malformed/incomplete frame) -- a data-provider hiccup at merge
+    time must never block adding a position, and an un-advanced floor is still safe (it can only
+    ever be too conservative, never so low it lets the ratchet actually decrease later), just
+    possibly stale until a later merge succeeds in advancing it. Otherwise always returns a
+    value `>= persisted_high_water_mark` (whichever is higher), since
+    `ratchet_trailing_profit_stop` itself guarantees that.
+    """
+    if daily_ohlcv is None or len(daily_ohlcv) < 2:
+        return None
+    try:
+        safezone_stop = protective_stop(position, daily_ohlcv.iloc[:-1])
+        return ratchet_trailing_profit_stop(
+            position,
+            daily_ohlcv,
+            safezone_stop,
+            persisted_high_water_mark=persisted_high_water_mark,
+        )
+    except ValueError:
+        return None
 
 
 def position_risk_pct(position: Position, stop: float, account: Account) -> float:

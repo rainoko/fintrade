@@ -38,7 +38,7 @@ from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.portfolio.exits import evaluate_exit_flags
 from app.portfolio.grading import TradeGrade, grade_trade_from_filtered_history, trade_letter_grade
-from app.portfolio.models import Account, ExitReason
+from app.portfolio.models import Account, ExitReason, Position
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import (
     EnrichedPosition,
@@ -53,6 +53,7 @@ from app.portfolio.risk import (
     ratchet_trailing_profit_stop,
     realized_losses_pct,
     total_open_risk_pct,
+    trailing_stop_floor_before_merge,
 )
 from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
@@ -343,7 +344,11 @@ def get_portfolio(
         },
     },
 )
-def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
+def add_position(
+    position: PositionIn,
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> PositionOut:
     """Creates a position from manual entry / CSV-import data. If a position for this ticker
     already exists it is merged rather than duplicated: quantities are summed and
     avg_cost_basis becomes the quantity-weighted average of the existing and incoming cost
@@ -364,7 +369,22 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
     reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
-    POST /api/watchlist's identical null-on-write convention for the same fields."""
+    POST /api/watchlist's identical null-on-write convention for the same fields.
+
+    On a same-ticker merge, this is also the one write path for `PositionORM
+    .trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    persisted floor, Elder ch. 54's "Move Your Stop Only in the Direction of Your Trade" hard
+    ratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --
+    `trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for
+    this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're
+    overwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged
+    cost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET
+    /api/portfolio/risk` itself never writes to the database -- see that route's own docstring
+    and `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather
+    than being advanced/persisted from every GET. A `provider` fetch failure for this ticker
+    (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
+    rather than blocking the merge -- adding a position must never depend on live market data
+    being reachable."""
     ticker = position.ticker.upper()
     existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
 
@@ -413,6 +433,30 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
                 "or average cost basis too large to represent (overflow). Reduce the "
                 "quantity/avg_cost_basis or split the addition into smaller increments.",
             )
+
+        # Locks in `trailing_stop_high_water_mark` (app.portfolio.risk
+        # .trailing_stop_floor_before_merge) against this position's OLD avg_cost_basis/
+        # entry_date, BEFORE they're overwritten just below -- the one write path for this
+        # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
+        # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
+        # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
+        # than blocking this merge on live market data being reachable.
+        old_position = Position(
+            id=existing.id,
+            ticker=existing.ticker,
+            quantity=existing.quantity,
+            avg_cost_basis=existing.avg_cost_basis,
+            entry_date=existing.entry_date,
+        )
+        try:
+            daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        except DataProviderError:
+            daily_ohlcv = None
+        floor = trailing_stop_floor_before_merge(
+            old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
+        )
+        if floor is not None:
+            existing.trailing_stop_high_water_mark = floor
 
         existing.quantity = merged_quantity
         existing.avg_cost_basis = merged_avg_cost_basis
@@ -627,15 +671,15 @@ def get_risk(
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
     independent of entry-signal logic by design.
 
-    This is this codebase's one GET route with a side-effecting write: computing each
-    position's `trailing_stop` (see below) advances and persists `PositionORM
-    .trailing_stop_high_water_mark` when the freshly-computed value exceeds what's already
-    stored, via a single `db.commit()` at the end of this function -- see
-    `app.portfolio.risk.ratchet_trailing_profit_stop`'s own docstring for why this is needed
-    (a purely stateless computation can't, on its own, survive a same-ticker position merge
-    that raises `avg_cost_basis`) and this task's (backend-trailing-profit-stop) `decisions`
-    entry for the full history of why this deviation from every other GET route here was
-    ultimately accepted.
+    This is a pure read, like every other GET route in this app: computing each position's
+    `trailing_stop` (see below) only ever *reads* `PositionORM.trailing_stop_high_water_mark`
+    as a floor, never advances or persists it -- `POST /api/portfolio/positions`'s same-ticker-
+    merge branch is the one write path for that column (`app.portfolio.risk
+    .trailing_stop_floor_before_merge`, called there against the position's OLD, pre-merge cost
+    basis before it's overwritten) -- see `app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+    round-2 history of why an earlier revision that had this GET route do the writing (making it
+    this codebase's first side-effecting-write GET route) was reverted.
 
     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
@@ -703,15 +747,15 @@ def get_risk(
     `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
     than it has on any previous call -- a stateless re-fold of this position's own full price
     history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
-    (this position's own highest-ever reported value, persisted and advanced right here, in
-    this same per-position loop, whenever the fresh re-fold exceeds it) -- see that function's
-    own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
-    exact mechanics and why the persisted floor turned out to be necessary after all (a
-    same-ticker `POST /api/portfolio/positions` merge that raises `avg_cost_basis` can
-    invalidate the stateless re-fold alone). A `ValueError` computing it excludes the position
-    from `positions` entirely (same fail-fast contract as
-    `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike the independently-nullable
-    `profit_target`).
+    (this position's own highest-ever *locked-in* value -- read here, never written; written
+    only by `POST /api/portfolio/positions`'s same-ticker-merge branch, see that route's own
+    docstring) -- see `ratchet_trailing_profit_stop`'s own docstring and this task's
+    (backend-trailing-profit-stop) `decisions` entry for the exact mechanics and why the
+    persisted floor turned out to be necessary after all (a same-ticker `POST
+    /api/portfolio/positions` merge that raises `avg_cost_basis` can invalidate the stateless
+    re-fold alone). A `ValueError` computing it excludes the position from `positions` entirely
+    (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
+    the independently-nullable `profit_target`).
 
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
@@ -728,7 +772,7 @@ def get_risk(
     cash = account_row.cash if account_row is not None else 0.0
 
     # `position_rows` is kept alongside `enriched` (rather than re-querying by id later) so the
-    # trailing_stop persisted-high-water-mark floor/write-back below (see
+    # trailing_stop persisted-high-water-mark floor read below (see
     # ratchet_trailing_profit_stop's own docstring for why this is needed) has each position's
     # ORM row in hand without a second query -- `enrich_positions_with_price` preserves
     # `position_rows`' order and length 1:1 (one EnrichedPosition per input row), so this dict
@@ -824,9 +868,10 @@ def get_risk(
             # .trailing_stop_high_water_mark` -- the floor that makes the ratchet genuinely
             # never decrease even across a `POST /api/portfolio/positions` same-ticker merge
             # that raises `avg_cost_basis` (see ratchet_trailing_profit_stop's own docstring
-            # for the exact bug this closes). The result is written straight back onto that
-            # same row below (never lowered, only raised or left unchanged) so the next call
-            # -- even after such a merge -- has this call's value as its own floor.
+            # for the exact bug this closes). Read-only here: this column is written only by
+            # that POST route's merge branch (app.portfolio.risk
+            # .trailing_stop_floor_before_merge), never by this GET route -- see this
+            # function's own docstring for the round-2 history of why.
             position_row = position_rows_by_id[e.position.id]
             trailing_stop = ratchet_trailing_profit_stop(
                 e.position,
@@ -834,11 +879,6 @@ def get_risk(
                 stop,
                 persisted_high_water_mark=position_row.trailing_stop_high_water_mark,
             )
-            if (
-                position_row.trailing_stop_high_water_mark is None
-                or trailing_stop > position_row.trailing_stop_high_water_mark
-            ):
-                position_row.trailing_stop_high_water_mark = trailing_stop
         except ValueError:
             continue
 
@@ -878,12 +918,6 @@ def get_risk(
                 profit_target=profit_target,
             )
         )
-
-    # Persists any `trailing_stop_high_water_mark` raised above -- a no-op commit (SQLAlchemy
-    # only emits an UPDATE for rows actually mutated) when no position's ratchet advanced this
-    # call. See the per-position loop above and ratchet_trailing_profit_stop's own docstring
-    # for why this GET route needs a write at all.
-    db.commit()
 
     return RiskResponse(
         total_open_risk_pct=total_risk,

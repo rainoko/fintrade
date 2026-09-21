@@ -375,6 +375,21 @@ export interface paths {
          *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
          *     reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
          *     POST /api/watchlist's identical null-on-write convention for the same fields.
+         *
+         *     On a same-ticker merge, this is also the one write path for `PositionORM
+         *     .trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s
+         *     persisted floor, Elder ch. 54's "Move Your Stop Only in the Direction of Your Trade" hard
+         *     ratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --
+         *     `trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for
+         *     this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're
+         *     overwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged
+         *     cost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET
+         *     /api/portfolio/risk` itself never writes to the database -- see that route's own docstring
+         *     and `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather
+         *     than being advanced/persisted from every GET. A `provider` fetch failure for this ticker
+         *     (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
+         *     rather than blocking the merge -- adding a position must never depend on live market data
+         *     being reachable.
          */
         post: operations["add_position"];
         delete?: never;
@@ -443,15 +458,15 @@ export interface paths {
          *     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
          *     independent of entry-signal logic by design.
          *
-         *     This is this codebase's one GET route with a side-effecting write: computing each
-         *     position's `trailing_stop` (see below) advances and persists `PositionORM
-         *     .trailing_stop_high_water_mark` when the freshly-computed value exceeds what's already
-         *     stored, via a single `db.commit()` at the end of this function -- see
-         *     `app.portfolio.risk.ratchet_trailing_profit_stop`'s own docstring for why this is needed
-         *     (a purely stateless computation can't, on its own, survive a same-ticker position merge
-         *     that raises `avg_cost_basis`) and this task's (backend-trailing-profit-stop) `decisions`
-         *     entry for the full history of why this deviation from every other GET route here was
-         *     ultimately accepted.
+         *     This is a pure read, like every other GET route in this app: computing each position's
+         *     `trailing_stop` (see below) only ever *reads* `PositionORM.trailing_stop_high_water_mark`
+         *     as a floor, never advances or persists it -- `POST /api/portfolio/positions`'s same-ticker-
+         *     merge branch is the one write path for that column (`app.portfolio.risk
+         *     .trailing_stop_floor_before_merge`, called there against the position's OLD, pre-merge cost
+         *     basis before it's overwritten) -- see `app.portfolio.risk.ratchet_trailing_profit_stop`'s
+         *     own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+         *     round-2 history of why an earlier revision that had this GET route do the writing (making it
+         *     this codebase's first side-effecting-write GET route) was reverted.
          *
          *     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
          *     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
@@ -519,15 +534,15 @@ export interface paths {
          *     `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
          *     than it has on any previous call -- a stateless re-fold of this position's own full price
          *     history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
-         *     (this position's own highest-ever reported value, persisted and advanced right here, in
-         *     this same per-position loop, whenever the fresh re-fold exceeds it) -- see that function's
-         *     own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
-         *     exact mechanics and why the persisted floor turned out to be necessary after all (a
-         *     same-ticker `POST /api/portfolio/positions` merge that raises `avg_cost_basis` can
-         *     invalidate the stateless re-fold alone). A `ValueError` computing it excludes the position
-         *     from `positions` entirely (same fail-fast contract as
-         *     `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike the independently-nullable
-         *     `profit_target`).
+         *     (this position's own highest-ever *locked-in* value -- read here, never written; written
+         *     only by `POST /api/portfolio/positions`'s same-ticker-merge branch, see that route's own
+         *     docstring) -- see `ratchet_trailing_profit_stop`'s own docstring and this task's
+         *     (backend-trailing-profit-stop) `decisions` entry for the exact mechanics and why the
+         *     persisted floor turned out to be necessary after all (a same-ticker `POST
+         *     /api/portfolio/positions` merge that raises `avg_cost_basis` can invalidate the stateless
+         *     re-fold alone). A `ValueError` computing it excludes the position from `positions` entirely
+         *     (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
+         *     the independently-nullable `profit_target`).
          *
          *     Known, accepted perf trade-off (not fixed here -- see the
          *     backend-profit-target-open-position-followups task's `decisions` entry): both

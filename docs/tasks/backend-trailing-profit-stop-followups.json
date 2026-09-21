@@ -22,12 +22,19 @@
     },
     {
       "step": "The `trailing_stop_high_water_mark` write-back comparison (`if position_row.trailing_stop_high_water_mark is None or trailing_stop > position_row.trailing_stop_high_water_mark: position_row.trailing_stop_high_water_mark = trailing_stop`) is inlined directly in `app.api.routers.portfolio.get_risk`'s per-position loop rather than encapsulated as a small helper in `app.portfolio.risk` alongside `ratchet_trailing_profit_stop` itself. Minor 'thin router' deviation (docs/Architecture.md's 'business logic in signals/portfolio/, not embedded in route handlers' rule) -- worth moving into risk.py (e.g. an `advance_high_water_mark(position_row, candidate)`-shaped helper) for consistency with how every other risk computation in this file already lives in risk.py, not portfolio.py.",
-      "done": false
+      "done": true
     },
     {
       "step": "Concurrency: two overlapping `GET /api/portfolio/risk` requests for the same position each read `position_row.trailing_stop_high_water_mark` before either commits, so a lost-update race is possible (the lower of two concurrently-computed candidates could win the final `db.commit()`). Narrow window, and self-limiting in practice (the stateless recompute still floors most cases correctly), but now that this GET route mutates state at all, its write needs the same concurrency scrutiny any other mutating endpoint gets -- worth a `SELECT ... FOR UPDATE`-style guard or an atomic `UPDATE ... SET trailing_stop_high_water_mark = MAX(trailing_stop_high_water_mark, :candidate)` instead of read-compare-write from Python, if this is judged worth closing rather than accepting as a low-probability, self-healing race.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T23:55:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Resolved both the 'inline write-back helper' and 'GET concurrency race' checklist items above as a byproduct of backend-trailing-profit-stop's round-2 fix (PR #240, second re-review), which moved the `trailing_stop_high_water_mark` write off `GET /api/portfolio/risk` entirely (to `POST /api/portfolio/positions`'s same-ticker-merge branch) -- not by implementing either item's literal original suggestion (an `advance_high_water_mark` helper, or a `SELECT ... FOR UPDATE`/atomic `UPDATE ... SET ... = MAX(...)` guard).",
+      "rationale": "The helper-function item: the write-back logic now lives entirely in `app.portfolio.risk.trailing_stop_floor_before_merge` (composing `protective_stop` + `ratchet_trailing_profit_stop`), with the router doing only a two-line `floor = trailing_stop_floor_before_merge(...); if floor is not None: existing.trailing_stop_high_water_mark = floor` -- the 'thin router, business logic in risk.py' goal this item wanted is satisfied by the new design, without needing the specific `advance_high_water_mark(position_row, candidate)` shape originally suggested (which was written against the now-removed GET-side write-back). The concurrency-race item: the exact race it described (two overlapping GETs racing a lost update on `db.commit()`) no longer exists, since GET never writes at all anymore. An analogous race exists at the new write site (two overlapping same-ticker merges for the same ticker), but it shares the identical read-mutate-commit transaction pattern every other field this same merge branch already mutates without any locking (`existing.quantity`, `existing.avg_cost_basis`, `existing.entry_notes`, `existing.strategy`) -- singling out `trailing_stop_high_water_mark` alone for a `SELECT ... FOR UPDATE`/atomic-`UPDATE` treatment would be an inconsistent special case relative to the rest of this same handler, not a response to any newly-introduced gap. Both are marked `done` here rather than leaving them open against logic that no longer exists."
+    }
+  ]
 }

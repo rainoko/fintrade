@@ -18,6 +18,7 @@ degrade-gracefully exclusion of a position whose price/history couldn't be fetch
 """
 
 from datetime import UTC, date, datetime, timedelta
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -746,6 +747,38 @@ class TestTrailingStop:
         # regression: the reported value must not drop.
         assert post_merge_position["trailing_stop"] >= rally_trailing_stop
         assert post_merge_position["trailing_stop"] == pytest.approx(rally_trailing_stop)
+
+    def test_get_risk_never_writes_to_the_database(self, db_session: Session) -> None:
+        """Round-2 fix (PR #240): `GET /api/portfolio/risk` must be a pure read again -- the
+        `trailing_stop_high_water_mark` floor is now captured only at its one write path
+        (`POST /api/portfolio/positions`'s same-ticker-merge branch), never advanced/persisted
+        by this GET route, restoring HTTP GET's safe/idempotent contract (including on
+        ordinary TanStack Query window-refocus refetches). Proven two ways: `Session.commit`
+        is never called during the request, and the ORM row's own
+        `trailing_stop_high_water_mark` is still `None` afterwards even though this fixture's
+        `trailing_stop` genuinely crosses the breakeven trigger in the response itself."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        rally_closes = [100.0 + i for i in range(31)]  # ends at +30% profit, well past the trigger
+        rally_lows = [c - 1.0 for c in rally_closes]
+        daily = _daily_frame(rally_closes, rally_lows)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        with patch.object(db_session, "commit", wraps=db_session.commit) as mock_commit:
+            response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["trailing_stop"] > 100.0  # the ratchet DID fire (comfortably past breakeven)
+        mock_commit.assert_not_called()
+
+        refreshed = db_session.get(PositionORM, "pos_1")
+        assert refreshed.trailing_stop_high_water_mark is None
 
     def test_below_trigger_matches_protective_stop(self, db_session: Session) -> None:
         """A position whose profit has never crossed the breakeven trigger reports the same

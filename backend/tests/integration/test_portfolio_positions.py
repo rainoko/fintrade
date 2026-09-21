@@ -4,14 +4,89 @@ Uses an isolated in-memory SQLite session (via a get_db dependency override), ma
 pattern in tests/unit/test_db_models.py, so these tests never touch the real fintrade.db file
 and don't depend on the db-migrations task's Alembic setup having run.
 
-The `db_session`/`client` fixtures live in tests/integration/conftest.py.
+The `db_session` fixture lives in tests/integration/conftest.py. This module keeps its own
+local `client` fixture (shadowing conftest's) rather than reusing it directly: since
+backend-trailing-profit-stop's round-2 fix, a same-ticker merge also fetches this ticker's
+daily OHLCV (`app.portfolio.risk.trailing_stop_floor_before_merge`) to capture the
+`trailing_stop_high_water_mark` floor before the merge overwrites `avg_cost_basis`/
+`entry_date` -- so a `get_data_provider` override is needed here too now, same reasoning as
+test_portfolio_delete_position.py/test_portfolio_risk.py -- without one, every merge test below
+would exercise the real live-network-backed provider, violating docs/architecture/Testing.md's
+"no test makes a live network call" rule. The default stub raises
+`DataProviderUnavailableError` for every ticker (matching this module's original pre-fetch
+behavior for every test that doesn't care about the trailing-stop floor itself): the merge
+branch's own graceful-degrade contract means this never blocks a merge, just leaves any
+existing floor untouched -- see TestAddPositionCapturesTrailingStopFloorAtMerge below for the
+tests that stub real price history and assert on the floor itself.
 """
 
 import json
+from datetime import date
 from typing import Any
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.api.dependencies import get_data_provider
+from app.data.exceptions import DataProviderUnavailableError
+from app.db.models import PositionORM
+from app.db.session import get_db
+from app.main import app
+from app.portfolio.models import Position
+from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop
+
+
+def _daily_frame(closes: list[float], lows: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c + 1.0 for c in closes],
+            "low": lows,
+            "close": closes,
+            "volume": [1_000_000.0] * len(closes),
+        },
+        index=pd.date_range("2026-01-01", periods=len(closes), freq="D", name="date"),
+    )
+
+
+class _StubProvider:
+    """Serves a fixed daily OHLCV frame per ticker, or raises `DataProviderUnavailableError`
+    for any ticker not explicitly stubbed -- see this module's own docstring for why every
+    merge test needs a `get_data_provider` override now, and why "not stubbed" degrading
+    gracefully (rather than raising/hanging on a real network call) is what keeps every
+    pre-existing merge test in this module passing unchanged."""
+
+    def __init__(self, *, daily: dict[str, pd.DataFrame] | None = None) -> None:
+        self._daily = daily or {}
+
+    def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+        if ticker not in self._daily:
+            raise DataProviderUnavailableError(f"{ticker} not stubbed in this test module")
+        return self._daily[ticker]
+
+    def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+        raise DataProviderUnavailableError("weekly history not stubbed in this test module")
+
+
+def _make_client(db_session: Session, provider: _StubProvider) -> TestClient:
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_data_provider] = lambda: provider
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(db_session: Session) -> TestClient:
+    test_client = _make_client(db_session, _StubProvider())
+    try:
+        yield test_client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_data_provider, None)
 
 
 def post_position_allowing_non_finite_floats(client: TestClient, payload: dict[str, Any]):
@@ -690,3 +765,153 @@ class TestAddPosition:
         assert body["id"] == first_id
         assert body["ticker"] == "AAPL"
         assert body["quantity"] == 110
+
+
+class TestAddPositionCapturesTrailingStopFloorAtMerge:
+    """backend-trailing-profit-stop, round 2: `PositionORM.trailing_stop_high_water_mark` (the
+    persisted floor behind `GET /api/portfolio/risk`'s `RiskPosition.trailing_stop` hard
+    ratchet) is now locked in HERE, on a same-ticker merge, rather than by that GET route
+    itself -- see this task's `decisions` entry for the full round-2 history (an earlier
+    revision had GET do the writing, reverted after review flagged it as violating HTTP GET's
+    safe/idempotent contract)."""
+
+    def test_merge_captures_the_pre_merge_ratchet_as_a_persisted_floor(
+        self, db_session: Session
+    ) -> None:
+        """Reproduces PR #240's original merge-regression fixture end to end through the POST
+        route itself: entered at $100, rallies to +15% profit (comfortably past the 10%
+        breakeven trigger), then merges in a buy at $200/share (avg_cost_basis -> $150, no
+        price movement) -- the floor captured by this merge must reflect the ratchet computed
+        against the OLD avg_cost_basis=100, not the new, higher one."""
+        rally_closes = [100.0 + 15.0 * i / 14.0 for i in range(15)]  # ends at +15% profit
+        rally_lows = [c - 1.0 for c in rally_closes]
+        daily = _daily_frame(rally_closes, rally_lows)
+        test_client = _make_client(db_session, _StubProvider(daily={"AAPL": daily}))
+        try:
+            first = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+            )
+            assert first.status_code == 201
+            position_id = first.json()["id"]
+
+            second = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 200.0, "entry_date": "2026-01-01"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert second.status_code == 201
+        assert second.json()["avg_cost_basis"] == pytest.approx(150.0)
+
+        old_position = Position(
+            id=position_id, ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1)
+        )
+        expected_stop = protective_stop(old_position, daily.iloc[:-1])
+        expected_floor = ratchet_trailing_profit_stop(old_position, daily, expected_stop)
+        # 100 + 1/3 * (15 - 10) == 101.666... -- computed against the OLD $100 cost basis.
+        assert expected_floor == pytest.approx(101.666667, abs=1e-4)
+
+        row = db_session.get(PositionORM, position_id)
+        assert row.trailing_stop_high_water_mark == pytest.approx(expected_floor)
+
+    def test_merge_with_unstubbed_ticker_leaves_floor_none(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        """A merge whose price-history fetch fails (the default stub raises
+        `DataProviderUnavailableError` for every ticker) must still succeed, leaving
+        `trailing_stop_high_water_mark` untouched (`None`) rather than fabricating a floor from
+        no data."""
+        first = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+        )
+        assert first.status_code == 201
+        position_id = first.json()["id"]
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 200.0, "entry_date": "2026-01-01"},
+        )
+        assert second.status_code == 201
+
+        row = db_session.get(PositionORM, position_id)
+        assert row.trailing_stop_high_water_mark is None
+
+    def test_merge_data_provider_failure_does_not_block_the_merge(
+        self, db_session: Session
+    ) -> None:
+        """A `DataProviderError` fetching this ticker's daily history at merge time must
+        degrade to leaving `trailing_stop_high_water_mark` untouched, never block or fail the
+        merge itself -- adding a position must never depend on live market data being
+        reachable."""
+        test_client = _make_client(db_session, _StubProvider())  # nothing stubbed -> always fails
+        try:
+            first = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "TSLA", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+            )
+            assert first.status_code == 201
+            position_id = first.json()["id"]
+
+            second = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "TSLA", "quantity": 1, "avg_cost_basis": 300.0, "entry_date": "2026-01-01"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert second.status_code == 201
+        assert second.json()["avg_cost_basis"] == pytest.approx(200.0)
+
+        row = db_session.get(PositionORM, position_id)
+        assert row.trailing_stop_high_water_mark is None
+
+    def test_second_merge_advances_an_already_persisted_floor(self, db_session: Session) -> None:
+        """A second same-ticker merge, after the first already locked in a floor, must never
+        lower that floor -- `trailing_stop_floor_before_merge` folds the existing persisted
+        value in as its own floor (`ratchet_trailing_profit_stop`'s `persisted_high_water_mark`
+        kwarg), so this is a genuine hard-ratchet property of the merge path itself, not just
+        of GET /api/portfolio/risk's read. One deep downside wick is mixed into the fixture
+        (matching PR #240's own regression fixture) so this genuinely exercises the persisted
+        floor overriding a lower fresh recompute, rather than the floor being trivially
+        satisfied by an incidentally-higher live SafeZone stop."""
+        rally_closes = [100.0 + 15.0 * i / 14.0 for i in range(15)]  # ends at +15% profit
+        rally_lows = [c - 1.0 for c in rally_closes]
+        rally_lows[10] = 85.0
+        daily = _daily_frame(rally_closes, rally_lows)
+        test_client = _make_client(db_session, _StubProvider(daily={"AAPL": daily}))
+        try:
+            first = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+            )
+            position_id = first.json()["id"]
+
+            # First merge: avg_cost_basis 100 -> 150, locking in ~101.667 as the floor.
+            test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 200.0, "entry_date": "2026-01-01"},
+            )
+            floor_after_first_merge = db_session.get(PositionORM, position_id).trailing_stop_high_water_mark
+            assert floor_after_first_merge == pytest.approx(101.666667, abs=1e-4)
+
+            # Second merge: same unchanged rally_daily price history, avg_cost_basis 150 -> a
+            # much higher blended value that would, computed fresh under the new cost basis
+            # alone, no longer even cross the 10% trigger (mirrors PR #240's original repro).
+            second = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 10, "avg_cost_basis": 500.0, "entry_date": "2026-01-01"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert second.status_code == 201
+
+        row = db_session.get(PositionORM, position_id)
+        assert row.trailing_stop_high_water_mark >= floor_after_first_merge
+        assert row.trailing_stop_high_water_mark == pytest.approx(floor_after_first_merge)

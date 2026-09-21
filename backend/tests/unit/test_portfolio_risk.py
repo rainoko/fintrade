@@ -20,6 +20,7 @@ from app.portfolio.risk import (
     realized_losses_pct,
     total_open_risk_pct,
     trailing_profit_stop,
+    trailing_stop_floor_before_merge,
 )
 
 
@@ -628,8 +629,10 @@ class TestRatchetTrailingProfitStop:
         )
         assert stale_candidate == pytest.approx(95.0)  # the bug, if there were no floor
 
-        # With the floor supplied (as app.api.routers.portfolio.get_risk now always does),
-        # the result must not drop below what was already reported.
+        # With the floor supplied (as app.portfolio.risk.trailing_stop_floor_before_merge's own
+        # persisted floor, read back by GET /api/portfolio/risk, now supplies -- see this
+        # task's round-2 `decisions` entry for why the write moved to the merge path), the
+        # result must not drop below what was already reported.
         floored_result = ratchet_trailing_profit_stop(
             merged_position,
             rally_daily,
@@ -663,3 +666,99 @@ class TestRatchetTrailingProfitStop:
         without_kwarg = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
 
         assert with_none == pytest.approx(without_kwarg)
+
+
+def _daily_ohlcv_frame_since(entry: date, closes: list[float]) -> pd.DataFrame:
+    """Like `_daily_frame_since` above, but with a `low` column too (`close - 1.0` throughout)
+    -- `trailing_stop_floor_before_merge` needs both (it calls `protective_stop` internally,
+    unlike `ratchet_trailing_profit_stop`'s own tests above, which are handed a manual
+    `safezone_stop` and so never touch `daily_ohlcv["low"]` at all)."""
+    return pd.DataFrame(
+        {"close": closes, "low": [c - 1.0 for c in closes]},
+        index=pd.date_range(entry, periods=len(closes), freq="D", name="date"),
+    )
+
+
+class TestTrailingStopFloorBeforeMerge:
+    """`app.portfolio.risk.trailing_stop_floor_before_merge` -- the value `POST
+    /api/portfolio/positions`'s same-ticker-merge branch persists as
+    `PositionORM.trailing_stop_high_water_mark`'s floor, captured against the position's OLD,
+    pre-merge `avg_cost_basis`/`entry_date` before the merge overwrites them (backend-
+    trailing-profit-stop round 2 -- see `ratchet_trailing_profit_stop`'s own docstring for why
+    `GET /api/portfolio/risk` no longer writes this column itself)."""
+
+    def test_none_daily_ohlcv_returns_none(self) -> None:
+        """A `provider.get_daily_ohlcv` fetch failure at merge time (already caught by the
+        caller and turned into `daily_ohlcv=None`) must degrade to leaving the floor
+        untouched, never raise or fabricate a value from no data."""
+        position = _position(avg_cost_basis=100.0)
+
+        assert trailing_stop_floor_before_merge(position, None, persisted_high_water_mark=50.0) is None
+
+    def test_too_short_daily_ohlcv_returns_none(self) -> None:
+        """Fewer than 2 rows leaves nothing for `protective_stop`'s own `.iloc[:-1]` slice to
+        compute a stop from -- degrades to `None` rather than raising."""
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_ohlcv_frame_since(date(2026, 1, 1), [100.0])
+
+        assert (
+            trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+            is None
+        )
+
+    def test_malformed_frame_degrades_to_none_rather_than_raising(self) -> None:
+        """A frame missing the `low` column `protective_stop` requires raises `ValueError`
+        internally -- caught here and degraded to `None`, matching every other
+        can't-be-computed case in this module (a data hiccup at merge time must never block
+        the merge)."""
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame(
+            {"close": [100.0, 110.0]},
+            index=pd.date_range(date(2026, 1, 1), periods=2, freq="D", name="date"),
+        )
+
+        assert (
+            trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+            is None
+        )
+
+    def test_matches_directly_calling_protective_stop_then_ratchet_trailing_profit_stop(
+        self,
+    ) -> None:
+        """The result must be identical to what a real `GET /api/portfolio/risk` call would
+        have reported for this exact position/`daily_ohlcv`/persisted floor at this exact
+        moment -- i.e. `protective_stop(position, daily.iloc[:-1])` feeding
+        `ratchet_trailing_profit_stop(position, daily, that_stop, persisted_high_water_mark=...)`,
+        with no divergence in the intermediate `safezone_stop`."""
+        position = _position(avg_cost_basis=100.0)
+        # Ends at close=115 -- +15% profit, comfortably past the 10% breakeven trigger.
+        daily = _daily_ohlcv_frame_since(
+            date(2026, 1, 1), [100.0 + 15.0 * i / 14.0 for i in range(15)]
+        )
+
+        result = trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+
+        expected_stop = protective_stop(position, daily.iloc[:-1])
+        expected = ratchet_trailing_profit_stop(position, daily, expected_stop)
+        assert result == pytest.approx(expected)
+        # 100 + 1/3 * (15 - 10) == 101.666...
+        assert result == pytest.approx(101.666667, abs=1e-4)
+
+    def test_never_returns_lower_than_the_persisted_high_water_mark(self) -> None:
+        """A position whose OLD cost basis no longer crosses the trigger against unchanged
+        price history (e.g. a second merge that raises `avg_cost_basis` further) must still
+        floor at whatever was already locked in -- this is `ratchet_trailing_profit_stop`'s
+        own floor contract, just exercised through this wrapper."""
+        # avg_cost_basis=150 vs. a flat $90 close history never crosses the 10% trigger at
+        # all -- the fresh candidate alone collapses to protective_stop (87.0: swing_low=89,
+        # a constant downside penetration of 1.0 against the converged EMA(13)=90 -- 89 -
+        # 2*1.0), well below the already-locked-in 101.667 floor.
+        position = _position(avg_cost_basis=150.0)
+        daily = _daily_ohlcv_frame_since(date(2026, 1, 1), [90.0] * 15)
+
+        result = trailing_stop_floor_before_merge(
+            position, daily, persisted_high_water_mark=101.666667
+        )
+
+        assert result == pytest.approx(101.666667, abs=1e-4)
+        assert result >= 101.666667 - 1e-9
