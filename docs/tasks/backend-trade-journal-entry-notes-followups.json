@@ -25,5 +25,11 @@
       "decision": "Added `PositionIn._strip_and_normalize_entry_notes`, a field_validator on `entry_notes` that strips leading/trailing whitespace and normalizes a resulting empty string to `None` (rather than storing/returning `\"\"`, and rather than leaving free-text notes exempt from normalization entirely). This mirrors `PositionIn.ticker`'s own strip convention, but normalizes instead of rejecting: unlike `ticker` (required, `min_length=1`) or `FollowUpReviewIn.follow_up_notes` (required, whose entire purpose is recording the note, so a blank one would defeat the endpoint), `entry_notes` is optional -- an explicit blank/whitespace-only value has no meaningful difference from simply omitting the field, so silently normalizing to null (matching the already-omitted case) is more useful than a 422 that would force the caller to strip client-side or an inconsistent `\"\"` vs `null` distinction leaking through the API. This also fixes the merge-append bug for free: `add_position`'s `if position.entry_notes:` check now correctly treats a whitespace-only incoming note as falsy (it's already `None` by the time the handler runs), so it's no longer appended onto an existing note as literal whitespace.",
       "rationale": "Considered leaving entry_notes deliberately exempt from normalization (i.e. treating the truthy-whitespace merge quirk as an accepted edge case) since the original backend-trade-journal-entry-notes task didn't flag it as a requirement -- rejected because it's a real, user-visible inconsistency (ticker normalizes, entry_notes silently doesn't) with no offsetting benefit: nothing in docs/Analyse.md or docs/ideas.md's ch. 59 entry calls for preserving whitespace-only notes, and the inconsistency was exactly what PR #213's review flagged. Considered rejecting a blank/whitespace-only entry_notes with a 422 (mirroring ticker/follow_up_notes) instead of normalizing -- rejected because entry_notes is optional and free-text: a caller who sends `entry_notes: \"\"` almost certainly means 'no note', not an error condition, and forcing a 422 here would be surprising for an optional field in a way it isn't for a required one like follow_up_notes."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-entry-notes-followups",
+    "pr_number": 236,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/236",
+    "pushed_at": "2026-09-21T20:53:08Z"
+  }
 }
