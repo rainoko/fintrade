@@ -519,6 +519,39 @@ Response, same `state`/`detail` convention as `GET /api/ibkr/scanner/params`, pl
 
 `results` is non-null if and only if `state` is `available`; an empty list is a valid, successful zero-match scan. Being rate-limited (`IBKRProvider.run_scanner`'s own client-side 1-request/second throttle) is a distinct, genuine, transient error for an otherwise-available scanner — surfaced as `429`, not folded into `state` — since it's actionable (retry shortly) in a way "IBKR isn't connected" isn't. This endpoint doesn't add a second, competing throttle of its own; it relies entirely on `IBKRProvider`'s existing rate limits (1 req/sec for `run_scanner`, a 15-minute cache for `get_scanner_params`). Same `503` treatment as `GET /api/ibkr/scanner/params` for a transient failure of the scan call itself against an otherwise-`available` gateway.
 
+### `POST /api/ibkr/breadth/snapshot`
+
+Elder ch. 34-36's real, broad-market breadth indicators (New High-New Low, Advance/Decline) — distinct from `GET /api/watchlist/breadth`'s personal-watchlist-only Tide aggregate. Records (at most once per calendar day) `len(IBKRProvider.run_scanner(scan_config))` for one caller-labeled `series_key`, and returns 5-day/20-day rolling sums over that series' own accumulated daily history. See the `backend-market-breadth-indicators` task's `decisions` entry for the research finding that shaped this scope — IBKR's scanner returns a ranked, capped shortlist of matching contracts, never a genuine full-market count or percentage, so this is an explicitly bounded approximation, and "Stocks above 50-Day MA" (ch. 35) isn't implemented at all (no IBKR scan category maps to a moving-average comparison, unlike NH-NL/Advance-Decline's plausible new-high/new-low- and gainer/loser-style categories) — and docs/Analyse.md's "IBKR-scanner breadth approximation" section for the full caveat.
+
+Request:
+
+```json
+{ "series_key": "nh", "scan_config": { "instrument": "STK", "type": "TOP_PERC_GAIN", "location": "STK.US.MAJOR" } }
+```
+
+`series_key` is an opaque, caller-chosen label (lowercase letters/digits/underscore/hyphen, 1-40 chars) for one side of a breadth reading (e.g. `"nh"`/`"nl"` for New High-New Low, `"adv"`/`"dec"` for Advance/Decline) — this app doesn't hardcode which IBKR scan-type code corresponds to which side (unconfirmed against a live gateway, same reasoning as `POST /api/ibkr/scanner/run`'s own `scan_config`); the caller supplies both the label and the `scan_config` that produces it, and combines two labeled readings into a spread itself (e.g. `nh.rolling_5d - nl.rolling_5d`).
+
+Response:
+
+```json
+{
+  "state": "available",
+  "detail": null,
+  "series_key": "nh",
+  "snapshot_date": "2026-09-21",
+  "count": 7,
+  "days_recorded": 23,
+  "rolling_5d": 31,
+  "rolling_20d": 118
+}
+```
+
+`count` is non-null if and only if `state` is `available`. At most one scan is run per `series_key` per calendar day: if today's row (`app.db.models.IBKRBreadthSnapshotORM`) already exists, it's served directly and the request's `scan_config` is ignored — not a stateless per-request computation, since the rolling windows below need an accumulated daily history, and re-scanning on every request would also needlessly spend `IBKRProvider.run_scanner`'s rate-limited calls. `rolling_5d` (ch. 34's "weekly NH-NL", a 5-trading-day moving total) and `rolling_20d` (ch. 34's "20-day NH-NL", a rolling monthly look-back) sum `count` over this series' most recent recorded days (ending today); each is `null` until enough days exist (`days_recorded >= 5`/`20` respectively) rather than a misleadingly partial sum. `days_recorded` is the total number of calendar days (including today) recorded for this `series_key` so far, uncapped by either rolling window.
+
+None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day NH-NL −500, 50-day-MA 75%/25%) are surfaced anywhere in this response — see docs/Analyse.md for why they don't apply to this bounded approximation.
+
+'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like `POST /api/ibkr/scanner/run` — a normal `200` response, never an HTTP error, with every other field `null`. Being rate-limited or a transient scanner-call failure against an otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like `POST /api/ibkr/scanner/run` — both only reachable on a cache miss (today's first request for this `series_key`).
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
@@ -535,6 +568,8 @@ Response, same `state`/`detail` convention as `GET /api/ibkr/scanner/params`, pl
 - IBKR disabled/gateway unreachable/not authenticated on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run` → a normal `200` with the corresponding `state`, `categories`/`results` both `null`, never a failed request (see both endpoints above).
 - `POST /api/ibkr/scanner/run` called again sooner than `IBKRProvider`'s own 1-request/second `run_scanner` throttle allows → `429` (see `POST /api/ibkr/scanner/run` above).
 - The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).
+- IBKR disabled/gateway unreachable/not authenticated on `POST /api/ibkr/breadth/snapshot` → a normal `200` with the corresponding `state`, every other field `null`, never a failed request; same `429`/`503` treatment as `POST /api/ibkr/scanner/run` for rate-limiting/a transient scan-call failure, both only reachable on a cache miss (see `POST /api/ibkr/breadth/snapshot` above).
+- An invalid `series_key` (not `^[a-z0-9_-]{1,40}$`) on `POST /api/ibkr/breadth/snapshot` → `422` (standard per-field validation error shape).
 
 ## Contract Snapshot & Parallel Development
 

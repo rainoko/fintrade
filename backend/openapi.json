@@ -866,6 +866,132 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "IBKRBreadthSnapshotRequest": {
+        "properties": {
+          "scan_config": {
+            "additionalProperties": true,
+            "description": "Same shape as `POST /api/ibkr/scanner/run`'s `scan_config` -- passed to the gateway as-is on a cache miss (see `count` below). Ignored (not re-sent to the gateway) if `series_key` already has a recorded snapshot for today.",
+            "examples": [
+              {
+                "instrument": "STK",
+                "location": "STK.US.MAJOR",
+                "type": "TOP_PERC_GAIN"
+              }
+            ],
+            "title": "Scan Config",
+            "type": "object"
+          },
+          "series_key": {
+            "description": "Caller-chosen label for one side of a breadth reading (e.g. `\"nh\"`/`\"nl\"` for New High-New Low, `\"adv\"`/`\"dec\"` for Advance/Decline) -- lowercase letters/digits/underscore/hyphen, 1-40 chars. This app doesn't hardcode which IBKR scan-type code corresponds to which side of a breadth reading (unconfirmed against a live gateway, same reasoning as `POST /api/ibkr/scanner/run`'s own `scan_config`) -- the caller supplies both the label and the `scan_config` that produces it, and combines two of these readings (e.g. `nh` minus `nl`) into a spread itself.",
+            "examples": [
+              "nh",
+              "nl"
+            ],
+            "pattern": "^[a-z0-9_-]{1,40}$",
+            "title": "Series Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_key",
+          "scan_config"
+        ],
+        "title": "IBKRBreadthSnapshotRequest",
+        "type": "object"
+      },
+      "IBKRBreadthSnapshotResponse": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`len(IBKRProvider.run_scanner(scan_config))` for today, for this `series_key` -- the number of matching contracts a single IBKR scan run returned, capped at whatever bounded, ranked shortlist size IBKR's own gateway applies to one scan request. This is an explicitly bounded approximation of a genuine full-market count, not a literal Elder NH-NL/Advance-Decline value -- see docs/Analyse.md's 'IBKR-scanner breadth approximation' section. Non-null if and only if `state` is 'available'.",
+            "title": "Count"
+          },
+          "days_recorded": {
+            "default": 0,
+            "description": "How many calendar days (including today) have a recorded snapshot for this `series_key` so far -- lets a caller tell whether `rolling_5d`/`rolling_20d` below reflect a full window or are still null for lack of history. 0 when `state` isn't 'available'.",
+            "title": "Days Recorded",
+            "type": "integer"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.",
+            "title": "Detail"
+          },
+          "rolling_20d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same as `rolling_5d`, over the most recent 20 recorded days -- matching ch. 34's '20-day NH-NL' monthly look-back. Null until `days_recorded >= 20`.",
+            "title": "Rolling 20D"
+          },
+          "rolling_5d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of `count` over the most recent 5 recorded days for this `series_key` (ending today), matching ch. 34's 'weekly NH-NL' 5-day moving total -- null until at least 5 days are recorded (`days_recorded >= 5`), rather than a misleadingly partial sum. A caller composing two series (e.g. `nh` minus `nl`) should subtract the two series' `rolling_5d` values, not re-derive a rolling sum from `count` alone.",
+            "title": "Rolling 5D"
+          },
+          "series_key": {
+            "description": "Echoes the request's `series_key`.",
+            "title": "Series Key",
+            "type": "string"
+          },
+          "snapshot_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The calendar day (server UTC) `count` was recorded for -- always today's date when `state` is 'available'. Null when `state` isn't 'available'.",
+            "title": "Snapshot Date"
+          },
+          "state": {
+            "description": "Same semantics/values as GET /api/ibkr/status's `state`. 'available' means `count` below reflects a recorded (today's, possibly already-cached) scan result; every other value means the scanner feature is currently unavailable (never an HTTP error) and every field below is null. Being rate-limited is a distinct, genuine error case -- see this route's `429` response -- not represented here.",
+            "enum": [
+              "disabled",
+              "available",
+              "gateway_unreachable",
+              "not_authenticated"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "series_key"
+        ],
+        "title": "IBKRBreadthSnapshotResponse",
+        "type": "object"
+      },
       "IBKRScannerParamsResponse": {
         "properties": {
           "categories": {
@@ -2553,6 +2679,68 @@
         "summary": "Suggest today's 'how did I trade yesterday?' score from yesterday's closed trades",
         "tags": [
           "daily-homework"
+        ]
+      }
+    },
+    "/api/ibkr/breadth/snapshot": {
+      "post": {
+        "description": "Elder ch. 34-36's real, broad-market breadth indicators (NH-NL, Advance/Decline),\napproximated via the IBKR scanner -- distinct from `GET /api/watchlist/breadth`'s\npersonal-watchlist-only Tide aggregate.\n\n`body.series_key` is an opaque, caller-chosen label for one side of a breadth reading\n(e.g. `\"nh\"`/`\"nl\"`, `\"adv\"`/`\"dec\"`) -- this app doesn't hardcode which IBKR scan-type\ncode corresponds to which side (see this task's `decisions` entry); the caller supplies\n`body.scan_config` (same shape as `POST /api/ibkr/scanner/run`) and combines two labeled\nreadings into a spread itself (e.g. `nh.rolling_5d - nl.rolling_5d`).\n\nAt most one scan is run per `series_key` per calendar day: if today's row already exists\n(`app.db.models.IBKRBreadthSnapshotORM`), it's served directly and `body.scan_config` is\nignored -- not a stateless per-request computation, since ch. 34's rolling windows need an\naccumulated daily history, and re-scanning on every request would also needlessly spend\nIBKR's rate-limited `run_scanner` calls. `rolling_5d`/`rolling_20d` sum `count` over this\nseries' most recent recorded days (ending today), null until enough days exist\n(`days_recorded >= 5`/`20` respectively) rather than a misleadingly partial sum.\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`POST /api/ibkr/scanner/run` -- a normal `200` response, never an HTTP error, with every\nother field null. Being rate-limited or a transient scanner-call failure against an\notherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like\n`POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first\nrequest for this `series_key`), since a cache hit never calls the scanner at all.",
+        "operationId": "record_ibkr_breadth_snapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBKRBreadthSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IBKRBreadthSnapshotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Scanner run rate limit (1 request/second) exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
+          }
+        },
+        "summary": "Record (or fetch) today's IBKR-scanner-based breadth count for one series, with rolling sums",
+        "tags": [
+          "ibkr"
         ]
       }
     },

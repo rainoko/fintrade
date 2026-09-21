@@ -693,6 +693,83 @@ class IBKRScannerRunResponse(BaseModel):
     )
 
 
+# --- /api/ibkr/breadth/snapshot ---------------------------------------------
+
+_SERIES_KEY_PATTERN = r"^[a-z0-9_-]{1,40}$"
+
+
+class IBKRBreadthSnapshotRequest(BaseModel):
+    series_key: str = Field(
+        pattern=_SERIES_KEY_PATTERN,
+        description="Caller-chosen label for one side of a breadth reading (e.g. `\"nh\"`/"
+        "`\"nl\"` for New High-New Low, `\"adv\"`/`\"dec\"` for Advance/Decline) -- lowercase "
+        "letters/digits/underscore/hyphen, 1-40 chars. This app doesn't hardcode which IBKR "
+        "scan-type code corresponds to which side of a breadth reading (unconfirmed against "
+        "a live gateway, same reasoning as `POST /api/ibkr/scanner/run`'s own `scan_config`) "
+        "-- the caller supplies both the label and the `scan_config` that produces it, and "
+        "combines two of these readings (e.g. `nh` minus `nl`) into a spread itself.",
+        examples=["nh", "nl"],
+    )
+    scan_config: dict = Field(
+        description="Same shape as `POST /api/ibkr/scanner/run`'s `scan_config` -- passed to "
+        "the gateway as-is on a cache miss (see `count` below). Ignored (not re-sent to the "
+        "gateway) if `series_key` already has a recorded snapshot for today.",
+        examples=[{"instrument": "STK", "type": "TOP_PERC_GAIN", "location": "STK.US.MAJOR"}],
+    )
+
+
+class IBKRBreadthSnapshotResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Same semantics/values as GET /api/ibkr/status's `state`. 'available' "
+        "means `count` below reflects a recorded (today's, possibly already-cached) scan "
+        "result; every other value means the scanner feature is currently unavailable (never "
+        "an HTTP error) and every field below is null. Being rate-limited is a distinct, "
+        "genuine error case -- see this route's `429` response -- not represented here.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state`, same convention as "
+        "GET /api/ibkr/status's `detail`.",
+    )
+    series_key: str = Field(description="Echoes the request's `series_key`.")
+    snapshot_date: date | None = Field(
+        default=None,
+        description="The calendar day (server UTC) `count` was recorded for -- always "
+        "today's date when `state` is 'available'. Null when `state` isn't 'available'.",
+    )
+    count: int | None = Field(
+        default=None,
+        description="`len(IBKRProvider.run_scanner(scan_config))` for today, for this "
+        "`series_key` -- the number of matching contracts a single IBKR scan run returned, "
+        "capped at whatever bounded, ranked shortlist size IBKR's own gateway applies to one "
+        "scan request. This is an explicitly bounded approximation of a genuine full-market "
+        "count, not a literal Elder NH-NL/Advance-Decline value -- see "
+        "docs/Analyse.md's 'IBKR-scanner breadth approximation' section. Non-null if and only "
+        "if `state` is 'available'.",
+    )
+    days_recorded: int = Field(
+        default=0,
+        description="How many calendar days (including today) have a recorded snapshot for "
+        "this `series_key` so far -- lets a caller tell whether `rolling_5d`/`rolling_20d` "
+        "below reflect a full window or are still null for lack of history. 0 when `state` "
+        "isn't 'available'.",
+    )
+    rolling_5d: int | None = Field(
+        default=None,
+        description="Sum of `count` over the most recent 5 recorded days for this "
+        "`series_key` (ending today), matching ch. 34's 'weekly NH-NL' 5-day moving total -- "
+        "null until at least 5 days are recorded (`days_recorded >= 5`), rather than a "
+        "misleadingly partial sum. A caller composing two series (e.g. `nh` minus `nl`) "
+        "should subtract the two series' `rolling_5d` values, not re-derive a rolling sum "
+        "from `count` alone.",
+    )
+    rolling_20d: int | None = Field(
+        default=None,
+        description="Same as `rolling_5d`, over the most recent 20 recorded days -- matching "
+        "ch. 34's '20-day NH-NL' monthly look-back. Null until `days_recorded >= 20`.",
+    )
+
+
 # --- /api/daily-homework ----------------------------------------------------
 
 HomeworkBandOut = Literal["red", "yellow", "green"]

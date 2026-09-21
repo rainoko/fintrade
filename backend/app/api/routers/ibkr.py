@@ -1,5 +1,6 @@
 """GET /api/ibkr/status (docs/tasks/backend-ibkr-status-endpoint.json) +
-GET /api/ibkr/scanner/params, POST /api/ibkr/scanner/run (docs/tasks/backend-market-scanner.json).
+GET /api/ibkr/scanner/params, POST /api/ibkr/scanner/run (docs/tasks/backend-market-scanner.json) +
+POST /api/ibkr/breadth/snapshot (docs/tasks/backend-market-breadth-indicators.json).
 
 `/status` was the first route in the app to consume `app.api.dependencies.get_ibkr_provider`
 at all -- it exists so the app (and, later, a frontend indicator) can surface "IBKR:
@@ -14,13 +15,28 @@ of which scan a broad universe at all. Both scanner routes reuse `/status`'s exa
 availability pattern (a `state` value on a normal `200` response, never an HTTP error, for
 "IBKR isn't enabled/available right now") rather than inventing a second one -- see this
 task's `decisions` entry.
+
+`/breadth/snapshot` is Elder ch. 34-36's real, broad-market breadth indicators (NH-NL,
+Advance/Decline) -- distinct from the personal-watchlist-only `GET /api/watchlist/breadth`
+proxy. It records (once per calendar day) `len(IBKRProvider.run_scanner(...))` for one
+caller-labeled `series_key`, and returns 5-day/20-day rolling sums over that series' own
+accumulated history (`app.db.models.IBKRBreadthSnapshotORM`) -- a bounded IBKR-scanner-result-
+count approximation, not a literal full-market count; see this task's `decisions` entry for
+the research finding that drove this scope (IBKR's scanner returns a ranked, capped shortlist
+of matching contracts, never a genuine full-market count or percentage) and
+docs/Analyse.md's "IBKR-scanner breadth approximation" section for the full caveat.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
 from app.api.schemas import (
     ErrorDetail,
+    IBKRBreadthSnapshotRequest,
+    IBKRBreadthSnapshotResponse,
+    IBKRGatewayState,
     IBKRScannerParamsResponse,
     IBKRScannerResultOut,
     IBKRScannerRunRequest,
@@ -33,10 +49,19 @@ from app.data.ibkr_provider import (
     IBKRRateLimitedError,
     IBKRUnavailableError,
 )
+from app.db.models import IBKRBreadthSnapshotORM
+from app.db.session import get_db
+from app.time_utils import today, utcnow
 
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
 
 _DISABLED_DETAIL = "IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set)."
+
+# ch. 34's own two rolling windows over the daily figure: "weekly NH-NL" (a 5-trading-day
+# moving total) and "20-day NH-NL" (a rolling monthly look-back) -- see this task's
+# `decisions` entry for why no other window is added.
+_ROLLING_WINDOW_DAYS = (5, 20)
+_MAX_ROLLING_WINDOW_DAYS = max(_ROLLING_WINDOW_DAYS)
 
 
 @router.get(
@@ -187,4 +212,105 @@ def run_ibkr_scanner(
             IBKRScannerResultOut(conid=r.conid, symbol=r.symbol, company_name=r.company_name, rank=r.rank)
             for r in results
         ],
+    )
+
+
+def _unavailable_breadth_response(
+    series_key: str, state: IBKRGatewayState, detail: str | None
+) -> IBKRBreadthSnapshotResponse:
+    return IBKRBreadthSnapshotResponse(state=state, detail=detail, series_key=series_key)
+
+
+@router.post(
+    "/breadth/snapshot",
+    response_model=IBKRBreadthSnapshotResponse,
+    operation_id="record_ibkr_breadth_snapshot",
+    summary="Record (or fetch) today's IBKR-scanner-based breadth count for one series, with rolling sums",
+    responses={
+        429: {"model": ErrorDetail, "description": "Scanner run rate limit (1 request/second) exceeded"},
+        503: {
+            "model": ErrorDetail,
+            "description": "The scanner-run call itself failed transiently (not a gateway/session "
+            "unavailability -- see GET /api/ibkr/status for that)",
+        },
+    },
+)
+def record_ibkr_breadth_snapshot(
+    body: IBKRBreadthSnapshotRequest,
+    provider: IBKRProvider | None = Depends(get_ibkr_provider),
+    db: Session = Depends(get_db),
+) -> IBKRBreadthSnapshotResponse:
+    """Elder ch. 34-36's real, broad-market breadth indicators (NH-NL, Advance/Decline),
+    approximated via the IBKR scanner -- distinct from `GET /api/watchlist/breadth`'s
+    personal-watchlist-only Tide aggregate.
+
+    `body.series_key` is an opaque, caller-chosen label for one side of a breadth reading
+    (e.g. `"nh"`/`"nl"`, `"adv"`/`"dec"`) -- this app doesn't hardcode which IBKR scan-type
+    code corresponds to which side (see this task's `decisions` entry); the caller supplies
+    `body.scan_config` (same shape as `POST /api/ibkr/scanner/run`) and combines two labeled
+    readings into a spread itself (e.g. `nh.rolling_5d - nl.rolling_5d`).
+
+    At most one scan is run per `series_key` per calendar day: if today's row already exists
+    (`app.db.models.IBKRBreadthSnapshotORM`), it's served directly and `body.scan_config` is
+    ignored -- not a stateless per-request computation, since ch. 34's rolling windows need an
+    accumulated daily history, and re-scanning on every request would also needlessly spend
+    IBKR's rate-limited `run_scanner` calls. `rolling_5d`/`rolling_20d` sum `count` over this
+    series' most recent recorded days (ending today), null until enough days exist
+    (`days_recorded >= 5`/`20` respectively) rather than a misleadingly partial sum.
+
+    'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+    `POST /api/ibkr/scanner/run` -- a normal `200` response, never an HTTP error, with every
+    other field null. Being rate-limited or a transient scanner-call failure against an
+    otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like
+    `POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first
+    request for this `series_key`), since a cache hit never calls the scanner at all.
+    """
+    if provider is None:
+        return _unavailable_breadth_response(body.series_key, "disabled", _DISABLED_DETAIL)
+
+    snapshot_date = today()
+    row = db.get(IBKRBreadthSnapshotORM, (body.series_key, snapshot_date))
+    if row is None:
+        try:
+            results = provider.run_scanner(body.scan_config)
+        except IBKRRateLimitedError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except IBKRUnavailableError as exc:
+            status = _resolve_scanner_unavailable(provider, exc)
+            return _unavailable_breadth_response(body.series_key, status.state, status.detail)
+
+        row = IBKRBreadthSnapshotORM(
+            series_key=body.series_key,
+            snapshot_date=snapshot_date,
+            count=len(results),
+            recorded_at=utcnow(),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    days_recorded = (
+        db.query(func.count(IBKRBreadthSnapshotORM.snapshot_date))
+        .filter(IBKRBreadthSnapshotORM.series_key == body.series_key)
+        .scalar()
+        or 0
+    )
+    recent_counts = [
+        c
+        for (c,) in db.query(IBKRBreadthSnapshotORM.count)
+        .filter(IBKRBreadthSnapshotORM.series_key == body.series_key)
+        .order_by(IBKRBreadthSnapshotORM.snapshot_date.desc())
+        .limit(_MAX_ROLLING_WINDOW_DAYS)
+        .all()
+    ]
+
+    return IBKRBreadthSnapshotResponse(
+        state="available",
+        detail=None,
+        series_key=body.series_key,
+        snapshot_date=snapshot_date,
+        count=row.count,
+        days_recorded=days_recorded,
+        rolling_5d=sum(recent_counts[:5]) if days_recorded >= 5 else None,
+        rolling_20d=sum(recent_counts[:20]) if days_recorded >= 20 else None,
     )

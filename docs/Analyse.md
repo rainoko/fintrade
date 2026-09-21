@@ -286,6 +286,22 @@ As a cheap, no-new-data-source approximation, `GET /api/watchlist/breadth` aggre
 
 `bullish_pct`/`bearish_pct`/`neutral_pct` are each rounded independently to 1 decimal place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split rounds to 33.3 + 33.3 + 33.3 = 99.9) — each is still independently correct; this is a known, accepted display characteristic, not a bug (see the `backend-watchlist-breadth-proxy-followups` task's `decisions`).
 
+### IBKR-scanner breadth approximation (real, broad-market NH-NL / Advance-Decline)
+
+Unlike the personal breadth proxy above (which only ever looks at tickers the user already tracks), `POST /api/ibkr/breadth/snapshot` reaches for a genuinely broad market universe — but only when the optional IBKR Client Portal Gateway integration is enabled and available (`FINTRADE_IBKR_ENABLED`, `app.data.ibkr_provider.IBKRProvider`; unavailable otherwise, never an error, per the `backend-ibkr-status-endpoint`/`backend-market-scanner` tasks' established convention).
+
+**Research finding this scope is built on** (`backend-market-breadth-indicators` task's `decisions` entry has the full writeup): `IBKRProvider.run_scanner`'s categories (52-week-high/low, top % gainers/losers, hot-by-volume, etc.) each return a bounded, ranked shortlist of individual matching contracts (this app's own `ScannerResult` model: one entry per contract, with a `rank`, and no aggregate/total-match-count field anywhere in the request or response contract) — not a genuine full-market count or percentage. That rules out a literal, book-defined computation of any of ch. 34-36's three indicators:
+
+- **New High-New Low Index** needs a same-day count of every stock across NYSE+AMEX+NASDAQ making a new 52-week high/low, not a capped shortlist of the most extreme names.
+- **Advance/Decline** needs a full-market count of every stock that closed up vs. down, not a ranked "top % gainers/losers" list.
+- **Stocks above 50-Day MA** needs a true percentage (both a numerator *and* a known denominator across the whole market) — out of scope entirely, and unlike the other two, not even approximable this way: IBKR's predefined scan-type categories have no moving-average-relative category at all to begin with, not just a count-cap problem.
+
+Per this app's own explicit product decision to *approximate* rather than compute the literal values (the `backend-market-breadth-indicators` task's own description), `count` (see `docs/architecture/API.md`'s `POST /api/ibkr/breadth/snapshot`) treats the number of contracts a single scan run returns as a crude, saturating proxy for "how many names are near an extreme right now" for whichever side (`series_key`) the caller is tracking (e.g. a new-highs-style scan vs. a new-lows-style scan for an NH-NL reading, or top-gainers vs. top-losers for an Advance/Decline reading) — **explicitly not comparable to ch. 34's own numeric thresholds** (weekly NH-NL ±4,000/+2,500, 20-day NH-NL −500), which assume real full-market magnitudes in the hundreds to thousands, far beyond what a single capped scan run can ever report. Those thresholds are documented here as illustrative context only — no reference-line field is exposed on the API response, and a consuming frontend should present this as a directional/trend signal (rising/falling, or which side currently has more names) rather than plotting it against the book's absolute numbers.
+
+This app also doesn't hardcode which IBKR scan-type code corresponds to "new highs" vs. "new lows" (or "advancers" vs. "decliners") — the exact category codes are unconfirmed against a live gateway, the same reasoning `backend-market-scanner` already used to justify passing `GET /api/ibkr/scanner/params`'s category list through as-is rather than hand-curating it. The caller supplies both an opaque `series_key` label and the `scan_config` that produces it, and computes a spread (e.g. NH-NL ≈ `nh.rolling_5d - nl.rolling_5d`) itself from two labeled readings.
+
+Ch. 34's own two rolling windows over the daily figure — "weekly NH-NL" (a 5-trading-day moving total) and "20-day NH-NL" (a rolling monthly look-back) — need an accumulated daily history, not a stateless per-request computation: `app.db.models.IBKRBreadthSnapshotORM` stores one row per `(series_key, calendar day)`, recorded at most once per day (a repeat request for a day already recorded is served from storage, not re-scanned), and `rolling_5d`/`rolling_20d` sum over that history.
+
 ---
 
 ## 8. Data Requirements

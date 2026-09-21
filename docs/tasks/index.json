@@ -1650,7 +1650,7 @@
       "id": "backend-market-breadth-indicators",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-market-breadth-indicators.json"
     },
     {
