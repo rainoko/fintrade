@@ -1580,8 +1580,15 @@
       "id": "backend-trade-apgar",
       "area": "backend/portfolio",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-apgar.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-apgar.json"
+    },
+    {
+      "id": "backend-trade-apgar-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-apgar-followups.json"
     },
     {
       "id": "frontend-close-position-dialog",
