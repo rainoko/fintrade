@@ -1559,7 +1559,7 @@
       "id": "backend-trade-journal-followup-review",
       "area": "backend/db",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-journal-followup-review.json"
     },
     {

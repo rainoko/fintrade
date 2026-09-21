@@ -3,7 +3,7 @@
   "title": "Two-months-later trade follow-up review workflow",
   "area": "backend/db",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
@@ -29,5 +29,11 @@
       "decision": "The review-recording endpoint is `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review`, taking a required, non-blank `follow_up_notes` string (stripped of surrounding whitespace, rejecting blank/whitespace-only via a field_validator matching PositionIn.ticker's own pattern) and returning the full updated `ClosedTradeOut` (recomputed grade included). Calling it again for the same trade_id overwrites both `follow_up_notes` and `follow_up_reviewed_at` with the new call's values rather than appending (unlike PositionIn.entry_notes's append-on-merge behavior) or rejecting a second call with a 409/422.",
       "rationale": "follow_up_notes is required (not optional like entry_notes) because this endpoint's entire purpose is recording that note -- an optional/blank note would defeat the point of the action, unlike entry_notes which is a nice-to-have annotation on a POST whose primary purpose (adding a position) doesn't depend on it. Overwrite-on-repeat-call (rather than append, or rejecting a second review) was chosen because a follow-up review is a single, evolving personal reflection on one trade, not a multi-buy narrative like entry_notes (where each buy genuinely has its own separate 'why') -- and this is a personal journal tool, not an immutable audit log, so revising an earlier review after further reflection is a legitimate, expected use case rather than something to block. Append-on-repeat-call (like entry_notes) was considered and rejected because concatenating an evolving reflection with blank-line separators over multiple edits would produce a confusing running log rather than one clear takeaway; rejecting a second call outright (409 Conflict) was also considered and rejected as unnecessarily restrictive for a personal tool with no compliance requirement to preserve a first-draft review untouched. Returning the full ClosedTradeOut (not a bare 204/ack) mirrors add_position's POST-returns-resource convention and saves the frontend a second round trip to see the updated row."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review",
+    "pr_number": 221,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/221",
+    "pushed_at": "2026-09-21T04:13:44Z"
+  }
 }
