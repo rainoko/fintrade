@@ -1,0 +1,21 @@
+{
+  "id": "backend-profit-target-weekly-channel-followups",
+  "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel PR #222 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-profit-target-weekly-channel"],
+  "references": [
+    "docs/tasks/backend-profit-target-weekly-channel.json",
+    "https://github.com/rainoko/fintrade/pull/222"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's fresh full review of PR #222 (backend-profit-target-weekly-channel), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "This one PR's stale-daily-channel-copy bug has now recurred across 5 separate locations over 2 review rounds (frontend/src/utils/profitTargetHelpText.ts, both features/{stocks,portfolio}/components/metricHelpContent.ts, backend/app/api/schemas.py's ProfitTargetOut.source, and docs/architecture/API.md's profit_target paragraph) -- each fix pass caught the previously-named locations but missed at least one more. Worth a lightweight, cheap guard against a 6th recurrence: e.g. a small unit/doc test (or a simple grep-based check run in CI/static-verify) asserting that every place describing suggest_profit_target's channel source uses 'weekly'/'weeks' wording and never 'today'/'daily'/'100 days' -- so this specific bug class is caught by tooling next time a related change touches this metric, rather than depending on a human/reviewer re-grepping the whole repo by hand each time.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
