@@ -1,0 +1,24 @@
+{
+  "id": "backend-trade-journal-followup-review-followups-followups-followups",
+  "title": "Non-blocking follow-ups from PR #228 review (backend-trade-journal-followup-review-followups-followups)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trade-journal-followup-review-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+    "docs/tasks/backend-trade-journal-followup-review-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/228"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #228, tracked here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry, as corrected by PR #228, still contains a parenthetical that doesn't logically reconcile: '...backend-trade-grade-letter added trade_letter_grade and backend-trade-journal-entry-notes added entry_notes/strategy (net +1 after removing the original description's undercount)...'. Those two named PRs add three fields total (trade_letter_grade, entry_notes, strategy), not one, so a stated 'net +1' from a 16-field baseline to a 17-field final doesn't square with '3 fields added' unless the 16-field baseline was itself an *overcount* by 2 -- yet the text calls it an 'undercount', which is the wrong direction. This confusion predates PR #228 (the original '18 fields'/'net +2' version had the same unreconciled arithmetic against the same 3 named field additions); PR #228 only made the headline count and its raw arithmetic (16->17) internally consistent, it didn't fix the underlying explanation. Worth rewriting the parenthetical (or removing it) so it accurately explains how the baseline and the three named additions produce the actual final count, rather than leaving a plausible-sounding but backwards 'undercount' explanation in a decision record that's now been corrected twice.",
+      "done": false
+    },
+    {
+      "step": "PR #228's task-worker edited an already-merged PR's (#227) GitHub description in place to correct a stale field count, rather than leaving it as-is and relying on review.comments/pr_decision.notes (which already correctly stated the real count) as the corrective record, or posting a new additive PR comment. This was a reasonable, low-risk, transparently-documented call (recorded as a `decisions` entry with rationale, GitHub's own edit history preserves the prior text) and pr-reviewer did not treat it as blocking -- but nothing in CLAUDE.md or the task-worker agent instructions currently says whether editing a merged PR's description post-merge is an acceptable pattern versus something that should default to an additive comment instead (a comment is more visible in the PR timeline/notifications and never overwrites the original text other readers may have already relied on). Worth deciding and documenting this as an explicit convention (e.g. in CLAUDE.md's task board section or the task-worker/pr-reviewer agent docs) so future occurrences don't each have to re-derive the same judgment call from scratch.",
+      "done": false
+    }
+  ]
+}
