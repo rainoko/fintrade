@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -12,12 +12,32 @@
   ],
   "description": "Ch. 54 has a whole subsection, 'Don't Let a Winning Trade Turn into a Loss,' not implemented at all today: as unrealized profit grows, move the stop to breakeven ('cuffing the trade') once profit crosses some threshold, then keep ratcheting the stop up to protect a growing fraction of open profit as it increases (Elder's own example: a third). This is a distinct, new feature from the existing static SafeZone protective_stop -- a trailing/profit-protecting stop that reacts to how far a position has moved in its favor, not just current volatility. Must enforce the companion principle 'Move Your Stop Only in the Direction of Your Trade': a stop is never loosened once set, only tightened -- implement as a hard ratchet, not a fresh computation each time.",
   "checklist": [
-    { "step": "Design and implement a trailing/profit-protecting stop function taking a position's entry price, current price, and existing SafeZone stop, returning a ratcheted stop for a long position.", "done": false },
-    { "step": "Decide and record (a decisions entry) the exact breakeven-trigger threshold and profit-protection fraction -- Elder's own numbers are illustrative examples, not stated hard rules, so this needs an explicit, documented judgment call.", "done": false },
-    { "step": "Enforce the ratchet as max(previous suggested stop, newly computed stop) for a long -- never let the returned stop decrease across successive calls.", "done": false },
-    { "step": "Unit tests: profit below threshold (no change from SafeZone), profit crossing threshold (moves to breakeven), profit growing further (ratchets up), and a test proving the stop never decreases across a sequence of calls even if a later computed value would be lower.", "done": false },
-    { "step": "Wire the new trailing stop into GET /api/portfolio/risk alongside the existing protective_stop field, without breaking existing consumers of that field.", "done": false },
-    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false },
-    { "step": "elder-signal-reviewer pass before merge (this is signal/risk logic).", "done": false }
+    { "step": "Design and implement a trailing/profit-protecting stop function taking a position's entry price, current price, and existing SafeZone stop, returning a ratcheted stop for a long position.", "done": true },
+    { "step": "Decide and record (a decisions entry) the exact breakeven-trigger threshold and profit-protection fraction -- Elder's own numbers are illustrative examples, not stated hard rules, so this needs an explicit, documented judgment call.", "done": true },
+    { "step": "Enforce the ratchet as max(previous suggested stop, newly computed stop) for a long -- never let the returned stop decrease across successive calls.", "done": true },
+    { "step": "Unit tests: profit below threshold (no change from SafeZone), profit crossing threshold (moves to breakeven), profit growing further (ratchets up), and a test proving the stop never decreases across a sequence of calls even if a later computed value would be lower.", "done": true },
+    { "step": "Wire the new trailing stop into GET /api/portfolio/risk alongside the existing protective_stop field, without breaking existing consumers of that field.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true },
+    { "step": "elder-signal-reviewer pass before merge (this is signal/risk logic).", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Breakeven-trigger threshold = 10% unrealized profit (as a fraction of entry price); profit-protection fraction = 1/3 (Elder's own worked example, reused verbatim) applied to profit EARNED BEYOND that 10% trigger, not to total profit. app.portfolio.risk.trailing_profit_stop(entry_price, current_price, safezone_stop): below the trigger, returns safezone_stop verbatim (unchanged from the existing static SafeZone behavior -- there's no 'winning trade' yet to protect); at or above it, returns entry_price + (1/3 * profit_beyond_threshold), which is exactly entry_price (breakeven) the instant the trigger first fires and rises continuously beyond that.",
+      "rationale": "Elder states the ch. 54 'Don't Let a Winning Trade Turn into a Loss' behavior (move to breakeven once profit has grown enough, then keep protecting a growing fraction of profit) but gives no stated hard number for either the trigger or general applicability of 'a third' -- both are explicit judgment calls, as the checklist itself flags. 10% was chosen as large enough that ordinary daily noise on this app's swing/position timeframe won't false-trigger it long before a real trend move has developed, small enough that a genuinely winning trade isn't left unprotected for long; a fixed dollar/point amount was rejected as not scaling across tickers of very different price levels, and a threshold defined as a multiple of the position's own stop-distance ('1R') was rejected as needing that stop-distance to be tracked at entry time, which this app doesn't persist anywhere today. 1/3 is reused directly from the book's own example rather than picked independently, since it's the one concrete number the text actually gives. Applying the fraction to profit BEYOND the trigger (not total profit) was chosen over the simpler 'entry_price + fraction * total_profit' alternative specifically because the latter would already sit above breakeven at the moment of crossing (a discontinuity), contradicting the book's own framing of that moment as landing exactly on breakeven ('cuffing the trade')."
+    },
+    {
+      "timestamp": "2026-09-21T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The hard ratchet (never decrease across successive real GET /api/portfolio/risk calls) is implemented as a stateless recomputation over the position's own full price history since entry (app.portfolio.risk.ratchet_trailing_profit_stop), not as a persisted database column mutated on each read. Once the breakeven trigger has fired at least once, the returned value is the running max of entry_price + fraction*profit_beyond_threshold across every close from position.entry_date through today, folded fresh on every call; the live, independently-fluctuating safezone_stop participates only as a pre-trigger pass-through and is deliberately never re-folded into the ratchet once triggered.",
+      "rationale": "Considered and rejected: adding a nullable `trailing_stop` column to PositionORM (mirroring the entry_notes/strategy precedent) and mutating it inside GET /api/portfolio/risk's handler on every read, taking max(persisted_value, freshly_computed_candidate) and writing the result back. Rejected for three reasons: (1) it would be this codebase's first GET endpoint with a side-effecting write, a genuine architectural deviation from every other route here; (2) POST /api/portfolio/positions's same-ticker merge can change avg_cost_basis/entry_date after a trailing_stop was already persisted against the OLD cost basis, and correctly re-basing a persisted ratchet across that merge would need its own invalidation logic this task would otherwise have to design and test; (3) app.data.base.DataProvider.get_daily_ohlcv already fetches this ticker's full available history (not a truncated window), so every caller in this endpoint already has everything the stateless approach needs in hand at zero extra fetch cost. The stateless fold is mathematically safe against ever decreasing across successive calls for exactly the reason a persisted ratchet would be: daily OHLCV bars only ever accumulate over real time, never get revised away once committed to history, so a later call's fold is always over a superset of an earlier call's -- the running max over a growing set can only hold steady or rise. The one deliberate accepted trade-off: safezone_stop is NOT re-folded into the ratchet post-trigger (using today's single live safezone_stop value for every historical day, rather than reconstructing each day's own true historical SafeZone stop, would reopen a genuine 'could decrease later' gap whenever a currently-lower live safezone_stop happens to be the binding term) -- so trailing_stop and protective_stop are independent stop-setting techniques a trader is meant to consider together post-trigger, not one strictly dominating the other."
+    },
+    {
+      "timestamp": "2026-09-21T22:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Frontend display of the new trailing_stop field (e.g. a PositionsTable/RiskPanel column) is out of scope for this task -- backend computation + API exposure only.",
+      "rationale": "The task's own checklist only asks for the backend function, its tests, and wiring into GET /api/portfolio/risk's response contract (regenerating openapi.json/types.ts) -- it doesn't include a frontend checklist item, matching the established split in this same docs/ideas.md ch.53/54 batch (backend-profit-target landed the backend field first; frontend-profit-target-display was a separate, later task that added the UI). A companion frontend task can be filed the same way once this lands, rather than scope-creeping this one."
+    }
   ]
 }

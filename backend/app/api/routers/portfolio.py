@@ -50,6 +50,7 @@ from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
+    ratchet_trailing_profit_stop,
     realized_losses_pct,
     total_open_risk_pct,
 )
@@ -685,6 +686,19 @@ def get_risk(
     rather than excluding it from `positions` entirely, since a missing profit target is far
     less consequential than a missing stop/risk-pct/exit-flags.
 
+    `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder ch. 54 "Don't Let
+    a Winning Trade Turn into a Loss") is this position's separate trailing/profit-protecting
+    stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
+    already has in hand plus this same position's already-computed `stop`. Unlike
+    `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
+    than it has on any previous call, computed statelessly by re-folding this position's own
+    full price history since entry every time rather than persisting anything in the database
+    -- see that function's own docstring and this task's (backend-trailing-profit-stop)
+    `decisions` entry for the exact mechanics and the persisted-column alternative considered
+    and rejected. A `ValueError` computing it excludes the position from `positions` entirely
+    (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above,
+    unlike the independently-nullable `profit_target`).
+
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -774,6 +788,18 @@ def get_risk(
                 weekly_by_id[e.position.id],
                 total_risk,
             )
+            # app.portfolio.risk.trailing_profit_stop/ratchet_trailing_profit_stop (Elder ch.
+            # 54 "Don't Let a Winning Trade Turn into a Loss") -- distinct from `stop` above
+            # (the static SafeZone protective_stop). `daily_by_id[e.position.id]` is the same
+            # drop_malformed_daily_bars-filtered, full-available-history frame `profit_target`
+            # below reuses (today's bar included, unlike the `.iloc[:-1]` slice `stop` itself
+            # was computed from) -- see ratchet_trailing_profit_stop's own docstring for why
+            # this endpoint doesn't need `daily_ohlcv.iloc[:-1]` here: the ratchet is a `max`
+            # over history, so including today's own bar can only ever raise it, never
+            # understate it the way `stop`'s own look-ahead-avoidance concern would apply.
+            trailing_stop = ratchet_trailing_profit_stop(
+                e.position, daily_by_id[e.position.id], stop
+            )
         except ValueError:
             continue
 
@@ -806,6 +832,7 @@ def get_risk(
                 id=e.position.id,
                 ticker=e.position.ticker,
                 protective_stop=stop,
+                trailing_stop=trailing_stop,
                 position_risk_pct=risk_pct,
                 two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD,
                 exit_flags=exit_flags,

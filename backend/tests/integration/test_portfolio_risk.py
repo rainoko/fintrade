@@ -30,7 +30,7 @@ from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
-from app.portfolio.risk import protective_stop, stop_from_price_action
+from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop, stop_from_price_action
 from app.signals.engine import analyse
 
 
@@ -606,6 +606,96 @@ class TestGetRisk:
         assert response.status_code == 200
         [position] = response.json()["positions"]
         assert "stop_hit" in position["exit_flags"]
+
+
+class TestTrailingStop:
+    """backend-trailing-profit-stop: `RiskPosition.trailing_stop` (Elder ch. 54 "Don't Let a
+    Winning Trade Turn into a Loss") wired alongside the existing `protective_stop` field."""
+
+    def test_field_present_and_matches_the_pure_computation(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        expected = ratchet_trailing_profit_stop(
+            Position(
+                id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1), current_price=_UPTREND_CLOSES[-1],
+            ),
+            daily,
+            position["protective_stop"],
+        )
+        assert position["trailing_stop"] == pytest.approx(expected)
+
+    def test_never_decreases_across_successive_requests_even_as_price_pulls_back(
+        self, db_session: Session
+    ) -> None:
+        """The book's companion rule, "Move Your Stop Only in the Direction of Your Trade":
+        simulates two successive polls of the same endpoint -- the first while a rally is
+        still climbing (profit well past the trigger), the second after a pullback that would,
+        computed fresh from that day alone, suggest a lower trailing_stop. The second
+        response's trailing_stop must not be lower than the first's."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+
+        rally_closes = [100.0 + i for i in range(31)]  # ends at +30% profit
+        rally_lows = [c - 1.0 for c in rally_closes]
+        rally_daily = _daily_frame(rally_closes, rally_lows)
+        rally_response = _get_risk(
+            db_session, _StubProvider(daily={"AAPL": rally_daily}, weekly={"AAPL": weekly})
+        )
+        assert rally_response.status_code == 200
+        [rally_position] = rally_response.json()["positions"]
+        rally_trailing_stop = rally_position["trailing_stop"]
+        assert rally_trailing_stop > 100.0  # comfortably past breakeven
+
+        pullback_closes = rally_closes + [115.0]  # pulls back from +130 to +115 (+15% profit)
+        pullback_lows = [c - 1.0 for c in pullback_closes]
+        pullback_daily = _daily_frame(pullback_closes, pullback_lows)
+        pullback_response = _get_risk(
+            db_session, _StubProvider(daily={"AAPL": pullback_daily}, weekly={"AAPL": weekly})
+        )
+        assert pullback_response.status_code == 200
+        [pullback_position] = pullback_response.json()["positions"]
+
+        assert pullback_position["trailing_stop"] >= rally_trailing_stop
+
+    def test_below_trigger_matches_protective_stop(self, db_session: Session) -> None:
+        """A position whose profit has never crossed the breakeven trigger reports the same
+        trailing_stop as protective_stop -- there's no "winning trade" yet for ch. 54's
+        mechanic to protect."""
+        # avg_cost_basis=108 vs. _QUIET_CLOSES' final close of 110 -> ~1.85% unrealized profit,
+        # comfortably under the 10% breakeven trigger for every close in this fixture's history.
+        db_session.add(AccountORM(id=1, cash=6_700.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=30.0, avg_cost_basis=108.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["trailing_stop"] == pytest.approx(position["protective_stop"])
 
 
 class TestProfitTarget:

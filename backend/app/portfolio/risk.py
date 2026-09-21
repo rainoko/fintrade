@@ -173,6 +173,161 @@ def protective_stop(
     )
 
 
+# Ch. 54's "Don't Let a Winning Trade Turn into a Loss" subsection (docs/ideas.md's ch. 54
+# entry) -- unrealized profit, as a fraction of entry price, that must be reached before the
+# trailing/profit-protecting stop "cuffs the trade" to breakeven at all. Elder states the
+# *behavior* (move to breakeven once profit has grown enough to afford it, without giving a
+# number) but not a specific trigger threshold -- 10% is this app's own judgment call: large
+# enough that ordinary daily noise on a swing-timeframe position won't false-trigger it long
+# before a real trend move has developed, small enough that a genuinely winning trade isn't
+# left unprotected for too long. See this task's (backend-trailing-profit-stop) `decisions`
+# entry for the alternatives considered (a fixed dollar/point amount, or a multiple of the
+# position's own risk-to-stop distance -- both rejected as less simple to reason about/test
+# than a plain percent-of-entry-price figure).
+_TRAILING_STOP_BREAKEVEN_TRIGGER_PCT = 0.10
+
+# Elder's own worked example for the fraction of ADDITIONAL profit (the portion earned beyond
+# the breakeven trigger above) the stop protects once "cuffed" -- explicitly called out in the
+# book as an illustrative example, not a stated rule (docs/ideas.md's ch. 54 entry: "a growing
+# fraction (Elder's own example: a third)"). Reused verbatim rather than picked independently,
+# since it's the one concrete number the book actually gives for this mechanic.
+_TRAILING_STOP_PROFIT_PROTECTION_FRACTION = 1.0 / 3.0
+
+
+def trailing_profit_stop(entry_price: float, current_price: float, safezone_stop: float) -> float:
+    """Elder ch. 54 "Don't Let a Winning Trade Turn into a Loss": as unrealized profit grows,
+    move the stop to breakeven ("cuffing the trade") once profit crosses a threshold, then
+    keep protecting a growing fraction of profit earned beyond that point as it increases
+    further. A **single point-in-time** computation -- no memory of any earlier call -- see
+    `ratchet_trailing_profit_stop` below for the stateless hard-ratchet wrapper that's actually
+    wired into GET /api/portfolio/risk; this function is its per-day building block, factored
+    out for direct, hand-computable unit testing.
+
+    Long-only, mirroring `protective_stop`.
+
+    - Below `_TRAILING_STOP_BREAKEVEN_TRIGGER_PCT` unrealized profit (as a fraction of
+      ``entry_price``): returns ``safezone_stop`` verbatim -- this mechanic doesn't exist yet
+      for a trade that hasn't earned enough profit to be worth protecting; the ordinary
+      volatility-based SafeZone stop applies unchanged.
+    - At or above that threshold: returns
+      ``entry_price + _TRAILING_STOP_PROFIT_PROTECTION_FRACTION * (profit beyond the
+      threshold)`` -- exactly ``entry_price`` (breakeven) the instant the threshold is first
+      reached (zero profit beyond it yet), then rising continuously as profit grows further.
+      Applying the fraction to profit *beyond* the trigger (not total profit) is what makes
+      "crosses the threshold" and "moves to breakeven" the same event with no discontinuity --
+      see this task's `decisions` entry for the alternative (fraction of *total* profit)
+      considered and rejected because it would already be above breakeven at the moment of
+      crossing, contradicting the book's own "cuffing" framing.
+    - Deliberately does **not** re-involve ``safezone_stop`` once the threshold is crossed:
+      see `ratchet_trailing_profit_stop`'s own docstring for why a live, independently-
+      fluctuating SafeZone value can't safely participate in a value that has to never
+      decrease.
+
+    Raises:
+        ValueError: if ``entry_price`` isn't positive.
+    """
+    if entry_price <= 0:
+        raise ValueError("entry_price must be positive to compute a trailing profit stop")
+
+    profit = current_price - entry_price
+    threshold_profit = entry_price * _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT
+    if profit < threshold_profit:
+        return safezone_stop
+
+    profit_beyond_threshold = profit - threshold_profit
+    return entry_price + _TRAILING_STOP_PROFIT_PROTECTION_FRACTION * profit_beyond_threshold
+
+
+def ratchet_trailing_profit_stop(
+    position: Position, daily_ohlcv: pd.DataFrame, safezone_stop: float
+) -> float:
+    """The actual, stateful-in-effect trailing/profit-protecting stop wired into GET
+    /api/portfolio/risk (`RiskPosition.trailing_stop`) -- a **hard ratchet**: once returned,
+    never lower than any value this same function has ever returned for this position before
+    (Elder ch. 54's companion "Move Your Stop Only in the Direction of Your Trade").
+
+    Implemented as a **stateless recomputation over this position's full price history**
+    rather than persisted database state: `daily_ohlcv` is the same full-available-history
+    frame every other caller in this endpoint already has in hand (`app.data.base.DataProvider
+    .get_daily_ohlcv` fetches "full available history", per its own docstring -- nothing here
+    needs a truncated window), so folding `trailing_profit_stop` over every close from
+    ``position.entry_date`` through today and taking the running max reconstructs exactly what
+    a persisted ratchet would have accumulated, with no migration, no write-on-a-GET-request,
+    and no invalidation logic needed for `POST /api/portfolio/positions`'s same-ticker merge
+    behavior (which can change `avg_cost_basis`/`entry_date` after the fact) -- this function
+    always reflects the position's *current* cost basis/entry date, since it's recomputed from
+    scratch every call. See this task's (backend-trailing-profit-stop) `decisions` entry for
+    the persisted-column alternative considered and rejected.
+
+    This recomputation is genuinely safe against ever decreasing across successive real
+    requests **once the breakeven trigger has fired at least once**: the ratcheted value from
+    that point on is `max` over `entry_price + fraction * profit_beyond_threshold` across an
+    ever-growing set of historical closes (new bars only ever get appended, never revised away
+    once committed to daily history), and that quantity depends only on ``entry_price`` (fixed
+    for a given cost basis) and immutable past closes -- so extending the fold with new bars
+    can only hold the result steady or raise it. `safezone_stop` (today's live, independently
+    -- and non-monotonically -- fluctuating SafeZone value) is deliberately used only as a
+    *pre-trigger* pass-through (matching `trailing_profit_stop`'s own single-call contract) and
+    never re-folded into the ratchet once triggered -- letting a currently-lower live
+    `safezone_stop` back into the post-trigger max would reopen exactly the "could decrease
+    later" gap this whole function exists to close. A position whose profit has never crossed
+    the trigger simply passes `safezone_stop` straight through unchanged, matching
+    `protective_stop`'s own free-to-move-either-way behavior -- there's no "winning trade" yet
+    for this mechanic to protect.
+
+    ``position.entry_date`` rows with a NaN close are skipped (can't inform the ratchet either
+    way). If no row in ``daily_ohlcv`` is on or after ``position.entry_date`` at all (a
+    malformed/incomplete history that doesn't reach back to entry -- see
+    `app.portfolio.grading.grade_trade_from_filtered_history`'s identical concern), the whole
+    frame is used instead of raising, since a stop somewhat too conservative (ignoring
+    genuinely-pre-entry bars can only ever be MORE conservative here, never less, given the
+    ratchet is a `max`) is preferable to excluding the position from `positions` entirely over
+    a data-completeness gap unrelated to whether a stop can be computed at all.
+
+    Raises:
+        ValueError: if ``daily_ohlcv`` is empty or missing a ``close`` column, or if
+            ``position.avg_cost_basis`` isn't positive (mirrors `trailing_profit_stop`'s own
+            precondition).
+    """
+    if daily_ohlcv.empty:
+        raise ValueError("daily_ohlcv must contain at least one row to compute a trailing stop")
+    if "close" not in daily_ohlcv.columns:
+        raise ValueError("daily_ohlcv is missing required column: 'close'")
+    if position.avg_cost_basis <= 0:
+        raise ValueError("entry_price must be positive to compute a trailing profit stop")
+
+    # `daily_ohlcv.index` is a real `pd.DatetimeIndex` for every genuine `DataProvider` frame
+    # (see `stop_from_price_action`'s own column-shape reference), but a caller-constructed
+    # test fixture can hand this a plain `RangeIndex` (e.g. a `pd.concat(..., ignore_index=
+    # True)`) -- comparing a non-datetime index against a `pd.Timestamp` raises `TypeError`
+    # rather than returning a useless-but-harmless all-False mask, so that case (like the "no
+    # row on/after entry_date at all" case below) falls back to using the whole frame instead
+    # of raising.
+    if isinstance(daily_ohlcv.index, pd.DatetimeIndex):
+        since_entry = daily_ohlcv.loc[daily_ohlcv.index >= pd.Timestamp(position.entry_date)]
+    else:
+        since_entry = daily_ohlcv
+    if since_entry.empty:
+        since_entry = daily_ohlcv
+
+    entry_price = position.avg_cost_basis
+    threshold_profit = entry_price * _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT
+    ratcheted: float | None = None
+    for close in since_entry["close"]:
+        if pd.isna(close):
+            continue
+        # Whether *this specific day* ever triggered is checked directly against the same
+        # profit/threshold comparison `trailing_profit_stop` itself makes -- not inferred by
+        # comparing its return value to `safezone_stop`, which could coincidentally match a
+        # genuinely post-trigger candidate and wrongly exclude it from the ratchet.
+        if (float(close) - entry_price) < threshold_profit:
+            continue
+        candidate = trailing_profit_stop(entry_price, float(close), safezone_stop)
+        ratcheted = candidate if ratcheted is None else max(ratcheted, candidate)
+
+    return safezone_stop if ratcheted is None else ratcheted
+
+
 def position_risk_pct(position: Position, stop: float, account: Account) -> float:
     """Fraction of account equity at risk if `position` hits its protective stop (2% rule, docs/Analyse.md §7).
 

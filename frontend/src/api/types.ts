@@ -502,6 +502,19 @@ export interface paths {
          *     rather than excluding it from `positions` entirely, since a missing profit target is far
          *     less consequential than a missing stop/risk-pct/exit-flags.
          *
+         *     `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder ch. 54 "Don't Let
+         *     a Winning Trade Turn into a Loss") is this position's separate trailing/profit-protecting
+         *     stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
+         *     already has in hand plus this same position's already-computed `stop`. Unlike
+         *     `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
+         *     than it has on any previous call, computed statelessly by re-folding this position's own
+         *     full price history since entry every time rather than persisting anything in the database
+         *     -- see that function's own docstring and this task's (backend-trailing-profit-stop)
+         *     `decisions` entry for the exact mechanics and the persisted-column alternative considered
+         *     and rejected. A `ValueError` computing it excludes the position from `positions` entirely
+         *     (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above,
+         *     unlike the independently-nullable `profit_target`).
+         *
          *     Known, accepted perf trade-off (not fixed here -- see the
          *     backend-profit-target-open-position-followups task's `decisions` entry): both
          *     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -1928,6 +1941,11 @@ export interface components {
             protective_stop: number;
             /** Ticker */
             ticker: string;
+            /**
+             * Trailing Stop
+             * @description Trailing/profit-protecting stop for this position (Elder ch. 54 'Don't Let a Winning Trade Turn into a Loss' and its companion 'Move Your Stop Only in the Direction of Your Trade') -- distinct from protective_stop above (which is the static, volatility-only SafeZone stop): as this position's unrealized profit grows past a threshold, this value 'cuffs the trade' to breakeven and then keeps protecting a growing share of profit earned beyond that point, and is a hard ratchet -- guaranteed never lower than any value this endpoint has ever reported for this position before, even if today's profit/protective_stop alone would suggest a lower number. Equal to protective_stop while this position's profit has never crossed the trigger (see app.portfolio.risk.trailing_profit_stop/ratchet_trailing_profit_stop for the exact mechanics and the backend-trailing-profit-stop task's `decisions` entry for the threshold/fraction chosen). Can be tighter (higher) OR looser (lower) than protective_stop on any given day once triggered -- the two are independent stop-setting techniques a trader is meant to consider together, not one superseding the other.
+             */
+            trailing_stop: number;
             /** Two Percent Rule Breached */
             two_percent_rule_breached: boolean;
         };
