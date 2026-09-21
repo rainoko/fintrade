@@ -1,0 +1,19 @@
+{
+  "id": "backend-ibkr-status-endpoint-followups-followups",
+  "title": "Non-blocking follow-up from PR #234 review (backend-ibkr-status-endpoint-followups)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-ibkr-status-endpoint-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-status-endpoint-followups.json",
+    "https://github.com/rainoko/fintrade/pull/234"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #234 (fix IBKRStatusResponse.detail's schema description for the 'disabled' state), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/backend-ibkr-status-endpoint-followups.json's `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time, reproducing the exact defect pattern that PR #233 (backend-indicator-history-performance-followups-followups) already fixed once in a sibling task. The commit that actually recorded this decision (a9fb6cb) has an authored/committer timestamp of `2026-09-21T20:24:02Z`, ~20 hours after the placeholder. Correct the timestamp (deriving it from git history the way PR #233 did) so the array stays chronologically meaningful.",
+      "done": false
+    }
+  ]
+}
