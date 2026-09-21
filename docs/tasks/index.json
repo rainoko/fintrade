@@ -1580,7 +1580,7 @@
       "id": "backend-trade-journal-entry-notes-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-journal-entry-notes-followups.json"
     },
     {

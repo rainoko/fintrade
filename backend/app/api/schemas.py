@@ -386,12 +386,17 @@ class PositionIn(BaseModel):
         default=None,
         description="Optional free-text note on why this trade was taken (Elder ch. 59 Trade "
         "Journal Section A, docs/ideas.md's ch. 59 entry), e.g. 'Breakout above resistance, "
-        "strong earnings beat.' On merge with an existing position for the same ticker, an "
-        "incoming note is appended to the existing one (blank-line separated) rather than "
-        "overwriting it, so notes from multiple buys into the same position are all kept -- "
-        "see the backend-trade-journal-entry-notes task's `decisions`. Carried through "
-        "unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position is "
-        "later closed.",
+        "strong earnings beat.' Leading/trailing whitespace is stripped, and an empty or "
+        "whitespace-only note normalizes to null (mirrors PositionIn.ticker's own strip "
+        "convention -- see the backend-trade-journal-entry-notes-followups task's `decisions` "
+        "for why this is normalized rather than rejected like FollowUpReviewIn.follow_up_notes). "
+        "On merge with an existing position for the same ticker, an incoming note is appended "
+        "to the existing one (blank-line separated) rather than overwriting it, so notes from "
+        "multiple buys into the same position are all kept -- see the "
+        "backend-trade-journal-entry-notes task's `decisions`. A whitespace-only incoming note "
+        "normalizes to null before the merge check runs, so it never gets appended. Carried "
+        "through unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position "
+        "is later closed.",
     )
     strategy: str | None = Field(
         default=None,
@@ -414,6 +419,14 @@ class PositionIn(BaseModel):
         if not stripped:
             raise ValueError("ticker must not be blank or whitespace-only")
         return stripped
+
+    @field_validator("entry_notes")
+    @classmethod
+    def _strip_and_normalize_entry_notes(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 # --- /api/portfolio/risk ---------------------------------------------------

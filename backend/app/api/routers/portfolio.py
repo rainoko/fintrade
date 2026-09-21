@@ -419,7 +419,10 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         # entry_notes merges by appending rather than overwriting -- see this task's
         # `decisions` entry: an incoming note is never silently dropped just because a
         # position already existed, and a merge with no incoming note leaves the existing
-        # one untouched (there's nothing to append).
+        # one untouched (there's nothing to append). PositionIn's own field_validator already
+        # strips whitespace and normalizes a blank/whitespace-only note to None before this
+        # handler ever runs, so a whitespace-only incoming note is falsy here too -- see the
+        # backend-trade-journal-entry-notes-followups task's `decisions`.
         if position.entry_notes:
             existing.entry_notes = (
                 f"{existing.entry_notes}\n\n{position.entry_notes}"

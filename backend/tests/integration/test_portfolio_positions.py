@@ -474,6 +474,105 @@ class TestAddPosition:
         assert second.status_code == 201
         assert second.json()["entry_notes"] == "Added on pullback to value zone."
 
+    def test_create_position_with_empty_string_entry_notes_normalizes_to_null(
+        self, client: TestClient
+    ) -> None:
+        """Regression test (backend-trade-journal-entry-notes-followups, PR #213 review): an
+        explicit entry_notes: "" used to round-trip as "" rather than null, unlike every other
+        omitted-vs-blank case on this endpoint."""
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "entry_notes": "",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] is None
+
+    def test_create_position_with_whitespace_only_entry_notes_normalizes_to_null(
+        self, client: TestClient
+    ) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "entry_notes": "   ",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] is None
+
+    def test_create_position_with_explicit_null_entry_notes(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "entry_notes": None,
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] is None
+
+    def test_create_position_with_padded_entry_notes_is_stripped(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "entry_notes": "  Breakout above resistance.  ",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] == "Breakout above resistance."
+
+    def test_merge_with_whitespace_only_incoming_notes_leaves_existing_notes_unchanged(
+        self, client: TestClient
+    ) -> None:
+        """Regression test: a whitespace-only entry_notes on a merge used to be truthy under
+        `if position.entry_notes:` and get appended onto the existing note verbatim (as
+        whitespace). It now normalizes to None at the schema layer before the merge check runs,
+        so it's treated exactly like an omitted entry_notes -- the existing note is left as is."""
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "entry_notes": "First buy: strong tide.",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "entry_notes": "   ",
+            },
+        )
+
+        assert second.status_code == 201
+        assert second.json()["entry_notes"] == "First buy: strong tide."
+
     def test_create_position_with_strategy(self, client: TestClient) -> None:
         response = client.post(
             "/api/portfolio/positions",
