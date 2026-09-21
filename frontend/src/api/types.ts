@@ -4,6 +4,69 @@
  */
 
 export interface paths {
+    "/api/ibkr/scanner/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The market scanner's available scan categories, or why the scanner is unavailable
+         * @description Lists IBKR's own predefined scan categories (`IBKRProvider.get_scanner_params`'s
+         *     `scan_type_list`, e.g. 52-week-high/low, hot-by-volume, top % gainers/losers) so a
+         *     caller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56
+         *     market-scanning entry.
+         *
+         *     Never raises: mirrors `GET /api/ibkr/status`'s 'never fails, degrade to a `state`
+         *     value' contract exactly. 'disabled' when IBKR isn't enabled at all (no gateway call
+         *     attempted). Otherwise, `IBKRProvider.get_scanner_params()` is tried directly (itself
+         *     served from its own 15-minute cache on a hit, per this task's "don't add a second,
+         *     conflicting throttle layer" requirement) -- only on an `IBKRUnavailableError` (a cache
+         *     miss against a gateway that isn't `available`) does this handler make the one extra
+         *     `get_gateway_status()` call needed to report *which* unavailable state applies,
+         *     instead of parsing that information back out of the exception's message string.
+         */
+        get: operations["get_ibkr_scanner_params"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ibkr/scanner/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an IBKR market scan, or report why the scanner is unavailable
+         * @description Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56
+         *     market-scanning entry's "near-term, using what's already half-built" option: IBKR's own
+         *     predefined scan categories run broker-side across their whole market universe, not this
+         *     app's own signal engine run over a downloaded ticker universe (a separate, much larger
+         *     idea, explicitly out of scope here -- see this task's `description`).
+         *
+         *     'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like
+         *     `GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being
+         *     rate-limited (more than 1 request/second since this process's own last scan run,
+         *     enforced client-side by `IBKRProvider` itself -- this handler adds no second, competing
+         *     throttle) is different: it's a genuine, actionable, transient error for an *enabled and
+         *     otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`.
+         */
+        post: operations["run_ibkr_scanner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ibkr/status": {
         parameters: {
             query?: never;
@@ -874,6 +937,84 @@ export interface components {
             /** Ticker */
             ticker: string;
         };
+        /** IBKRScannerParamsResponse */
+        IBKRScannerParamsResponse: {
+            /**
+             * Categories
+             * @description IBKR's own `scan_type_list` from `/iserver/scanner/params`, passed through as-is (each entry's exact fields -- e.g. `code`/`display_name` -- are entirely gateway-defined and not modeled here; see the backend-market-scanner task's `decisions` entry for why this isn't hand-curated down to a fixed subset). Non-null if and only if `state` is 'available'. Use a `code` from here as the `scan_config.type` value in `POST /api/ibkr/scanner/run`.
+             */
+            categories?: {
+                [key: string]: unknown;
+            }[] | null;
+            /**
+             * Detail
+             * @description Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.
+             */
+            detail?: string | null;
+            /**
+             * State
+             * @description Same semantics/values as GET /api/ibkr/status's `state` -- this endpoint reuses that exact availability check rather than inventing a second one. 'available' means `categories` below is populated; every other value means the scanner feature is currently unavailable (never an HTTP error) and `categories` is null.
+             * @enum {string}
+             */
+            state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
+        };
+        /** IBKRScannerResultOut */
+        IBKRScannerResultOut: {
+            /**
+             * Company Name
+             * @description Company name, if the gateway supplied one.
+             */
+            company_name?: string | null;
+            /**
+             * Conid
+             * @description IBKR's own numeric contract id for this result.
+             */
+            conid: number;
+            /**
+             * Rank
+             * @description This result's rank within the scan (1 = best match), if the gateway supplied one.
+             */
+            rank?: number | null;
+            /**
+             * Symbol
+             * @description Ticker symbol, if the gateway supplied one.
+             */
+            symbol?: string | null;
+        };
+        /** IBKRScannerRunRequest */
+        IBKRScannerRunRequest: {
+            /**
+             * Scan Config
+             * @description IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).
+             * @example {
+             *       "instrument": "STK",
+             *       "location": "STK.US.MAJOR",
+             *       "type": "TOP_PERC_GAIN"
+             *     }
+             */
+            scan_config: {
+                [key: string]: unknown;
+            };
+        };
+        /** IBKRScannerRunResponse */
+        IBKRScannerRunResponse: {
+            /**
+             * Detail
+             * @description Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.
+             */
+            detail?: string | null;
+            /**
+             * Results
+             * @description The scan's matching contracts, most relevant first per IBKR's own `rank`. Non-null if and only if `state` is 'available' -- an empty list is a valid, successful zero-match scan, distinct from a null `results` (feature unavailable).
+             */
+            results?: components["schemas"]["IBKRScannerResultOut"][] | null;
+            /**
+             * State
+             * @description Same semantics/values as GET /api/ibkr/status's `state`. 'available' means `results` below reflects a completed scan; every other value means the scanner feature is currently unavailable (never an HTTP error) and `results` is null. Being rate-limited (more than 1 request/second) is a distinct, genuine error case -- see this route's `429` response -- not represented as a `state` value here.
+             * @enum {string}
+             */
+            state: "disabled" | "available" | "gateway_unreachable" | "not_authenticated";
+        };
         /** IBKRStatusResponse */
         IBKRStatusResponse: {
             /**
@@ -1566,6 +1707,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_ibkr_scanner_params: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IBKRScannerParamsResponse"];
+                };
+            };
+        };
+    };
+    run_ibkr_scanner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IBKRScannerRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IBKRScannerRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Scanner run rate limit (1 request/second) exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
     get_ibkr_status: {
         parameters: {
             query?: never;
