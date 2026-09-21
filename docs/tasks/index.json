@@ -1727,7 +1727,7 @@
       "id": "backend-profit-target-weekly-channel-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "implementing",
+      "state": "waiting_input",
       "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json"
     },
     {

@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups PR #223 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "waiting_input",
   "depends_on": ["backend-profit-target-weekly-channel-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups.json",
@@ -69,7 +69,14 @@
       "rationale": "Rejected keeping the single shared 'joined' buffer and trying to patch its `\\s+`-crosses-any-newline problem with a mask of 'safe to bridge' offsets -- tracking which newlines are join-legitimate versus ordinary inside one big regex-scanned string, while also keeping post-replacement offsets mapped back to pre-replacement line numbers, is exactly the kind of fragile, easy-to-get-subtly-wrong bookkeeping that produced both round-3 bugs in the first place (one whole-text `\\s+` match spanning an unrelated newline, one line-number-desyncing replacement span). Scoping each run's scan to its own small, independently-decoded value sidesteps both classes of bug at once: the per-line scan physically cannot span a newline (no buffer edits, no cross-line regex), and a run's own line-number reporting comes straight from tokenize's real `(row, col)` positions, so no join earlier in a file can ever perturb a violation's reported location later in the file. Verified directly: reproduced all three of round 3's exact false-positive repros (.md, .ts, .py-with-an-ordinary-docstring) against the pre-fix code and confirmed all three are silent post-fix; reproduced the reviewer's 7-line line-number-desync repro (a join on lines 3-4, a real violation on line 7) and confirmed the violation is now reported at line 7, not 6; reconfirmed the original checklist item 1 case (schemas.py-style Field description split across two implicitly-concatenated literals) is still caught; reconfirmed both round-2 false-positive repros (unrelated quoted sentences in .md, unrelated bare string statements in .py) are still silent. Added four new regression tests covering all of the above plus the existing 26; full suite (30 tests) plus the pre-existing `test_validate_tasks.py` suite (52 total) pass, ruff and mypy are clean on both changed files, and the real guard run against the repo tree stays clean (217 files scanned, 0 violations)."
     }
   ],
-  "questions": [],
+  "questions": [
+    {
+      "timestamp": "2026-09-21T09:15:00Z",
+      "raised_by": "orchestrate-tasks",
+      "question": "PR #226 has now hit 3 consecutive needs_work rounds, each fixing the previous round's finding but introducing a new bug in the same implicit-string-concatenation handling in scripts/check_profit_target_wording.py. Round 4's outstanding findings are two more edge-case bugs in the same area (a multi-line-token run reports the wrong line number; a phrase sitting entirely within one member literal of a run gets double-reported with a misleading label). Per the orchestrator's 3-round retry cap, this is being parked rather than retried a 4th time. How do you want to proceed: (a) authorize one more fix round targeting exactly these two findings, (b) accept the current behavior as good enough (both are narrow edge cases -- a multi-line string inside an implicit-concat run, and a non-split phrase within a run -- neither is present anywhere in the current repo, and neither causes a missed detection, only a wrong/duplicate report) and merge as-is with the two findings tracked as known-accepted follow-ups instead of blockers, or (c) simplify the guard script's scope (e.g. drop the implicit-concatenation run-matching feature entirely, keeping only the per-line scan plus the per-file positive check that already independently protects the 8 known regression-prone files) to stop the escalating edge-case chase.",
+      "context": "This is a meta/tooling script (a static-analysis guard for docs.ideas.md's original 'stale profit-target wording' bug class), not application logic -- its own review history shows the per-file positive check (check_known_files_mention_weekly) already independently catches a reversion in any of the 8 known regression-prone files regardless of these bugs, per this same task's own decisions/description. So the two open findings are about the guard's secondary repo-wide negative-scan feature's precision, not about any live gap in protecting the files that actually caused PR #222's 2 needs_work rounds. Judging how much further engineering effort is worth investing in this guard's edge-case correctness is a product/scope call, not something task-worker should keep guessing at round 5."
+    }
+  ],
   "git": {
     "branch": "task/backend-profit-target-weekly-channel-followups-followups",
     "pr_number": 226,
