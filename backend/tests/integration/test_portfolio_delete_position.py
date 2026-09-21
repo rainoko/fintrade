@@ -297,3 +297,210 @@ class TestDeletePositionRealizedLossFeedsSixPercentRule:
 
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_data_provider, None)
+
+
+class TestDeletePositionManualExitOverride:
+    """Coverage for the backend-close-position-manual-exit task: DELETE
+    /api/portfolio/positions/{id} accepts an optional exit_price/exit_date pair to backfill a
+    trade that already happened in the past, bypassing the default live-price lookup -- see
+    this task's `decisions` entry for why this revisits backend-trade-history-table's original
+    market-price-only design."""
+
+    def test_manual_exit_price_and_date_are_used_verbatim(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(
+            client, ticker="AAPL", quantity=100, avg_cost_basis=195.30, entry_date="2026-05-14"
+        )
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 220.0, "exit_date": "2026-06-01"},
+        )
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.exit_price == pytest.approx(220.0)
+        assert trade.exit_date == date(2026, 6, 1)
+        assert trade.realized_pnl == pytest.approx(100 * (220.0 - 195.30))
+        # The live-price lookup (_StubProvider's AAPL close of 210.0) is never consulted --
+        # the manual override took priority and produced a different exit_price than that
+        # stub would have.
+        assert trade.exit_price != pytest.approx(210.0)
+
+    def test_manual_exit_override_does_not_touch_data_provider(self, db_session: Session) -> None:
+        # A provider that raises for *any* ticker -- if the manual override path accidentally
+        # still called latest_close, this test would fail with an unhandled exception instead
+        # of a clean 204.
+        class _AlwaysFailingProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise TickerNotFoundError(ticker)
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise DataProviderUnavailableError("not stubbed")
+
+        client = _make_client(db_session, _AlwaysFailingProvider())  # type: ignore[arg-type]
+        try:
+            created = _add_position(client, ticker="AAPL", quantity=10, avg_cost_basis=100.0)
+
+            response = client.delete(
+                f"/api/portfolio/positions/{created['id']}",
+                params={"exit_price": 150.0, "exit_date": "2026-05-20"},
+            )
+            assert response.status_code == 204
+
+            [trade] = db_session.query(ClosedTradeORM).all()
+            assert trade.exit_price == pytest.approx(150.0)
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+    def test_manual_exit_reason_and_price_override_combine(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(client, ticker="MSFT", quantity=10, avg_cost_basis=300.0)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={
+                "exit_reason": "target_hit",
+                "exit_price": 350.0,
+                "exit_date": "2026-05-15",
+            },
+        )
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.exit_reason == "target_hit"
+        assert trade.exit_price == pytest.approx(350.0)
+        assert trade.exit_date == date(2026, 5, 15)
+
+    def test_omitting_both_exit_price_and_date_keeps_default_live_price_behavior(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.exit_price == pytest.approx(210.0)  # _StubProvider's latest AAPL close
+        assert trade.exit_date == _today()
+
+    def test_exit_price_without_exit_date_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 200.0},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], str)
+        assert "exit_price" in body["detail"] and "exit_date" in body["detail"]
+
+    def test_exit_date_without_exit_price_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_date": "2026-05-20"},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], str)
+        assert "exit_price" in body["detail"] and "exit_date" in body["detail"]
+
+    def test_exit_date_before_entry_date_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client, ticker="AAPL", entry_date="2026-05-14")
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 200.0, "exit_date": "2026-05-01"},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], str)
+        assert "entry_date" in body["detail"]
+
+    def test_exit_date_equal_to_entry_date_is_allowed(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(client, ticker="AAPL", entry_date="2026-05-14")
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 200.0, "exit_date": "2026-05-14"},
+        )
+
+        assert response.status_code == 204
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.exit_date == date(2026, 5, 14)
+
+    def test_non_positive_exit_price_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 0.0, "exit_date": "2026-05-20"},
+        )
+
+        assert response.status_code == 422
+
+    def test_negative_exit_price_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": -5.0, "exit_date": "2026-05-20"},
+        )
+
+        assert response.status_code == 422
+
+    def test_infinite_exit_price_returns_422(self, client: TestClient) -> None:
+        created = _add_position(client)
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": "Infinity", "exit_date": "2026-05-20"},
+        )
+
+        assert response.status_code == 422
+
+    def test_manual_exit_still_carries_entry_notes_and_feeds_six_percent_rule(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.commit()
+        created = _add_position(
+            client,
+            ticker="MSFT",
+            quantity=100,
+            avg_cost_basis=400.0,
+            entry_date="2026-05-01",
+            entry_notes="Backfilled from broker CSV export.",
+        )
+        # exit_date is today's actual (real, not fixture-2026) date, not the position's
+        # fixture entry_date, so this manually-priced realized loss lands in "this calendar
+        # month" from GET /api/portfolio/risk's own point of view -- exercising the same
+        # DELETE -> closed_trades -> GET /risk wiring as
+        # TestDeletePositionRealizedLossFeedsSixPercentRule, but via the manual-override path.
+        today = _today()
+
+        response = client.delete(
+            f"/api/portfolio/positions/{created['id']}",
+            params={"exit_price": 330.0, "exit_date": today.isoformat()},
+        )
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.entry_notes == "Backfilled from broker CSV export."
+        assert trade.realized_pnl == pytest.approx(-7000.0)
+        assert trade.exit_date == today
+
+        risk_response = client.get("/api/portfolio/risk")
+        assert risk_response.status_code == 200
+        assert risk_response.json()["realized_losses_this_month_pct"] > 0.0

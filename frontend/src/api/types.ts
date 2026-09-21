@@ -234,17 +234,22 @@ export interface paths {
          *     component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
          *     task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
          *     carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
-         *     Section A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`
-         *     is today's latest close for this ticker, fetched the same way `current_price` is everywhere
-         *     else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
-         *     since this app already treats "current market price" as authoritative for mark-to-market
-         *     elsewhere rather than trusting a client-supplied number. `realized_pnl` is
-         *     `quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted
-         *     ticker, provider unavailable), the position is still deleted -- a data-provider outage
-         *     must never block removing a position -- but no `closed_trades` row is recorded, since
-         *     there's no way to compute a realized P&L without an exit price; see the
-         *     backend-trade-history-table task's `decisions` entry for the full rationale (including why
-         *     this endpoint doesn't accept a caller-supplied `exit_price` instead).
+         *     Section A, see POST /api/portfolio/positions) -- null if none was ever recorded.
+         *
+         *     By default, `exit_price` is today's latest close for this ticker, fetched the same way
+         *     `current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),
+         *     and `exit_date` is today -- not a caller-supplied price/date, since this app already treats
+         *     "current market price" as authoritative for mark-to-market elsewhere rather than trusting a
+         *     client-supplied number. Callers may instead supply `exit_price` and `exit_date` together to
+         *     backfill a trade that already happened in the past (see their own descriptions above and
+         *     the backend-close-position-manual-exit task's `decisions` entry for why this is a
+         *     deliberate, narrow exception to that rule rather than a silent override of it).
+         *     `realized_pnl` is `quantity * (exit_price - avg_cost_basis)` either way. If the default
+         *     (no override) price fetch fails (unknown/delisted ticker, provider unavailable), the
+         *     position is still deleted -- a data-provider outage must never block removing a position --
+         *     but no `closed_trades` row is recorded, since there's no way to compute a realized P&L
+         *     without an exit price; see the backend-trade-history-table task's `decisions` entry for the
+         *     full rationale.
          */
         delete: operations["delete_position"];
         options?: never;
@@ -1890,6 +1895,10 @@ export interface operations {
             query?: {
                 /** @description Why this position is being closed, from Elder's own taxonomy (docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check). Defaults to 'unspecified' -- not one of Elder's own tags -- when the caller doesn't supply one, since this endpoint has no other way to know why the user is closing the position. */
                 exit_reason?: components["schemas"]["ExitReason"];
+                /** @description Optional manual override for the exit price recorded on the resulting `closed_trades` row, for backfilling a trade that already happened in the past (importing real trading history, or logging a sale a few days late with its actual fill price) -- see the backend-close-position-manual-exit task's `decisions` entry for why this revisits backend-trade-history-table's original market-price-only design. Must be supplied together with `exit_date` (both or neither); omitting both keeps the original default of pricing at today's live market close. Must be a positive, finite number (Infinity/NaN are rejected). */
+                exit_price?: number | null;
+                /** @description Optional manual override for the exit date recorded on the resulting `closed_trades` row, paired with `exit_price` (see its description). Must not be before the position's own `entry_date` -- a trade can't be closed before it was opened. */
+                exit_date?: string | null;
             };
             header?: never;
             path: {
@@ -1915,13 +1924,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Either of two distinct shapes, both under HTTP 422: ordinary query-param validation failure (FastAPI's standard HTTPValidationError -- `detail` is a list of per-field errors, e.g. a non-positive `exit_price` or an invalid `exit_reason`), or the manual-override validation this endpoint does itself once both a position and an `exit_price`/`exit_date` pair are known (`detail` is a single string, ErrorDetail): only one of `exit_price`/`exit_date` supplied instead of both, or an `exit_date` before the position's `entry_date`. */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
                 };
             };
         };

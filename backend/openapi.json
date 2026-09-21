@@ -2449,7 +2449,7 @@
     },
     "/api/portfolio/positions/{position_id}": {
       "delete": {
-        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously\nhad no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month\ncomponent of the 6% Rule (docs/Analyse.md \u00a77) and, longer-term, the backend-trade-grading\ntask's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is\ncarried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal\nSection A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`\nis today's latest close for this ticker, fetched the same way `current_price` is everywhere\nelse in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,\nsince this app already treats \"current market price\" as authoritative for mark-to-market\nelsewhere rather than trusting a client-supplied number. `realized_pnl` is\n`quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted\nticker, provider unavailable), the position is still deleted -- a data-provider outage\nmust never block removing a position -- but no `closed_trades` row is recorded, since\nthere's no way to compute a realized P&L without an exit price; see the\nbackend-trade-history-table task's `decisions` entry for the full rationale (including why\nthis endpoint doesn't accept a caller-supplied `exit_price` instead).",
+        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously\nhad no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month\ncomponent of the 6% Rule (docs/Analyse.md \u00a77) and, longer-term, the backend-trade-grading\ntask's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is\ncarried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal\nSection A, see POST /api/portfolio/positions) -- null if none was ever recorded.\n\nBy default, `exit_price` is today's latest close for this ticker, fetched the same way\n`current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),\nand `exit_date` is today -- not a caller-supplied price/date, since this app already treats\n\"current market price\" as authoritative for mark-to-market elsewhere rather than trusting a\nclient-supplied number. Callers may instead supply `exit_price` and `exit_date` together to\nbackfill a trade that already happened in the past (see their own descriptions above and\nthe backend-close-position-manual-exit task's `decisions` entry for why this is a\ndeliberate, narrow exception to that rule rather than a silent override of it).\n`realized_pnl` is `quantity * (exit_price - avg_cost_basis)` either way. If the default\n(no override) price fetch fails (unknown/delisted ticker, provider unavailable), the\nposition is still deleted -- a data-provider outage must never block removing a position --\nbut no `closed_trades` row is recorded, since there's no way to compute a realized P&L\nwithout an exit price; see the backend-trade-history-table task's `decisions` entry for the\nfull rationale.",
         "operationId": "delete_position",
         "parameters": [
           {
@@ -2471,6 +2471,44 @@
               "default": "unspecified",
               "description": "Why this position is being closed, from Elder's own taxonomy (docs/Analyse.md \u00a77 / docs/ideas.md's ch. 51 cross-check). Defaults to 'unspecified' -- not one of Elder's own tags -- when the caller doesn't supply one, since this endpoint has no other way to know why the user is closing the position."
             }
+          },
+          {
+            "description": "Optional manual override for the exit price recorded on the resulting `closed_trades` row, for backfilling a trade that already happened in the past (importing real trading history, or logging a sale a few days late with its actual fill price) -- see the backend-close-position-manual-exit task's `decisions` entry for why this revisits backend-trade-history-table's original market-price-only design. Must be supplied together with `exit_date` (both or neither); omitting both keeps the original default of pricing at today's live market close. Must be a positive, finite number (Infinity/NaN are rejected).",
+            "in": "query",
+            "name": "exit_price",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional manual override for the exit price recorded on the resulting `closed_trades` row, for backfilling a trade that already happened in the past (importing real trading history, or logging a sale a few days late with its actual fill price) -- see the backend-close-position-manual-exit task's `decisions` entry for why this revisits backend-trade-history-table's original market-price-only design. Must be supplied together with `exit_date` (both or neither); omitting both keeps the original default of pricing at today's live market close. Must be a positive, finite number (Infinity/NaN are rejected).",
+              "title": "Exit Price"
+            }
+          },
+          {
+            "description": "Optional manual override for the exit date recorded on the resulting `closed_trades` row, paired with `exit_price` (see its description). Must not be before the position's own `entry_date` -- a trade can't be closed before it was opened.",
+            "in": "query",
+            "name": "exit_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional manual override for the exit date recorded on the resulting `closed_trades` row, paired with `exit_price` (see its description). Must not be before the position's own `entry_date` -- a trade can't be closed before it was opened.",
+              "title": "Exit Date"
+            }
           }
         ],
         "responses": {
@@ -2491,11 +2529,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary query-param validation failure (FastAPI's standard HTTPValidationError -- `detail` is a list of per-field errors, e.g. a non-positive `exit_price` or an invalid `exit_reason`), or the manual-override validation this endpoint does itself once both a position and an `exit_price`/`exit_date` pair are known (`detail` is a single string, ErrorDetail): only one of `exit_price`/`exit_date` supplied instead of both, or an `exit_date` before the position's `entry_date`."
           }
         },
         "summary": "Remove a position, recording it as a closed trade",

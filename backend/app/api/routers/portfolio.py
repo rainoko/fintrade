@@ -398,7 +398,28 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     status_code=204,
     operation_id="delete_position",
     summary="Remove a position, recording it as a closed trade",
-    responses={404: {"model": ErrorDetail, "description": "Position not found"}},
+    responses={
+        404: {"model": ErrorDetail, "description": "Position not found"},
+        422: {
+            "description": "Either of two distinct shapes, both under HTTP 422: ordinary "
+            "query-param validation failure (FastAPI's standard HTTPValidationError -- "
+            "`detail` is a list of per-field errors, e.g. a non-positive `exit_price` or an "
+            "invalid `exit_reason`), or the manual-override validation this endpoint does "
+            "itself once both a position and an `exit_price`/`exit_date` pair are known "
+            "(`detail` is a single string, ErrorDetail): only one of `exit_price`/`exit_date` "
+            "supplied instead of both, or an `exit_date` before the position's `entry_date`.",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                        ],
+                    },
+                },
+            },
+        },
+    },
 )
 def delete_position(
     position_id: str,
@@ -408,6 +429,26 @@ def delete_position(
         "(docs/Analyse.md §7 / docs/ideas.md's ch. 51 cross-check). Defaults to 'unspecified' "
         "-- not one of Elder's own tags -- when the caller doesn't supply one, since this "
         "endpoint has no other way to know why the user is closing the position.",
+    ),
+    exit_price: float | None = Query(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="Optional manual override for the exit price recorded on the resulting "
+        "`closed_trades` row, for backfilling a trade that already happened in the past "
+        "(importing real trading history, or logging a sale a few days late with its actual "
+        "fill price) -- see the backend-close-position-manual-exit task's `decisions` entry "
+        "for why this revisits backend-trade-history-table's original market-price-only "
+        "design. Must be supplied together with `exit_date` (both or neither); omitting both "
+        "keeps the original default of pricing at today's live market close. Must be a "
+        "positive, finite number (Infinity/NaN are rejected).",
+    ),
+    exit_date: date | None = Query(
+        default=None,
+        description="Optional manual override for the exit date recorded on the resulting "
+        "`closed_trades` row, paired with `exit_price` (see its description). Must not be "
+        "before the position's own `entry_date` -- a trade can't be closed before it was "
+        "opened.",
     ),
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
@@ -421,23 +462,49 @@ def delete_position(
     component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
     task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
     carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
-    Section A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`
-    is today's latest close for this ticker, fetched the same way `current_price` is everywhere
-    else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
-    since this app already treats "current market price" as authoritative for mark-to-market
-    elsewhere rather than trusting a client-supplied number. `realized_pnl` is
-    `quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted
-    ticker, provider unavailable), the position is still deleted -- a data-provider outage
-    must never block removing a position -- but no `closed_trades` row is recorded, since
-    there's no way to compute a realized P&L without an exit price; see the
-    backend-trade-history-table task's `decisions` entry for the full rationale (including why
-    this endpoint doesn't accept a caller-supplied `exit_price` instead)."""
+    Section A, see POST /api/portfolio/positions) -- null if none was ever recorded.
+
+    By default, `exit_price` is today's latest close for this ticker, fetched the same way
+    `current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),
+    and `exit_date` is today -- not a caller-supplied price/date, since this app already treats
+    "current market price" as authoritative for mark-to-market elsewhere rather than trusting a
+    client-supplied number. Callers may instead supply `exit_price` and `exit_date` together to
+    backfill a trade that already happened in the past (see their own descriptions above and
+    the backend-close-position-manual-exit task's `decisions` entry for why this is a
+    deliberate, narrow exception to that rule rather than a silent override of it).
+    `realized_pnl` is `quantity * (exit_price - avg_cost_basis)` either way. If the default
+    (no override) price fetch fails (unknown/delisted ticker, provider unavailable), the
+    position is still deleted -- a data-provider outage must never block removing a position --
+    but no `closed_trades` row is recorded, since there's no way to compute a realized P&L
+    without an exit price; see the backend-trade-history-table task's `decisions` entry for the
+    full rationale."""
     row = db.get(PositionORM, position_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Position '{position_id}' not found")
 
-    exit_price, _ = latest_close(provider, row.ticker)
-    if exit_price is not None:
+    if (exit_price is None) != (exit_date is None):
+        raise HTTPException(
+            status_code=422,
+            detail="exit_price and exit_date must be supplied together, or neither -- got "
+            f"exit_price={exit_price!r}, exit_date={exit_date!r}",
+        )
+
+    resolved_exit_price: float | None
+    resolved_exit_date: date
+    if exit_price is not None and exit_date is not None:
+        if exit_date < row.entry_date:
+            raise HTTPException(
+                status_code=422,
+                detail=f"exit_date ({exit_date}) must not be before this position's "
+                f"entry_date ({row.entry_date})",
+            )
+        resolved_exit_price = exit_price
+        resolved_exit_date = exit_date
+    else:
+        resolved_exit_price, _ = latest_close(provider, row.ticker)
+        resolved_exit_date = _today()
+
+    if resolved_exit_price is not None:
         db.add(
             ClosedTradeORM(
                 id=f"trade_{uuid.uuid4().hex[:12]}",
@@ -445,9 +512,9 @@ def delete_position(
                 quantity=row.quantity,
                 entry_price=row.avg_cost_basis,
                 entry_date=row.entry_date,
-                exit_price=exit_price,
-                exit_date=_today(),
-                realized_pnl=row.quantity * (exit_price - row.avg_cost_basis),
+                exit_price=resolved_exit_price,
+                exit_date=resolved_exit_date,
+                realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
                 exit_reason=exit_reason.value,
                 entry_notes=row.entry_notes,
             )
