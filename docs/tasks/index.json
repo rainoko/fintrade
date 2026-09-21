@@ -1454,8 +1454,15 @@
       "id": "backend-trade-strategy-tagging",
       "area": "backend/portfolio",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-strategy-tagging.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-strategy-tagging.json"
+    },
+    {
+      "id": "backend-trade-strategy-tagging-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-strategy-tagging-followups.json"
     },
     {
       "id": "backend-trailing-profit-stop",

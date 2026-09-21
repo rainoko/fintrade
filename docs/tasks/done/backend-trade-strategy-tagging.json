@@ -3,7 +3,7 @@
   "title": "Add a personal named 'strategy' tag to positions and closed trades",
   "area": "backend/portfolio",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/schemas.py",
@@ -38,5 +38,38 @@
     "pr_number": 218,
     "pr_url": "https://github.com/rainoko/fintrade/pull/218",
     "pushed_at": "2026-09-21T02:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T02:59:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/218",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The overwrite-on-merge divergence from entry_notes' append-on-merge convention is genuinely justified (single clean value needed for exact-match grouping by future backend-trade-apgar/equity-curves-by-strategy consumers) and is documented in both this task's `decisions` and inline code comments/docstrings (schemas.py, models.py, routers/portfolio.py, docs/architecture/API.md). The overwrite behavior is directly tested: test_merge_with_incoming_strategy_overwrites_existing_strategy asserts a position tagged \"Pullback to value\" merged with an incoming \"False breakout with a divergence\" ends up exactly \"False breakout with a divergence\", not a concatenation. test_merge_with_no_incoming_strategy_keeps_existing_strategy_unchanged and test_merge_with_incoming_strategy_and_no_existing_strategy_sets_strategy cover the other two merge combinations.",
+        "file": "backend/tests/integration/test_portfolio_positions.py",
+        "line": 526
+      },
+      {
+        "summary": "Position-vs-EnrichedPosition placement handled correctly: `strategy` was added to `EnrichedPosition` (backend/app/portfolio/pricing.py), not to the bare `Position` domain model (backend/app/portfolio/models.py), mirroring the entry_notes precedent -- Position has no use for it and its serialization is pinned to the docs/architecture/API.md example.",
+        "file": "backend/app/portfolio/pricing.py",
+        "line": 43
+      },
+      {
+        "summary": "Full backend test suite passes (1030 tests) with 99.94% coverage; frontend vitest suite passes with 99.7%+ coverage (no frontend logic changed besides regenerated types.ts). Backend ruff/mypy and frontend eslint/tsc are all clean on touched files. backend/openapi.json regenerated and matches the code (verified by re-running scripts/export_openapi.py and diffing -- no changes). No frontend component/page touches this field yet, so no UI walkthrough or e2e run applies -- explicitly a backend-only, no-UI-surface change.",
+        "file": "backend/openapi.json",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: PositionIn.strategy has no normalization/stripping validator, so a whitespace-only incoming value (e.g. \"   \") is truthy under `if position.strategy:` and would silently overwrite an existing tag with whitespace on merge -- untested today. Mirrors the same already-tracked gap on entry_notes (backend-trade-journal-entry-notes-followups). Tracked in backend-trade-strategy-tagging-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 380
+      },
+      {
+        "summary": "Non-blocking: no case/whitespace normalization is enforced on `strategy`, so two otherwise-identical tags differing only in casing/incidental whitespace would land in separate exact-match buckets once a future consumer (backend-trade-apgar, equity-curves-by-strategy) actually groups by this field -- undermines the stated rationale for overwrite-on-merge somewhat. Worth reconsidering before those consumers land. Tracked in backend-trade-strategy-tagging-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 396
+      }
+    ],
+    "notes": "Full review: tests+coverage (backend 99.94%, frontend 99.7%+), static analysis (ruff/mypy/eslint/tsc all clean), code-review skill pass (no blocking findings), verify-elder-signal checklist walked (no signal/confidence/risk logic touched by this PR, so no methodology divergence possible), openapi.json snapshot confirmed current, decisions cross-checked against checklist's two 'decide X' items (both recorded). No frontend component changes and no UI-facing surface, so browser walkthrough (step 9) and e2e suite (step 9a) are explicitly skipped rather than silently omitted. Two non-blocking findings filed as backend-trade-strategy-tagging-followups."
   }
 }
