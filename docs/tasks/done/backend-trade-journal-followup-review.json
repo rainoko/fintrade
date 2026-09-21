@@ -3,7 +3,7 @@
   "title": "Two-months-later trade follow-up review workflow",
   "area": "backend/db",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
@@ -35,5 +35,28 @@
     "pr_number": 221,
     "pr_url": "https://github.com/rainoko/fintrade/pull/221",
     "pushed_at": "2026-09-21T04:13:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T04:20:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/221",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the 8-10-week due-for-follow-up window is correctly inclusive at both boundaries (exit_date == today-8w and today-10w both included) and correctly excludes dates one day past each boundary (today-8w+1d and today-10w-1d both excluded) -- the test dates genuinely land exactly on and one day past each boundary, not just approximately. Already-reviewed trades are genuinely excluded (tested both as a static fixture and end-to-end via POST then re-GET). The follow-up-review POST response's trade_letter_grade is a real recomputed grade using the same _grade_closed_trades/trade_letter_grade path GET uses, not a stale placeholder.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 748
+      },
+      {
+        "summary": "Backend tests 1100 passed at 99.94% coverage; frontend tests 700 passed at 99.7%+ coverage; ruff/mypy/eslint/tsc all clean; backend/openapi.json and frontend/src/api/types.ts regenerated from the branch with zero diff against what's committed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: get_closed_trades and record_follow_up_review each independently construct an identical 16-field ClosedTradeOut(...) -- a shared _to_closed_trade_out(row, grade) helper would remove the duplication. Filed as backend-trade-journal-followup-review-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 761
+      }
+    ],
+    "notes": "No UI-facing surface in this PR (backend-only change; only the generated frontend/src/api/types.ts changed, no consuming component/page) -- browser walkthrough and the persisted e2e suite were both skipped for that reason rather than silently omitted. Not an architecture-review trigger (no new module/dependency/layer). Both checklist items phrased as 'decide X' have corresponding decisions entries with real rationale."
   }
 }

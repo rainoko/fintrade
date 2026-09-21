@@ -1559,8 +1559,15 @@
       "id": "backend-trade-journal-followup-review",
       "area": "backend/db",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-journal-followup-review.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-followup-review.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-journal-followup-review-followups.json"
     },
     {
       "id": "backend-close-position-manual-exit",
