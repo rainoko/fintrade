@@ -144,6 +144,30 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         violations = cptw.check_banned_patterns([path])
         self.assertEqual(len(violations), 1)
 
+    def test_unrelated_quoted_sentences_across_a_line_break_in_md_are_not_flagged(self) -> None:
+        # PR #226 review finding: the implicit-concatenation join must not be
+        # applied to non-Python files at all -- two entirely unrelated,
+        # individually-clean sentences in a .md file that merely happen to have a
+        # quote character just before and just after a line break must not be
+        # merged into one string and false-flagged.
+        path = self.repo.write(
+            "docs/example.md",
+            "Some analyst said \"today's\"\n\"Autoenvelope reading\" is unrelated.\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_unrelated_bare_string_statements_in_py_are_not_flagged(self) -> None:
+        # PR #226 review finding: two unrelated, syntactically-separate
+        # string-literal statements in a .py file (not real implicit
+        # concatenation of one expression -- there's no open bracket joining
+        # them) must not be merged just because one ends and the next begins with
+        # the same quote character across a line break.
+        path = self.repo.write(
+            "backend/app/api/example_unrelated.py",
+            "x = \"foo today's \"\n\"Autoenvelope/channel height.\"\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",

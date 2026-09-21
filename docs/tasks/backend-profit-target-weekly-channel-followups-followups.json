@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups PR #223 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-profit-target-weekly-channel-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups.json",
@@ -55,6 +55,12 @@
       "recorded_by": "task-worker",
       "decision": "Refactored _iter_scanned_files() to os.walk with dirnames[:] pruning (checklist item 3) but left the now-redundant _EXCLUDED_DIR_NAMES membership check inside _should_scan_for_banned_patterns() in place, as a defense-in-depth safety net for any future caller of that predicate outside the pruned os.walk loop, with a comment noting the redundancy.",
       "rationale": "Removing it would save a negligible amount of work per call and add a hidden coupling: _should_scan_for_banned_patterns() would only be a correct 'should this file be scanned' predicate when called from inside _iter_scanned_files()'s own pruned walk, silently wrong if called on an arbitrary path from anywhere else. Verified the traversal refactor is fully behavior-preserving by diffing the real repo's scanned-file set (217 files, byte-for-byte identical sorted path list) between the pre-change rglob-based implementation and the new os.walk-based one."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed PR #226's needs_work finding (the implicit-concatenation join false-flagging unrelated quoted prose/code) by (a) restricting `_join_implicit_string_concatenation` to `.py` files only in `check_banned_patterns`, and (b) rewriting the join itself to use the stdlib `tokenize` module instead of a bare regex: it now walks the real token stream and only merges two `STRING` tokens that are adjacent with nothing but `COMMENT`/`NL`/indentation tokens between them. This is the correct scoping because Python's grammar only allows two string literals to be adjacent tokens across a physical line break (as opposed to two separate statements) when they sit inside an open bracket or a backslash continuation -- outside of one, the tokenizer emits a logical-line-ending `NEWLINE` token between them instead of the non-logical `NL` used inside brackets, and a `NEWLINE` now always breaks the join.",
+      "rationale": "Rejected two narrower regex patches: (1) just adding a same-quote-character check with a bracket-depth counter re-implemented by hand -- this duplicates exactly what CPython's own tokenizer already gets right (string prefixes, escaped quotes, triple-quotes, nested brackets inside strings) and risks its own new edge-case bugs; `tokenize` is stdlib (no new dependency, consistent with this script's stdlib-only philosophy) and is definitionally correct for 'is this genuine Python implicit string concatenation'. (2) Restricting to `.py` files alone without the tokenize rewrite -- this would still have false-flagged the reviewer's second repro (two unrelated bare string-literal statements in a `.py` file), since the old regex only checked for matching quote characters, not real token adjacency. Verified directly: reproduced both of the reviewer's false-positive repros (the .md two-unrelated-sentences case and the .py two-unrelated-bare-statements case) against the pre-fix code, confirmed both are now silent (no violations) against the post-fix code, and confirmed the original checklist item 1 case (schemas.py's own Field description implicit-concatenation wrapping style) is still correctly flagged. Added two new regression tests (`test_unrelated_quoted_sentences_across_a_line_break_in_md_are_not_flagged`, `test_unrelated_bare_string_statements_in_py_are_not_flagged`) alongside the pre-existing real-implicit-concatenation regression test so all three stay pinned going forward."
     }
   ],
   "questions": [],
