@@ -1,6 +1,6 @@
 ---
 name: static-verify
-description: Run backend (ruff + mypy) and frontend (eslint + tsc) static analysis together and report pass/fail with every finding grouped by file, distinguishing style/lint issues from real type errors. Use when asked to run static analysis/linting, before finishing a change that touches backend or frontend code, or as the "run static analysis / linting" step of a PR review or task QA pass.
+description: Run backend (ruff + mypy) and frontend (eslint + tsc) static analysis, plus the repo-wide profit-target stale-wording guard, together and report pass/fail with every finding grouped by file, distinguishing style/lint issues from real type errors. Use when asked to run static analysis/linting, before finishing a change that touches backend or frontend code, or as the "run static analysis / linting" step of a PR review or task QA pass.
 ---
 
 # Static Verify
@@ -47,7 +47,25 @@ explanation.
    Project-references build (`tsconfig.app.json` + `tsconfig.node.json`, both `strict:
    true`) — catches type errors across `src/`, `tests/`, and `.storybook/`.
 
-5. **Report one combined result**, even if only one side was touched by the change
+5. **Profit-target stale-wording guard.** From the repo root (no venv/install needed —
+   stdlib-only, same as `scripts/validate_tasks.py`):
+   ```
+   python3 scripts/check_profit_target_wording.py
+   ```
+   Guards against `suggest_profit_target`'s channel-source description silently
+   reverting to the pre-fix wording describing the channel as sourced from the
+   *current day's* data with a ~100-*day* warm-up, instead of the correct *weekly*
+   chart with a ~100-*week* warm-up, in any of `backend/`, `frontend/src/`, or `docs/`
+   — a bug class that recurred across 6 separate files/locations over 2 review rounds of PR #222
+   (`backend-profit-target-weekly-channel`) precisely because nothing but a human
+   re-grepping the whole repo by hand ever caught it. See
+   `docs/tasks/backend-profit-target-weekly-channel-followups.json` and the script's
+   own module docstring for the full rationale, including why `docs/tasks/` and
+   `docs/ideas.md` are deliberately excluded. Non-zero exit + a per-location message
+   list means a real finding — treat it the same as a lint finding below, not a
+   separate category.
+
+6. **Report one combined result**, even if only one side was touched by the change
    under review — say explicitly if a side was skipped and why (e.g. "frontend
    unchanged, last known state: clean"), don't just omit it silently. For each side,
    group findings by file, and within each side separate:
@@ -62,7 +80,7 @@ explanation.
      the finding is actually a bug flake8-bugbear/pyflakes/eslint caught (an unused
      variable that should have been used, a real mutable-default bug, etc.).
 
-6. **If either side is not yet clean:** don't just add a blanket ignore. First check
+7. **If either side is not yet clean:** don't just add a blanket ignore. First check
    whether the finding is a real bug (fix the code) or a legitimate, tool-specific false
    positive for this codebase's own conventions (e.g. ruff's B008 firing on every
    FastAPI `Depends(...)` default, which `[tool.ruff.lint.flake8-bugbear]`'s
@@ -73,7 +91,7 @@ explanation.
 
 ## Notes
 
-- No live network calls are needed for any of these four commands — they're pure
+- No live network calls are needed for any of these five commands — they're pure
   static analysis over the checked-out tree.
 - This skill only reports; it doesn't fix findings for you (that's ordinary
   implementation work, or `test-90`'s counterpart for coverage specifically). Load it

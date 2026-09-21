@@ -74,4 +74,32 @@ describe('methodologyContent', () => {
       expect(STATUS_META[status].description.length).toBeGreaterThan(0)
     }
   })
+
+  describe('profit-target entry summary', () => {
+    // Content-specific regression test (unlike every other assertion in this file,
+    // which only checks structural invariants) -- this exact string was the 6th
+    // instance of the "stale daily-channel copy" bug found during PR #222's
+    // (backend-profit-target-weekly-channel) final review round: it read "that
+    // day's Autoenvelope/channel height" after suggest_profit_target's channel
+    // candidate moved to the WEEKLY chart (ch. 39 p.161), and no test caught it
+    // before manual review did. See
+    // docs/tasks/backend-profit-target-weekly-channel-followups.json checklist
+    // item 2 -- folded into the same repo-wide guard as
+    // profitTargetHelpText.test.ts and both metricHelpContent.test.ts files via
+    // scripts/check_profit_target_wording.py (run by the static-verify skill),
+    // plus this dedicated assertion for defense in depth at the unit-test level.
+    const profitTargetEntry = METHODOLOGY_SECTIONS.flatMap((section) => section.entries).find(
+      (entry) => entry.id === 'profit-target',
+    )
+
+    it('exists', () => {
+      expect(profitTargetEntry).toBeDefined()
+    })
+
+    it('describes the channel/Tradebill technique as sourced from the WEEKLY chart, not "today\'s"/"that day\'s"/daily', () => {
+      expect(profitTargetEntry?.summary).toMatch(/weekly chart.s Autoenvelope\/channel height/)
+      expect(profitTargetEntry?.summary).not.toMatch(/today.s Autoenvelope/)
+      expect(profitTargetEntry?.summary).not.toMatch(/that day.s Autoenvelope/)
+    })
+  })
 })
