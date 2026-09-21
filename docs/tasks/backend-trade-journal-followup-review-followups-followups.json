@@ -1,0 +1,19 @@
+{
+  "id": "backend-trade-journal-followup-review-followups-followups",
+  "title": "Non-blocking follow-up from PR #227 review (backend-trade-journal-followup-review-followups)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trade-journal-followup-review-followups"],
+  "references": [
+    "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+    "https://github.com/rainoko/fintrade/pull/227"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #227, tracked here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "backend-trade-journal-followup-review-followups.json's decisions entry (and PR #227's description) state ClosedTradeOut has grown to '18 fields' -- an AST count of app/api/schemas.py's ClosedTradeOut and a manual field-by-field read of the extracted _to_closed_trade_out helper both show exactly 17 fields (id, ticker, quantity, entry_price, entry_date, exit_price, exit_date, realized_pnl, exit_reason, buy_grade_pct, sell_grade_pct, trade_grade_pct, trade_letter_grade, entry_notes, strategy, follow_up_notes, follow_up_reviewed_at). The helper itself is complete and correct (it covers the real, full field set), so this doesn't affect behavior -- it's purely the decision record's/PR description's stated count that's off by one. Worth correcting the decision entry's wording (or at least noting the discrepancy) so a future reader trying to reconstruct 'which fields were added when' from the decision record isn't misled by the wrong count.",
+      "done": false
+    }
+  ]
+}
