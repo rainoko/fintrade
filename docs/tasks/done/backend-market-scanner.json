@@ -1,0 +1,78 @@
+{
+  "id": "backend-market-scanner",
+  "title": "Market scanner using IBKR's scanner categories, disabled when IBKR isn't available",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": ["backend-ibkr-status-endpoint"],
+  "references": [
+    "backend/app/data/ibkr_provider.py",
+    "docs/ideas.md#market-scanning-ch-56-is-a-new-feature-not-part-of-the-watchlist-or-ticker-detail-view"
+  ],
+  "description": "Ch. 56 describes scanning a large universe the user doesn't already track (S&P 500, an industry group, etc.) to discover new candidates -- distinct from the watchlist (a curated list of tickers already tracked) and the ticker detail view (analyzes one already-chosen ticker). Per explicit product decision: this uses IBKRProvider.run_scanner's predefined categories (52-week-high/low, hot-by-volume, top % gainers/losers, etc. -- confirmed present in get_scanner_params's option list) when the gateway is enabled and available, and the feature is simply unavailable (a clear 'scanner unavailable, IBKR not connected' state, never a hard error) otherwise. Elder's own bespoke custom-pattern scanner (a precursor-to-divergence detector built with a programmer) is explicitly NOT in scope here -- that remains a separate, much larger idea in docs/ideas.md if ever pursued; this task only wires up IBKR's own existing scan categories.",
+  "checklist": [
+    { "step": "Add an endpoint exposing the available scanner categories (from IBKRProvider.get_scanner_params) and an endpoint to run a scan (via IBKRProvider.run_scanner), both returning a clear 'unavailable' response (not an error) when IBKR isn't enabled/available -- reuse the same gateway-availability pattern backend-ibkr-status-endpoint establishes.", "done": true },
+    { "step": "Decide and record which of IBKR's scan categories to expose as the initial curated set (vs. exposing the raw params list as-is) and any default negative filters (e.g. a minimum average-daily-volume floor, per ch.56's own liquidity-filter advice) -- record the rationale.", "done": true },
+    { "step": "Respect IBKRProvider's existing client-side rate limits (1 req/sec for run_scanner, 15-min cache for get_scanner_params) -- do not add a second, conflicting throttle layer.", "done": true },
+    { "step": "Unit tests mocking IBKRProvider for: IBKR disabled, gateway unavailable, a successful scan, and the rate-limited case.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Both routes (GET /api/ibkr/scanner/params, POST /api/ibkr/scanner/run) live in the existing backend/app/api/routers/ibkr.py alongside GET /api/ibkr/status, rather than a new router file. GET /api/ibkr/scanner/params exposes IBKR's raw scan_type_list from get_scanner_params, passed through as a list[dict] as-is, rather than hand-curating a fixed subset of category codes. POST /api/ibkr/scanner/run's scan_config field is likewise an opaque dict forwarded to IBKRProvider.run_scanner without validation or a server-injected default liquidity filter (e.g. no automatic min-average-volume floor). Both routes report availability via the identical {state, detail} shape GET /api/ibkr/status already established (IBKRGatewayState: disabled/available/gateway_unreachable/not_authenticated), with categories/results populated only when state == 'available'. Being rate-limited (IBKRProvider.run_scanner's own 1-req/sec client-side throttle, IBKRRateLimitedError) is surfaced as an HTTP 429 with the exception's own message as detail, not folded into the {state} shape, since it's a genuine transient error on an otherwise-available scanner, distinct from 'IBKR isn't connected at all'.",
+      "rationale": "One router per resource is this codebase's established convention (stocks.py/portfolio.py/watchlist.py, and ibkr.py itself for /status) -- the scanner routes are the same 'ibkr' resource, not a new one. Passing through the raw scan_type_list (rather than a curated subset) was chosen because the actual field shape/available codes are unconfirmed against a live gateway (docs/ideas.md's own admission: 'confirmed not yet checked against a live gateway') -- hand-picking specific category codes risks embedding stale or wrong codes, silently omitting categories IBKR actually offers, or breaking outright if the real field names differ from assumption. This mirrors IBKRProvider.run_scanner's own already-established design philosophy (its docstring: 'this provider doesn't validate scan_config itself, since the option universe is entirely gateway-defined and versioned by IBKR, not something worth duplicating here') -- the same reasoning applies one layer up at the API boundary. For the same reason, no default negative filter (e.g. a volume floor) is injected server-side: the exact IBKR filter code/schema for something like an average-daily-volume floor is unconfirmed against a live gateway, and guessing at one risks constructing a filter that's subtly wrong or silently a no-op; ch.56's liquidity-filter advice is instead documented (in the route docstrings and docs/architecture/API.md) as guidance for the caller to apply via whatever filter option IBKR's own get_scanner_params response actually offers. 429 (not a 'state' value) for rate-limiting was chosen because it's the standard, actionable HTTP status for 'you're calling too fast, retry shortly' -- collapsing it into the same {state, detail} shape used for 'feature unavailable' would blur two very different situations (a permanently-unusable feature right now vs. a fully-usable feature that just needs a brief retry) that a caller needs to handle differently. Also considered eagerly calling get_gateway_status() first in both handlers (mirroring /status exactly) before attempting get_scanner_params()/run_scanner(); rejected in favor of a try/except around the data call itself, falling back to get_gateway_status() only on an IBKRUnavailableError -- this avoids a redundant extra gateway round-trip on every successful/cached call, paying the extra status check only on the (already-failing) unavailable path where it's needed to report which specific state applies instead of parsing IBKRUnavailableError's message string."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pr-reviewer's blocking finding (PR #214, both scanner routes returning state: \"available\" with categories/results: null) by adding a shared `_resolve_scanner_unavailable` helper: on `IBKRUnavailableError`, it makes the same fresh `get_gateway_status()` call as before, but if that fresh check itself reports `available` -- meaning the exception came from the scanner-specific call failing transiently (a non-200/transport-error/unparseable body from `/iserver/scanner/params` or `/iserver/scanner/run`), not from the gateway/session genuinely being unavailable -- it raises `HTTPException(503)` with the original exception's message as `detail`, instead of returning a `state`-shaped 200. Both routes' `responses={...}` and docs/architecture/API.md were updated to document the new `503` case, and a regression test was added on each route (`test_transient_scanner_call_failure_with_available_gateway_returns_503`) using the existing test stub's already-decoupled `status`/`*_result` fields to construct exactly the disagreeing-status-vs-exception scenario pr-reviewer reproduced.",
+      "rationale": "A 503 (not a new `state` value) was chosen to match this codebase's existing 'genuine, transient, single-call failure' convention (stocks.py's DataProviderUnavailableError -> 503) and to keep it clearly distinct from both `429` (a client calling too fast, not a call that outright failed) and the `state` enum (which means 'this feature is not usable at all right now', not 'this one call to it just failed'); folding a transient scanner-call failure into `state` would have required inventing a new IBKRGatewayState value that doesn't correspond to anything `IBKRProvider.get_gateway_status()` itself can report, and would still leave the underlying ambiguity (does a caller retry, or is the whole feature down?) unresolved. Considered instead trying to distinguish the two `IBKRUnavailableError` causes by parsing its message string (`_require_available` vs `_request`'s three raise sites use different wording) or by adding a new exception subclass in `app.data.ibkr_provider` for the `_request`-only case; rejected both -- message-string parsing is brittle and exactly the kind of coupling `IBKRUnavailableError`'s own docstring already discourages, and a new provider-level exception type would touch a class three other tasks/tests already depend on for a router-only bug, when the same fresh-status-disagrees-with-exception signal this fix uses is already available at the router layer with no provider change needed. Addresses pr-reviewer's blocking comment on PR #214 (see this task's `review.comments`)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-scanner",
+    "pr_number": 214,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/214",
+    "pushed_at": "2026-09-21T00:19:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T00:44:37Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/214",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "RESOLVED (was blocking, prior review 2026-09-21T00:26:57Z): GET /api/ibkr/scanner/params and POST /api/ibkr/scanner/run could return state: \"available\" together with categories/results left null on a transient scanner-call failure. Fixed by a new `_resolve_scanner_unavailable(provider, exc)` helper (commit 44ea5d3): on `IBKRUnavailableError`, if a fresh `get_gateway_status()` call disagrees with the exception (still reports 'available'), it now raises `HTTPException(503)` instead of the self-contradictory 200. Verified independently by re-checking out the pre-fix router (commit ba88dd5) and confirming both new regression tests (`test_transient_scanner_call_failure_with_available_gateway_returns_503` on each route) fail with `assert 200 == 503` against it, then pass against the fixed version -- the tests genuinely exercise the exact disagreeing-status-vs-exception scenario originally reproduced, not just a claimed fix. Router file has 100% line+branch coverage including both branches of the new helper. docs/architecture/API.md, backend/openapi.json, and frontend/src/api/types.ts were all updated/regenerated and verified byte-identical to a fresh `export_openapi.py`/`generate:api-types` run.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 67
+      },
+      {
+        "summary": "Non-blocking, now resolved as a side effect of the fix above: the duplicated `except IBKRUnavailableError` fallback between the two routes is gone, since both now delegate to the shared `_resolve_scanner_unavailable` helper this fix introduced -- matches what the prior review's follow-up item asked for almost verbatim. Marked done on backend-market-scanner-followups (remaining duplication is just each route's final `return <ResponseModel>(...)` line, which is irreducible given the two response models have different field names).",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 67
+      },
+      {
+        "summary": "Non-blocking (unchanged from prior review, still applies): IBKRRateLimitedError.retry_after is discarded by the 429 response, only embedded in detail's free-text sentence rather than a structured field or Retry-After header. Remains tracked on backend-market-scanner-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 178
+      },
+      {
+        "summary": "Non-blocking (unchanged from prior review, still applies): get_ibkr_scanner_params's isinstance(params, dict) check is redundant given the trailing `or []` already normalizes any falsy/non-dict result. Remains tracked on backend-market-scanner-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 134
+      },
+      {
+        "summary": "Non-blocking (unchanged from prior review, still applies): test_ibkr_scanner.py still covers not_authenticated for GET /api/ibkr/scanner/params but not for POST /api/ibkr/scanner/run. Remains tracked on backend-market-scanner-followups.",
+        "file": "backend/tests/integration/test_ibkr_scanner.py",
+        "line": null
+      }
+    ],
+    "notes": "Re-review after prior needs_work verdict. Tests/coverage: backend 961 passed, 99.94% coverage (app/api/routers/ibkr.py itself 100% line+branch); frontend 700 passed, 99.72%/99.19%/99.72%/99.78% stmt/branch/func/line coverage -- both well above the 90% gate, no regressions from the prior pass (959->961 backend tests reflects the two new regression tests). Static analysis (ruff, mypy, eslint, tsc) clean on both sides. openapi.json and frontend/src/api/types.ts regenerated fresh and diffed byte-identical against the committed snapshot -- no drift. docs/architecture/API.md documents the new 503 case for both routes. No UI surface exists yet for this endpoint (no frontend consumer -- that's the separate, still-planned frontend-market-scanner-page task) -- browser walkthrough and e2e suite explicitly skipped, not silently omitted. The checklist's 'decide X' item has a matching decisions entry, as does this fix itself. area is backend/api (not backend/signals or backend/portfolio) and skill is add-api-endpoint, not verify-elder-signal, so the Elder-methodology check doesn't apply; no new module/dependency/layer was added, so architecture-review doesn't apply either. No pr_decision existed to clear. Blocking finding from the prior review is fixed and independently re-verified (reproduced the original bug against the pre-fix commit, confirmed both new regression tests fail there and pass on the fix); of the four non-blocking findings, one (the duplicated except-block) was resolved as a side effect of the fix and marked done on backend-market-scanner-followups, the other three are unchanged and remain tracked there."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T00:48:51Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the backend suite: 961 passed, 99.94% coverage, app/api/routers/ibkr.py 100% line+branch -- matches pr-reviewer's numbers exactly, and ruff/mypy are clean on the changed files. Independently reproduced the fix: swapped in the pre-fix router (commit ba88dd5) against the current test_ibkr_scanner.py and confirmed both test_transient_scanner_call_failure_with_available_gateway_returns_503 tests fail with `assert 200 == 503` there, then restored the fixed file (byte-identical to HEAD per git diff) and confirmed both pass -- a genuine regression test, not a claimed one. Skimmed the full diff (ibkr.py, schemas.py, test_ibkr_scanner.py, API.md, openapi.json, backend-market-scanner-followups.json, index.json): _resolve_scanner_unavailable's disagreeing-status-vs-exception logic is sound, openapi.json is byte-identical to a fresh export_openapi.py run, index.json mirrors both tasks' state/path correctly, and no live gateway call is reachable -- Settings.ibkr_enabled defaults to False, and every test drives the routes via a dependency-override stub (_StubIBKRProvider), never a real IBKRProvider making an HTTP call."
+  }
+}

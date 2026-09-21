@@ -1,0 +1,32 @@
+{
+  "id": "backend-market-scanner-followups",
+  "title": "Non-blocking follow-ups from backend-market-scanner review (PR #214)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-market-scanner"],
+  "references": [
+    "docs/tasks/backend-market-scanner.json",
+    "https://github.com/rainoko/fintrade/pull/214"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #214 (GET /api/ibkr/scanner/params, POST /api/ibkr/scanner/run), tracked here per CLAUDE.md's convention so they aren't lost once the PR merges. Distinct from the blocking finding on that same PR (state='available' returned with categories/results left null on a transient scanner-call failure), which was returned to the task itself for a required fix, not deferred here.",
+  "checklist": [
+    {
+      "step": "IBKRRateLimitedError.retry_after (a float already computed by IBKRProvider.run_scanner) is discarded by run_ibkr_scanner's `raise HTTPException(status_code=429, detail=str(exc))` -- only embedded in detail's free-text sentence. Expose it as a structured field (or a standard Retry-After header) so a frontend consumer can schedule a retry without parsing a sentence whose wording isn't a stable API contract.",
+      "done": false
+    },
+    {
+      "step": "The `except IBKRUnavailableError: status = provider.get_gateway_status(); return Response(state=status.state, detail=status.detail, X=None)` fallback in backend/app/api/routers/ibkr.py is duplicated verbatim between get_ibkr_scanner_params and run_ibkr_scanner. Extract a small shared helper (e.g. `_unavailable_state(provider) -> GatewayStatus`), especially once the blocking finding on the parent task (the state/null-field inconsistency in that same fallback) is fixed there.",
+      "done": true,
+      "resolution": "Resolved as a side effect of the parent task's blocking-bug fix (PR #214, commit 44ea5d3): fixing the state/null-field inconsistency required distinguishing 'gateway genuinely unavailable' from 'scanner call itself failed transiently', which the fix does via a new shared `_resolve_scanner_unavailable(provider, exc) -> GatewayStatus` helper -- exactly the extraction this finding asked for. Re-verified during the PR's re-review (2026-09-21): both routes now call the shared helper; only the final `return <ResponseModel>(state=status.state, detail=status.detail, <field>=None)` line remains duplicated, which is irreducible without extra indirection since the two response models have different field names (categories vs results)."
+    },
+    {
+      "step": "get_ibkr_scanner_params's `categories = params.get(\"scan_type_list\") if isinstance(params, dict) else None` followed by `categories or []` -- the isinstance check is redundant given the trailing `or []` already normalizes any falsy/non-dict result to `[]`. Simplify to `params.get(\"scan_type_list\") or []` (params is always a dict per IBKRProvider.get_scanner_params's own return type).",
+      "done": false
+    },
+    {
+      "step": "backend/tests/integration/test_ibkr_scanner.py covers the not_authenticated state for GET /api/ibkr/scanner/params but not for POST /api/ibkr/scanner/run (only disabled/gateway_unreachable/429/success/empty-result are tested there). Add a not_authenticated case to TestRunScanner for symmetry/completeness, even though the code path is shared and already at 100% line coverage.",
+      "done": false
+    }
+  ]
+}

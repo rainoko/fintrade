@@ -693,6 +693,173 @@
         "title": "HistoryResponse",
         "type": "object"
       },
+      "IBKRScannerParamsResponse": {
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IBKR's own `scan_type_list` from `/iserver/scanner/params`, passed through as-is (each entry's exact fields -- e.g. `code`/`display_name` -- are entirely gateway-defined and not modeled here; see the backend-market-scanner task's `decisions` entry for why this isn't hand-curated down to a fixed subset). Non-null if and only if `state` is 'available'. Use a `code` from here as the `scan_config.type` value in `POST /api/ibkr/scanner/run`.",
+            "title": "Categories"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.",
+            "title": "Detail"
+          },
+          "state": {
+            "description": "Same semantics/values as GET /api/ibkr/status's `state` -- this endpoint reuses that exact availability check rather than inventing a second one. 'available' means `categories` below is populated; every other value means the scanner feature is currently unavailable (never an HTTP error) and `categories` is null.",
+            "enum": [
+              "disabled",
+              "available",
+              "gateway_unreachable",
+              "not_authenticated"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "IBKRScannerParamsResponse",
+        "type": "object"
+      },
+      "IBKRScannerResultOut": {
+        "properties": {
+          "company_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Company name, if the gateway supplied one.",
+            "title": "Company Name"
+          },
+          "conid": {
+            "description": "IBKR's own numeric contract id for this result.",
+            "title": "Conid",
+            "type": "integer"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This result's rank within the scan (1 = best match), if the gateway supplied one.",
+            "title": "Rank"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ticker symbol, if the gateway supplied one.",
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "conid"
+        ],
+        "title": "IBKRScannerResultOut",
+        "type": "object"
+      },
+      "IBKRScannerRunRequest": {
+        "properties": {
+          "scan_config": {
+            "additionalProperties": true,
+            "description": "IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` returns. Passed to the gateway as-is -- this app does not validate or transform it (matching `IBKRProvider.run_scanner`'s own contract). To apply ch. 56's own liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s filter option list here -- this endpoint does not inject one automatically (see this task's `decisions` entry).",
+            "examples": [
+              {
+                "instrument": "STK",
+                "location": "STK.US.MAJOR",
+                "type": "TOP_PERC_GAIN"
+              }
+            ],
+            "title": "Scan Config",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scan_config"
+        ],
+        "title": "IBKRScannerRunRequest",
+        "type": "object"
+      },
+      "IBKRScannerRunResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable context for `state`, same convention as GET /api/ibkr/status's `detail`.",
+            "title": "Detail"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/IBKRScannerResultOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan's matching contracts, most relevant first per IBKR's own `rank`. Non-null if and only if `state` is 'available' -- an empty list is a valid, successful zero-match scan, distinct from a null `results` (feature unavailable).",
+            "title": "Results"
+          },
+          "state": {
+            "description": "Same semantics/values as GET /api/ibkr/status's `state`. 'available' means `results` below reflects a completed scan; every other value means the scanner feature is currently unavailable (never an HTTP error) and `results` is null. Being rate-limited (more than 1 request/second) is a distinct, genuine error case -- see this route's `429` response -- not represented as a `state` value here.",
+            "enum": [
+              "disabled",
+              "available",
+              "gateway_unreachable",
+              "not_authenticated"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "IBKRScannerRunResponse",
+        "type": "object"
+      },
       "IBKRStatusResponse": {
         "properties": {
           "detail": {
@@ -2071,6 +2238,100 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/ibkr/scanner/params": {
+      "get": {
+        "description": "Lists IBKR's own predefined scan categories (`IBKRProvider.get_scanner_params`'s\n`scan_type_list`, e.g. 52-week-high/low, hot-by-volume, top % gainers/losers) so a\ncaller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56\nmarket-scanning entry.\n\n'disabled' when IBKR isn't enabled at all (no gateway call attempted). Otherwise,\n`IBKRProvider.get_scanner_params()` is tried directly (itself served from its own\n15-minute cache on a hit, per this task's \"don't add a second, conflicting throttle\nlayer\" requirement) -- only on an `IBKRUnavailableError` (a cache miss) does this\nhandler make the one extra `get_gateway_status()` call needed to report *which*\nunavailable state applies, instead of parsing that information back out of the\nexception's message string. If that fresh check disagrees with the exception (gateway\nreports `available` even though the scanner-params call itself just failed), this is a\ngenuine transient failure of this specific call, not a `state`-shaped unavailability --\nsee `_resolve_scanner_unavailable` -- and is raised as a `503` instead.",
+        "operationId": "get_ibkr_scanner_params",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IBKRScannerParamsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The scanner-params call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
+          }
+        },
+        "summary": "The market scanner's available scan categories, or why the scanner is unavailable",
+        "tags": [
+          "ibkr"
+        ]
+      }
+    },
+    "/api/ibkr/scanner/run": {
+      "post": {
+        "description": "Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56\nmarket-scanning entry's \"near-term, using what's already half-built\" option: IBKR's own\npredefined scan categories run broker-side across their whole market universe, not this\napp's own signal engine run over a downloaded ticker universe (a separate, much larger\nidea, explicitly out of scope here -- see this task's `description`).\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being\nrate-limited (more than 1 request/second since this process's own last scan run,\nenforced client-side by `IBKRProvider` itself -- this handler adds no second, competing\nthrottle) is different: it's a genuine, actionable, transient error for an *enabled and\notherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A\nscanner-run call that itself fails transiently against an otherwise-`available` gateway\n(see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into\n`state`.",
+        "operationId": "run_ibkr_scanner",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IBKRScannerRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IBKRScannerRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Scanner run rate limit (1 request/second) exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
+          }
+        },
+        "summary": "Run an IBKR market scan, or report why the scanner is unavailable",
+        "tags": [
+          "ibkr"
+        ]
+      }
+    },
     "/api/ibkr/status": {
       "get": {
         "description": "Reports the IBKR gateway's connection state -- 'disabled' when\n`Settings.ibkr_enabled` is `False` (this app's default; `get_ibkr_provider` yields\n`None` in exactly that case, so no attempt to reach a gateway is made at all), otherwise\nwhatever `IBKRProvider.get_gateway_status()` reports ('available' / 'gateway_unreachable'\n/ 'not_authenticated').\n\nNever raises for any gateway state: `get_gateway_status()` itself never raises (its own\ndocstring's contract -- every failure mode it can observe is represented as a\n`GatewayStatus` value instead of an exception), and this handler adds no failure mode of\nits own on top of that.",

@@ -622,6 +622,77 @@ class IBKRStatusResponse(BaseModel):
     )
 
 
+# --- /api/ibkr/scanner/params, /api/ibkr/scanner/run -----------------------
+
+
+class IBKRScannerParamsResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Same semantics/values as GET /api/ibkr/status's `state` -- this "
+        "endpoint reuses that exact availability check rather than inventing a second one. "
+        "'available' means `categories` below is populated; every other value means the "
+        "scanner feature is currently unavailable (never an HTTP error) and `categories` "
+        "is null.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state`, same convention as "
+        "GET /api/ibkr/status's `detail`.",
+    )
+    categories: list[dict] | None = Field(
+        default=None,
+        description="IBKR's own `scan_type_list` from `/iserver/scanner/params`, passed "
+        "through as-is (each entry's exact fields -- e.g. `code`/`display_name` -- are "
+        "entirely gateway-defined and not modeled here; see the backend-market-scanner "
+        "task's `decisions` entry for why this isn't hand-curated down to a fixed subset). "
+        "Non-null if and only if `state` is 'available'. Use a `code` from here as the "
+        "`scan_config.type` value in `POST /api/ibkr/scanner/run`.",
+    )
+
+
+class IBKRScannerRunRequest(BaseModel):
+    scan_config: dict = Field(
+        description="IBKR's own `/iserver/scanner/run` request body: `instrument`/`type`/"
+        "`location`/`filter` keys, built from the option lists `GET /api/ibkr/scanner/params` "
+        "returns. Passed to the gateway as-is -- this app does not validate or transform it "
+        "(matching `IBKRProvider.run_scanner`'s own contract). To apply ch. 56's own "
+        "liquidity-filter advice (skip illiquid names, roughly <500k-1M average daily "
+        "volume), include IBKR's own volume-floor filter code from `get_scanner_params`'s "
+        "filter option list here -- this endpoint does not inject one automatically (see "
+        "this task's `decisions` entry).",
+        examples=[{"instrument": "STK", "type": "TOP_PERC_GAIN", "location": "STK.US.MAJOR"}],
+    )
+
+
+class IBKRScannerResultOut(BaseModel):
+    conid: int = Field(description="IBKR's own numeric contract id for this result.")
+    symbol: str | None = Field(default=None, description="Ticker symbol, if the gateway supplied one.")
+    company_name: str | None = Field(default=None, description="Company name, if the gateway supplied one.")
+    rank: int | None = Field(
+        default=None, description="This result's rank within the scan (1 = best match), if the gateway supplied one."
+    )
+
+
+class IBKRScannerRunResponse(BaseModel):
+    state: IBKRGatewayState = Field(
+        description="Same semantics/values as GET /api/ibkr/status's `state`. 'available' "
+        "means `results` below reflects a completed scan; every other value means the "
+        "scanner feature is currently unavailable (never an HTTP error) and `results` is "
+        "null. Being rate-limited (more than 1 request/second) is a distinct, genuine error "
+        "case -- see this route's `429` response -- not represented as a `state` value here.",
+    )
+    detail: str | None = Field(
+        default=None,
+        description="Human-readable context for `state`, same convention as "
+        "GET /api/ibkr/status's `detail`.",
+    )
+    results: list[IBKRScannerResultOut] | None = Field(
+        default=None,
+        description="The scan's matching contracts, most relevant first per IBKR's own "
+        "`rank`. Non-null if and only if `state` is 'available' -- an empty list is a valid, "
+        "successful zero-match scan, distinct from a null `results` (feature unavailable).",
+    )
+
+
 # --- shared error shape (FastAPI default, documented for clarity) ---------
 
 
