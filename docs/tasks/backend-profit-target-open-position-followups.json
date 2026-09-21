@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-open-position PR #224 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-profit-target-open-position"],
   "references": [
     "docs/tasks/backend-profit-target-open-position.json",
@@ -47,5 +47,11 @@
       "rationale": "Mirrors distance_to_stop's own already-correct hedged wording pattern ('Can be <= 0 in the rare case...') exactly, per the finding's own suggested fix, rather than inventing a differently-shaped caveat. Verified scripts/check_profit_target_wording.py stays clean (the new text still says 'weekly Autoenvelope' within its required context window) and that no backend/frontend test asserted the old 'Always > 0' wording literally (grepped both trees) before running the full suites: backend pytest (1109 passed), ruff + mypy clean; frontend vitest (704 passed, 71 files), tsc -b clean, eslint clean.",
       "context": null
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-profit-target-open-position-followups",
+    "pr_number": 225,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/225",
+    "pushed_at": "2026-09-21T07:49:29Z"
+  }
 }
