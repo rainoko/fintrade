@@ -1481,7 +1481,7 @@ export interface components {
         IBKRStatusResponse: {
             /**
              * Detail
-             * @description Human-readable context for `state` (the underlying transport error, or the gateway's own message) -- informational only, never required for a caller to branch on. Always null for 'disabled' and usually null for 'available'.
+             * @description Human-readable context for `state` (the underlying transport error, or the gateway's own message) -- informational only, never required for a caller to branch on. Always populated (a fixed explanatory string) for 'disabled', and usually null for 'available'.
              */
             detail?: string | null;
             /**
