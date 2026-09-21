@@ -2240,7 +2240,7 @@
   "paths": {
     "/api/ibkr/scanner/params": {
       "get": {
-        "description": "Lists IBKR's own predefined scan categories (`IBKRProvider.get_scanner_params`'s\n`scan_type_list`, e.g. 52-week-high/low, hot-by-volume, top % gainers/losers) so a\ncaller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56\nmarket-scanning entry.\n\nNever raises: mirrors `GET /api/ibkr/status`'s 'never fails, degrade to a `state`\nvalue' contract exactly. 'disabled' when IBKR isn't enabled at all (no gateway call\nattempted). Otherwise, `IBKRProvider.get_scanner_params()` is tried directly (itself\nserved from its own 15-minute cache on a hit, per this task's \"don't add a second,\nconflicting throttle layer\" requirement) -- only on an `IBKRUnavailableError` (a cache\nmiss against a gateway that isn't `available`) does this handler make the one extra\n`get_gateway_status()` call needed to report *which* unavailable state applies,\ninstead of parsing that information back out of the exception's message string.",
+        "description": "Lists IBKR's own predefined scan categories (`IBKRProvider.get_scanner_params`'s\n`scan_type_list`, e.g. 52-week-high/low, hot-by-volume, top % gainers/losers) so a\ncaller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56\nmarket-scanning entry.\n\n'disabled' when IBKR isn't enabled at all (no gateway call attempted). Otherwise,\n`IBKRProvider.get_scanner_params()` is tried directly (itself served from its own\n15-minute cache on a hit, per this task's \"don't add a second, conflicting throttle\nlayer\" requirement) -- only on an `IBKRUnavailableError` (a cache miss) does this\nhandler make the one extra `get_gateway_status()` call needed to report *which*\nunavailable state applies, instead of parsing that information back out of the\nexception's message string. If that fresh check disagrees with the exception (gateway\nreports `available` even though the scanner-params call itself just failed), this is a\ngenuine transient failure of this specific call, not a `state`-shaped unavailability --\nsee `_resolve_scanner_unavailable` -- and is raised as a `503` instead.",
         "operationId": "get_ibkr_scanner_params",
         "responses": {
           "200": {
@@ -2252,6 +2252,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The scanner-params call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
           }
         },
         "summary": "The market scanner's available scan categories, or why the scanner is unavailable",
@@ -2262,7 +2272,7 @@
     },
     "/api/ibkr/scanner/run": {
       "post": {
-        "description": "Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56\nmarket-scanning entry's \"near-term, using what's already half-built\" option: IBKR's own\npredefined scan categories run broker-side across their whole market universe, not this\napp's own signal engine run over a downloaded ticker universe (a separate, much larger\nidea, explicitly out of scope here -- see this task's `description`).\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being\nrate-limited (more than 1 request/second since this process's own last scan run,\nenforced client-side by `IBKRProvider` itself -- this handler adds no second, competing\nthrottle) is different: it's a genuine, actionable, transient error for an *enabled and\notherwise-available* scanner, so it's surfaced as `429`, not folded into `state`.",
+        "description": "Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56\nmarket-scanning entry's \"near-term, using what's already half-built\" option: IBKR's own\npredefined scan categories run broker-side across their whole market universe, not this\napp's own signal engine run over a downloaded ticker universe (a separate, much larger\nidea, explicitly out of scope here -- see this task's `description`).\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being\nrate-limited (more than 1 request/second since this process's own last scan run,\nenforced client-side by `IBKRProvider` itself -- this handler adds no second, competing\nthrottle) is different: it's a genuine, actionable, transient error for an *enabled and\notherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A\nscanner-run call that itself fails transiently against an otherwise-`available` gateway\n(see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into\n`state`.",
         "operationId": "run_ibkr_scanner",
         "requestBody": {
           "content": {
@@ -2304,6 +2314,16 @@
               }
             },
             "description": "Scanner run rate limit (1 request/second) exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
           }
         },
         "summary": "Run an IBKR market scan, or report why the scanner is unavailable",

@@ -420,13 +420,15 @@ Whether the optional IBKR Client Portal Gateway integration (`app.data.ibkr_prov
 
 Lists IBKR's own predefined market-scanner categories (`IBKRProvider.get_scanner_params`'s `scan_type_list` — 52-week-high/low, hot-by-volume, top % gainers/losers, etc.) so a caller can build a `POST /api/ibkr/scanner/run` request. This is the "scan a large universe you don't already track" feature docs/ideas.md's ch. 56 entry describes — distinct from the watchlist (a curated list of already-tracked tickers) and the ticker detail view (analyzes one already-chosen ticker). Elder's own bespoke MACD-divergence-precursor scanner is explicitly out of scope; this only exposes IBKR's own existing scan categories.
 
-Reuses `GET /api/ibkr/status`'s exact availability pattern: read-only, never fails — every state is a normal `200`.
+Reuses `GET /api/ibkr/status`'s exact availability pattern for a genuinely-unavailable gateway/session: a normal `200` with a `state` value, never a failed request.
 
 ```json
 { "state": "available", "detail": null, "categories": [{ "code": "TOP_PERC_GAIN", "display_name": "Top % Gainers" }] }
 ```
 
 `state` ∈ `disabled | available | gateway_unreachable | not_authenticated`, same meaning as `GET /api/ibkr/status`'s `state`. `categories` is IBKR's own `scan_type_list` passed through as-is (field shape is entirely gateway-defined and not modeled by this app) — non-null if and only if `state` is `available`; an empty list is a valid response if the gateway's own params payload has no `scan_type_list`. See the `backend-market-scanner` task's `decisions` entry for why this is a pass-through rather than a hand-curated subset.
+
+A transient failure of this specific call (a non-200 response, transport error, or unparseable body from `/iserver/scanner/params`) is a genuinely different situation from the gateway/session being unavailable, even though `IBKRProvider` raises the same `IBKRUnavailableError` for both: a fresh `get_gateway_status()` check (a different endpoint, `/iserver/auth/status`) can still report `available` in this case. Reporting `state: "available"` with `categories: null` here would violate the non-null-iff-`available` invariant above, so this case is instead surfaced as `503` with a plain-text `detail` — see the `backend-market-scanner` task's `review` finding and its fix.
 
 ### `POST /api/ibkr/scanner/run`
 
@@ -450,7 +452,7 @@ Response, same `state`/`detail` convention as `GET /api/ibkr/scanner/params`, pl
 }
 ```
 
-`results` is non-null if and only if `state` is `available`; an empty list is a valid, successful zero-match scan. Being rate-limited (`IBKRProvider.run_scanner`'s own client-side 1-request/second throttle) is a distinct, genuine, transient error for an otherwise-available scanner — surfaced as `429`, not folded into `state` — since it's actionable (retry shortly) in a way "IBKR isn't connected" isn't. This endpoint doesn't add a second, competing throttle of its own; it relies entirely on `IBKRProvider`'s existing rate limits (1 req/sec for `run_scanner`, a 15-minute cache for `get_scanner_params`).
+`results` is non-null if and only if `state` is `available`; an empty list is a valid, successful zero-match scan. Being rate-limited (`IBKRProvider.run_scanner`'s own client-side 1-request/second throttle) is a distinct, genuine, transient error for an otherwise-available scanner — surfaced as `429`, not folded into `state` — since it's actionable (retry shortly) in a way "IBKR isn't connected" isn't. This endpoint doesn't add a second, competing throttle of its own; it relies entirely on `IBKRProvider`'s existing rate limits (1 req/sec for `run_scanner`, a 15-minute cache for `get_scanner_params`). Same `503` treatment as `GET /api/ibkr/scanner/params` for a transient failure of the scan call itself against an otherwise-`available` gateway.
 
 ## Error Cases to Cover in Tests
 
@@ -465,6 +467,7 @@ Response, same `state`/`detail` convention as `GET /api/ibkr/scanner/params`, pl
 - A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).
 - IBKR disabled/gateway unreachable/not authenticated on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run` → a normal `200` with the corresponding `state`, `categories`/`results` both `null`, never a failed request (see both endpoints above).
 - `POST /api/ibkr/scanner/run` called again sooner than `IBKRProvider`'s own 1-request/second `run_scanner` throttle allows → `429` (see `POST /api/ibkr/scanner/run` above).
+- The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).
 
 ## Contract Snapshot & Parallel Development
 

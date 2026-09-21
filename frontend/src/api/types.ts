@@ -18,14 +18,16 @@ export interface paths {
          *     caller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56
          *     market-scanning entry.
          *
-         *     Never raises: mirrors `GET /api/ibkr/status`'s 'never fails, degrade to a `state`
-         *     value' contract exactly. 'disabled' when IBKR isn't enabled at all (no gateway call
-         *     attempted). Otherwise, `IBKRProvider.get_scanner_params()` is tried directly (itself
-         *     served from its own 15-minute cache on a hit, per this task's "don't add a second,
-         *     conflicting throttle layer" requirement) -- only on an `IBKRUnavailableError` (a cache
-         *     miss against a gateway that isn't `available`) does this handler make the one extra
-         *     `get_gateway_status()` call needed to report *which* unavailable state applies,
-         *     instead of parsing that information back out of the exception's message string.
+         *     'disabled' when IBKR isn't enabled at all (no gateway call attempted). Otherwise,
+         *     `IBKRProvider.get_scanner_params()` is tried directly (itself served from its own
+         *     15-minute cache on a hit, per this task's "don't add a second, conflicting throttle
+         *     layer" requirement) -- only on an `IBKRUnavailableError` (a cache miss) does this
+         *     handler make the one extra `get_gateway_status()` call needed to report *which*
+         *     unavailable state applies, instead of parsing that information back out of the
+         *     exception's message string. If that fresh check disagrees with the exception (gateway
+         *     reports `available` even though the scanner-params call itself just failed), this is a
+         *     genuine transient failure of this specific call, not a `state`-shaped unavailability --
+         *     see `_resolve_scanner_unavailable` -- and is raised as a `503` instead.
          */
         get: operations["get_ibkr_scanner_params"];
         put?: never;
@@ -58,7 +60,10 @@ export interface paths {
          *     rate-limited (more than 1 request/second since this process's own last scan run,
          *     enforced client-side by `IBKRProvider` itself -- this handler adds no second, competing
          *     throttle) is different: it's a genuine, actionable, transient error for an *enabled and
-         *     otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`.
+         *     otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A
+         *     scanner-run call that itself fails transiently against an otherwise-`available` gateway
+         *     (see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into
+         *     `state`.
          */
         post: operations["run_ibkr_scanner"];
         delete?: never;
@@ -1725,6 +1730,15 @@ export interface operations {
                     "application/json": components["schemas"]["IBKRScannerParamsResponse"];
                 };
             };
+            /** @description The scanner-params call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
         };
     };
     run_ibkr_scanner: {
@@ -1760,6 +1774,15 @@ export interface operations {
             };
             /** @description Scanner run rate limit (1 request/second) exceeded */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

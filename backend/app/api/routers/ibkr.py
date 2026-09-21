@@ -27,7 +27,12 @@ from app.api.schemas import (
     IBKRScannerRunResponse,
     IBKRStatusResponse,
 )
-from app.data.ibkr_provider import IBKRProvider, IBKRRateLimitedError, IBKRUnavailableError
+from app.data.ibkr_provider import (
+    GatewayStatus,
+    IBKRProvider,
+    IBKRRateLimitedError,
+    IBKRUnavailableError,
+)
 
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
 
@@ -59,11 +64,44 @@ def get_ibkr_status(provider: IBKRProvider | None = Depends(get_ibkr_provider)) 
     return IBKRStatusResponse(state=status.state, detail=status.detail)
 
 
+def _resolve_scanner_unavailable(provider: IBKRProvider, exc: IBKRUnavailableError) -> GatewayStatus:
+    """Shared `except IBKRUnavailableError` handling for both scanner routes.
+
+    `IBKRUnavailableError` is raised for two genuinely different reasons that share one
+    exception type (see `IBKRProvider._request`/`_require_available`): the gateway/session
+    itself isn't `available` (checked *before* the scanner call is even attempted), or the
+    scanner-specific call itself failed transiently against a gateway that otherwise is
+    `available` (a non-200 response, transport error, or unparseable body from
+    `/iserver/scanner/params`/`/iserver/scanner/run` specifically). A fresh
+    `get_gateway_status()` call only re-checks the former (it hits the unrelated
+    `/iserver/auth/status` endpoint) -- so on the latter, that fresh check still reports
+    `available`, and returning `state: "available"` with `categories`/`results` left
+    `null` would violate this schema's own documented "non-null iff `state` ==
+    'available'" invariant (see this task's `review` finding). Raises `HTTPException(503)`
+    in exactly that disagreeing case (the standard "service temporarily unavailable" status
+    for a transient, single-call failure -- distinct from `429`'s "you're calling too fast"
+    and from the `state` values' "this feature isn't usable at all right now"); otherwise
+    returns the resolved `GatewayStatus` for the caller to build its normal `state`-based
+    response from.
+    """
+    status = provider.get_gateway_status()
+    if status.state == "available":
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return status
+
+
 @router.get(
     "/scanner/params",
     response_model=IBKRScannerParamsResponse,
     operation_id="get_ibkr_scanner_params",
     summary="The market scanner's available scan categories, or why the scanner is unavailable",
+    responses={
+        503: {
+            "model": ErrorDetail,
+            "description": "The scanner-params call itself failed transiently (not a gateway/session "
+            "unavailability -- see GET /api/ibkr/status for that)",
+        }
+    },
 )
 def get_ibkr_scanner_params(
     provider: IBKRProvider | None = Depends(get_ibkr_provider),
@@ -73,22 +111,24 @@ def get_ibkr_scanner_params(
     caller can build a `POST /api/ibkr/scanner/run` request -- docs/ideas.md's ch. 56
     market-scanning entry.
 
-    Never raises: mirrors `GET /api/ibkr/status`'s 'never fails, degrade to a `state`
-    value' contract exactly. 'disabled' when IBKR isn't enabled at all (no gateway call
-    attempted). Otherwise, `IBKRProvider.get_scanner_params()` is tried directly (itself
-    served from its own 15-minute cache on a hit, per this task's "don't add a second,
-    conflicting throttle layer" requirement) -- only on an `IBKRUnavailableError` (a cache
-    miss against a gateway that isn't `available`) does this handler make the one extra
-    `get_gateway_status()` call needed to report *which* unavailable state applies,
-    instead of parsing that information back out of the exception's message string.
+    'disabled' when IBKR isn't enabled at all (no gateway call attempted). Otherwise,
+    `IBKRProvider.get_scanner_params()` is tried directly (itself served from its own
+    15-minute cache on a hit, per this task's "don't add a second, conflicting throttle
+    layer" requirement) -- only on an `IBKRUnavailableError` (a cache miss) does this
+    handler make the one extra `get_gateway_status()` call needed to report *which*
+    unavailable state applies, instead of parsing that information back out of the
+    exception's message string. If that fresh check disagrees with the exception (gateway
+    reports `available` even though the scanner-params call itself just failed), this is a
+    genuine transient failure of this specific call, not a `state`-shaped unavailability --
+    see `_resolve_scanner_unavailable` -- and is raised as a `503` instead.
     """
     if provider is None:
         return IBKRScannerParamsResponse(state="disabled", detail=_DISABLED_DETAIL, categories=None)
 
     try:
         params = provider.get_scanner_params()
-    except IBKRUnavailableError:
-        status = provider.get_gateway_status()
+    except IBKRUnavailableError as exc:
+        status = _resolve_scanner_unavailable(provider, exc)
         return IBKRScannerParamsResponse(state=status.state, detail=status.detail, categories=None)
 
     categories = params.get("scan_type_list") if isinstance(params, dict) else None
@@ -100,7 +140,14 @@ def get_ibkr_scanner_params(
     response_model=IBKRScannerRunResponse,
     operation_id="run_ibkr_scanner",
     summary="Run an IBKR market scan, or report why the scanner is unavailable",
-    responses={429: {"model": ErrorDetail, "description": "Scanner run rate limit (1 request/second) exceeded"}},
+    responses={
+        429: {"model": ErrorDetail, "description": "Scanner run rate limit (1 request/second) exceeded"},
+        503: {
+            "model": ErrorDetail,
+            "description": "The scanner-run call itself failed transiently (not a gateway/session "
+            "unavailability -- see GET /api/ibkr/status for that)",
+        },
+    },
 )
 def run_ibkr_scanner(
     body: IBKRScannerRunRequest,
@@ -117,7 +164,10 @@ def run_ibkr_scanner(
     rate-limited (more than 1 request/second since this process's own last scan run,
     enforced client-side by `IBKRProvider` itself -- this handler adds no second, competing
     throttle) is different: it's a genuine, actionable, transient error for an *enabled and
-    otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`.
+    otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A
+    scanner-run call that itself fails transiently against an otherwise-`available` gateway
+    (see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into
+    `state`.
     """
     if provider is None:
         return IBKRScannerRunResponse(state="disabled", detail=_DISABLED_DETAIL, results=None)
@@ -126,8 +176,8 @@ def run_ibkr_scanner(
         results = provider.run_scanner(body.scan_config)
     except IBKRRateLimitedError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except IBKRUnavailableError:
-        status = provider.get_gateway_status()
+    except IBKRUnavailableError as exc:
+        status = _resolve_scanner_unavailable(provider, exc)
         return IBKRScannerRunResponse(state=status.state, detail=status.detail, results=None)
 
     return IBKRScannerRunResponse(

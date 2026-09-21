@@ -138,6 +138,28 @@ class TestGetScannerParams:
         assert response.status_code == 200
         assert response.json()["categories"] == []
 
+    def test_transient_scanner_call_failure_with_available_gateway_returns_503(self, client: TestClient) -> None:
+        """Regression test for the pr-reviewer finding on PR #214: `get_scanner_params()`
+        itself fails (e.g. a non-200/transport error from `/iserver/scanner/params`) while a
+        *fresh* `get_gateway_status()` call (a different endpoint, `/iserver/auth/status`)
+        still reports `available` -- distinct from the gateway/session genuinely being
+        unavailable. Must not come back as `200 {"state": "available", "categories": null}`,
+        which would violate this schema's own "non-null iff state == 'available'" contract.
+        """
+        _override(
+            _StubIBKRProvider(
+                status=_AVAILABLE,
+                scanner_params_result=IBKRUnavailableError(
+                    "IBKR gateway returned HTTP 500 from /iserver/scanner/params"
+                ),
+            )
+        )
+
+        response = client.get("/api/ibkr/scanner/params")
+
+        assert response.status_code == 503
+        assert "500" in response.json()["detail"]
+
 
 class TestRunScanner:
     _SCAN_CONFIG = {"instrument": "STK", "type": "TOP_PERC_GAIN", "location": "STK.US.MAJOR"}
@@ -165,6 +187,23 @@ class TestRunScanner:
 
         assert response.status_code == 200
         assert response.json() == {"state": "gateway_unreachable", "detail": "down", "results": None}
+
+    def test_transient_scanner_call_failure_with_available_gateway_returns_503(self, client: TestClient) -> None:
+        """Regression test for the pr-reviewer finding on PR #214 -- see the mirror test on
+        `TestGetScannerParams` for the full rationale. Here `run_scanner()` itself fails
+        while a fresh `get_gateway_status()` check still reports `available`.
+        """
+        _override(
+            _StubIBKRProvider(
+                status=_AVAILABLE,
+                run_scanner_result=IBKRUnavailableError("IBKR gateway returned HTTP 500 from /iserver/scanner/run"),
+            )
+        )
+
+        response = client.post("/api/ibkr/scanner/run", json={"scan_config": self._SCAN_CONFIG})
+
+        assert response.status_code == 503
+        assert "500" in response.json()["detail"]
 
     def test_rate_limited_returns_429(self, client: TestClient) -> None:
         _override(_StubIBKRProvider(run_scanner_result=IBKRRateLimitedError(retry_after=0.42)))
