@@ -1629,8 +1629,8 @@
       "id": "backend-market-scanner",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "testing",
-      "path": "docs/tasks/backend-market-scanner.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-scanner.json"
     },
     {
       "id": "backend-market-scanner-followups",

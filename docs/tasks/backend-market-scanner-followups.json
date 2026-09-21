@@ -17,7 +17,8 @@
     },
     {
       "step": "The `except IBKRUnavailableError: status = provider.get_gateway_status(); return Response(state=status.state, detail=status.detail, X=None)` fallback in backend/app/api/routers/ibkr.py is duplicated verbatim between get_ibkr_scanner_params and run_ibkr_scanner. Extract a small shared helper (e.g. `_unavailable_state(provider) -> GatewayStatus`), especially once the blocking finding on the parent task (the state/null-field inconsistency in that same fallback) is fixed there.",
-      "done": false
+      "done": true,
+      "resolution": "Resolved as a side effect of the parent task's blocking-bug fix (PR #214, commit 44ea5d3): fixing the state/null-field inconsistency required distinguishing 'gateway genuinely unavailable' from 'scanner call itself failed transiently', which the fix does via a new shared `_resolve_scanner_unavailable(provider, exc) -> GatewayStatus` helper -- exactly the extraction this finding asked for. Re-verified during the PR's re-review (2026-09-21): both routes now call the shared helper; only the final `return <ResponseModel>(state=status.state, detail=status.detail, <field>=None)` line remains duplicated, which is irreducible without extra indirection since the two response models have different field names (categories vs results)."
     },
     {
       "step": "get_ibkr_scanner_params's `categories = params.get(\"scan_type_list\") if isinstance(params, dict) else None` followed by `categories or []` -- the isinstance check is redundant given the trailing `or []` already normalizes any falsy/non-dict result to `[]`. Simplify to `params.get(\"scan_type_list\") or []` (params is always a dict per IBKRProvider.get_scanner_params's own return type).",
