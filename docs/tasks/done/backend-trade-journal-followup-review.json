@@ -1,0 +1,67 @@
+{
+  "id": "backend-trade-journal-followup-review",
+  "title": "Two-months-later trade follow-up review workflow",
+  "area": "backend/db",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
+  ],
+  "description": "Ch. 59 Section E: Elder treats reviewing every closed trade again about two months after exit as one of the Trade Journal's three core benefits, not optional -- reopening the trade with the benefit of hindsight and writing what it teaches. This app has nothing like a 'trades due for follow-up review' surface today. Add fields to record a follow-up review and a way to find trades that are due for one.",
+  "checklist": [
+    { "step": "Add nullable follow_up_notes (text) and follow_up_reviewed_at (timestamp) fields to ClosedTradeORM/ClosedTradeOut.", "done": true },
+    { "step": "Add an endpoint or query parameter to list closed trades due for follow-up review (exit_date roughly two months ago, follow_up_reviewed_at still null) -- decide and record the exact window definition (e.g. exit_date between 8 and 10 weeks ago).", "done": true },
+    { "step": "Add an endpoint to record a follow-up review (sets follow_up_notes and follow_up_reviewed_at for a given closed trade).", "done": true },
+    { "step": "Unit tests covering a trade inside the due window, outside it (too recent and too old), and before/after being reviewed.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T04:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The 'due for follow-up review' window is exit_date between 8 and 10 weeks ago inclusive (both boundaries inclusive), computed against app.time_utils.today() -- exposed as an optional `due_for_follow_up: bool = false` query parameter on the existing `GET /api/portfolio/closed-trades` (not a new endpoint), filtering on `follow_up_reviewed_at IS NULL AND exit_date BETWEEN today-10w AND today-8w`.",
+      "rationale": "Elder's own instruction is 'about two months' (~8.7 weeks), not an exact date, and this app has no scheduled job that checks daily -- a single-date window (e.g. exit_date == today - 60 days) would be missed entirely by a user who only opens the app every few days, silently dropping trades out of view forever once the exact day passes; that exact-date alternative was rejected for this reason. An 8-10-week (2-week-wide) band centered close to the ~8.7-week mark gives a practical, forgiving catch window without being so wide it starts surfacing trades that are barely a month old (not yet enough hindsight) or many months old (which remain visible in the default unfiltered GET regardless, just not flagged as 'due' by this filter). A query parameter on the existing endpoint was chosen over a new dedicated endpoint (e.g. GET /api/portfolio/closed-trades/due-for-review, considered and rejected) because this is a filtered view of the exact same resource/shape (same grading, same ClosedTradeOut), not a new resource -- reusing the endpoint avoids duplicating the grading/serialization logic _grade_closed_trades already provides, matching how DELETE /api/portfolio/positions/{id} already uses Query() params for optional manual-override behavior rather than a separate endpoint."
+    },
+    {
+      "timestamp": "2026-09-21T04:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The review-recording endpoint is `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review`, taking a required, non-blank `follow_up_notes` string (stripped of surrounding whitespace, rejecting blank/whitespace-only via a field_validator matching PositionIn.ticker's own pattern) and returning the full updated `ClosedTradeOut` (recomputed grade included). Calling it again for the same trade_id overwrites both `follow_up_notes` and `follow_up_reviewed_at` with the new call's values rather than appending (unlike PositionIn.entry_notes's append-on-merge behavior) or rejecting a second call with a 409/422.",
+      "rationale": "follow_up_notes is required (not optional like entry_notes) because this endpoint's entire purpose is recording that note -- an optional/blank note would defeat the point of the action, unlike entry_notes which is a nice-to-have annotation on a POST whose primary purpose (adding a position) doesn't depend on it. Overwrite-on-repeat-call (rather than append, or rejecting a second review) was chosen because a follow-up review is a single, evolving personal reflection on one trade, not a multi-buy narrative like entry_notes (where each buy genuinely has its own separate 'why') -- and this is a personal journal tool, not an immutable audit log, so revising an earlier review after further reflection is a legitimate, expected use case rather than something to block. Append-on-repeat-call (like entry_notes) was considered and rejected because concatenating an evolving reflection with blank-line separators over multiple edits would produce a confusing running log rather than one clear takeaway; rejecting a second call outright (409 Conflict) was also considered and rejected as unnecessarily restrictive for a personal tool with no compliance requirement to preserve a first-draft review untouched. Returning the full ClosedTradeOut (not a bare 204/ack) mirrors add_position's POST-returns-resource convention and saves the frontend a second round trip to see the updated row."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review",
+    "pr_number": 221,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/221",
+    "pushed_at": "2026-09-21T04:13:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T04:20:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/221",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the 8-10-week due-for-follow-up window is correctly inclusive at both boundaries (exit_date == today-8w and today-10w both included) and correctly excludes dates one day past each boundary (today-8w+1d and today-10w-1d both excluded) -- the test dates genuinely land exactly on and one day past each boundary, not just approximately. Already-reviewed trades are genuinely excluded (tested both as a static fixture and end-to-end via POST then re-GET). The follow-up-review POST response's trade_letter_grade is a real recomputed grade using the same _grade_closed_trades/trade_letter_grade path GET uses, not a stale placeholder.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 748
+      },
+      {
+        "summary": "Backend tests 1100 passed at 99.94% coverage; frontend tests 700 passed at 99.7%+ coverage; ruff/mypy/eslint/tsc all clean; backend/openapi.json and frontend/src/api/types.ts regenerated from the branch with zero diff against what's committed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: get_closed_trades and record_follow_up_review each independently construct an identical 16-field ClosedTradeOut(...) -- a shared _to_closed_trade_out(row, grade) helper would remove the duplication. Filed as backend-trade-journal-followup-review-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 761
+      }
+    ],
+    "notes": "No UI-facing surface in this PR (backend-only change; only the generated frontend/src/api/types.ts changed, no consuming component/page) -- browser walkthrough and the persisted e2e suite were both skipped for that reason rather than silently omitted. Not an architecture-review trigger (no new module/dependency/layer). Both checklist items phrased as 'decide X' have corresponding decisions entries with real rationale."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T04:24:14Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv pytest --cov=app myself: 1100 passed, 99.94% coverage, matching pr-reviewer's numbers exactly. Re-generated backend/openapi.json from the branch and confirmed zero diff. Read the actual portfolio.py filter (exit_date >= today-10w AND exit_date <= today-8w, both inclusive) and its tests: hand-checked that the 8w/10w boundary tests and the one-day-past-boundary tests use genuinely computed dates (today() - timedelta(weeks=8/10) +/- timedelta(days=1)), not just similarly-named fixtures, and the arithmetic matches the filter exactly. Confirmed an already-reviewed trade is excluded from the due-list filter both as a static fixture (test_already_reviewed_trade_is_excluded_even_inside_window) and end-to-end via POST then re-GET (test_reviewed_trade_drops_out_of_the_due_filter). Traced record_follow_up_review's call path: it calls _grade_closed_trades([row], provider) after committing the new follow_up fields and builds ClosedTradeOut from that fresh grade -- a genuinely recomputed grade, not a stale/placeholder one, matching test_returns_recomputed_grades. Skimmed every changed file in the diff; nothing pr-reviewer's summary underweighted."
+  }
+}

@@ -8,7 +8,7 @@ directly rather than produced via DELETE, so each test controls its own entry/ex
 price+date fixtures precisely.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import pytest
@@ -23,6 +23,7 @@ from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.main import app
 from app.portfolio.models import ExitReason
+from app.time_utils import today, utcnow
 
 
 def _frame(n: int, *, start: str = "2020-01-01") -> pd.DataFrame:
@@ -127,6 +128,9 @@ class TestGetClosedTradesFields:
         assert item["entry_notes"] is None
         # Same for strategy: not passed above, so null rather than an empty string.
         assert item["strategy"] is None
+        # Same for the follow-up review fields -- unreviewed by default.
+        assert item["follow_up_notes"] is None
+        assert item["follow_up_reviewed_at"] is None
         # trade_letter_grade is present as a key even when null-checked elsewhere -- here it's
         # a real letter since the fixture trade is gradeable (see
         # test_grades_match_the_formulas_applied_to_the_fixture_frame for the exact value).
@@ -316,3 +320,195 @@ class TestGetClosedTradesSharesOneFetchPerTicker:
         assert response.status_code == 200
         assert dropna_calls == 1
         assert autoenvelope_calls == 1
+
+
+class TestDueForFollowUpFilter:
+    """`due_for_follow_up=true` (backend-trade-journal-followup-review): only unreviewed
+    trades whose `exit_date` falls 8-10 weeks ago inclusive -- see this task's `decisions`
+    entry for why that window."""
+
+    def test_trade_inside_the_window_is_included(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="due", exit_date=today() - timedelta(weeks=9))
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids == ["trade_due"]
+
+    def test_trade_too_recent_is_excluded(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="recent", exit_date=today() - timedelta(weeks=3))
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert response.json()["items"] == []
+
+    def test_trade_too_old_is_excluded(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="old", exit_date=today() - timedelta(weeks=20))
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert response.json()["items"] == []
+
+    def test_lower_boundary_8_weeks_is_inclusive(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="lower", exit_date=today() - timedelta(weeks=8))
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids == ["trade_lower"]
+
+    def test_upper_boundary_10_weeks_is_inclusive(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="upper", exit_date=today() - timedelta(weeks=10))
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids == ["trade_upper"]
+
+    def test_just_outside_each_boundary_is_excluded(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(
+            db_session, id="just_under", exit_date=today() - timedelta(weeks=8) + timedelta(days=1)
+        )
+        _add_closed_trade(
+            db_session, id="just_over", exit_date=today() - timedelta(weeks=10) - timedelta(days=1)
+        )
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert response.json()["items"] == []
+
+    def test_already_reviewed_trade_is_excluded_even_inside_window(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(
+            db_session,
+            id="reviewed",
+            exit_date=today() - timedelta(weeks=9),
+            follow_up_reviewed_at=utcnow(),
+            follow_up_notes="Already reviewed.",
+        )
+
+        response = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert response.json()["items"] == []
+
+    def test_default_false_returns_everything_regardless_of_window(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="recent", exit_date=today() - timedelta(weeks=1))
+        _add_closed_trade(db_session, id="due", exit_date=today() - timedelta(weeks=9))
+
+        response = client.get("/api/portfolio/closed-trades")
+        ids = {item["id"] for item in response.json()["items"]}
+        assert ids == {"trade_recent", "trade_due"}
+
+
+class TestRecordFollowUpReview:
+    """POST /api/portfolio/closed-trades/{trade_id}/follow-up-review."""
+
+    def test_sets_notes_and_reviewed_at(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="a")
+
+        before = utcnow()
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Sold too early -- tide was still bullish."},
+        )
+        after = utcnow()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == "trade_a"
+        assert body["follow_up_notes"] == "Sold too early -- tide was still bullish."
+        reviewed_at = body["follow_up_reviewed_at"]
+        assert reviewed_at is not None
+        # Naive UTC timestamp string, roughly "now" (see app.time_utils.utcnow).
+        from datetime import datetime as _dt
+
+        parsed = _dt.fromisoformat(reviewed_at)
+        assert before <= parsed <= after
+
+    def test_persists_across_a_subsequent_get(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="a")
+        client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Held on too long past the sell signal."},
+        )
+
+        response = client.get("/api/portfolio/closed-trades")
+        [item] = response.json()["items"]
+        assert item["follow_up_notes"] == "Held on too long past the sell signal."
+        assert item["follow_up_reviewed_at"] is not None
+
+    def test_reviewed_trade_drops_out_of_the_due_filter(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", exit_date=today() - timedelta(weeks=9))
+
+        due_before = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert [item["id"] for item in due_before.json()["items"]] == ["trade_a"]
+
+        client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Reviewed."},
+        )
+
+        due_after = client.get("/api/portfolio/closed-trades?due_for_follow_up=true")
+        assert due_after.json()["items"] == []
+
+    def test_calling_again_overwrites_the_previous_review(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a")
+        client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "First pass."},
+        )
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Revised after more thought."},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["follow_up_notes"] == "Revised after more thought."
+
+    def test_returns_404_for_unknown_trade_id(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_missing/follow-up-review",
+            json={"follow_up_notes": "Doesn't matter."},
+        )
+        assert response.status_code == 404
+
+    def test_blank_notes_is_rejected(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="a")
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "   "},
+        )
+        assert response.status_code == 422
+
+    def test_notes_are_stripped_of_surrounding_whitespace(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a")
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "  Padded note.  "},
+        )
+        assert response.status_code == 200
+        assert response.json()["follow_up_notes"] == "Padded note."
+
+    def test_returns_recomputed_grades(self, client: TestClient, db_session: Session) -> None:
+        _add_closed_trade(db_session, id="a", entry_price=101.0, exit_price=103.0)
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Good trade in hindsight."},
+        )
+        assert response.status_code == 200
+        assert response.json()["trade_letter_grade"] in {"A", "B", "C", "D"}

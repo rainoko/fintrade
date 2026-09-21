@@ -98,6 +98,22 @@ class ClosedTradeORM(Base):
     strategy: Mapped[str | None] = mapped_column(String, nullable=True)
     """Carried over verbatim from `PositionORM.strategy` (see its own docstring) at the moment
     the position closes -- null if the position never had a strategy tag recorded."""
+    follow_up_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Free-text note from the mandatory two-months-later follow-up review (Elder ch. 59
+    Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- reopening a closed trade with
+    the benefit of hindsight and writing what it teaches. Set together with
+    `follow_up_reviewed_at` by `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review`;
+    null until that review has actually happened. Unlike `entry_notes` (appended on a
+    same-ticker position merge, since two buys can each have their own "why"), a follow-up
+    review happens once per closed trade and is simply overwritten by a later call to the same
+    endpoint -- see the backend-trade-journal-followup-review task's `decisions` entry."""
+    follow_up_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    """UTC timestamp of the most recent follow-up review (naive UTC, matching every other
+    timestamp column in this codebase -- see `app.time_utils`). Null means this trade hasn't
+    been reviewed yet, which is exactly the condition `GET
+    /api/portfolio/closed-trades?due_for_follow_up=true` filters on (together with the
+    exit_date window) -- see that query parameter's own description for the window
+    definition."""
 
 
 class DailyHomeworkEntryORM(Base):
