@@ -564,9 +564,12 @@ def get_indicator_history(
     emitted point -- including ones near the start of the requested `range` -- has correct
     indicator warm-up context; `range` only controls which already-computed points are included
     in the response, not how much history feeds the computation. The last entry in `points`
-    always matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for
-    this same ticker at the same date, since it's produced from the exact same (untruncated)
-    inputs."""
+    matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for this
+    same ticker at the same date whenever both are computed fresh (same untruncated inputs) --
+    but a same-calendar-day cache hit here can still return a signal computed from an
+    earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
+    picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
+    `decisions` entry and its `-followups` task for the accepted tradeoff."""
     ticker = ticker.upper()
     response_cache = IndicatorHistoryResponseCache(db)
     cached_response = response_cache.get(ticker, range)

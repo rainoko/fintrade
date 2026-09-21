@@ -314,7 +314,7 @@ class IndicatorHistoryPoint(BaseModel):
 
 class IndicatorHistoryResponse(BaseModel):
     ticker: str
-    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).")
+    points: list[IndicatorHistoryPoint] = Field(description="Oldest-first, one entry per daily bar in the requested range. The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).")
 
 
 # --- /api/portfolio -------------------------------------------------------

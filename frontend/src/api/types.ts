@@ -687,9 +687,12 @@ export interface paths {
          *     emitted point -- including ones near the start of the requested `range` -- has correct
          *     indicator warm-up context; `range` only controls which already-computed points are included
          *     in the response, not how much history feeds the computation. The last entry in `points`
-         *     always matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for
-         *     this same ticker at the same date, since it's produced from the exact same (untruncated)
-         *     inputs.
+         *     matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for this
+         *     same ticker at the same date whenever both are computed fresh (same untruncated inputs) --
+         *     but a same-calendar-day cache hit here can still return a signal computed from an
+         *     earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
+         *     picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
+         *     `decisions` entry and its `-followups` task for the accepted tradeoff.
          */
         get: operations["get_stock_indicator_history"];
         put?: never;
@@ -1590,7 +1593,7 @@ export interface components {
         IndicatorHistoryResponse: {
             /**
              * Points
-             * @description Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
+             * @description Oldest-first, one entry per daily bar in the requested range. The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
              */
             points: components["schemas"]["IndicatorHistoryPoint"][];
             /** Ticker */

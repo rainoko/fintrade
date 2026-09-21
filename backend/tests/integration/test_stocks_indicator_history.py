@@ -723,6 +723,31 @@ class TestConcurrentOhlcvFetch:
 
         assert response.status_code == 422
 
+    def test_daily_failure_takes_priority_when_both_fetches_fail(self) -> None:
+        """Pins the documented both-fail error priority (this task's own `decisions` entry:
+        `daily_future.result()` is awaited before `weekly_future.result()`, so a failing daily
+        fetch's exception always wins even if the weekly fetch also failed) -- previously only
+        exercised for a single-sided failure (daily-only or weekly-only) by the two tests above.
+        A daily 404 (TickerNotFoundError) and a weekly 422 (InsufficientHistoryError) are chosen
+        deliberately so the two failures map to *different* status codes -- if daily's priority
+        were ever accidentally lost, this would surface as a 422 instead of the expected 404,
+        not a same-looking-either-way false pass."""
+
+        class _BothFailProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise TickerNotFoundError(ticker)
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise InsufficientHistoryError(ticker, available=5, required=26)
+
+            def get_extended_data(self, ticker: str) -> ExtendedData:
+                return _EMPTY_EXTENDED_DATA
+
+        response = _get_indicator_history(_BothFailProvider(), ticker="ZZZZ")
+
+        assert response.status_code == 404
+        assert "ZZZZ" in response.json()["detail"]
+
 
 class TestObvAndAccumulationDistributionFields:
     """OBV/A-D (docs/Analyse.md §4, Elder ch. 29) are cumulative running totals computed
