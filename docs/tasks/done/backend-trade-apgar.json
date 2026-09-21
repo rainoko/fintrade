@@ -1,0 +1,82 @@
+{
+  "id": "backend-trade-apgar",
+  "title": "Trade Apgar -- pre-trade go/no-go scoring (ch. 58)",
+  "area": "backend/portfolio",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": ["backend-trade-strategy-tagging"],
+  "references": [
+    "docs/ideas.md#trade-apgar--pre-trade-go-no-go-scoring-ch-58"
+  ],
+  "description": "Ch. 58's pre-trade Trade Apgar: a 5-question, 0-2-each go/no-go score (>=7 total, no single zero) tied to a named strategy -- the pre-trade counterpart to ch.55's after-the-fact grading. Elder's own example strategy's five questions: weekly Impulse, daily Impulse, daily price-vs-value, false-breakout status, and 'perfection' (both timeframes look ideal). Three of these five inputs are data this app already computes for any ticker (weekly/daily Impulse from analyse()'s screens output; price-vs-value from the existing EMA13/EMA26 value zone) -- this task should auto-populate those rather than rebuilding them, per docs/ideas.md's own sizing note. Depends on backend-trade-strategy-tagging since a Trade Apgar is inherently strategy-specific (Elder: 'the scoring method you're about to see is designed for one system... all other systems will require a different test').",
+  "checklist": [
+    { "step": "Decide the data model for a first version: a fixed 5-question set matching Elder's own example strategy, versus a per-strategy configurable question set -- record the rationale (a configurable system is the 'real' long-term shape but a fixed set matching the book's own example is a reasonable, much smaller first version).", "done": true },
+    { "step": "Implement auto-population of the weekly Impulse, daily Impulse, and price-vs-value-zone questions from the existing analyse() pipeline for a given ticker.", "done": true },
+    { "step": "Leave false-breakout-status and 'perfection' as manual inputs for this first version; decide whether to surface kangaroo_tail/support_resistance output as a suggested (not authoritative) starting value for the false-breakout question, and record the decision.", "done": true },
+    { "step": "Implement the go/no-go scoring rule: sum >= 7 AND no single question scored 0.", "done": true },
+    { "step": "Unit tests covering auto-populated fields for a real ticker fixture, manual-field handling, and the go/no-go threshold logic including the 'no single zero' rule specifically (a trade scoring 8 total but with one zero must still fail).", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented a single, fixed 5-question set matching Elder's own ch. 58 example strategy exactly (weekly Impulse, daily Impulse, price vs. value, false breakout, perfection -- in `app.portfolio.trade_apgar`), not a per-strategy-configurable question builder, even though `PositionIn.strategy` (backend-trade-strategy-tagging) already exists to name a strategy.",
+      "rationale": "Building a genuinely configurable per-strategy question set (custom questions, custom 0/2 scoring tables, custom go/no-go thresholds per named strategy) is a materially larger feature -- its own CRUD surface for defining a strategy's own Apgar template, plus a UI for building one -- with no concrete second example strategy in docs/ideas.md or docs/Analyse.md to design against yet (Elder's book gives exactly one worked example). The task's own checklist explicitly frames the fixed-set version as 'a reasonable, much smaller first version,' which this implements literally: `POST /api/portfolio/trade-apgar` scores every ticker against the identical fixed question set regardless of what `strategy` a position/trade is tagged with. A future task can build the configurable version on top of this one once a second real example strategy exists to design the template shape against -- rejected building that speculatively now with only one data point to generalize from."
+    },
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`price_vs_value` is computed from `AnalysisResponse.indicators.ema_13`/`ema_26` (ch. 41's EMA13/EMA26 \"value zone\", `app.portfolio.trade_apgar.price_vs_value_zone`), NOT from `channel_upper`/`channel_lower` (the Autoenvelope/channel band) despite this task's own description text saying the value zone is 'already exposed via channel_upper/channel_lower'.",
+      "rationale": "Cross-checked against the actual, authoritative definitions already in this codebase: docs/Analyse.md's Autoenvelope/Channel row is explicitly 'EMA 13 +/- avg % deviation' (a different formula), and docs/architecture/Frontend.md §5 describes the value zone as a separate shaded region 'between ema_13/ema_26' drawn *alongside* (not the same series as) the channel_upper/channel_lower dashed lines on the price chart -- the two are visually adjacent on the same chart but are distinct indicators with distinct formulas. The task description's own phrasing conflated the two (likely inherited loosely from docs/ideas.md's own similarly loose wording); using the real value-zone definition (EMA13/EMA26) is what the checklist item itself (which only says 'price-vs-value-zone... from the existing analyse() pipeline', without naming a specific field) actually requires, and it's also strictly simpler to implement: `indicators.ema_13`/`ema_26` are already unconditionally non-null on every `analyse()` call (no ~100-bar Autoenvelope warm-up gap to handle), unlike `channel_upper`/`channel_lower`, which are null for a young ticker's first ~100 trading days -- using the channel band here would have made this question spuriously unscoreable for exactly the tickers most likely to need a fresh pre-trade Apgar (a brand new position candidate)."
+    },
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Weekly Impulse is computed by calling `app.signals.impulse.evaluate_impulse(weekly_ohlcv)` directly in the router, rather than reading it off `AnalysisResponse.screens.tide`.",
+      "rationale": "`analyse()`'s own `SignalResult.screens['tide']['trend']` is Screen 1's weekly Impulse color already re-mapped onto the BULLISH/BEARISH/NEUTRAL vocabulary by `app.signals.triple_screen.evaluate_tide` (a bijective mapping, per `_WEEKLY_IMPULSE_TO_TIDE_TREND`, but the raw GREEN/RED/BLUE color itself is never exposed on `SignalResult`/`AnalysisResponse` anywhere) -- so there is no existing field to read the raw color from without either (a) adding a new field to `TideResult`/`Screens`/`TideScreen` just for this one consumer, which would ripple into every other caller of that dataclass/schema for no benefit to them, or (b) inverting the private `_WEEKLY_IMPULSE_TO_TIDE_TREND` mapping table from outside its own module, which is fragile (it's not part of `triple_screen`'s public contract) and just as much an extra call as calling the actual underlying function directly. `evaluate_impulse` is the exact same computation `evaluate_tide` already runs internally on `weekly_ohlcv` -- calling it a second time here is a small, one-off redundant computation (this is a single per-request endpoint, not `analyse_history`'s up-to-thousands-of-calls hot path where that pattern is explicitly optimized away elsewhere in this codebase), acceptable for the much smaller footprint versus touching `triple_screen.py`'s public dataclass shape."
+    },
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`false_breakout_status`/`perfection` are fully manual inputs in this first version -- no suggested starting value is derived from `app.signals.kangaroo_tail`/`app.signals.support_resistance`'s `false_breakout` detection, even though the checklist explicitly flagged this as an option.",
+      "rationale": "docs/ideas.md's own ch. 58 entry already flags this mapping as non-trivial: 'mapping their output onto Elder's specific none/happened/imminent 3-way scale would need its own thought, not a direct reuse.' Concretely, `SupportResistanceZone.false_breakout`/`KangarooTailOut` each detect a *specific, already-confirmed* reversal episode (a breakout that failed and reentered, or a kangaroo-tail bar+confirmation bar), which maps reasonably cleanly onto 'already_happened' -- but there is no existing detection at all for the *third* value, 'on_the_verge' (a breakout currently underway that hasn't yet either failed back or confirmed permanently), which is exactly the highest-scoring (2-point), most decision-relevant case Elder's own scale calls out. Shipping a suggestion that can only ever produce 'none' or 'already_happened' -- and never the 2-point 'on_the_verge' case, silently making it look permanently unreachable from a UI 'use suggested value' affordance -- would be a worse, misleading half-implementation of the checklist's own explicitly-optional suggestion feature, not a genuine reasonable-scope cut. Keeping this fully manual for this first version (identical treatment to `perfection`, which the checklist never proposed a suggestion for at all) is honest about what this app can and can't currently detect; a real 'on_the_verge' detector (an active excursion beyond a zone that hasn't yet reentered or permanently broken) is a new detection feature in its own right, better scoped as its own future task once there's a concrete UI consumer (frontend-trade-apgar) to validate the suggestion against."
+    },
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New endpoint `POST /api/portfolio/trade-apgar` (request body `TradeApgarIn { ticker, false_breakout_status, perfection }`, response `TradeApgarOut`), stateless -- no new database table, nothing persisted across requests.",
+      "rationale": "The checklist has no item asking for a Trade Apgar history/audit table (unlike e.g. backend-daily-homework-self-test's explicit 'one entry per calendar day' persistence requirement), and Elder's own ch. 58 framing is a pre-trade *checklist you run right before entering*, not a record you look back on later the way ch. 55's post-trade grades or ch. 59's trade journal are -- there's no obvious 'list past Apgar scores' consumer this task or any currently-planned task calls for. POST (not GET) was chosen over a query-string GET because the request has two required enum fields with no natural default (`false_breakout_status`/`perfection`), matching this codebase's own existing precedent for a 'run this computation right now, with these caller-supplied inputs, and return the result' action endpoint (`POST /api/ibkr/scanner/run`, `POST /api/ibkr/breadth/snapshot`) rather than the query-param-based GET style used for endpoints with only optional/defaulted parameters."
+    },
+    {
+      "timestamp": "2026-09-21T04:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No frontend client function (frontend/src/api/portfolio.ts) or MSW mock handler was added in this PR -- only backend/openapi.json and the regenerated frontend/src/api/types.ts changed on the frontend side.",
+      "rationale": "docs/tasks/frontend-trade-apgar.json already exists as a separate, already-planned task (area frontend/pages/portfolio, skill add-frontend-feature) whose scope is the actual UI consumer of this endpoint, including its own placement/UX decisions for the manual false-breakout/perfection inputs and the go/no-go display. Matches the identical, already-accepted precedent set by backend-trade-grading (PR #149) and backend-channel-envelope-exposure (PR #146): a backend-only endpoint task regenerates types.ts but leaves the typed client function/mock/UI to the dedicated frontend task, rather than preempting that task's own placement decision with unused dead code."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-apgar",
+    "pr_number": 220,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/220",
+    "pushed_at": "2026-09-21T03:47:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T03:55:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/220",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "backend/app/api/routers/portfolio.py:776's POST /api/portfolio/trade-apgar handler is named `get_trade_apgar`, a `get_`-prefixed function name attached to a `@router.post` -- mismatches this file's own verb/method-matching convention and the endpoint's own declared `operation_id=\"score_trade_apgar\"`. No behavior impact; filed as a non-blocking follow-up (backend-trade-apgar-followups).",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 776
+      }
+    ],
+    "notes": "Backend pytest --cov: 1083 passed, 99.94% line coverage. Frontend vitest --coverage: all passing, 99.7%+ across the board. ruff/mypy/eslint/tsc all clean. Re-ran scripts/export_openapi.py and generate:api-types -- no diff against committed backend/openapi.json / frontend/src/api/types.ts. Verified the task's own value-zone self-correction directly against docs/Analyse.md line 126 (EMA13/EMA26 band, distinct from the Autoenvelope/channel band) -- correct. Verified the go/no-go 'no single zero' rule via score_trade_apgar's `total_score >= 7 and all(q.score > 0 ...)` and the explicit 8-total-with-one-zero regression tests at both unit (test_8_total_with_one_zero_still_does_not_go) and integration (test_one_zero_question_blocks_go_even_with_high_total) layers. Verified weekly/daily Impulse are genuinely decoupled (same evaluate_impulse function, called once per timeframe's own OHLCV). Sanity-checked the false-breakout/perfection manual-only reasoning against the actual support_resistance.py/kangaroo_tail.py detector code -- confirmed neither can express an in-progress/'on_the_verge' state, only confirmed-resolved outcomes. All checklist items phrased as 'decide X' have corresponding decisions entries. No frontend/UI surface in this PR (only regenerated types.ts) -- browser walkthrough and e2e suite explicitly skipped as inapplicable. code-review skill pass found no correctness bugs beyond the naming nit above."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T04:00:05Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app: 1083 passed, 99.94% line coverage, matching pr-reviewer's numbers exactly; re-ran scripts/export_openapi.py, no diff against committed backend/openapi.json. Read app/portfolio/trade_apgar.py, the router handler, and both test files directly: confirmed price_vs_value_zone uses ema_13/ema_26 (not channel_upper/channel_lower) against docs/Analyse.md lines 126/284's own value-zone definition; confirmed score_trade_apgar's `go = total_score >= 7 and all(q.score > 0 ...)` and hand-traced test_8_total_with_one_zero_still_does_not_go (unit) and test_one_zero_question_blocks_go_even_with_high_total (integration), both asserting go=False at total_score=8 with one zeroed question; read support_resistance.py's _scan_breaks_and_false_breakouts and kangaroo_tail.py's confirmation logic and confirmed both only ever return a resolved/confirmed outcome (reentry-confirmed false breakout, or next-bar-confirmed tail) with no in-progress/'on_the_verge' state representable. Skimmed the full diff (schemas.py, router, docs/Analyse.md, docs/architecture/API.md, followups task, index.json mirror) -- no undersold findings found beyond the already-filed get_trade_apgar naming nit."
+  }
+}

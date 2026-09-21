@@ -1,0 +1,21 @@
+{
+  "id": "backend-trade-apgar-followups",
+  "title": "Non-blocking follow-ups from backend-trade-apgar PR #220 review",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trade-apgar"],
+  "references": [
+    "docs/tasks/backend-trade-apgar.json",
+    "https://github.com/rainoko/fintrade/pull/220"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #220 (backend-trade-apgar), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "backend/app/api/routers/portfolio.py:776's POST /api/portfolio/trade-apgar handler is named `get_trade_apgar`, a `get_`-prefixed function name attached to a `@router.post` -- mismatches this file's own verb/method-matching convention (`add_position`/`delete_position`/`get_risk`, etc.) and the endpoint's own declared `operation_id=\"score_trade_apgar\"`. No behavior impact (FastAPI dispatches on the decorator/operation_id, not the Python function name), but rename to something like `score_trade_apgar` (matching the operation_id) to avoid misleading a future reader grepping for `def get_` to find read-only handlers.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

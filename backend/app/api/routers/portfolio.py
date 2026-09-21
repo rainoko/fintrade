@@ -20,9 +20,17 @@ from app.api.schemas import (
     PositionOut,
     RiskPosition,
     RiskResponse,
+    TradeApgarIn,
+    TradeApgarOut,
+    TradeApgarQuestionOut,
 )
 from app.data.base import DataProvider
-from app.data.exceptions import DataProviderError
+from app.data.exceptions import (
+    DataProviderError,
+    DataProviderUnavailableError,
+    InsufficientHistoryError,
+    TickerNotFoundError,
+)
 from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
@@ -42,7 +50,9 @@ from app.portfolio.risk import (
     realized_losses_pct,
     total_open_risk_pct,
 )
+from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
+from app.signals.impulse import evaluate_impulse
 from app.time_utils import today
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
@@ -742,4 +752,95 @@ def get_closed_trades(
             )
             for row in rows
         ]
+    )
+
+
+@router.post(
+    "/trade-apgar",
+    response_model=TradeApgarOut,
+    operation_id="score_trade_apgar",
+    summary="Score a pre-trade 'Trade Apgar' go/no-go check for a ticker",
+    responses={
+        404: {"model": ErrorDetail, "description": "Unknown ticker"},
+        422: {
+            "model": ErrorDetail,
+            "description": "Either the ticker's fetched weekly history has fewer than 26 "
+            "weeks (the same minimum GET /api/stocks/{ticker}/analysis's weekly fetch "
+            "enforces), or its fetched daily history is empty once any malformed bar is "
+            "dropped -- either way, there isn't enough data to auto-populate this ticker's "
+            "weekly-Impulse/daily-Impulse/price-vs-value questions.",
+        },
+        503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
+    },
+)
+def get_trade_apgar(
+    request: TradeApgarIn, provider: DataProvider = Depends(get_data_provider)
+) -> TradeApgarOut:
+    """Elder ch. 58's "Trade Apgar" (docs/Analyse.md §7 / docs/ideas.md ch. 58): a fixed
+    5-question, 0/1/2-each pre-trade go/no-go score matching Elder's own example strategy --
+    the pre-trade counterpart to ch. 55's after-the-fact `GET /api/portfolio/closed-trades`
+    grading. `go` is true only when the summed score is >= 7 *and* no single question scored
+    0 -- see `app.portfolio.trade_apgar.score_trade_apgar`'s own docstring.
+
+    Three of the five questions are auto-populated (`source: "auto"` on the returned
+    `TradeApgarQuestionOut`) from the exact same `app.signals.engine.analyse()` pipeline
+    every other signal-facing endpoint uses for `request.ticker` -- `weekly_impulse` and
+    `daily_impulse` are the weekly/daily Impulse System colors (docs/Analyse.md §3;
+    `weekly_impulse` is `app.signals.impulse.evaluate_impulse` run directly on the fetched
+    weekly OHLCV, the identical computation `evaluate_tide` uses internally to decide Screen
+    1, since `analyse()` itself only exposes that color already mapped onto Screen 1's own
+    BULLISH/BEARISH/NEUTRAL vocabulary -- see this task's `decisions` entry), and
+    `price_vs_value` classifies today's close against ch. 41's EMA(13)/EMA(26) "value zone"
+    (`app.portfolio.trade_apgar.price_vs_value_zone`) -- *not* the Autoenvelope/channel band
+    `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose, a distinct indicator
+    despite both being drawn on the same price chart (see this task's `decisions` entry for
+    the correction and `price_vs_value_zone`'s own docstring). `false_breakout_status` and
+    `perfection` are always `request`'s own manual inputs, echoed back verbatim -- this first
+    version derives no suggested starting value for either from
+    `app.signals.kangaroo_tail`/`app.signals.support_resistance`, even though both are
+    closely related detections -- see this task's `decisions` entry for why."""
+    ticker = request.ticker.upper()
+    try:
+        daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
+    except TickerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InsufficientHistoryError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DataProviderUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+    if daily_ohlcv.empty:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{ticker}' has no usable daily history (empty once any malformed bar is "
+            "dropped) to compute its Trade Apgar's auto-populated questions from.",
+        )
+
+    result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
+    weekly_impulse = cast(ImpulseColor, evaluate_impulse(weekly_ohlcv))
+    daily_close = float(daily_ohlcv["close"].iloc[-1])
+    price_vs_value = price_vs_value_zone(
+        daily_close, result.indicators["ema_13"], result.indicators["ema_26"]
+    )
+
+    apgar = score_trade_apgar(
+        weekly_impulse=weekly_impulse,
+        daily_impulse=cast(ImpulseColor, result.screens["impulse"]),
+        price_vs_value=price_vs_value,
+        false_breakout_status=request.false_breakout_status,
+        perfection=request.perfection,
+    )
+
+    return TradeApgarOut(
+        ticker=ticker,
+        questions=[
+            TradeApgarQuestionOut(
+                key=q.key, label=q.label, value=q.value, score=q.score, source=q.source
+            )
+            for q in apgar.questions
+        ],
+        total_score=apgar.total_score,
+        go=apgar.go,
     )

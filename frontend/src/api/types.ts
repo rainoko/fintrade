@@ -450,6 +450,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/portfolio/trade-apgar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Score a pre-trade 'Trade Apgar' go/no-go check for a ticker
+         * @description Elder ch. 58's "Trade Apgar" (docs/Analyse.md §7 / docs/ideas.md ch. 58): a fixed
+         *     5-question, 0/1/2-each pre-trade go/no-go score matching Elder's own example strategy --
+         *     the pre-trade counterpart to ch. 55's after-the-fact `GET /api/portfolio/closed-trades`
+         *     grading. `go` is true only when the summed score is >= 7 *and* no single question scored
+         *     0 -- see `app.portfolio.trade_apgar.score_trade_apgar`'s own docstring.
+         *
+         *     Three of the five questions are auto-populated (`source: "auto"` on the returned
+         *     `TradeApgarQuestionOut`) from the exact same `app.signals.engine.analyse()` pipeline
+         *     every other signal-facing endpoint uses for `request.ticker` -- `weekly_impulse` and
+         *     `daily_impulse` are the weekly/daily Impulse System colors (docs/Analyse.md §3;
+         *     `weekly_impulse` is `app.signals.impulse.evaluate_impulse` run directly on the fetched
+         *     weekly OHLCV, the identical computation `evaluate_tide` uses internally to decide Screen
+         *     1, since `analyse()` itself only exposes that color already mapped onto Screen 1's own
+         *     BULLISH/BEARISH/NEUTRAL vocabulary -- see this task's `decisions` entry), and
+         *     `price_vs_value` classifies today's close against ch. 41's EMA(13)/EMA(26) "value zone"
+         *     (`app.portfolio.trade_apgar.price_vs_value_zone`) -- *not* the Autoenvelope/channel band
+         *     `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose, a distinct indicator
+         *     despite both being drawn on the same price chart (see this task's `decisions` entry for
+         *     the correction and `price_vs_value_zone`'s own docstring). `false_breakout_status` and
+         *     `perfection` are always `request`'s own manual inputs, echoed back verbatim -- this first
+         *     version derives no suggested starting value for either from
+         *     `app.signals.kangaroo_tail`/`app.signals.support_resistance`, even though both are
+         *     closely related detections -- see this task's `decisions` entry for why.
+         */
+        post: operations["score_trade_apgar"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stocks/{ticker}/analysis": {
         parameters: {
             query?: never;
@@ -1906,6 +1948,79 @@ export interface components {
              */
             weekly_macd_histogram_slope: "rising" | "falling" | "flat";
         };
+        /** TradeApgarIn */
+        TradeApgarIn: {
+            /**
+             * False Breakout Status
+             * @description Manual input (Elder ch. 58, docs/ideas.md): whether a false breakout has recently happened or is currently developing for this ticker -- 'none' (0 points), 'already_happened' (1 point), or 'on_the_verge' (2 points, a false breakout actively developing right now). Not auto-populated in this first version -- see this task's `decisions` entry for why `app.signals.kangaroo_tail`/`app.signals.support_resistance` aren't used to suggest a starting value here.
+             * @enum {string}
+             */
+            false_breakout_status: "none" | "already_happened" | "on_the_verge";
+            /**
+             * Perfection
+             * @description Manual input (Elder ch. 58): whether the weekly and daily timeframes both look ideal for this setup -- 'neither' (0 points), 'one' does (1 point), or 'both' do (2 points, rare per Elder's own note -- one perfect timeframe plus one merely good is fine). Inherently subjective; never auto-populated.
+             * @enum {string}
+             */
+            perfection: "neither" | "one" | "both";
+            /**
+             * Ticker
+             * @description Ticker to score. Normalized to uppercase (leading/trailing whitespace is stripped), matching PositionIn.ticker/POST /api/portfolio/positions.
+             */
+            ticker: string;
+        };
+        /** TradeApgarOut */
+        TradeApgarOut: {
+            /**
+             * Go
+             * @description Elder's own go/no-go rule (docs/ideas.md's ch. 58 entry): true only when total_score >= 7 AND no single question scored 0 -- both conditions are required together, not just the total. A trade scoring 8 total with one question at 0 still gets `go=false`.
+             */
+            go: boolean;
+            /**
+             * Questions
+             * @description All 5 fixed questions, always in Elder's own ch. 58 order (weekly Impulse, daily Impulse, price vs. value, false breakout, perfection) -- never a variable-length or reordered list.
+             */
+            questions: components["schemas"]["TradeApgarQuestionOut"][];
+            /**
+             * Ticker
+             * @description Uppercased ticker this score was computed for.
+             */
+            ticker: string;
+            /**
+             * Total Score
+             * @description Sum of every question's score, 0-10.
+             */
+            total_score: number;
+        };
+        /** TradeApgarQuestionOut */
+        TradeApgarQuestionOut: {
+            /**
+             * Key
+             * @description Which of the fixed 5 questions this is, in Elder's own ch. 58 order.
+             * @enum {string}
+             */
+            key: "weekly_impulse" | "daily_impulse" | "price_vs_value" | "false_breakout" | "perfection";
+            /**
+             * Label
+             * @description Human-readable question text.
+             */
+            label: string;
+            /**
+             * Score
+             * @description 0, 1, or 2 -- this question's own score per Elder's ch. 58 scoring table (docs/ideas.md).
+             */
+            score: number;
+            /**
+             * Source
+             * @description 'auto' -- weekly_impulse/daily_impulse/price_vs_value, derived from app.signals.engine.analyse()'s own output for `ticker` at the time of this request, not a value the caller can override. 'manual' -- false_breakout/perfection, the caller's own TradeApgarIn inputs, echoed back.
+             * @enum {string}
+             */
+            source: "auto" | "manual";
+            /**
+             * Value
+             * @description The underlying classification this question's score was derived from -- one of Impulse's own 'GREEN'/'RED'/'BLUE' for weekly_impulse/daily_impulse, 'above_value'/'in_value_zone'/'below_value' for price_vs_value, or the caller's own TradeApgarIn.false_breakout_status/perfection value, echoed back, for the two manual questions.
+             */
+            value: string;
+        };
         /** TrendStrength */
         TrendStrength: {
             /**
@@ -2431,6 +2546,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RiskResponse"];
+                };
+            };
+        };
+    };
+    score_trade_apgar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeApgarIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeApgarOut"];
+                };
+            };
+            /** @description Unknown ticker */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Either the ticker's fetched weekly history has fewer than 26 weeks (the same minimum GET /api/stocks/{ticker}/analysis's weekly fetch enforces), or its fetched daily history is empty once any malformed bar is dropped -- either way, there isn't enough data to auto-populate this ticker's weekly-Impulse/daily-Impulse/price-vs-value questions. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Market data provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
         };
