@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-status-endpoint review (PR #212)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "docs/tasks/done/backend-ibkr-status-endpoint.json",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "IBKRStatusResponse.detail's schema description (backend/app/api/schemas.py) claims detail is \"Always null for 'disabled'\", but app/api/routers/ibkr.py's handler always sets a non-null explanatory string for that state (confirmed by backend/tests/integration/test_ibkr_status.py::test_status_disabled asserting `detail is not None`). The same wrong claim is duplicated into backend/openapi.json, frontend/src/api/types.ts, and docs/architecture/API.md (all generated/derived from the schema source). Fix by correcting the description text to match actual behavior (detail is populated, not null, for 'disabled') and regenerating openapi.json/types.ts -- purely a documentation-accuracy fix, no behavior change needed.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded IBKRStatusResponse.detail's description to say detail is always populated (a fixed explanatory string) for 'disabled', rather than just deleting the false 'always null' claim entirely.",
+      "rationale": "The old text was actively wrong (claimed always-null), not merely vague, so the fix states the real behavior (a fixed non-null string, `_DISABLED_DETAIL` in app/api/routers/ibkr.py) rather than just removing the claim -- callers reading the schema benefit from knowing detail is reliably populated for 'disabled', which is useful for e.g. displaying it in a UI. Only IBKRStatusResponse's own description carried the wrong claim; IBKRScannerParamsResponse/IBKRScannerRunResponse/IBKRBreadthSnapshotResponse's detail fields already just said 'same convention as GET /api/ibkr/status's `detail`' without repeating the false claim themselves, so fixing the one source description was sufficient without touching those three."
     }
   ]
 }
