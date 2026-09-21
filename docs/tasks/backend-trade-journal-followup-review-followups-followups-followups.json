@@ -34,5 +34,11 @@
       "decision": "Documented a house convention in CLAUDE.md's Autonomous pipeline section: correcting a stale claim in an already-merged PR's description defaults to an additive PR comment (or a task-board `review.comments`/`decisions`/follow-up entry), not an in-place edit of the merged PR's body. An in-place edit is permitted only when it's a narrow factual correction (not a rewrite of the PR's substantive claims), the prior text stays recoverable via GitHub's edit history, the correction is also recorded as a task `decisions` entry with rationale, and the edit doesn't touch code or merge state -- and even then, an additive comment is still preferred unless the task/checklist item explicitly names the description itself (not just a passing mention of the mistake) as the thing to fix.",
       "rationale": "A PR comment is strictly more visible (timeline, notifications, never silently overwrites text another reader may have already linked to or relied on) and is the lower-risk default for exactly the reason pr-reviewer's own PR #228 review flagged: nothing previously said which pattern to prefer, so the same judgment call would otherwise be re-litigated from scratch every time it comes up (as it already had once, on PR #227/#228). Editing in place isn't banned outright because PR #228's own instance was judged reasonable, transparent, and low-risk by two independent reviews (pr-reviewer and pr-decision on PR #228) -- a blanket ban would contradict that precedent -- so the convention instead narrows it to conditions that reproduce exactly what made that instance safe (narrow factual fix, recoverable history, documented decision, no code/merge-state impact) plus a requirement that the task itself called out the description by name, rather than leaving the choice fully open-ended for the next occurrence to reason about unaided."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review-followups-followups-followups",
+    "pr_number": 229,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/229",
+    "pushed_at": "2026-09-21T09:45:21Z"
+  }
 }
