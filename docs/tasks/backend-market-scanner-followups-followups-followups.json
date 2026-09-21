@@ -26,16 +26,22 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-21T00:00:00Z",
+      "timestamp": "2026-09-21T23:50:00Z",
       "recorded_by": "task-worker",
       "decision": "Added `retryAfterSeconds: number | null` as a new field on `ApiError` (frontend/src/api/client.ts), populated only for a non-2xx response via a new `parseRetryAfterSeconds()` helper that reads `response.headers.get('Retry-After')` and accepts only a digits-only integer-seconds string (the form these two backend routes always send), returning `null` otherwise -- including for an RFC 9110-legal HTTP-date `Retry-After` value, which no route in this app ever actually sends. Rejected alternatives: (1) a separate `getResponseHeaders()`/typed accessor threaded alongside the parsed body through `request()`'s return value, which would force every one of the ~30 existing `ApiError` call sites across api/*.ts and their tests to change shape for a header only two routes ever set; (2) casting the header string directly to `number` per the generated OpenAPI type, which is simply wrong for a real `Headers.get()` return value (always `string | null`) and would produce `NaN`/type-lies for a non-numeric header.",
       "rationale": "This is the narrowest change that actually makes Retry-After reachable from frontend code (closing the checklist's core gap) without reshaping `request()`'s generic success-path return type or every existing caller. `retryAfterSeconds` defaults to `null` on the constructor and every other error path (network failure, 4xx/5xx without the header), so no existing test asserting on `status`/`detail` needed to change."
     },
     {
-      "timestamp": "2026-09-21T00:00:00Z",
+      "timestamp": "2026-09-21T23:52:00Z",
       "recorded_by": "task-worker",
       "decision": "Factored the duplicated 429 `responses={}` entry (description + `headers` dict, now with `required: true` added) into a single module-level `_RETRY_AFTER_429_RESPONSE` dict in backend/app/api/routers/ibkr.py, referenced by both `run_ibkr_scanner` and `record_ibkr_breadth_snapshot`'s `responses={}`, rather than the checklist's suggested name `_RETRY_AFTER_HEADER_SPEC` (which described only the inner `headers` sub-dict, not the full 429 entry that was actually duplicated including its `description` and `model`).",
       "rationale": "Factoring the whole 429 entry (not just the `headers` sub-dict) is what actually prevents the two specs from drifting -- the checklist's own repro line named the `description` string as also duplicated. The renamed constant reflects what it actually holds."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-market-scanner-followups-followups-followups",
+    "pr_number": 241,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/241",
+    "pushed_at": "2026-09-21T23:56:00Z"
+  }
 }
