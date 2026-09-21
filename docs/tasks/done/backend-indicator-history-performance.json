@@ -3,7 +3,7 @@
   "title": "Speed up GET /api/stocks/{ticker}/indicators (cache response, fetch concurrently)",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -57,31 +57,21 @@
     "pushed_at": "2026-09-21T11:30:00Z"
   },
   "review": {
-    "reviewed_at": "2026-09-21T10:36:46Z",
+    "reviewed_at": "2026-09-21T11:00:18Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/231",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: the new concurrent OHLCV fetch (ThreadPoolExecutor with 2 workers, backend/app/api/routers/stocks.py) shares the single request-scoped SQLAlchemy Session across both threads via CachedDataProvider (built from `db: Session = Depends(get_db)` in app/api/dependencies.py's get_data_provider, in the app's default non-fixture config). SQLAlchemy Session is not safe for concurrent use by two threads at once. Independently reproduced: two threads racing a real CachedDataProvider on a cold cache reliably throws IllegalStateChangeError, ResourceClosedError, corrupted-state AttributeError, and duplicate-insert IntegrityError -- none of which get_indicator_history's except clauses catch, so a real production cache miss surfaces as an unhandled 500 instead of the documented 404/422/503 contract, and can corrupt concurrently-written ohlcv_cache rows. This is not a rare race -- every cache-miss request to this endpoint hits exactly this two-thread-one-session pattern by design. Not caught by this PR's own new tests because none of them exercise a real DB-backed CachedDataProvider concurrently (unit tests use an isolated non-concurrent session, router-level stub providers never touch the DB, and the e2e suite runs in fixture mode which bypasses CachedDataProvider entirely).",
+        "summary": "Re-review of the Session-thread-safety fix (per-instance threading.Lock in CachedDataProvider serializing only the DB-touching sections of _get/get_extended_data). Reproduced the original bug myself by running the new regression test (tests/unit/data/test_cache.py::TestConcurrentDailyAndWeeklySessionSafety) against the pre-fix commit's cache.py: got the exact IllegalStateChangeError/ResourceClosedError failure previously reported. Restored the fix and reran: passes. Also wrote an independent race script (not reusing the PR's own test) against a real DB-backed CachedDataProvider (StaticPool SQLite, two real threading.Threads) with my own instrumentation on both the Session methods and the underlying provider fetch calls: zero errors, zero DB-call overlap, correct row counts (1 daily + 1 weekly), and -- critically -- the two network fetches genuinely overlapped in wall-clock time (~0.23s total wall time for two 0.15s fetches, vs ~0.30s if serialized), confirming the lock does not accidentally serialize the whole call and defeat the concurrent-fetch feature.",
+        "file": "backend/app/data/cache.py",
+        "line": 58
+      },
+      {
+        "summary": "Both non-blocking follow-ups from the prior review verified correct and complete: (1) test_daily_failure_takes_priority_when_both_fetches_fail uses distinct status codes (404 vs 422) for the daily/weekly failures so the assertion can't pass by coincidence if priority logic regressed -- ran it, passes; (2) the docstring/schema softening of the '/analysis always matches' claim is consistently applied across the router docstring, IndicatorHistoryResponse.points's Field description, and docs/architecture/API.md (two locations), and backend/openapi.json/frontend/src/api/types.ts were regenerated -- reran python scripts/export_openapi.py myself and got a clean diff (no drift).",
         "file": "backend/app/api/routers/stocks.py",
-        "line": 577
-      },
-      {
-        "summary": "Root cause is also in how the provider is wired: get_data_provider binds CachedDataProvider to the single per-request db Session with no thread-safe access pattern (no session-per-thread, no lock) for the two-thread fan-out stocks.py now performs.",
-        "file": "backend/app/api/dependencies.py",
-        "line": 36
-      },
-      {
-        "summary": "Non-blocking: the concurrent fetch's documented error-priority behavior (daily failure wins even if weekly also failed) is correct by inspection (daily_future.result() is awaited first) but untested for the case where BOTH fetches fail -- only single-sided failure (daily-only, weekly-only) is covered by the new tests in tests/integration/test_stocks_indicator_history.py. Filed as a follow-up.",
-        "file": "backend/tests/integration/test_stocks_indicator_history.py",
-        "line": 673
-      },
-      {
-        "summary": "Non-blocking: the new same-calendar-day IndicatorHistoryResponse cache can serve a stale signal that no longer matches GET /api/stocks/{ticker}/analysis's live-computed answer for the same ticker/date, for the rest of the calendar day once the underlying ohlcv_cache row it derived from is refreshed later that day (e.g. today's daily bar settling after market close). The endpoint's own updated docstring still states this match as an unconditional invariant, which is no longer strictly true whenever the response cache is serving a same-day hit. Comparable in kind to the already-accepted 24h ohlcv_cache TTL tradeoff, but the docstring's absolute wording should be softened or the design revisited. Filed as a follow-up.",
-        "file": "backend/app/api/routers/stocks.py",
-        "line": 561
+        "line": 567
       }
     ],
-    "notes": "Full review: backend pytest+coverage (1127 passed, 99.95%, gate 90%), backend ruff+mypy clean, frontend eslint+tsc clean, profit-target-wording guard clean, code-review skill pass (found the blocking Session-sharing bug via an independent empirical repro), architecture-review pass (docs/architecture/{API,Backend}.md correctly updated, openapi.json + frontend/src/api/types.ts regenerated and committed), manual smoke test against a live make backend/make frontend stack, and the full persisted e2e suite (make e2e, 18/18 passed -- though e2e runs in fixture mode so it doesn't exercise the buggy live-provider code path either). Cache TTL day-boundary, cache-hit-skips-fetch-and-analyse, and cache key scoping (ticker, range) were all specifically verified correct and well-tested. Verdict is needs_work solely for the Session-sharing concurrency bug -- everything else is either correct or a non-blocking follow-up."
+    "notes": "Full re-review after the prior needs_work verdict's Session-thread-safety fix. Backend: pytest --cov=app --cov-fail-under=90 -> 1129 passed, 99.95% coverage. Frontend: vitest run --coverage -> all passing, ~99.7%+ across statements/branches/functions/lines (unaffected by this backend-only change; only frontend/src/api/types.ts changed, a regenerated doc-comment diff). Static analysis: backend ruff+mypy clean, frontend eslint+tsc clean, profit-target-wording guard clean. code-review skill (medium, diff 454ba74..e0fd568): no findings. No UI surface in this change (cache internals, docstrings/schema descriptions, tests only) -- browser walkthrough and the persisted e2e suite are not applicable and were explicitly skipped. Task decisions are thorough, including the rejected (a) per-thread Session and (c) drop-concurrency alternatives. No blocking findings; no new non-blocking findings -- the existing backend-indicator-history-performance-followups task already tracks both items addressed in this fix, and its checklist already shows them done."
   }
 }
