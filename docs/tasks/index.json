@@ -1580,7 +1580,7 @@
       "id": "backend-trade-apgar",
       "area": "backend/portfolio",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-apgar.json"
     },
     {

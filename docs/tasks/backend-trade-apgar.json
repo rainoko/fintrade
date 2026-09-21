@@ -3,7 +3,7 @@
   "title": "Trade Apgar -- pre-trade go/no-go scoring (ch. 58)",
   "area": "backend/portfolio",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-trade-strategy-tagging"],
   "references": [
     "docs/ideas.md#trade-apgar--pre-trade-go-no-go-scoring-ch-58"
@@ -54,5 +54,11 @@
       "decision": "No frontend client function (frontend/src/api/portfolio.ts) or MSW mock handler was added in this PR -- only backend/openapi.json and the regenerated frontend/src/api/types.ts changed on the frontend side.",
       "rationale": "docs/tasks/frontend-trade-apgar.json already exists as a separate, already-planned task (area frontend/pages/portfolio, skill add-frontend-feature) whose scope is the actual UI consumer of this endpoint, including its own placement/UX decisions for the manual false-breakout/perfection inputs and the go/no-go display. Matches the identical, already-accepted precedent set by backend-trade-grading (PR #149) and backend-channel-envelope-exposure (PR #146): a backend-only endpoint task regenerates types.ts but leaves the typed client function/mock/UI to the dedicated frontend task, rather than preempting that task's own placement decision with unused dead code."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-apgar",
+    "pr_number": 220,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/220",
+    "pushed_at": "2026-09-21T03:47:00Z"
+  }
 }
