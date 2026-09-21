@@ -336,6 +336,7 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
       "buy_grade_pct": 97.3,
       "sell_grade_pct": 35.5,
       "trade_grade_pct": 32.1,
+      "trade_letter_grade": "A",
       "entry_notes": "Breakout above resistance, strong earnings beat.",
       "strategy": "Pullback to value"
     }
@@ -344,6 +345,8 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
 ```
 
 The three grade fields are `null` whenever they can't currently be computed — the ticker's daily-history fetch failed, `entry_date`/`exit_date` isn't an exact trading-day row in that history (e.g. it predates the fetched history), or (`trade_grade_pct` only) `entry_date` falls inside the Autoenvelope/channel's own ~100-bar warm-up window (same warm-up `GET /api/stocks/{ticker}/analysis`'s `indicators.channel_upper`/`channel_lower` document) — never a request-level error; the row itself is always present with its recorded price/date/P&L fields intact. See `app.portfolio.grading` for the formulas themselves.
+
+`trade_letter_grade` is Elder's own A/B/C/D letter grade (ch. 55 "Is This an A-Trade?" footnote: "A is excellent, B good, C mediocre, and D poor"), derived from `trade_grade_pct`: `A` >= 30%, `B` in [20%, 30%), `C` in [10%, 20%), `D` < 10% (no floor — a losing trade is still "poor"). The book only gives two numeric anchors (>=30% "A", ~10% "C"); the B/D thresholds fill that gap by even 10-point-per-letter spacing implied by those two anchors — see the `backend-trade-grade-letter` task's `decisions` for the full rationale and alternatives considered. `null` exactly when `trade_grade_pct` is `null`. `buy_grade_pct`/`sell_grade_pct` deliberately stay percentage-only — the book gives them no letter-grade scale at all, only a single ">50% = very good" anchor each.
 
 `entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded. `strategy` is carried over the same way (Elder ch. 55/56/58/59's personal named strategy tag) — `null` if the position never had a strategy tag recorded.
 

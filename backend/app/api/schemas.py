@@ -601,6 +601,17 @@ class ClosedTradeOut(BaseModel):
         "available -- the ticker's fetched daily history doesn't reach back to entry_date, "
         "or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
     )
+    trade_letter_grade: Literal["A", "B", "C", "D"] | None = Field(
+        default=None,
+        description="Elder's own A/B/C/D letter grade (ch. 55 footnote: 'A is excellent, B "
+        "good, C mediocre, and D poor') derived from trade_grade_pct: A >= 30%, B in "
+        "[20%, 30%), C in [10%, 20%), D < 10% (including a losing trade, i.e. a negative "
+        "trade_grade_pct). Only trade_grade_pct gets a letter -- buy_grade_pct/sell_grade_pct "
+        "have no letter-grade scale documented in the book at all, only a single '>50% = "
+        "very good' anchor each, so they stay percentage-only. Null exactly when "
+        "trade_grade_pct is null (see app.portfolio.grading.trade_letter_grade for the full "
+        "threshold rationale/decision record).",
+    )
     entry_notes: str | None = Field(
         default=None,
         description="Carried over verbatim from the position's own PositionIn.entry_notes "

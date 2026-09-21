@@ -231,6 +231,7 @@ const closedTradesFixture: ClosedTradesResponse = {
       buy_grade_pct: 97.3,
       sell_grade_pct: 35.5,
       trade_grade_pct: 32.1,
+      trade_letter_grade: 'A',
     },
     {
       id: 'trade_def456',
@@ -245,6 +246,7 @@ const closedTradesFixture: ClosedTradesResponse = {
       buy_grade_pct: null,
       sell_grade_pct: null,
       trade_grade_pct: null,
+      trade_letter_grade: null,
     },
   ],
 }
