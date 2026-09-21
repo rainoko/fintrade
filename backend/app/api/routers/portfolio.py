@@ -201,7 +201,9 @@ def _grade_closed_trades(
                 channels[row.ticker] = autoenvelope(filtered_frame["close"])
         filtered_frame = filtered_frames[row.ticker]
         if filtered_frame is None:
-            grades[row.id] = TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+            grades[row.id] = TradeGrade(
+                buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None
+            )
         else:
             grades[row.id] = grade_trade_from_filtered_history(
                 entry_price=row.entry_price,
@@ -212,6 +214,34 @@ def _grade_closed_trades(
                 channel=channels[row.ticker],
             )
     return grades
+
+
+def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeOut:
+    """Builds the `ClosedTradeOut` for one `closed_trades` row + its already-computed
+    `TradeGrade` (from `_grade_closed_trades`). Shared by `get_closed_trades` and
+    `record_follow_up_review` so the two routes' identical field-by-field mapping -- every
+    field `ClosedTradeOut` has grown over time (grades, entry notes, strategy, the follow-up
+    review fields) -- has exactly one place to update, instead of two call sites that must be
+    kept in sync by hand -- see the backend-trade-journal-followup-review-followups task."""
+    return ClosedTradeOut(
+        id=row.id,
+        ticker=row.ticker,
+        quantity=row.quantity,
+        entry_price=row.entry_price,
+        entry_date=row.entry_date,
+        exit_price=row.exit_price,
+        exit_date=row.exit_date,
+        realized_pnl=row.realized_pnl,
+        exit_reason=cast(ExitReasonOut, row.exit_reason),
+        buy_grade_pct=grade.buy_grade_pct,
+        sell_grade_pct=grade.sell_grade_pct,
+        trade_grade_pct=grade.trade_grade_pct,
+        trade_letter_grade=trade_letter_grade(grade.trade_grade_pct),
+        entry_notes=row.entry_notes,
+        strategy=row.strategy,
+        follow_up_notes=row.follow_up_notes,
+        follow_up_reviewed_at=row.follow_up_reviewed_at,
+    )
 
 
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
@@ -272,7 +302,9 @@ def get_portfolio(
                 unrealized_pnl_pct=e.position.unrealized_pnl_pct,
                 signal=signal_result.signal if signal_result is not None else None,
                 confidence=signal_result.confidence if signal_result is not None else None,
-                confidence_band=signal_result.confidence_band if signal_result is not None else None,
+                confidence_band=signal_result.confidence_band
+                if signal_result is not None
+                else None,
                 entry_notes=e.entry_notes,
                 strategy=e.strategy,
             )
@@ -691,7 +723,9 @@ def get_risk(
     for e in enriched:
         if e.position.current_price is None or e.daily_ohlcv is None:
             continue
-        daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+        daily_ohlcv = drop_malformed_daily_bars(
+            e.daily_ohlcv, require_full_ohlc_on_latest_bar=False
+        )
         if len(daily_ohlcv) < 2:
             continue
         try:
@@ -731,7 +765,11 @@ def get_risk(
         try:
             risk_pct = position_risk_pct(e.position, stop, account)
             exit_flags = evaluate_exit_flags(
-                e.position, account, daily_by_id[e.position.id], weekly_by_id[e.position.id], total_risk
+                e.position,
+                account,
+                daily_by_id[e.position.id],
+                weekly_by_id[e.position.id],
+                total_risk,
             )
         except ValueError:
             continue
@@ -838,30 +876,7 @@ def get_closed_trades(
     rows = query.order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc()).all()
     grades = _grade_closed_trades(rows, provider)
 
-    return ClosedTradesResponse(
-        items=[
-            ClosedTradeOut(
-                id=row.id,
-                ticker=row.ticker,
-                quantity=row.quantity,
-                entry_price=row.entry_price,
-                entry_date=row.entry_date,
-                exit_price=row.exit_price,
-                exit_date=row.exit_date,
-                realized_pnl=row.realized_pnl,
-                exit_reason=cast(ExitReasonOut, row.exit_reason),
-                buy_grade_pct=grades[row.id].buy_grade_pct,
-                sell_grade_pct=grades[row.id].sell_grade_pct,
-                trade_grade_pct=grades[row.id].trade_grade_pct,
-                trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
-                entry_notes=row.entry_notes,
-                strategy=row.strategy,
-                follow_up_notes=row.follow_up_notes,
-                follow_up_reviewed_at=row.follow_up_reviewed_at,
-            )
-            for row in rows
-        ]
-    )
+    return ClosedTradesResponse(items=[_to_closed_trade_out(row, grades[row.id]) for row in rows])
 
 
 @router.post(
@@ -904,25 +919,7 @@ def record_follow_up_review(
     db.refresh(row)
 
     grades = _grade_closed_trades([row], provider)
-    return ClosedTradeOut(
-        id=row.id,
-        ticker=row.ticker,
-        quantity=row.quantity,
-        entry_price=row.entry_price,
-        entry_date=row.entry_date,
-        exit_price=row.exit_price,
-        exit_date=row.exit_date,
-        realized_pnl=row.realized_pnl,
-        exit_reason=cast(ExitReasonOut, row.exit_reason),
-        buy_grade_pct=grades[row.id].buy_grade_pct,
-        sell_grade_pct=grades[row.id].sell_grade_pct,
-        trade_grade_pct=grades[row.id].trade_grade_pct,
-        trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
-        entry_notes=row.entry_notes,
-        strategy=row.strategy,
-        follow_up_notes=row.follow_up_notes,
-        follow_up_reviewed_at=row.follow_up_reviewed_at,
-    )
+    return _to_closed_trade_out(row, grades[row.id])
 
 
 @router.post(
