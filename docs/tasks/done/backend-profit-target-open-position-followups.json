@@ -1,0 +1,69 @@
+{
+  "id": "backend-profit-target-open-position-followups",
+  "title": "Non-blocking follow-ups from backend-profit-target-open-position PR #224 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-profit-target-open-position"],
+  "references": [
+    "docs/tasks/backend-profit-target-open-position.json",
+    "https://github.com/rainoko/fintrade/pull/224",
+    "backend/app/api/routers/portfolio.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #224 (backend-profit-target-open-position), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges. The review's blocking findings (a stop-value inconsistency between RiskPosition.protective_stop and RiskPosition.profit_target's own internal stop, and the frontend never consuming the new field) are tracked directly on backend-profit-target-open-position's own review.comments and must be fixed there before that PR merges -- they are not duplicated here since that task isn't done yet.",
+  "checklist": [
+    {
+      "step": "GET /api/portfolio/risk now runs a full whole-history support/resistance detection pass (detect_support_resistance_zones) plus a second full weekly-Autoenvelope + swing-low pass (inside suggest_profit_target) for every position on every request, uncached -- none of which existed on this endpoint before this task. If this endpoint is polled (RiskPanel's usage suggests it is), this multiplies per-poll CPU cost by N extra heavy passes with no memoization, unlike the already-computed stops/daily_by_id/weekly_by_id this same loop deliberately caches for reuse within one request. Not a correctness issue at today's data sizes, but worth reconsidering (e.g. caching profit_target per (ticker, as-of-date) the way OHLCV itself is cached) if this endpoint's polling frequency or position count grows.",
+      "done": true
+    },
+    {
+      "step": "docs/architecture/Backend.md's file-tree listing still describes profit_target.py as 'suggested profit target + reward:risk ratio for a fresh BUY (Analyse.md §7)', which is stale now that GET /api/portfolio/risk also calls it unconditionally for every open position regardless of signal (this task's own change). Reword to reflect that the module itself is signal-agnostic and serves two deliberately-differently-gated callers, consistent with the module's own docstring, docs/Analyse.md §7, and docs/architecture/API.md, all of which already describe this correctly. Found by pr-reviewer's third review pass (PR #224).",
+      "done": true
+    },
+    {
+      "step": "ProfitTargetOut.distance_to_target's schema description (backend/app/api/schemas.py) states 'Always > 0 by construction (both target techniques only ever produce a price above current close)', but suggest_profit_target's own domain-layer docstring (backend/app/portfolio/profit_target.py) documents a real degenerate case where the channel-derived target equals current price exactly (distance_to_target == 0) when the weekly Autoenvelope's rolling average deviation is exactly 0 across the whole lookback window. Pre-existing since PR #222/backend-profit-target-weekly-channel (confirmed via git show main:... on both files) and unrelated to this task's own BUY-only-vs-signal-agnostic distinction, so not blocking on backend-profit-target-open-position -- but a real overstated invariant in the OpenAPI contract worth fixing (e.g. hedge the description the same way distance_to_stop's already does with 'can be <= 0 in the rare case...'), and regenerate backend/openapi.json/frontend/src/api/types.ts alongside it. Found by pr-reviewer's third review pass (PR #224), via its code-review skill sub-pass.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 1 (uncached per-request support/resistance + weekly-channel passes in GET /api/portfolio/risk): left as a documented, accepted trade-off rather than implemented as a real cache -- expanded get_risk's own docstring (backend/app/api/routers/portfolio.py) with a new paragraph naming the two uncached passes, contrasting them with the stops/daily_by_id/weekly_by_id this same loop already caches per-request, and stating the trade-off explicitly rather than leaving it only in this task's checklist text.",
+      "rationale": "The finding itself is speculative ('worth reconsidering... if this endpoint's polling frequency or position count grows'), not a live problem -- the review that raised it explicitly rated it non-blocking and 'cheap in practice' at today's data sizes. Building an actual cache would mean a new (ticker, as-of-date)-keyed table (mirroring app.data.cache.CachedDataProvider's OHLCVCacheORM shape), a TTL/invalidation policy, an Alembic migration, and its own test suite -- a meaningfully larger and riskier change than a currently-inert, purely-hypothetical cost justifies, and disproportionate for a non-blocking follow-up. This mirrors the precedent set by data-cache-followups' own item #2 (the _is_fresh max(fetched_at) staleness edge case), which was left as a documented known limitation rather than a schema change for the identical reason: 'cheap-to-add isn't the same as low-risk-to-add', and there's no concrete near-term driver forcing the need yet. Rejected implementing a lightweight in-process memoization (e.g. functools.lru_cache keyed on ticker+date) as a middle ground -- rejected because request-scoped state doesn't help here (each ticker/position is already computed at most once per request; the actual cost is heavy work repeated ACROSS requests, which only a cross-request cache like OHLCV's own would address), and a process-lifetime cache with no invalidation policy would risk serving a stale profit target across trading days, a correctness regression worse than the performance problem being solved. Revisit if/when this endpoint's polling frequency or position count actually grows enough to matter, following CachedDataProvider's existing pattern for the shape such a cache would take -- now pointed to directly from get_risk's own docstring so a future implementer doesn't have to rediscover it from this task file alone.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-21T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 2 (stale docs/architecture/Backend.md file-tree comment): reworded to 'suggested profit target + reward:risk ratio; signal-agnostic itself, gated BUY-only by one caller (fresh-signal analysis) but computed unconditionally by the other (an already-open position) (Analyse.md §7)'.",
+      "rationale": "Matches the wording already used correctly elsewhere (the module's own docstring, docs/Analyse.md §7, docs/architecture/API.md) without duplicating either verbatim -- names both callers' distinct gating explicitly (rather than just saying 'signal-agnostic', which alone would lose the fact that one of the two callers still IS BUY-only) so a reader of just this one-line file-tree comment gets the accurate two-callers-differ picture without following a reference elsewhere.",
+      "context": null
+    },
+    {
+      "timestamp": "2026-09-21T09:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 3 (ProfitTargetOut.distance_to_target's overstated 'Always > 0 by construction' invariant): reworded to 'Non-negative by construction ... -- strictly positive for every realistic input, but can be exactly 0 in the rare degenerate case where the weekly Autoenvelope channel's rolling average deviation is exactly 0 across the whole lookback window (upper == lower), collapsing the channel-derived target to current close exactly', with a pointer to suggest_profit_target's own docstring for the full derivation. Regenerated backend/openapi.json (python scripts/export_openapi.py) and frontend/src/api/types.ts (npm run generate:api-types) -- diff confined to this one description string (plus get_risk's own docstring addition for item 1, picked up in the same regeneration since FastAPI uses docstrings as OpenAPI operation descriptions).",
+      "rationale": "Mirrors distance_to_stop's own already-correct hedged wording pattern ('Can be <= 0 in the rare case...') exactly, per the finding's own suggested fix, rather than inventing a differently-shaped caveat. Verified scripts/check_profit_target_wording.py stays clean (the new text still says 'weekly Autoenvelope' within its required context window) and that no backend/frontend test asserted the old 'Always > 0' wording literally (grepped both trees) before running the full suites: backend pytest (1109 passed), ruff + mypy clean; frontend vitest (704 passed, 71 files), tsc -b clean, eslint clean.",
+      "context": null
+    }
+  ],
+  "git": {
+    "branch": "task/backend-profit-target-open-position-followups",
+    "pr_number": 225,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/225",
+    "pushed_at": "2026-09-21T07:49:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T07:54:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/225",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure documentation/comment/schema-description change addressing PR #224's three non-blocking follow-ups -- no functional code path touched. Verified: (1) the 'document, don't cache' judgment call for the uncached per-request support/resistance + weekly-channel cost is proportionate for a currently-inert, speculative finding, and get_risk's new docstring paragraph accurately describes the trade-off (checked its claims -- stops/daily_by_id/weekly_by_id precomputed+reused vs. detect_support_resistance_zones/suggest_profit_target called fresh per position -- directly against backend/app/api/routers/portfolio.py, and its CachedDataProvider (ticker, interval)-keyed reference against backend/app/data/cache.py); (2) docs/architecture/Backend.md's reworded file-tree comment matches docs/Analyse.md §7 and profit_target.py's own module docstring, no new staleness introduced; (3) ProfitTargetOut.distance_to_target's hedged description mirrors distance_to_stop's existing pattern exactly (checked side by side in backend/app/api/schemas.py lines 265-266) and matches suggest_profit_target's own documented degenerate-zero-case derivation verbatim. Tests: backend pytest 1109 passed, 99.95% coverage, ruff+mypy clean; frontend vitest 704 passed (71 files), coverage >99% on all four metrics, eslint+tsc clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. backend/openapi.json and frontend/src/api/types.ts regenerated and committed, diff confined to the intended description strings. No UI surface -- browser walkthrough and e2e suite explicitly skipped as inapplicable. All three checklist items have a corresponding decisions entry with real rationale. No blocking or non-blocking findings; no follow-up task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T08:00:10Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app (1109 passed, 99.95% coverage, matches review exactly) plus ruff/mypy on app/ (clean; the 7 pre-existing ruff findings in unrelated test files under backend/tests/ are untouched by this PR's diff and predate it on main). Read the full diff directly: get_risk's new docstring paragraph checked line-by-line against portfolio.py's actual first-loop caching (stops/daily_by_id/weekly_by_id) vs. the per-position detect_support_resistance_zones/suggest_profit_target calls (lines ~751-761) -- accurate. Backend.md's reworded profit_target.py file-tree comment matches profit_target.py's own module docstring and docs/Analyse.md §7. ProfitTargetOut.distance_to_target's hedged wording mirrors distance_to_stop's existing 'Can be <= 0 in the rare case...' pattern and reproduces suggest_profit_target's own docstring's degenerate-zero-case sentence (upper == lower weekly Autoenvelope deviation) verbatim. No functional code path touched; accept holds."
+  }
+}

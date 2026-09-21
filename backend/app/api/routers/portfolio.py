@@ -648,7 +648,19 @@ def get_risk(
     position appears in `positions` at all) -- a `ValueError` computing it (or neither target
     technique producing a candidate) degrades to `profit_target=None` for that one position
     rather than excluding it from `positions` entirely, since a missing profit target is far
-    less consequential than a missing stop/risk-pct/exit-flags."""
+    less consequential than a missing stop/risk-pct/exit-flags.
+
+    Known, accepted perf trade-off (not fixed here -- see the
+    backend-profit-target-open-position-followups task's `decisions` entry): both
+    `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
+    `suggest_profit_target`'s own weekly-Autoenvelope + swing-low work run fresh, uncached, for
+    every position on every call to this endpoint, unlike `stops`/`daily_by_id`/`weekly_by_id`
+    above, which this same loop deliberately computes once and reuses. Cheap enough at today's
+    position counts/polling frequency to leave as plain per-request computation rather than
+    adding a new cache table (with its own TTL/invalidation policy, migration, and tests) for a
+    problem that's speculative today -- revisit if this endpoint's poll frequency or position
+    count grows enough to make it a real cost, following `app.data.cache.CachedDataProvider`'s
+    existing (ticker, interval)-keyed pattern for the shape such a cache would take."""
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
