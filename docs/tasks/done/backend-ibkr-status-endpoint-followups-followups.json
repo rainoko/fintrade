@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #234 review (backend-ibkr-status-endpoint-followups)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-status-endpoint-followups"],
   "references": [
     "docs/tasks/backend-ibkr-status-endpoint-followups.json",
@@ -29,5 +29,33 @@
     "pr_number": 235,
     "pr_url": "https://github.com/rainoko/fintrade/pull/235",
     "pushed_at": "2026-09-21T20:38:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T20:40:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/235",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified commit a9fb6cb's authored and committer timestamps both equal 2026-09-21T20:24:02Z (`git log -1 --format='%H %aI %cI' a9fb6cb`), matching the PR's claim exactly, and confirmed via `git show --stat`/`git show` that this commit is genuinely the one that introduced the decisions entry (added the whole decisions array, including the placeholder timestamp, to docs/tasks/backend-ibkr-status-endpoint-followups.json) alongside the schema/openapi/API.md fix it accompanied.",
+        "file": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "New timestamp sorts sensibly against context: decision (20:24:02) < review.reviewed_at (20:29:07) < pr_decision.confirmed_at (20:33:28) on the target task, and this task's own new decision (20:37:49) < git.pushed_at (20:38:48). The out-of-order placeholder defect is resolved.",
+        "file": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "Confirmed via `git diff main...HEAD` that only the three intended task-board JSON files are touched (docs/tasks/backend-ibkr-status-endpoint-followups-followups.json, docs/tasks/done/backend-ibkr-status-endpoint-followups.json, docs/tasks/index.json) -- no application code, schema, or OpenAPI snapshot changed, so those review steps don't apply.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Re-ran the full backend suite: 1129 passed, 99.95% coverage, well above the 90% gate -- unaffected, as expected for a JSON-only change. Also ran scripts/validate_tasks.py: 252 task files validated, no violations. Static analysis (ruff/mypy/eslint/tsc) and the browser walkthrough/e2e suite are not applicable -- no source, schema, or UI surface touched.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Pure task-board bookkeeping fix, no application code. Area is backend/api (not backend/signals or backend/portfolio, skill is null), so verify-elder-signal is not applicable; no new module/dependency/layer, so architecture-review is not applicable; no frontend component touched, so the 7a placement check is not applicable. No blocking findings; no new non-blocking findings to track as a further follow-up task."
   }
 }
