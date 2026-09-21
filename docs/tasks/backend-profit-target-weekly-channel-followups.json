@@ -32,5 +32,11 @@
       "rationale": "Rejected a single project-wide regex without any file-scoping/curated-list distinction (i.e. just grep the whole repo for 'daily' near 'channel'/'Autoenvelope' near 'profit target') -- tried this first and it produced immediate false positives against schemas.py's/API.md's/profit_target.py's own CORRECT current wording, which explicitly and correctly contrasts the weekly profit-target channel against the daily `channel_upper`/`channel_lower` indicator in the same sentence (e.g. 'a different channel than the daily one AnalysisResponse.indicators.channel_upper/channel_lower expose') -- a naive 'daily near channel' ban would have permanently blocked ever writing that necessary disambiguating sentence again. Rejected excluding `docs/ideas.md` from the guard AND leaving its stale text alone (i.e. treating checklist items 1 and 3 as fully independent) -- since ideas.md's own explicit 'not a source-of-truth doc' status is exactly why it's guard-exempt, not a reason to skip fixing it manually; did both (guard-exempt AND manually fixed, per item 3). Considered writing this as a Vitest-side check instead (frontend already runs a test suite on every relevant file) -- rejected since half the known locations (profit_target.py, schemas.py, docs/Analyse.md, docs/architecture/API.md) aren't scannable from a Vitest process without an awkward cross-language dependency; a standalone Python script scanning by file extension needs no such boundary and matches `validate_tasks.py`'s own precedent for a cross-cutting repo check living outside either app's own test runner."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel-followups",
+    "pr_number": 223,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/223",
+    "pushed_at": "2026-09-21T06:05:00Z"
+  }
 }
