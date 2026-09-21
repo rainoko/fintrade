@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-daily-homework-self-test PR #216 review",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-daily-homework-self-test"],
   "references": [
     "docs/tasks/backend-daily-homework-self-test.json",
@@ -44,5 +44,12 @@
     "pr_number": 237,
     "pr_url": "https://github.com/rainoko/fintrade/pull/237",
     "pushed_at": "2026-09-21T21:08:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T21:11:44Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/237",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Verified the two 'already done' checklist items genuinely exist on the current tree: docs/architecture/Backend.md §7 lists closed trades/extended data cache/daily homework entries, and backend/app/time_utils.py exists with today()/utcnow() consumed by app/data/cache.py and app/api/routers/{portfolio,watchlist,homework}.py (no _today/_utcnow duplicates remain). Confirmed app.api.routers.portfolio._today() no longer exists anywhere in the repo and app.time_utils.today() is the correct replacement referenced by the updated docstrings. Diff is docstring-text-only in both test files -- no behavior change. Backend suite: 1134 passed, 99.95% coverage. ruff/mypy clean, profit-target wording guard clean, validate_tasks.py clean. code-review skill (medium effort) found no issues. No UI surface (browser walkthrough / e2e-test skipped as not applicable); no API/schema change (no openapi.json update needed); area is backend/api and skill is null so verify-elder-signal not applicable; no new module/dependency so architecture-review not applicable. No blocking or non-blocking findings."
   }
 }
