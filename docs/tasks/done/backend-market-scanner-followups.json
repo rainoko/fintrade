@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-market-scanner review (PR #214)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-market-scanner"],
   "references": [
     "docs/tasks/backend-market-scanner.json",
@@ -51,5 +51,18 @@
     "pr_number": 238,
     "pr_url": "https://github.com/rainoko/fintrade/pull/238",
     "pushed_at": "2026-09-21T21:24:57Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T21:31:24Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/238",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The 429 `responses={}` entries for POST /api/ibkr/scanner/run and POST /api/ibkr/breadth/snapshot describe the new `Retry-After` header in prose but don't formally declare it via a `headers` key in the FastAPI `responses={}` dict, so the generated `frontend/src/api/types.ts` still types the 429 response's `headers` as `{ [name: string]: unknown }` instead of a typed `Retry-After: string` field. Non-blocking (no explicit CLAUDE.md rule requires header-level OpenAPI documentation), tracked as a follow-up.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 191
+      }
+    ],
+    "notes": "Verified independently: (1) Retry-After is RFC 9110-correct -- `math.ceil(exc.retry_after)` seconds as a plain integer string, confirmed present on both run_ibkr_scanner's and record_ibkr_breadth_snapshot's 429 responses via the updated tests (both assert `response.headers['retry-after'] == '1'` for retry_after=0.42) and via re-running the full suite. (2) The scope-widening decision (applying the fix to record_ibkr_breadth_snapshot too, beyond the checklist's literal wording) is reasonable and consistent -- both routes hit the identical `except IBKRRateLimitedError` case against the same `IBKRProvider.run_scanner` throttle, and leaving one route unfixed would have recreated the same inconsistency this checklist item was written to close; well-documented in the task's own `decisions` array. (3) The isinstance-check removal in get_ibkr_scanner_params is behavior-preserving: `IBKRProvider.get_scanner_params()` is typed `-> dict` and its implementation (`payload = raw_payload if isinstance(raw_payload, dict) else {}`) guarantees `params` is always a dict, so `isinstance(params, dict)` was always True and the removed branch was dead code; `params.get(\"scan_type_list\")` behaves identically before and after for every case, including a present-but-non-list value (unchanged pre-existing behavior, out of scope for this PR). (4) The new `TestRunScanner.test_not_authenticated` genuinely exercises POST /api/ibkr/scanner/run's not_authenticated path through `run_scanner()` raising `IBKRUnavailableError` -> `_resolve_scanner_unavailable` -> state='not_authenticated', mirroring the existing GET /scanner/params test exactly. Ran full backend suite (1135 passed, 99.95% coverage, app/api/routers/ibkr.py at 100%), backend ruff+mypy (clean), frontend eslint+tsc (clean, unchanged besides generated types), and confirmed `backend/openapi.json` and `frontend/src/api/types.ts` are byte-identical to a fresh re-run of `export_openapi.py`/`generate:api-types` (not stale). No frontend consumer of these endpoints exists yet, so no UI-facing surface -- browser walkthrough and the e2e-test skill are explicitly skipped for this PR. Independent code-review skill pass (medium effort) also returned zero findings, corroborating this review's own line-by-line check."
   }
 }
