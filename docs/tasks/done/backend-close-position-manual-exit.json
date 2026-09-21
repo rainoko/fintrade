@@ -3,7 +3,7 @@
   "title": "Optional manual exit price/date override for closing a position",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/portfolio.py",
@@ -31,5 +31,12 @@
     "pr_number": 215,
     "pr_url": "https://github.com/rainoko/fintrade/pull/215",
     "pushed_at": "2026-09-21T00:59:41Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T01:12:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/215",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite 973 passed, 99.94% coverage; frontend suite all pass, 99.7%+ coverage (unaffected -- only generated types.ts changed); ruff/mypy/eslint/tsc all clean; code-review skill (high effort) found no issues. Verified the decisions entry genuinely engages with backend-trade-history-table's prior 'authoritative market price' rationale (explains why it still holds for a live close, why it doesn't for a historical backfill, cites POST /api/portfolio/positions's existing precedent for a caller-supplied historical price, and lists 3 rejected alternatives). Verified the 'omitting both keeps behavior byte-for-byte unchanged' claim is actually tested (test_omitting_both_exit_price_and_date_keeps_default_live_price_behavior) and confirmed live: ran the persisted e2e suite (make e2e, 18/18 specs pass including portfolio add/delete) and drove the API directly against a freshly-migrated fixture-mode stack (default path, both-422, exit_date-before-entry_date-422, valid override all behave as documented). Verified the manual-exit path correctly feeds the 6% Rule: _realized_losses_this_month_pct keys only off ClosedTradeORM.exit_date/realized_pnl regardless of how they were priced; confirmed live that GET /api/portfolio/risk's realized_losses_this_month_pct reflected a manually-priced loss closed today, and this is also covered by test_manual_exit_still_carries_entry_notes_and_feeds_six_percent_rule. backend/openapi.json and frontend/src/api/types.ts regenerated locally and diffed byte-for-byte identical to committed versions -- no stale snapshot. docs/architecture/API.md updated accurately. No new module/dependency (architecture-review not triggered); no frontend components added/changed (only generated types), so the components-placement check doesn't apply. UI-facing check: existing frontend delete-position consumer (useDeletePosition/PositionsTable) unaffected since it doesn't expose the new params (per docs/ideas.md's 'no manual close-position form' decision) -- exercised via the real e2e suite and a live walkthrough with no console/network errors observed. No blocking or non-blocking findings; no followups task filed."
   }
 }
