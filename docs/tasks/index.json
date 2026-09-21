@@ -1489,7 +1489,7 @@
       "id": "backend-profit-target-open-position-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-profit-target-open-position-followups.json"
     },
     {
