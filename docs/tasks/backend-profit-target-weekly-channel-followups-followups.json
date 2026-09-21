@@ -57,5 +57,11 @@
       "rationale": "Removing it would save a negligible amount of work per call and add a hidden coupling: _should_scan_for_banned_patterns() would only be a correct 'should this file be scanned' predicate when called from inside _iter_scanned_files()'s own pruned walk, silently wrong if called on an arbitrary path from anywhere else. Verified the traversal refactor is fully behavior-preserving by diffing the real repo's scanned-file set (217 files, byte-for-byte identical sorted path list) between the pre-change rglob-based implementation and the new os.walk-based one."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel-followups-followups",
+    "pr_number": 226,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/226",
+    "pushed_at": "2026-09-21T08:11:40Z"
+  }
 }
