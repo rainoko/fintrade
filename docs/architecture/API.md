@@ -253,7 +253,8 @@ Current positions plus account equity.
       "unrealized_pnl_pct": 17.2,
       "signal": "BUY",
       "confidence": 72,
-      "confidence_band": "High"
+      "confidence_band": "High",
+      "entry_notes": "Breakout above resistance, strong earnings beat."
     }
   ]
 }
@@ -261,24 +262,26 @@ Current positions plus account equity.
 
 Each position is also annotated with its current `signal`/`confidence`/`confidence_band` via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` use (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check, reusing the same per-position market-data fetch `current_price` is derived from. `signal`/`confidence`/`confidence_band` are `null` together on a position whose signal couldn't be computed right now — either its `current_price` fetch already failed (same condition as `current_price`/`unrealized_pnl_pct` above), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so `current_price` is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering (`app.signals.engine.drop_malformed_daily_bars`) — mirroring `WatchlistItemOut`'s null-on-failure pattern rather than failing the whole request or dropping the position (see the `api-portfolio-position-signal` task's `decisions`).
 
+`entry_notes` is the free-text "why did I take this trade" note from Elder ch. 59's Trade Journal Section A (`docs/ideas.md`'s ch. 59 entry) — optional, `null` if none was ever recorded (see `POST /api/portfolio/positions` below).
+
 ### `POST /api/portfolio/positions`
 
 Add or update a position (manual entry / CSV-import row).
 
 Request:
 ```json
-{ "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14" }
+{ "ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14", "entry_notes": "Breakout above resistance, strong earnings beat." }
 ```
 
-Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct`/`signal`/`confidence`/`confidence_band` are always `null` in this response — price/signal enrichment happens on read, not on write.
+`entry_notes` is optional and free-text. Response: `201 Created`, the created/updated position object (same shape as in `GET /api/portfolio`). `current_price`/`unrealized_pnl_pct`/`signal`/`confidence`/`confidence_band` are always `null` in this response — price/signal enrichment happens on read, not on write.
 
-Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale).
+Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale). `entry_notes` merges by **appending**: an incoming note is added to the existing one separated by a blank line rather than overwriting it (so notes from multiple buys into the same position are all preserved); a merge with no incoming note leaves the existing note untouched — see the `backend-trade-journal-entry-notes` task's `decisions`.
 
 ### `DELETE /api/portfolio/positions/{id}`
 
 Removes a position. `204 No Content` on success.
 
-Query params: `exit_reason` (optional, one of `target_hit` | `stop_hit` | `reached_value_zone` | `going_nowhere` | `starting_to_turn` | `couldnt_stand_the_pain` | `recognized_junk_trade_after_entry` | `unspecified` — Elder's own exit-reason taxonomy per Analyse.md §7/ideas.md's ch. 51 note, plus `unspecified` as this app's own default). Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date, realized P&L, exit_reason) for the trade-history/ledger this app previously had no model for at all, priced at today's latest close for this ticker (the same market-data lookup `current_price` uses elsewhere, not a caller-supplied price) — see the `backend-trade-history-table` task's `decisions`. If that price fetch fails, the position is still deleted but no `closed_trades` row is recorded (there's no exit price to compute a realized P&L from).
+Query params: `exit_reason` (optional, one of `target_hit` | `stop_hit` | `reached_value_zone` | `going_nowhere` | `starting_to_turn` | `couldnt_stand_the_pain` | `recognized_junk_trade_after_entry` | `unspecified` — Elder's own exit-reason taxonomy per Analyse.md §7/ideas.md's ch. 51 note, plus `unspecified` as this app's own default). Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date, realized P&L, exit_reason, entry_notes) for the trade-history/ledger this app previously had no model for at all, priced at today's latest close for this ticker (the same market-data lookup `current_price` uses elsewhere, not a caller-supplied price) — see the `backend-trade-history-table` task's `decisions`. `entry_notes` is carried over verbatim from the position's own note. If that price fetch fails, the position is still deleted but no `closed_trades` row is recorded (there's no exit price to compute a realized P&L from).
 
 ### `GET /api/portfolio/risk`
 
@@ -327,13 +330,16 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
       "exit_reason": "target_hit",
       "buy_grade_pct": 97.3,
       "sell_grade_pct": 35.5,
-      "trade_grade_pct": 32.1
+      "trade_grade_pct": 32.1,
+      "entry_notes": "Breakout above resistance, strong earnings beat."
     }
   ]
 }
 ```
 
 The three grade fields are `null` whenever they can't currently be computed — the ticker's daily-history fetch failed, `entry_date`/`exit_date` isn't an exact trading-day row in that history (e.g. it predates the fetched history), or (`trade_grade_pct` only) `entry_date` falls inside the Autoenvelope/channel's own ~100-bar warm-up window (same warm-up `GET /api/stocks/{ticker}/analysis`'s `indicators.channel_upper`/`channel_lower` document) — never a request-level error; the row itself is always present with its recorded price/date/P&L fields intact. See `app.portfolio.grading` for the formulas themselves.
+
+`entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded.
 
 ### `GET /api/watchlist`
 

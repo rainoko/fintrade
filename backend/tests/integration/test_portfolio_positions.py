@@ -377,6 +377,103 @@ class TestAddPosition:
         assert small_merge.status_code == 201
         assert small_merge.json()["quantity"] == pytest.approx(1e308 + 1)
 
+    def test_create_position_with_entry_notes(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "entry_notes": "Breakout above resistance, strong earnings beat.",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] == "Breakout above resistance, strong earnings beat."
+
+    def test_create_position_without_entry_notes_is_null(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 195.30, "entry_date": "2026-05-14"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["entry_notes"] is None
+
+    def test_merge_with_no_incoming_notes_keeps_existing_notes_unchanged(
+        self, client: TestClient
+    ) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "entry_notes": "First buy: strong tide.",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 50, "avg_cost_basis": 130.0, "entry_date": "2026-06-01"},
+        )
+
+        assert second.status_code == 201
+        assert second.json()["entry_notes"] == "First buy: strong tide."
+
+    def test_merge_with_incoming_notes_appends_to_existing_notes(self, client: TestClient) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "entry_notes": "First buy: strong tide.",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "entry_notes": "Added on pullback to value zone.",
+            },
+        )
+
+        assert second.status_code == 201
+        assert (
+            second.json()["entry_notes"]
+            == "First buy: strong tide.\n\nAdded on pullback to value zone."
+        )
+
+    def test_merge_with_incoming_notes_and_no_existing_notes_sets_notes(
+        self, client: TestClient
+    ) -> None:
+        client.post(
+            "/api/portfolio/positions",
+            json={"ticker": "AAPL", "quantity": 100, "avg_cost_basis": 100.0, "entry_date": "2026-05-14"},
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "entry_notes": "Added on pullback to value zone.",
+            },
+        )
+
+        assert second.status_code == 201
+        assert second.json()["entry_notes"] == "Added on pullback to value zone."
+
     def test_whitespace_padded_ticker_is_stripped_and_merges_with_existing(
         self, client: TestClient
     ) -> None:

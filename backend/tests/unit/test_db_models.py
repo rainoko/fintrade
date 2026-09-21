@@ -53,6 +53,24 @@ class TestPositionORM:
         assert fetched.quantity == 100
         assert fetched.avg_cost_basis == 195.30
         assert fetched.entry_date == date(2026, 5, 14)
+        assert fetched.entry_notes is None
+
+    def test_create_and_read_with_entry_notes(self, session: Session) -> None:
+        session.add(
+            PositionORM(
+                id="pos_124",
+                ticker="AAPL",
+                quantity=100,
+                avg_cost_basis=195.30,
+                entry_date=date(2026, 5, 14),
+                entry_notes="Breakout above resistance.",
+            )
+        )
+        session.commit()
+
+        fetched = session.get(PositionORM, "pos_124")
+        assert fetched is not None
+        assert fetched.entry_notes == "Breakout above resistance."
 
     def test_update(self, session: Session) -> None:
         session.add(
@@ -285,6 +303,28 @@ class TestClosedTradeORM:
         assert fetched.exit_date == date(2026, 6, 1)
         assert fetched.realized_pnl == 1470.0
         assert fetched.exit_reason == "target_hit"
+        assert fetched.entry_notes is None
+
+    def test_create_and_read_with_entry_notes(self, session: Session) -> None:
+        session.add(
+            ClosedTradeORM(
+                id="trade_124",
+                ticker="AAPL",
+                quantity=100.0,
+                entry_price=195.30,
+                entry_date=date(2026, 5, 14),
+                exit_price=210.0,
+                exit_date=date(2026, 6, 1),
+                realized_pnl=1470.0,
+                exit_reason="target_hit",
+                entry_notes="Breakout above resistance.",
+            )
+        )
+        session.commit()
+
+        fetched = session.get(ClosedTradeORM, "trade_124")
+        assert fetched is not None
+        assert fetched.entry_notes == "Breakout above resistance."
 
     def test_delete(self, session: Session) -> None:
         session.add(

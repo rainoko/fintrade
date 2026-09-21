@@ -128,6 +128,10 @@ export interface paths {
          *     bases (mirrors how a brokerage averages up/down a position instead of tracking separate
          *     lots) — see the api-portfolio-add-position task's `decisions` for the full rationale and
          *     the rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.
+         *     `entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on
+         *     a merge, an incoming note is appended to the existing one (blank-line separated) rather
+         *     than overwritten, so notes from multiple buys aren't lost -- see the
+         *     backend-trade-journal-entry-notes task's `decisions`.
          *     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
          *     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
          *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -157,11 +161,13 @@ export interface paths {
          *     reducing a position means deleting and re-adding it with the new quantity.
          *
          *     Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
-         *     realized P&L, exit_reason) -- the trade-history/ledger this app previously had no model
-         *     for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month component
-         *     of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading task's
-         *     buy/sell/trade-grade formulas plus a future trade-journal frontend page. `exit_price` is
-         *     today's latest close for this ticker, fetched the same way `current_price` is everywhere
+         *     realized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously
+         *     had no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month
+         *     component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
+         *     task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
+         *     carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
+         *     Section A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`
+         *     is today's latest close for this ticker, fetched the same way `current_price` is everywhere
          *     else in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,
          *     since this app already treats "current market price" as authoritative for mark-to-market
          *     elsewhere rather than trusting a client-supplied number. `realized_pnl` is
@@ -606,6 +612,11 @@ export interface components {
              * Format: date
              */
             entry_date: string;
+            /**
+             * Entry Notes
+             * @description Carried over verbatim from the position's own PositionIn.entry_notes (Elder ch. 59 Trade Journal Section A) at the moment it was closed -- null if the position never had a note recorded.
+             */
+            entry_notes?: string | null;
             /** Entry Price */
             entry_price: number;
             /**
@@ -1184,6 +1195,11 @@ export interface components {
              */
             entry_date: string;
             /**
+             * Entry Notes
+             * @description Optional free-text note on why this trade was taken (Elder ch. 59 Trade Journal Section A, docs/ideas.md's ch. 59 entry), e.g. 'Breakout above resistance, strong earnings beat.' On merge with an existing position for the same ticker, an incoming note is appended to the existing one (blank-line separated) rather than overwriting it, so notes from multiple buys into the same position are all kept -- see the backend-trade-journal-entry-notes task's `decisions`. Carried through unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position is later closed.
+             */
+            entry_notes?: string | null;
+            /**
              * Quantity
              * @description Number of shares being added. Must be a positive, finite number (Infinity/NaN are rejected) — this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.
              */
@@ -1218,6 +1234,11 @@ export interface components {
              * Format: date
              */
             entry_date: string;
+            /**
+             * Entry Notes
+             * @description The free-text 'why did I take this trade' note supplied via PositionIn.entry_notes when this position was opened (Elder ch. 59 Trade Journal Section A) -- null if none was ever given.
+             */
+            entry_notes?: string | null;
             /** Id */
             id: string;
             /** Quantity */

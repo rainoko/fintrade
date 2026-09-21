@@ -1,0 +1,56 @@
+{
+  "id": "backend-trade-journal-entry-notes",
+  "title": "Free-text 'why did I take this trade' entry notes",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
+  ],
+  "description": "Ch. 59 Section A of Elder's Trade Journal asks why the trader decided to take this trade -- a free-text note at entry time. No field for this exists anywhere in this app today (PositionIn has no notes field).",
+  "checklist": [
+    { "step": "Add a nullable free-text `entry_notes` field to PositionIn/PositionOut/PositionORM.", "done": true },
+    { "step": "Carry `entry_notes` through to ClosedTradeORM/ClosedTradeOut when a position closes.", "done": true },
+    { "step": "Unit/integration tests for a position created with and without notes, and that notes carry through correctly to the closed trade row on close.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-20T23:56:31Z",
+      "recorded_by": "task-worker",
+      "decision": "On POST /api/portfolio/positions merging into an existing same-ticker position, an incoming `entry_notes` is appended to the existing note (joined by a blank line, `\\n\\n`) rather than overwriting it or being silently dropped. A merge with no incoming note leaves the existing note untouched.",
+      "rationale": "Elder's Section A note captures 'why did I take this trade' at entry time; when a second buy merges into the same position, both original reasons are still relevant and neither should be lost. Overwrite would silently discard the first buy's rationale; ignoring the new note on merge would silently discard the second. Appending (mirroring the plain-text, human-readable nature of this field, unlike the numeric quantity/avg_cost_basis merge which needs one blended number) preserves both without inventing a structured multi-note schema this MVP doesn't otherwise need."
+    },
+    {
+      "timestamp": "2026-09-20T23:56:31Z",
+      "recorded_by": "task-worker",
+      "decision": "`entry_notes` is carried on `app.portfolio.pricing.EnrichedPosition` as its own field (populated from `PositionORM.entry_notes` in `enrich_positions_with_price`) rather than being added to the shared `app.portfolio.models.Position` domain model that `EnrichedPosition.position` wraps.",
+      "rationale": "`Position` is reused by `app.portfolio.risk`/`app.portfolio.exits`, which have no use for a free-text note, and its serialization shape is pinned exactly to the `GET /api/portfolio` JSON example in `docs/architecture/API.md` via `tests/unit/test_portfolio_models.py`'s byte-for-byte round-trip test. Adding an unused field there would mean either updating that pinned example/test for a field two of its three consumers never touch, or accepting drift. Keeping `entry_notes` alongside `daily_ohlcv` on `EnrichedPosition` (which already exists precisely to carry extra per-position context past `Position` itself) avoids both, at the cost of one extra dataclass field GET /api/portfolio's handler reads directly."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-entry-notes",
+    "pr_number": 213,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/213",
+    "pushed_at": "2026-09-20T23:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T00:03:53Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/213",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "entry_notes has no field_validator to strip whitespace or normalize an empty string to null, unlike PositionIn.ticker's own strip-and-reject-blank validator. An explicit entry_notes: \"\" is stored/returned as \"\" rather than null, and a whitespace-only note is truthy so it would still get appended on a merge. Low severity, non-blocking -- filed as backend-trade-journal-entry-notes-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 379
+      }
+    ],
+    "notes": "Full review: pytest --cov=app (949 passed, 99.94% coverage, no regression), ruff/mypy/eslint/tsc all clean, code-review skill (effort=high) found no correctness bugs. Verified the two decisions recorded above actually hold: (1) adding entry_notes to Position would break tests/unit/test_portfolio_models.py's exact-dict equality against the docs/architecture/API.md example (Position has no model_config excluding None fields from model_dump(mode=\"json\")), and app.portfolio.risk/exits both consume Position directly with no use for entry_notes -- placement on EnrichedPosition is correct; (2) the merge-append behavior is tested for all four combinations (no-note create, note+no-incoming keeps existing, note+note appends blank-line-separated with neither note dropped, no-existing+incoming sets it) in tests/integration/test_portfolio_positions.py. backend/openapi.json and frontend/src/api/types.ts regenerated locally and confirmed byte-identical to the committed snapshot. Migration a9adc10fa37c verified as the single head with a correct up/down pair. No UI surface touched (only generated types.ts) -- browser walkthrough and e2e suite genuinely not applicable, explicitly skipped."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T00:08:02Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran pytest --cov=app: 949 passed, 99.94% coverage, matches review claim exactly. Re-verified both flagged points myself: (1) app/portfolio/models.py's Position has no model_config, so model_dump(mode=\"json\") would include a new nullable field as an extra key, breaking tests/unit/test_portfolio_models.py's exact-dict `== API_MD_POSITION_EXAMPLE` assertion -- decision to keep entry_notes on EnrichedPosition instead is sound; (2) read tests/integration/test_portfolio_positions.py lines 380-475 directly and confirmed all four merge combinations are asserted, including the exact blank-line-separated append string ('First buy: strong tide.\\n\\nAdded on pullback to value zone.'). Also skimmed the full diff (backend/app/api/routers/portfolio.py, schemas.py, db/models.py, portfolio/pricing.py, migration a9adc10fa37c, API.md, followups task) -- consistent with recorded decisions, no dropped concerns. Re-ran export_openapi.py locally: byte-identical to committed openapi.json. Pre-existing ruff findings in tests/unit/indicators/* and test_stooq_provider.py/test_triple_screen.py are untouched by this PR's diff, not a regression."
+  }
+}

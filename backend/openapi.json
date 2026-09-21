@@ -198,6 +198,18 @@
             "title": "Entry Date",
             "type": "string"
           },
+          "entry_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carried over verbatim from the position's own PositionIn.entry_notes (Elder ch. 59 Trade Journal Section A) at the moment it was closed -- null if the position never had a note recorded.",
+            "title": "Entry Notes"
+          },
           "entry_price": {
             "title": "Entry Price",
             "type": "number"
@@ -1318,6 +1330,18 @@
             "title": "Entry Date",
             "type": "string"
           },
+          "entry_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free-text note on why this trade was taken (Elder ch. 59 Trade Journal Section A, docs/ideas.md's ch. 59 entry), e.g. 'Breakout above resistance, strong earnings beat.' On merge with an existing position for the same ticker, an incoming note is appended to the existing one (blank-line separated) rather than overwriting it, so notes from multiple buys into the same position are all kept -- see the backend-trade-journal-entry-notes task's `decisions`. Carried through unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position is later closed.",
+            "title": "Entry Notes"
+          },
           "quantity": {
             "description": "Number of shares being added. Must be a positive, finite number (Infinity/NaN are rejected) \u2014 this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.",
             "exclusiveMinimum": 0.0,
@@ -1391,6 +1415,18 @@
             "format": "date",
             "title": "Entry Date",
             "type": "string"
+          },
+          "entry_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The free-text 'why did I take this trade' note supplied via PositionIn.entry_notes when this position was opened (Elder ch. 59 Trade Journal Section A) -- null if none was ever given.",
+            "title": "Entry Notes"
           },
           "id": {
             "title": "Id",
@@ -2103,7 +2139,7 @@
     },
     "/api/portfolio/positions": {
       "post": {
-        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.",
+        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on\na merge, an incoming note is appended to the existing one (blank-line separated) rather\nthan overwritten, so notes from multiple buys aren't lost -- see the\nbackend-trade-journal-entry-notes task's `decisions`.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.",
         "operationId": "add_position",
         "requestBody": {
           "content": {
@@ -2152,7 +2188,7 @@
     },
     "/api/portfolio/positions/{position_id}": {
       "delete": {
-        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason) -- the trade-history/ledger this app previously had no model\nfor at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month component\nof the 6% Rule (docs/Analyse.md \u00a77) and, longer-term, the backend-trade-grading task's\nbuy/sell/trade-grade formulas plus a future trade-journal frontend page. `exit_price` is\ntoday's latest close for this ticker, fetched the same way `current_price` is everywhere\nelse in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,\nsince this app already treats \"current market price\" as authoritative for mark-to-market\nelsewhere rather than trusting a client-supplied number. `realized_pnl` is\n`quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted\nticker, provider unavailable), the position is still deleted -- a data-provider outage\nmust never block removing a position -- but no `closed_trades` row is recorded, since\nthere's no way to compute a realized P&L without an exit price; see the\nbackend-trade-history-table task's `decisions` entry for the full rationale (including why\nthis endpoint doesn't accept a caller-supplied `exit_price` instead).",
+        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously\nhad no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month\ncomponent of the 6% Rule (docs/Analyse.md \u00a77) and, longer-term, the backend-trade-grading\ntask's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is\ncarried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal\nSection A, see POST /api/portfolio/positions) -- null if none was ever recorded. `exit_price`\nis today's latest close for this ticker, fetched the same way `current_price` is everywhere\nelse in this router (`app.portfolio.pricing.latest_close`) -- not a caller-supplied price,\nsince this app already treats \"current market price\" as authoritative for mark-to-market\nelsewhere rather than trusting a client-supplied number. `realized_pnl` is\n`quantity * (exit_price - avg_cost_basis)`. If that price fetch fails (unknown/delisted\nticker, provider unavailable), the position is still deleted -- a data-provider outage\nmust never block removing a position -- but no `closed_trades` row is recorded, since\nthere's no way to compute a realized P&L without an exit price; see the\nbackend-trade-history-table task's `decisions` entry for the full rationale (including why\nthis endpoint doesn't accept a caller-supplied `exit_price` instead).",
         "operationId": "delete_position",
         "parameters": [
           {

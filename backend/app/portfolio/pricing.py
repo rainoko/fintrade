@@ -33,6 +33,13 @@ class EnrichedPosition:
 
     position: Position
     daily_ohlcv: pd.DataFrame | None
+    entry_notes: str | None = None
+    """`PositionORM.entry_notes` verbatim, carried alongside `position` rather than added onto
+    the domain `Position` model itself -- `Position` is shared with `app.portfolio.risk`/
+    `app.portfolio.exits`, which have no use for a free-text note, and `Position`'s own
+    serialization is pinned to the exact docs/architecture/API.md `GET /api/portfolio` example
+    in tests/unit/test_portfolio_models.py -- see the backend-trade-journal-entry-notes task's
+    `decisions` entry."""
 
 
 def enrich_positions_with_price(
@@ -67,6 +74,7 @@ def enrich_positions_with_price(
                     unrealized_pnl_pct=unrealized_pnl_pct,
                 ),
                 daily_ohlcv=daily_ohlcv,
+                entry_notes=row.entry_notes,
             )
         )
     return enriched

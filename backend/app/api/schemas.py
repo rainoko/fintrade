@@ -357,6 +357,12 @@ class PositionOut(BaseModel):
         default=None,
         description="Low <40, Medium 40-70, High >70. Null under the same condition as `signal`.",
     )
+    entry_notes: str | None = Field(
+        default=None,
+        description="The free-text 'why did I take this trade' note supplied via "
+        "PositionIn.entry_notes when this position was opened (Elder ch. 59 Trade Journal "
+        "Section A) -- null if none was ever given.",
+    )
 
 
 class PortfolioResponse(BaseModel):
@@ -369,6 +375,17 @@ class PositionIn(BaseModel):
     quantity: float = Field(gt=0, allow_inf_nan=False, description="Number of shares being added. Must be a positive, finite number (Infinity/NaN are rejected) — this endpoint only adds to a position; use DELETE /api/portfolio/positions/{id} to remove one.")
     avg_cost_basis: float = Field(gt=0, allow_inf_nan=False, description="Price paid per share for this lot. On merge with an existing position, this is blended into a quantity-weighted average, not overwritten. Must be a positive, finite number (Infinity/NaN are rejected).")
     entry_date: date = Field(description="Date this lot was purchased. On merge with an existing position, the earlier of the two entry dates is kept.")
+    entry_notes: str | None = Field(
+        default=None,
+        description="Optional free-text note on why this trade was taken (Elder ch. 59 Trade "
+        "Journal Section A, docs/ideas.md's ch. 59 entry), e.g. 'Breakout above resistance, "
+        "strong earnings beat.' On merge with an existing position for the same ticker, an "
+        "incoming note is appended to the existing one (blank-line separated) rather than "
+        "overwriting it, so notes from multiple buys into the same position are all kept -- "
+        "see the backend-trade-journal-entry-notes task's `decisions`. Carried through "
+        "unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position is "
+        "later closed.",
+    )
 
     @field_validator("ticker")
     @classmethod
@@ -563,6 +580,12 @@ class ClosedTradeOut(BaseModel):
         "an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't "
         "available -- the ticker's fetched daily history doesn't reach back to entry_date, "
         "or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
+    )
+    entry_notes: str | None = Field(
+        default=None,
+        description="Carried over verbatim from the position's own PositionIn.entry_notes "
+        "(Elder ch. 59 Trade Journal Section A) at the moment it was closed -- null if the "
+        "position never had a note recorded.",
     )
 
 

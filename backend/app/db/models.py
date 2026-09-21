@@ -16,6 +16,13 @@ class PositionORM(Base):
     quantity: Mapped[float] = mapped_column(Float)
     avg_cost_basis: Mapped[float] = mapped_column(Float)
     entry_date: Mapped[date] = mapped_column(Date)
+    entry_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Free-text "why did I take this trade" note (Elder ch. 59 Trade Journal Section A,
+    docs/ideas.md's ch. 59 entry) -- optional, set at POST /api/portfolio/positions time.
+    Carried over onto the corresponding `ClosedTradeORM.entry_notes` row when the position
+    closes (`DELETE /api/portfolio/positions/{id}`) -- see the backend-trade-journal-entry-
+    notes task's `decisions` entry for how a merge with an existing position (same ticker)
+    combines an incoming note with an existing one rather than silently overwriting it."""
 
 
 class AccountORM(Base):
@@ -73,6 +80,10 @@ class ClosedTradeORM(Base):
     exit_date: Mapped[date] = mapped_column(Date, index=True)
     realized_pnl: Mapped[float] = mapped_column(Float)
     exit_reason: Mapped[str] = mapped_column(String)
+    entry_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Carried over verbatim from `PositionORM.entry_notes` (see its own docstring) at the
+    moment the position closes -- null if the position never had a note recorded, matching
+    `PositionORM.entry_notes`'s own optionality rather than inventing a placeholder string."""
 
 
 class OHLCVCacheORM(Base):

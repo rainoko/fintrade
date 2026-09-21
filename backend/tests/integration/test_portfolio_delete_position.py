@@ -221,6 +221,34 @@ class TestDeletePositionRecordsClosedTrade:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_data_provider, None)
 
+    def test_carries_entry_notes_through_to_the_closed_trade_row(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(
+            client,
+            ticker="AAPL",
+            quantity=100,
+            avg_cost_basis=195.30,
+            entry_notes="Breakout above resistance, strong earnings beat.",
+        )
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.entry_notes == "Breakout above resistance, strong earnings beat."
+
+    def test_closed_trade_entry_notes_is_null_when_position_had_none(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        created = _add_position(client, ticker="AAPL", quantity=100, avg_cost_basis=195.30)
+
+        response = client.delete(f"/api/portfolio/positions/{created['id']}")
+        assert response.status_code == 204
+
+        [trade] = db_session.query(ClosedTradeORM).all()
+        assert trade.entry_notes is None
+
     def test_deleting_two_positions_records_two_independent_closed_trades(
         self, client: TestClient, db_session: Session
     ) -> None:
