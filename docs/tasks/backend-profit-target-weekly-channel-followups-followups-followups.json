@@ -1,0 +1,30 @@
+{
+  "id": "backend-profit-target-weekly-channel-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups-followups PR #226 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-profit-target-weekly-channel-followups-followups"],
+  "references": [
+    "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/226",
+    "scripts/check_profit_target_wording.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #226 (backend-profit-target-weekly-channel-followups-followups, hardening check_profit_target_wording.py's 6 robustness gaps). All 6 fixes in PR #226 were verified as genuinely working (direct pre-fix-vs-post-fix repro for the implicit-string-concatenation join, the plural-weeks regex, the hyphenated profit-target context regex, and the end-anchor symmetry fix; a real before/after file-set diff on the actual repo tree -- 217 files, byte-for-byte identical sorted paths -- for the rglob->os.walk refactor; ruff confirming the named SIM103 finding is gone), so none of these are correctness bugs in the fixes themselves -- just small residual gaps worth tracking so they aren't lost once PR #226 merges.",
+  "checklist": [
+    {
+      "step": "When check_banned_patterns() catches a violation via the new implicit-string-concatenation join (_join_implicit_string_concatenation), the printed 'found' text excerpt for that line has its boundary quote character stripped -- an artifact of the join step only removing quote characters, not newlines. E.g. a violation on a schemas.py-style split description prints `\"Current price + 30% of today's` without its trailing `\"`. The line number is still correct and the phrase is still identifiable, but the printed excerpt no longer exactly matches the original source line, which could confuse a maintainer eyeballing the message against the file. Worth reporting the original (pre-join) line text for the excerpt while still using the joined text's positions for matching/line-number computation.",
+      "done": false
+    },
+    {
+      "step": "_STRING_CONCAT_JOIN_RE (`([\\\"'])(\\s*\\n\\s*)\\1`) only recognizes implicit string concatenation between two literals using the *same* quote character (the backreference `\\1` requires an exact match). Python also permits mixed-quote-style concatenation (e.g. `\"foo\" 'bar'`), which this join won't catch -- not exercised by the current codebase's actual Field-description wrapping style (schemas.py is consistently double-quoted), so no live false-negative today, but the module's own doc comment claim of 'recognizing Python's own implicit-string-concatenation syntax' is slightly broader than what's implemented. Worth broadening the join regex to accept either quote character on each side independently (not tied by backreference) if this is meant to be a general-purpose join rather than narrowly scoped to the observed schemas.py style.",
+      "done": false
+    },
+    {
+      "step": "`ruff check` still reports one finding on scripts/check_profit_target_wording.py: `_is_excluded_path`'s SIM110 (a `for`/`if`/`return True` loop that could be `return any(path == excluded or excluded in path.parents for excluded in _EXCLUDED_PATHS)`). This finding pre-dates PR #226 (present on `main` before that PR too) and is not part of the enforced `ruff check app/` gate, so it's non-blocking either way -- but PR #226's own checklist item 6 rationale for fixing the sibling SIM103 finding was explicitly 'worth tidying up to match' scripts/validate_tasks.py's fully ruff-clean state, and that parity still isn't fully achieved with this SIM110 finding left in place. Worth fixing for the same consistency reason.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

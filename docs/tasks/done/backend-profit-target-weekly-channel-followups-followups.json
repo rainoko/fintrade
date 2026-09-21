@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups PR #223 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-profit-target-weekly-channel-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups.json",
@@ -63,5 +63,28 @@
     "pr_number": 226,
     "pr_url": "https://github.com/rainoko/fintrade/pull/226",
     "pushed_at": "2026-09-21T08:11:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T08:20:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/226",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "A banned-phrase violation caught via the new implicit-string-concatenation join has its printed 'found' text excerpt missing a boundary quote character (an artifact of the join removing quote chars but not newlines) -- cosmetic diagnostic-clarity nit only; line number is still correct.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 218
+      },
+      {
+        "summary": "_STRING_CONCAT_JOIN_RE only recognizes implicit concatenation between two literals using the same quote character (backreference-tied); Python also permits mixed-quote-style concatenation, which this join won't catch. Not exercised by the current codebase's wrapping style, so no live gap today.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 201
+      },
+      {
+        "summary": "ruff still reports SIM110 on _is_excluded_path (pre-existing, not introduced by this PR). Checklist item 6 aimed for parity with validate_tasks.py's fully ruff-clean state but that parity isn't fully achieved yet.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 157
+      }
+    ],
+    "notes": "All 6 claimed fixes verified directly: (1) implicit-string-concatenation split now caught (pre-fix vs post-fix repro, main's _iter_scanned_files/check_banned_patterns confirmed to miss it), (2) plural 'weeks' now matches _WEEKLY_RE (pre-fix None, post-fix matches), (3) os.walk directory-pruning refactor confirmed behavior-preserving by running both the pre-fix rglob-based and post-fix os.walk-based _iter_scanned_files() against the real repo tree in-process and diffing the resulting sorted file lists -- 217 files, byte-for-byte identical, not just the PR's own claim taken on faith, (4) hyphenated 'profit-target' now matches _PROFIT_TARGET_CONTEXT_RE (pre-fix None, post-fix matches), (5) failed end_anchor now emits a symmetric violation while still scanning the fallback region (verified via direct _extract_region call returning the new 3-tuple, and via the PR's own new regression test), (6) the named SIM103 finding is gone per ruff (a separate pre-existing SIM110 remains, tracked as a follow-up, not part of this checklist item's claim). scripts/tests/test_check_profit_target_wording.py: 46/46 passed via `python3 -m unittest discover -s scripts/tests`. Backend: pytest --cov=app --cov-fail-under=90 -> 1109 passed, 99.95% coverage. Frontend: vitest run --coverage -> 704 tests passed, 99%+ across all metrics. ruff check app/ and mypy (backend) clean; yarn lint and yarn tsc -b --noEmit (frontend) clean. The real check_profit_target_wording.py run against the repo itself: 'Scanned 217 file(s) ... no stale daily-channel wording found.' Not UI-facing (scripts/ + docs/tasks/ only) so browser walkthrough/e2e suite skipped explicitly. area is backend/signals (inherited) but this diff touches no app/signals or app/portfolio code, so the Elder-methodology checklist doesn't apply. No API/schema changes, so no OpenAPI snapshot concern. All judgment calls in this PR are recorded in decisions[] per CLAUDE.md. Three non-blocking findings filed as checklist items on new follow-up task backend-profit-target-weekly-channel-followups-followups-followups (none existed yet for this task id)."
   }
 }
