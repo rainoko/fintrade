@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-open-position PR #224 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-profit-target-open-position"],
   "references": [
     "docs/tasks/backend-profit-target-open-position.json",
@@ -53,5 +53,12 @@
     "pr_number": 225,
     "pr_url": "https://github.com/rainoko/fintrade/pull/225",
     "pushed_at": "2026-09-21T07:49:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T07:54:52Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/225",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure documentation/comment/schema-description change addressing PR #224's three non-blocking follow-ups -- no functional code path touched. Verified: (1) the 'document, don't cache' judgment call for the uncached per-request support/resistance + weekly-channel cost is proportionate for a currently-inert, speculative finding, and get_risk's new docstring paragraph accurately describes the trade-off (checked its claims -- stops/daily_by_id/weekly_by_id precomputed+reused vs. detect_support_resistance_zones/suggest_profit_target called fresh per position -- directly against backend/app/api/routers/portfolio.py, and its CachedDataProvider (ticker, interval)-keyed reference against backend/app/data/cache.py); (2) docs/architecture/Backend.md's reworded file-tree comment matches docs/Analyse.md §7 and profit_target.py's own module docstring, no new staleness introduced; (3) ProfitTargetOut.distance_to_target's hedged description mirrors distance_to_stop's existing pattern exactly (checked side by side in backend/app/api/schemas.py lines 265-266) and matches suggest_profit_target's own documented degenerate-zero-case derivation verbatim. Tests: backend pytest 1109 passed, 99.95% coverage, ruff+mypy clean; frontend vitest 704 passed (71 files), coverage >99% on all four metrics, eslint+tsc clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. backend/openapi.json and frontend/src/api/types.ts regenerated and committed, diff confined to the intended description strings. No UI surface -- browser walkthrough and e2e suite explicitly skipped as inapplicable. All three checklist items have a corresponding decisions entry with real rationale. No blocking or non-blocking findings; no follow-up task filed."
   }
 }

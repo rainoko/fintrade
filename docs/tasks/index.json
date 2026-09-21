@@ -1489,8 +1489,8 @@
       "id": "backend-profit-target-open-position-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-profit-target-open-position-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target-open-position-followups.json"
     },
     {
       "id": "backend-ibkr-status-endpoint",
