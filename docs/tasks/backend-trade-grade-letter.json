@@ -18,6 +18,12 @@
     { "step": "Unit tests covering values at and around each threshold boundary, including the two book-given anchor values themselves (10% and 30%).", "done": true },
     { "step": "Expose the letter grade(s) on ClosedTradeOut; regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
   ],
+  "git": {
+    "branch": "task/backend-trade-grade-letter",
+    "pr_number": 219,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/219",
+    "pushed_at": "2026-09-21T03:15:30Z"
+  },
   "decisions": [
     {
       "timestamp": "2026-09-21T00:00:00Z",
