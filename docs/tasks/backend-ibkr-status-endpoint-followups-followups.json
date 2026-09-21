@@ -23,5 +23,11 @@
       "decision": "Corrected the placeholder timestamp `2026-09-21T00:00:00Z` on docs/tasks/done/backend-ibkr-status-endpoint-followups.json's `decisions` entry to `2026-09-21T20:24:02Z`, derived from `git log -1 --format='%H %aI %cI' a9fb6cb` (both authored and committer timestamps agree), which is the commit that introduced this decision text (confirmed via `git show --stat a9fb6cb`, which touches exactly docs/tasks/backend-ibkr-status-endpoint-followups.json among the task-board files, along with the schema/openapi/API.md fix it accompanied).",
       "rationale": "Followed the same approach PR #233 (backend-indicator-history-performance-followups-followups) already established for this exact defect pattern: derive the real timestamp from the git commit that actually recorded the decision, rather than guessing or substituting the current wall-clock time (which would misrepresent when the decision was actually made). Unlike the PR #233 case, this repo's history was not squashed between the decision-recording commit and now, so the commit's own timestamp is directly available with no need to fall back to a squash-merge commit's timestamp."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint-followups-followups",
+    "pr_number": 235,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/235",
+    "pushed_at": "2026-09-21T20:38:48Z"
+  }
 }
