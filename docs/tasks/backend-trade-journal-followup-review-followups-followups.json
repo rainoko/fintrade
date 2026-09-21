@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #227 review (backend-trade-journal-followup-review-followups)",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-trade-journal-followup-review-followups"],
   "references": [
     "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "backend-trade-journal-followup-review-followups.json's decisions entry (and PR #227's description) state ClosedTradeOut has grown to '18 fields' -- an AST count of app/api/schemas.py's ClosedTradeOut and a manual field-by-field read of the extracted _to_closed_trade_out helper both show exactly 17 fields (id, ticker, quantity, entry_price, entry_date, exit_price, exit_date, realized_pnl, exit_reason, buy_grade_pct, sell_grade_pct, trade_grade_pct, trade_letter_grade, entry_notes, strategy, follow_up_notes, follow_up_reviewed_at). The helper itself is complete and correct (it covers the real, full field set), so this doesn't affect behavior -- it's purely the decision record's/PR description's stated count that's off by one. Worth correcting the decision entry's wording (or at least noting the discrepancy) so a future reader trying to reconstruct 'which fields were added when' from the decision record isn't misled by the wrong count.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Re-verified the field count of ClosedTradeOut (backend/app/api/schemas.py) via ast.walk over its AnnAssign class body: exactly 17 fields (id, ticker, quantity, entry_price, entry_date, exit_price, exit_date, realized_pnl, exit_reason, buy_grade_pct, sell_grade_pct, trade_grade_pct, trade_letter_grade, entry_notes, strategy, follow_up_notes, follow_up_reviewed_at), confirming the checklist item's claim. Corrected the stale '18 fields'/'18-field shape' wording to '17 fields'/'17-field shape' in docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry (and adjusted the accompanying 'net +2' arithmetic to 'net +1' so the corrected sentence stays internally consistent, plus appended an explicit correction note there dated and attributed to this task), and edited PR #227's own description on GitHub (still editable post-merge) to say 17 fields instead of 18, with an inline note explaining the correction. Left the review.comments and pr_decision.notes entries in the done task file untouched, since those already correctly report 17 as the actual count -- they're quoting the original claim as the finding being reported, not repeating it as fact.",
+      "rationale": "The task description says this is purely a documentation/decision-record correction, not a code change, so no source file (schemas.py, portfolio.py) needed editing -- only the two places (a task file's decisions entry and PR #227's description) that stated the wrong count. Editing the merged PR's description rather than leaving it stale was chosen over posting a new PR comment because 'wherever it appears' plus the checklist step's own phrasing ('PR #227's description') calls it out by name as one of the two things to fix, and GitHub allows editing a merged PR's body. Chose to also fix the 'net +2' arithmetic alongside the headline number rather than leave a self-contradicting 16->17 (+2) statement next to the corrected count, since leaving it inconsistent would defeat the stated purpose of not misleading a future reader."
     }
   ]
 }
