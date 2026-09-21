@@ -1552,7 +1552,7 @@
       "id": "backend-close-position-manual-exit",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-close-position-manual-exit.json"
     },
     {

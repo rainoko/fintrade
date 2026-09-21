@@ -3,7 +3,7 @@
   "title": "Optional manual exit price/date override for closing a position",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/portfolio.py",
@@ -25,5 +25,11 @@
       "decision": "Added optional `exit_price`/`exit_date` query params to DELETE /api/portfolio/positions/{id}, required together (both or neither, 422 if only one is given). When neither is supplied, behavior is byte-for-byte unchanged from backend-trade-history-table's original design: `exit_price` still comes from `app.portfolio.pricing.latest_close` and `exit_date` is still today. When both are supplied, they're used verbatim as the closed_trades row's exit_price/exit_date instead of the live-price lookup, after validating exit_price is positive/finite (schema-level `gt=0, allow_inf_nan=False`, mirroring PositionIn.avg_cost_basis/quantity) and exit_date is not before the position's entry_date.",
       "rationale": "This explicitly revisits backend-trade-history-table's decision to price exit_price exclusively from `latest_close` and never accept a caller-supplied number ('this app already treats current market price as authoritative... not trusting a client-supplied number'). That rationale still holds for the case it was written for -- closing a position you're selling *right now*, where the live market close genuinely is the only correct/authoritative price and a client-supplied number would just be a way to fudge realized P&L on a real-time close. It doesn't hold for backfilling a trade that already happened in the past: today's live market close is not just an unverified alternative to the true historical fill price there, it is actively the *wrong* number for a sale that happened days or weeks ago, so 'trust the market data provider instead of the client' stops being the safer choice in that case -- there's no live price to defer to that reflects a closed-in-the-past trade. The app already has clear precedent for trusting a client-supplied historical price/date in exactly this situation: `POST /api/portfolio/positions` (`PositionIn.avg_cost_basis`/`entry_date`) has never sourced the buy side from a data provider at all, precisely because add_position's own docstring says it's for 'manual entry / CSV-import data' -- a historical sell needs the identical trust model, not a stricter one, or CSV-imported trade history could never be represented as closed at all. The prior decision's own concrete failure mode this revisit fixes: an already-closed real trade being force-priced at today's unrelated live close would silently poison `realized_losses_this_month_pct`/the 6% Rule with a fabricated P&L number, which is a materially worse outcome than trusting the caller for a value that's inherently historical, not live. Kept as an *additive* opt-in override rather than a default-path change specifically to preserve the original rationale intact for the common case: no existing caller's behavior changes, and the 'authoritative market price for a live close' guarantee still holds whenever the override isn't explicitly invoked. Considered and rejected: (1) accepting only `exit_price` without also requiring `exit_date` -- an imported historical trade needs both together to be meaningful (a caller-supplied price with today's date would misattribute which calendar month's realized losses it counts toward for the 6% Rule); (2) validating `exit_date` isn't in the future -- out of scope for this task's stated validation list (exit_date-not-before-entry_date, exit_price positive/finite) and arguably legitimate for a same-day-but-different-timezone edge case, left for a future task if it proves to matter; (3) putting the override behind a separate endpoint/verb instead of query params on the same DELETE -- rejected as needless API surface for what's fundamentally the same 'close this position' operation with one extra optional input, consistent with how `exit_reason` was already added as a query param on this same endpoint rather than a new route."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-close-position-manual-exit",
+    "pr_number": 215,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/215",
+    "pushed_at": "2026-09-21T00:59:41Z"
+  }
 }
