@@ -1,0 +1,25 @@
+{
+  "id": "backend-trailing-profit-stop-followups",
+  "title": "Non-blocking follow-ups from backend-trailing-profit-stop review (PR #240)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trailing-profit-stop"],
+  "references": [
+    "docs/tasks/backend-trailing-profit-stop.json",
+    "https://github.com/rainoko/fintrade/pull/240",
+    "backend/app/portfolio/risk.py"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #240 (backend-trailing-profit-stop), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges. The review's blocking findings (a ratchet-invariant break across a same-ticker position merge, and stale frontend test fixtures/mocks breaking `yarn build`'s `tsc -b` step) went back to the parent task itself as `needs_work`, not here.",
+  "checklist": [
+    {
+      "step": "Vectorize `ratchet_trailing_profit_stop`'s per-call fold: the manual Python `for` loop over `since_entry[\"close\"]` (calling `trailing_profit_stop` and re-deriving `threshold_profit` on every iteration) is mathematically equivalent to a single vectorized pandas computation -- e.g. `profit = since_entry[\"close\"] - entry_price`, mask by `profit >= threshold_profit`, `candidate = entry_price + fraction * (profit - threshold_profit)`, then `.where(mask).cummax()` and take the last value (or `safezone_stop` if nothing ever qualified). Cheap at today's data sizes but pays an O(N) Python-level loop plus a full `trailing_profit_stop` call per row per position per `GET /api/portfolio/risk` poll, for no behavioral benefit over the vectorized form.",
+      "done": false
+    },
+    {
+      "step": "Reconsider `trailing_stop`'s 'detection + exposure only' scope (documented in docs/Analyse.md and this task's own decisions): it is not wired into `evaluate_exit_flags`/the SELL-trigger logic the way `protective_stop` is, so a close below it currently has no actionable consequence anywhere in the app -- unlike protective_stop, whose own doc explicitly says a close below it is itself a SELL trigger. Worth a deliberate decision (not just an implicit non-decision) on whether/how Elder ch. 54's trailing stop should eventually gate an exit the same way, now that the field exists and is live in the API.",
+      "done": false
+    }
+  ],
+  "decisions": []
+}

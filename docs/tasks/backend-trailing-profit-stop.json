@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -45,5 +45,33 @@
     "pr_number": 240,
     "pr_url": "https://github.com/rainoko/fintrade/pull/240",
     "pushed_at": "2026-09-21T22:35:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T22:32:00Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/240",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: `ratchet_trailing_profit_stop` recomputes `entry_price`/`threshold_profit` from the position's *current* `avg_cost_basis` on every call. `POST /api/portfolio/positions`'s same-ticker merge can raise `avg_cost_basis` (a quantity-weighted average), which invalidates previously-qualifying historical closes and makes `trailing_stop` DECREASE across successive `GET /api/portfolio/risk` calls -- directly violating the 'hard ratchet, guaranteed never lower' contract this function's own docstring, `RiskPosition.trailing_stop`'s schema description, docs/Analyse.md, docs/architecture/API.md, and this task's own `decisions` entry all assert. Empirically confirmed: a position entered at $100, ratcheted to trailing_stop=101.667 after a rally to $115 (safezone_stop=95), reports trailing_stop=95.0 (a decrease) after merging in more shares at $200 (new avg_cost_basis=150) with no further price change. Ironically, this is one of the exact scenarios (`avg_cost_basis` changing via the same-ticker merge) the task's own `decisions` entry cites as a reason the STATELESS approach was chosen over a persisted column -- but the stateless recompute has the identical defect, just via a different mechanism (recomputing the threshold from a new cost basis instead of a stale persisted value). None of the 70 existing unit/integration tests exercise `avg_cost_basis` changing between calls, so this gap is unguarded by the test suite as it stands.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 313
+      },
+      {
+        "summary": "Blocking: `RiskPosition.trailing_stop` was added to the OpenAPI schema/regenerated `frontend/src/api/types.ts` as a non-nullable, required field, but no existing frontend test fixture or mock constructing a `RiskPosition`/`RiskResponse` object was updated to include it. `yarn tsc -b --noEmit` fails with 18 TS2741 ('Property trailing_stop is missing') errors across `RiskPanel.test.tsx`, `RiskSummaryCard.test.tsx`, `SellFlaggedPositionsCard.test.tsx`, and `tests/mocks/handlers.ts`. Since `frontend/package.json`'s `build` script is `tsc -b && vite build`, this PR as-is breaks the frontend production build entirely -- confirmed against a clean `main` baseline (0 tsc errors before this change, 18 after). `vitest`/coverage don't catch this since they transpile without type-checking, which is exactly why `static-verify`'s separate `tsc -b` step exists.",
+        "file": "frontend/src/api/types.ts",
+        "line": 1944
+      },
+      {
+        "summary": "Non-blocking: `ratchet_trailing_profit_stop`'s per-call fold is a manual Python loop over every close since entry (re-deriving `threshold_profit` and calling `trailing_profit_stop` per row) where a vectorized pandas computation (mask by profit >= threshold, then `.where(mask).cummax()`) would produce the identical result more simply and efficiently. Filed as a followup checklist item, not blocking.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 320
+      },
+      {
+        "summary": "Non-blocking: `trailing_stop` is 'detection + exposure only' (not wired into `evaluate_exit_flags`) by explicit, documented design choice -- so a close below it currently has no actionable consequence anywhere in the app, unlike `protective_stop` (whose docstring states a close below it is itself a SELL trigger). Worth a deliberate future decision on whether/how this should eventually gate an exit. Filed as a followup checklist item, not blocking.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 197
+      }
+    ],
+    "notes": "Backend logic for the core pullback/ratchet scenario this review was asked to focus on is genuinely correct and well-tested: traced `ratchet_trailing_profit_stop`'s fold manually and confirmed it re-derives the running max over ALL qualifying historical closes on every call (not just the latest), so a same-call pullback cannot lower the reported value -- the existing `test_never_decreases_across_a_sequence_of_calls`, `test_extending_history_with_more_calls_never_lowers_the_result`, and the integration-level `test_never_decreases_across_successive_requests_even_as_price_pulls_back` all pass and genuinely exercise this. The no-discontinuity-at-threshold claim (profit exactly at trigger == breakeven) is correct and tested. `protective_stop` is untouched (diff to risk.py is pure addition, zero removed lines). The breakeven-trigger/profit-fraction decision is properly recorded with rationale. However, the ratchet DOES break under a same-ticker position merge that raises avg_cost_basis (see comment above) -- a scenario the task's own alternatives-considered analysis raised but didn't realize also defeats the chosen approach -- and the frontend build is broken by the new required field with no updated fixtures. Backend coverage 99.95%, frontend coverage 99.7%+, both suites fully passing; ruff/mypy clean; the profit-target stale-wording guard is clean; openapi.json regeneration is byte-for-byte current. Full e2e suite (`make e2e`, 18/18 specs) passes against the built stack, including the risk-panel and no-console-errors specs, and this was cross-checked against the network log -- the new field doesn't break anything at runtime (only at the `tsc`/`yarn build` layer). No Playwright MCP browser tool was available in this session; the e2e run plus its network-request log was used as the closest equivalent evidence for the browser-walkthrough step."
   }
 }
