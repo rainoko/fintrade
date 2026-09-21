@@ -24,6 +24,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.indicators.autoenvelope import autoenvelope
 from app.main import app
 
 # The all-null/empty ExtendedData every `_StubProvider` ticker gets unless a test explicitly
@@ -131,6 +132,28 @@ def _buy_weekly_ohlcv() -> pd.DataFrame:
             "volume": 1_000_000,
         },
         index=pd.date_range("2025-01-01", periods=40, freq="W", name="date"),
+    )
+
+
+def _buy_weekly_ohlcv_mild_growth(weeks: int) -> pd.DataFrame:
+    # `weeks` weeks of steady 0.5%/week compounding growth -- unlike `_buy_weekly_ohlcv`'s own
+    # faster 5%/week growth (which would compound to an unrealistically huge, hard-to-reason-
+    # about channel over 100+ weeks), this stays at a modest scale while still compounding
+    # (rather than a pure linear ramp) so the weekly MACD-Histogram keeps rising bar-over-bar at
+    # the latest bar -- a genuine BULLISH tide, not just a rising EMA(13) -- all the way out to
+    # `weeks` bars. Used by TestProfitTarget to clear the WEEKLY Autoenvelope channel's own
+    # ~100-week warm-up window (see this module's own `_buy_weekly_ohlcv` for the shorter,
+    # faster-growth fixture every other BUY-signal test in this file uses instead).
+    weekly_closes = [100 * (1.005**i) for i in range(weeks)]
+    return pd.DataFrame(
+        {
+            "open": weekly_closes,
+            "high": [c * 1.01 for c in weekly_closes],
+            "low": [c * 0.99 for c in weekly_closes],
+            "close": weekly_closes,
+            "volume": 1_000_000,
+        },
+        index=pd.date_range("2020-01-01", periods=weeks, freq="W", name="date"),
     )
 
 
@@ -916,17 +939,32 @@ class TestProfitTarget:
     .suggest_profit_target -> _profit_target_to_schema -> AnalysisResponse.profit_target) --
     the target-selection algorithm itself is exhaustively unit-tested against hand-derived
     values in tests/unit/test_portfolio_profit_target.py; these tests only need to prove this
-    route actually calls it (BUY-only) and serializes the result correctly."""
+    route actually calls it (BUY-only) and serializes the result correctly.
+
+    The channel candidate is sourced from `weekly_ohlcv`, not `daily_ohlcv` -- Elder ch. 39
+    p.161's "the value zone on a weekly chart presents a good target" (see
+    `app.portfolio.profit_target`'s own module docstring and the
+    backend-profit-target-weekly-channel task's `decisions` entry). So
+    `body["indicators"]["channel_upper"/"channel_lower"]` (the DAILY Autoenvelope pass, used
+    for the price-chart overlay) is a fully independent number from what feeds
+    `profit_target` here -- the expected target below is derived from a fresh
+    `app.indicators.autoenvelope.autoenvelope` call over the *weekly* fixture's own close
+    series instead, the same already-independently-verified oracle
+    tests/unit/test_portfolio_profit_target.py uses for the identical reason."""
 
     def test_populated_for_a_buy_signal_with_sufficient_history_for_a_channel(self) -> None:
         # Same BUY-triggering tail as _buy_daily_ohlcv()'s default, prefixed with enough extra
-        # uptrend days to clear the Autoenvelope channel's ~100-bar warm-up window -- so this
-        # is a genuine BUY signal with a real (non-null) channel to derive a target from, and
-        # (per TestSupportResistanceZones' own fixtures, which need deliberately-repeated
-        # touches this monotonic prefix never produces) no qualifying support/resistance zone,
-        # so the channel technique is unambiguously what's exercised here.
+        # uptrend days to clear the DAILY Autoenvelope's ~100-bar warm-up window (so
+        # `indicators.channel_upper/lower` -- unrelated to `profit_target` now, see this class's
+        # own docstring -- are still real numbers here too), and (per TestSupportResistanceZones'
+        # own fixtures, which need deliberately-repeated touches this monotonic prefix never
+        # produces) no qualifying support/resistance zone, so the channel technique is
+        # unambiguously what's exercised here. `weekly` is 110 weeks of mild, steady 0.5%/week
+        # growth -- enough to clear the WEEKLY Autoenvelope's own ~100-week warm-up window while
+        # keeping a genuine BULLISH tide (bar-over-bar-rising EMA(13) + histogram).
         daily = _buy_daily_ohlcv(uptrend_days=100)
-        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": _buy_weekly_ohlcv()})
+        weekly = _buy_weekly_ohlcv_mild_growth(weeks=110)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
 
         response = _get_analysis(provider)
 
@@ -941,8 +979,16 @@ class TestProfitTarget:
         assert profit_target is not None
         assert profit_target["source"] == "channel"
         current_price = daily["close"].iloc[-1]
-        channel_height = body["indicators"]["channel_upper"] - body["indicators"]["channel_lower"]
-        assert profit_target["price"] == pytest.approx(current_price + 0.30 * channel_height, abs=1e-6)
+        weekly_bands = autoenvelope(weekly["close"], ema_period=13)
+        weekly_channel_height = float(weekly_bands["upper"].iloc[-1] - weekly_bands["lower"].iloc[-1])
+        # The DAILY channel (unrelated to this target now) and the WEEKLY one used here are
+        # numerically distinct -- proving `profit_target` didn't just fall back to reusing
+        # `indicators.channel_upper/lower`.
+        daily_channel_height = body["indicators"]["channel_upper"] - body["indicators"]["channel_lower"]
+        assert weekly_channel_height != pytest.approx(daily_channel_height, rel=1e-3)
+        assert profit_target["price"] == pytest.approx(
+            current_price + 0.30 * weekly_channel_height, abs=1e-6
+        )
         assert profit_target["distance_to_target"] == pytest.approx(profit_target["price"] - current_price, abs=1e-6)
         assert profit_target["distance_to_target"] > 0
         # This fixture's channel-derived target sits much closer to current price than its
