@@ -1847,12 +1847,12 @@ export interface components {
         ProfitTargetOut: {
             /**
              * Distance To Stop
-             * @description Current close minus the same protective-stop value docs/Analyse.md §7's SafeZone formula would compute for this ticker right now (`app.portfolio.risk.stop_from_price_action`) -- the trade's per-share risk if entered at today's close. Can be <= 0 in the rare case today's close is already at or below that stop.
+             * @description Current close minus the protective-stop value used for this ticker/position right now (docs/Analyse.md §7's SafeZone formula, `app.portfolio.risk.stop_from_price_action` or, for an already-open position, that position's own `protective_stop`) -- the per-share risk from here at current close. Can be <= 0 in the rare case current close is already at or below that stop.
              */
             distance_to_stop: number;
             /**
              * Distance To Target
-             * @description `price` minus current close -- the trade's per-share potential reward if entered at today's close. Always > 0 by construction (both target techniques only ever produce a price above current close).
+             * @description `price` minus current close -- the per-share potential reward from here at current close. Always > 0 by construction (both target techniques only ever produce a price above current close).
              */
             distance_to_target: number;
             /**
@@ -1862,7 +1862,7 @@ export interface components {
             meets_minimum_reward_risk: boolean;
             /**
              * Price
-             * @description Suggested profit target price for this fresh BUY signal (docs/Analyse.md §7, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). See `source` for which of the two techniques below produced this number.
+             * @description Suggested profit target price for this ticker at its current close (docs/Analyse.md §7, Elder ch. 53 'How to Set Profit Targets' plus ch. 58's Tradebill formula). Whether the caller is a fresh BUY signal (`AnalysisResponse.profit_target`) or an already-open position (`RiskPosition.profit_target`) is scoped by that field's own description, not by this shared nested schema -- see `source` for which of the two techniques below produced this number.
              */
             price: number;
             /**
