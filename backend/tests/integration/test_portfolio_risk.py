@@ -35,7 +35,7 @@ from app.signals.engine import analyse
 
 
 def _today() -> date:
-    """Matches `app.api.routers.portfolio._today()` exactly (UTC-derived, not local
+    """Matches `app.time_utils.today()` exactly (UTC-derived, not local
     `date.today()`) -- see the backend-trade-history-table-followups task's `decisions`
     entry for why: a fixture built from local `date.today()` would intermittently disagree
     with the UTC-based production value outside a UTC-local-timezone runner (and, near a

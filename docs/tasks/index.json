@@ -1755,8 +1755,8 @@
       "id": "backend-daily-homework-self-test-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-daily-homework-self-test-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-daily-homework-self-test-followups.json"
     },
     {
       "id": "backend-profit-target-weekly-channel-followups",

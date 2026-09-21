@@ -30,10 +30,10 @@ from app.portfolio.models import ExitReason
 
 
 def _today() -> date:
-    """Matches `app.api.routers.portfolio._today()` exactly (UTC-derived, not local
-    `date.today()`) -- see this task's `decisions` entry for why: a test asserting against
-    local `date.today()` would intermittently disagree with the UTC-based production value
-    outside a UTC-local-timezone runner, even though dev container/CI both run in UTC today."""
+    """Matches `app.time_utils.today()` exactly (UTC-derived, not local `date.today()`) --
+    see this task's `decisions` entry for why: a test asserting against local `date.today()`
+    would intermittently disagree with the UTC-based production value outside a
+    UTC-local-timezone runner, even though dev container/CI both run in UTC today."""
     return datetime.now(UTC).date()
 
 
