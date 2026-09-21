@@ -1594,7 +1594,7 @@
       "id": "backend-trade-journal-followup-review-followups-followups-followups-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
+      "state": "waiting_input",
       "path": "docs/tasks/backend-trade-journal-followup-review-followups-followups-followups-followups.json"
     },
     {
