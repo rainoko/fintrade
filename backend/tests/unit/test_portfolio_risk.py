@@ -432,9 +432,10 @@ class TestTrailingProfitStop:
 
 class TestRatchetTrailingProfitStop:
     """The actual hard-ratchet wrapper wired into GET /api/portfolio/risk
-    (`RiskPosition.trailing_stop`) -- stateless recomputation over a position's full price
-    history since entry (see the function's own docstring for why no persisted DB state is
-    needed)."""
+    (`RiskPosition.trailing_stop`) -- a stateless recomputation over a position's full price
+    history since entry, floored by an optional caller-supplied `persisted_high_water_mark`
+    (see the function's own docstring for why the floor is needed: a same-ticker merge
+    raising `avg_cost_basis` can otherwise make the stateless recompute alone regress)."""
 
     def test_never_triggered_matches_safezone_stop(self) -> None:
         position = _position(avg_cost_basis=100.0)
@@ -601,3 +602,64 @@ class TestRatchetTrailingProfitStop:
 
         with pytest.raises(ValueError, match="entry_price"):
             ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+    def test_persisted_high_water_mark_floors_a_lower_fresh_recompute(self) -> None:
+        """PR #240 review repro (backend-trailing-profit-stop): a same-ticker merge raising
+        `avg_cost_basis` with no further price movement makes the FRESH stateless recompute
+        alone come out lower than it used to (see `ratchet_trailing_profit_stop`'s own
+        docstring) -- `persisted_high_water_mark` must floor the result at the previously
+        -reported value regardless."""
+        # Entered at $100, rallied to $115 (profit=15, threshold=10, profit_beyond=5) ->
+        # candidate = 100 + 1/3*5 = 101.666...
+        rallied_position = _position(avg_cost_basis=100.0)
+        rally_daily = _daily_frame_since(date(2026, 1, 1), [100.0, 108.0, 115.0])
+        previously_reported = ratchet_trailing_profit_stop(
+            rallied_position, rally_daily, safezone_stop=95.0
+        )
+        assert previously_reported == pytest.approx(101.666667, abs=1e-5)
+
+        # Merge in more shares at $200/share with NO further price change -> avg_cost_basis
+        # rises to $150 (reviewer's exact repro numbers). Recomputed fresh (no floor), this now
+        # never crosses the (higher) 10% trigger at all (current price 115 < entry 150), so the
+        # stateless-alone candidate collapses back to safezone_stop.
+        merged_position = _position(avg_cost_basis=150.0)
+        stale_candidate = ratchet_trailing_profit_stop(
+            merged_position, rally_daily, safezone_stop=95.0
+        )
+        assert stale_candidate == pytest.approx(95.0)  # the bug, if there were no floor
+
+        # With the floor supplied (as app.api.routers.portfolio.get_risk now always does),
+        # the result must not drop below what was already reported.
+        floored_result = ratchet_trailing_profit_stop(
+            merged_position,
+            rally_daily,
+            safezone_stop=95.0,
+            persisted_high_water_mark=previously_reported,
+        )
+        assert floored_result == pytest.approx(previously_reported)
+        assert floored_result >= previously_reported
+
+    def test_persisted_high_water_mark_does_not_suppress_a_higher_fresh_candidate(self) -> None:
+        """The floor is a `max`, not an override -- a fresh candidate that's genuinely higher
+        than the persisted value (e.g. the position rallied further) must still win."""
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        result = ratchet_trailing_profit_stop(
+            position, daily, safezone_stop=90.0, persisted_high_water_mark=95.0
+        )
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_no_persisted_high_water_mark_behaves_exactly_as_the_original_stateless_call(
+        self,
+    ) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        with_none = ratchet_trailing_profit_stop(
+            position, daily, safezone_stop=90.0, persisted_high_water_mark=None
+        )
+        without_kwarg = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert with_none == pytest.approx(without_kwarg)

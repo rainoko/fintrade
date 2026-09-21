@@ -260,6 +260,7 @@ const riskFixture: RiskResponse = {
       id: 'pos_123',
       ticker: 'AAPL',
       protective_stop: 210.15,
+      trailing_stop: 210.15,
       position_risk_pct: 1.8,
       two_percent_rule_breached: false,
       exit_flags: [],

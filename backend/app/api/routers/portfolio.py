@@ -627,6 +627,16 @@ def get_risk(
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
     independent of entry-signal logic by design.
 
+    This is this codebase's one GET route with a side-effecting write: computing each
+    position's `trailing_stop` (see below) advances and persists `PositionORM
+    .trailing_stop_high_water_mark` when the freshly-computed value exceeds what's already
+    stored, via a single `db.commit()` at the end of this function -- see
+    `app.portfolio.risk.ratchet_trailing_profit_stop`'s own docstring for why this is needed
+    (a purely stateless computation can't, on its own, survive a same-ticker position merge
+    that raises `avg_cost_basis`) and this task's (backend-trailing-profit-stop) `decisions`
+    entry for the full history of why this deviation from every other GET route here was
+    ultimately accepted.
+
     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
     (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
@@ -691,13 +701,17 @@ def get_risk(
     stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
     already has in hand plus this same position's already-computed `stop`. Unlike
     `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
-    than it has on any previous call, computed statelessly by re-folding this position's own
-    full price history since entry every time rather than persisting anything in the database
-    -- see that function's own docstring and this task's (backend-trailing-profit-stop)
-    `decisions` entry for the exact mechanics and the persisted-column alternative considered
-    and rejected. A `ValueError` computing it excludes the position from `positions` entirely
-    (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above,
-    unlike the independently-nullable `profit_target`).
+    than it has on any previous call -- a stateless re-fold of this position's own full price
+    history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
+    (this position's own highest-ever reported value, persisted and advanced right here, in
+    this same per-position loop, whenever the fresh re-fold exceeds it) -- see that function's
+    own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+    exact mechanics and why the persisted floor turned out to be necessary after all (a
+    same-ticker `POST /api/portfolio/positions` merge that raises `avg_cost_basis` can
+    invalidate the stateless re-fold alone). A `ValueError` computing it excludes the position
+    from `positions` entirely (same fail-fast contract as
+    `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike the independently-nullable
+    `profit_target`).
 
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
@@ -713,7 +727,15 @@ def get_risk(
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
-    enriched = enrich_positions_with_price(_ordered_positions(db), provider)
+    # `position_rows` is kept alongside `enriched` (rather than re-querying by id later) so the
+    # trailing_stop persisted-high-water-mark floor/write-back below (see
+    # ratchet_trailing_profit_stop's own docstring for why this is needed) has each position's
+    # ORM row in hand without a second query -- `enrich_positions_with_price` preserves
+    # `position_rows`' order and length 1:1 (one EnrichedPosition per input row), so this dict
+    # covers every id `enriched` can ever produce.
+    position_rows = _ordered_positions(db)
+    position_rows_by_id = {row.id: row for row in position_rows}
+    enriched = enrich_positions_with_price(position_rows, provider)
     value = positions_value(enriched)
     account = Account(
         equity=DomainEquity(cash=cash, positions_value=value, total=cash + value),
@@ -797,9 +819,26 @@ def get_risk(
             # this endpoint doesn't need `daily_ohlcv.iloc[:-1]` here: the ratchet is a `max`
             # over history, so including today's own bar can only ever raise it, never
             # understate it the way `stop`'s own look-ahead-avoidance concern would apply.
+            #
+            # `persisted_high_water_mark` is this position's own `PositionORM
+            # .trailing_stop_high_water_mark` -- the floor that makes the ratchet genuinely
+            # never decrease even across a `POST /api/portfolio/positions` same-ticker merge
+            # that raises `avg_cost_basis` (see ratchet_trailing_profit_stop's own docstring
+            # for the exact bug this closes). The result is written straight back onto that
+            # same row below (never lowered, only raised or left unchanged) so the next call
+            # -- even after such a merge -- has this call's value as its own floor.
+            position_row = position_rows_by_id[e.position.id]
             trailing_stop = ratchet_trailing_profit_stop(
-                e.position, daily_by_id[e.position.id], stop
+                e.position,
+                daily_by_id[e.position.id],
+                stop,
+                persisted_high_water_mark=position_row.trailing_stop_high_water_mark,
             )
+            if (
+                position_row.trailing_stop_high_water_mark is None
+                or trailing_stop > position_row.trailing_stop_high_water_mark
+            ):
+                position_row.trailing_stop_high_water_mark = trailing_stop
         except ValueError:
             continue
 
@@ -839,6 +878,12 @@ def get_risk(
                 profit_target=profit_target,
             )
         )
+
+    # Persists any `trailing_stop_high_water_mark` raised above -- a no-op commit (SQLAlchemy
+    # only emits an UPDATE for rows actually mutated) when no position's ratchet advanced this
+    # call. See the per-position loop above and ratchet_trailing_profit_stop's own docstring
+    # for why this GET route needs a write at all.
+    db.commit()
 
     return RiskResponse(
         total_open_risk_pct=total_risk,

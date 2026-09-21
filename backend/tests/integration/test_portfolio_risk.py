@@ -675,6 +675,78 @@ class TestTrailingStop:
 
         assert pullback_position["trailing_stop"] >= rally_trailing_stop
 
+    def test_never_decreases_across_a_same_ticker_merge_that_raises_avg_cost_basis(
+        self, db_session: Session
+    ) -> None:
+        """PR #240 review repro (backend-trailing-profit-stop): `POST /api/portfolio/positions`
+        's same-ticker merge can raise `avg_cost_basis` (a quantity-weighted average) with NO
+        further price movement at all -- before the persisted-high-water-mark fix, this
+        invalidated the ratchet's own stateless recompute (the merge raises `entry_price`/
+        `threshold_profit`, un-qualifying closes that used to cross the trigger) and made
+        `trailing_stop` DECREASE across successive `GET /api/portfolio/risk` calls, directly
+        violating this task's hard-ratchet contract. Reproduces the reviewer's exact numbers:
+        entered at $100, rallies to $115 (ratchets to ~$101.667), then merges in more shares at
+        $200/share (avg_cost_basis -> $150) with the price unchanged."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+
+        # Ends at 115.0 -- +15% profit, comfortably past the 10% breakeven trigger. One deep
+        # downside wick (a low far below its day's close) is mixed in deliberately, dragging
+        # `protective_stop` (the SafeZone stop, i.e. `safezone_stop` in
+        # `ratchet_trailing_profit_stop`'s own signature) well BELOW the $101.667 trailing_stop
+        # the rally itself ratchets to -- so the merge step below genuinely exercises the
+        # persisted-high-water-mark floor overriding a lower fresh recompute, rather than the
+        # floor being trivially satisfied by an incidentally-higher live SafeZone stop.
+        rally_closes = [100.0 + 15.0 * i / 14.0 for i in range(15)]
+        rally_lows = [c - 1.0 for c in rally_closes]
+        rally_lows[10] = 85.0
+        rally_daily = _daily_frame(rally_closes, rally_lows)
+        provider = _StubProvider(daily={"AAPL": rally_daily}, weekly={"AAPL": weekly})
+
+        rally_response = _get_risk(db_session, provider)
+        assert rally_response.status_code == 200
+        [rally_position] = rally_response.json()["positions"]
+        rally_trailing_stop = rally_position["trailing_stop"]
+        # 100 + 1/3 * (15 - 10) == 101.666...
+        assert rally_trailing_stop == pytest.approx(101.666667, abs=1e-4)
+
+        # Merge in 1 more share at $200/share with the price frame unchanged -- weighted average
+        # (1*100 + 1*200) / 2 == 150.0, exactly the reviewer's repro.
+        merge_client = _make_client(db_session, provider)
+        try:
+            merge_response = merge_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 1,
+                    "avg_cost_basis": 200.0,
+                    "entry_date": "2026-01-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+        assert merge_response.status_code == 201
+        assert merge_response.json()["avg_cost_basis"] == pytest.approx(150.0)
+
+        post_merge_response = _get_risk(db_session, provider)
+        assert post_merge_response.status_code == 200
+        [post_merge_position] = post_merge_response.json()["positions"]
+
+        # The bug (pre-fix): recomputed fresh from avg_cost_basis=150 against an unchanged
+        # $115 price, this position never crosses the (now higher) 10% trigger at all, so a
+        # purely stateless recompute alone collapses back to protective_stop (~$80.87, well
+        # below the $101.667 already reported during the rally -- see this deep-wick fixture's
+        # comment above). The fix (a persisted high-water-mark floor) must prevent that
+        # regression: the reported value must not drop.
+        assert post_merge_position["trailing_stop"] >= rally_trailing_stop
+        assert post_merge_position["trailing_stop"] == pytest.approx(rally_trailing_stop)
+
     def test_below_trigger_matches_protective_stop(self, db_session: Session) -> None:
         """A position whose profit has never crossed the breakeven trigger reports the same
         trailing_stop as protective_stop -- there's no "winning trade" yet for ch. 54's

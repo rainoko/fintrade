@@ -443,6 +443,16 @@ export interface paths {
          *     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
          *     independent of entry-signal logic by design.
          *
+         *     This is this codebase's one GET route with a side-effecting write: computing each
+         *     position's `trailing_stop` (see below) advances and persists `PositionORM
+         *     .trailing_stop_high_water_mark` when the freshly-computed value exceeds what's already
+         *     stored, via a single `db.commit()` at the end of this function -- see
+         *     `app.portfolio.risk.ratchet_trailing_profit_stop`'s own docstring for why this is needed
+         *     (a purely stateless computation can't, on its own, survive a same-ticker position merge
+         *     that raises `avg_cost_basis`) and this task's (backend-trailing-profit-stop) `decisions`
+         *     entry for the full history of why this deviation from every other GET route here was
+         *     ultimately accepted.
+         *
          *     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
          *     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
          *     (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
@@ -507,13 +517,17 @@ export interface paths {
          *     stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
          *     already has in hand plus this same position's already-computed `stop`. Unlike
          *     `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
-         *     than it has on any previous call, computed statelessly by re-folding this position's own
-         *     full price history since entry every time rather than persisting anything in the database
-         *     -- see that function's own docstring and this task's (backend-trailing-profit-stop)
-         *     `decisions` entry for the exact mechanics and the persisted-column alternative considered
-         *     and rejected. A `ValueError` computing it excludes the position from `positions` entirely
-         *     (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above,
-         *     unlike the independently-nullable `profit_target`).
+         *     than it has on any previous call -- a stateless re-fold of this position's own full price
+         *     history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
+         *     (this position's own highest-ever reported value, persisted and advanced right here, in
+         *     this same per-position loop, whenever the fresh re-fold exceeds it) -- see that function's
+         *     own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+         *     exact mechanics and why the persisted floor turned out to be necessary after all (a
+         *     same-ticker `POST /api/portfolio/positions` merge that raises `avg_cost_basis` can
+         *     invalidate the stateless re-fold alone). A `ValueError` computing it excludes the position
+         *     from `positions` entirely (same fail-fast contract as
+         *     `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike the independently-nullable
+         *     `profit_target`).
          *
          *     Known, accepted perf trade-off (not fixed here -- see the
          *     backend-profit-target-open-position-followups task's `decisions` entry): both

@@ -34,6 +34,30 @@ class PositionORM(Base):
     (docs/ideas.md's ch. 59 "equity curves segmented by strategy" idea, and the future
     backend-trade-apgar task), which a multi-value concatenated string would break. Carried
     over onto the corresponding `ClosedTradeORM.strategy` row when the position closes."""
+    trailing_stop_high_water_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """The highest `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder
+    ch. 54 "Don't Let a Winning Trade Turn into a Loss") ever reported for this position,
+    persisted here and used as a floor on every subsequent `GET /api/portfolio/risk` call --
+    `None` until this position's profit has crossed the breakeven trigger for the first time.
+
+    Added after this task's (backend-trailing-profit-stop) own original `decisions` entry
+    explicitly rejected a persisted column in favor of a purely stateless recomputation from
+    `position.avg_cost_basis` and full price history -- that stateless approach turned out to
+    have the exact defect it was chosen to avoid: `POST /api/portfolio/positions`'s same-ticker
+    merge can raise `avg_cost_basis` (a quantity-weighted average) with no price movement at
+    all, which recomputes a HIGHER `entry_price`/`threshold_profit` on every subsequent call
+    and can silently invalidate closes that used to qualify -- making the "reported" ratchet
+    value decrease across a merge even though the stateless fold itself never revisits a given
+    call incorrectly. A live PR review (see docs/tasks/backend-trailing-profit-stop.json's
+    `review`/`decisions` for the reproduction and the revised rationale) caught this precise
+    bug, which is what this column exists to close: the persisted high-water mark can only
+    ever go up (`GET /api/portfolio/risk` writes `max(persisted, freshly_computed_candidate)`
+    back on every call), so a subsequent `avg_cost_basis` change can lower the freshly
+    *computed* candidate but never the *reported* value, which is always at least the floor.
+    This does make `GET /api/portfolio/risk` the first side-effecting-write GET route in this
+    codebase -- an accepted, narrow deviation now that the alternative (a value that can
+    silently decrease, contradicting this field's own contract and docs/Analyse.md's "Move
+    Your Stop Only in the Direction of Your Trade") has been shown to be unacceptable."""
 
 
 class AccountORM(Base):

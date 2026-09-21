@@ -100,6 +100,7 @@ describe('DashboardPage', () => {
               id: 'pos_123',
               ticker: 'AAPL',
               protective_stop: 210.15,
+              trailing_stop: 210.15,
               position_risk_pct: 6.8,
               two_percent_rule_breached: true,
               exit_flags: ['two_percent_rule_breached', 'six_percent_rule_contributor'],
