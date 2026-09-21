@@ -1580,8 +1580,8 @@
       "id": "backend-trade-journal-entry-notes-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-journal-entry-notes-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-entry-notes-followups.json"
     },
     {
       "id": "backend-trade-journal-followup-review",
