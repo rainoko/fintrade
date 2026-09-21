@@ -159,3 +159,34 @@ class ExtendedDataCacheORM(Base):
     insider_transactions_json: Mapped[str] = mapped_column(String)
     unavailable_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class IBKRBreadthSnapshotORM(Base):
+    """One row per (`series_key`, calendar day) IBKR-scanner-derived market-breadth count
+    (docs/tasks/backend-market-breadth-indicators.json, Elder ch. 34-36's NH-NL/Advance-Decline
+    breadth indicators). `series_key` is an opaque, caller-chosen label (e.g. `"nh"`/`"nl"` for
+    the two sides of a New High-New Low reading, or `"adv"`/`"dec"` for Advance/Decline) --
+    this app doesn't hardcode which IBKR scan-type code corresponds to which side, matching
+    `backend-market-scanner`'s own established "don't guess unconfirmed category codes"
+    precedent (see this task's `decisions` entry).
+
+    `count` is `len(IBKRProvider.run_scanner(...))` for whatever `scan_config` the caller
+    supplied the day this row was first recorded -- a single IBKR scan run is capped at a
+    bounded, ranked shortlist of matching contracts (this module's own `ScannerResult`/
+    `run_scanner` never expose a genuine full-market match count), so this is an explicitly
+    bounded approximation, not a literal Elder NH-NL/Advance-Decline value -- see this task's
+    `decisions` entry and docs/Analyse.md's "IBKR-scanner breadth approximation" section.
+
+    Composite `(series_key, snapshot_date)` primary key (same style as `OHLCVCacheORM`'s
+    `(ticker, date, interval)`) rather than a synthetic id: at most one recorded count per
+    series per calendar day, so a second `POST /api/ibkr/breadth/snapshot` call for a
+    `series_key` already recorded today is served from this existing row instead of running
+    a second, redundant (and possibly rate-limited) scan.
+    """
+
+    __tablename__ = "ibkr_breadth_snapshots"
+
+    series_key: Mapped[str] = mapped_column(String, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime)

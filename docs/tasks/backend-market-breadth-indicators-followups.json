@@ -1,0 +1,31 @@
+{
+  "id": "backend-market-breadth-indicators-followups",
+  "title": "IBKR-scanner breadth snapshot endpoint — non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-market-breadth-indicators"],
+  "references": [
+    "docs/tasks/backend-market-breadth-indicators.json#review",
+    "https://github.com/rainoko/fintrade/pull/217"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #217 (backend-market-breadth-indicators), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "record_ibkr_breadth_snapshot's cache-miss path (db.get(...) is None -> db.add(row); db.commit()) has no handling for a concurrent second request for the same (series_key, snapshot_date) racing in between the get() and the commit() -- the composite primary key means the second commit() would raise an uncaught IntegrityError instead of falling back to the now-existing row. Same category of gap already flagged and fixed for OHLCVCacheORM in docs/tasks/done/data-cache-followups.json's third checklist item; not exercised by any test here either. Low real-world likelihood (this is a manually-triggered, low-frequency endpoint) but worth the same treatment for consistency.",
+      "done": false
+    },
+    {
+      "step": "record_ibkr_breadth_snapshot issues two separate queries after a cache hit/miss is resolved -- a func.count() for days_recorded and a separate ORDER BY ... LIMIT query for the rolling-window counts -- that could be combined into a single query (e.g. fetch all rows once, ordered, and derive both days_recorded and the rolling sums from the same result set) to save a round trip. Purely an efficiency nit; correctness is unaffected either way.",
+      "done": false
+    },
+    {
+      "step": "test_invalid_series_key_rejected only exercises a series_key with spaces/uppercase against the `^[a-z0-9_-]{1,40}$` pattern; no test exercises the length boundary itself (a 41-character key, or an empty string) to confirm the 1-40 bound is actually enforced as documented.",
+      "done": false
+    },
+    {
+      "step": "_ROLLING_WINDOW_DAYS = (5, 20) reads like the single source of truth for the rolling windows, but it's only actually consulted via max() to compute the query LIMIT (_MAX_ROLLING_WINDOW_DAYS) -- the literal 5/20 values are separately hardcoded in the rolling_5d/rolling_20d/days_recorded>=5/20 expressions in record_ibkr_breadth_snapshot's return statement (and again in the schema field descriptions). Changing the tuple alone (e.g. to add a third window) wouldn't change behavior, which is misleading. Derive the response fields from the tuple itself (or drop the tuple and just hardcode the two literals with a comment, removing the false impression of a single config point).",
+      "done": false
+    }
+  ]
+}
