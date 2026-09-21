@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-market-scanner review (PR #214)",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-market-scanner"],
   "references": [
     "docs/tasks/backend-market-scanner.json",
@@ -34,16 +34,22 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-21T21:30:00Z",
+      "timestamp": "2026-09-21T21:20:00Z",
       "recorded_by": "task-worker",
       "decision": "Exposed IBKRRateLimitedError.retry_after via a standard `Retry-After` response header (RFC 9110 Sec 10.2.3) rather than adding a new structured JSON field (e.g. extending ErrorDetail or introducing a dedicated 429 response model).",
       "rationale": "The task's own checklist wording explicitly allowed either option ('a structured field (or a standard Retry-After header)'). A header is the HTTP-native mechanism for exactly this signal, needs no change to the shared ErrorDetail schema (which every other error response in this app also uses, so widening it just for this one route would ripple), and is trivially readable by any HTTP client/fetch wrapper without a body-shape special case. Rejected extending ErrorDetail with an optional retry_after field: it would have made every other 4xx/5xx response's schema carry a field that's meaningless outside this one route, and FastAPI's `responses={}` mechanism already supports per-status headers cleanly via `HTTPException(headers=...)` without any schema change at all."
     },
     {
-      "timestamp": "2026-09-21T21:30:00Z",
+      "timestamp": "2026-09-21T21:21:00Z",
       "recorded_by": "task-worker",
       "decision": "Applied the Retry-After fix to POST /api/ibkr/breadth/snapshot's `except IBKRRateLimitedError` handling as well, via the same new shared `_rate_limited_http_exception` helper, even though the checklist item only named run_ibkr_scanner.",
       "rationale": "record_ibkr_breadth_snapshot hits the exact same exception (IBKRProvider.run_scanner's own client-side 1 req/sec throttle) through an identical `raise HTTPException(status_code=429, detail=str(exc)) from exc` line. Fixing only run_ibkr_scanner would leave two routes handling the same exception inconsistently for no reason, and the parent task's own precedent (_resolve_scanner_unavailable) already shares 429/503 handling logic across these two routes' occurrences. Rejected leaving breadth/snapshot's 429 unchanged: that would just recreate the same gap this checklist item exists to close, one route later."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-market-scanner-followups",
+    "pr_number": 238,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/238",
+    "pushed_at": "2026-09-21T21:24:57Z"
+  }
 }
