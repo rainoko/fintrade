@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #232 review (backend-indicator-history-performance-followups)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-indicator-history-performance-followups"],
   "references": [
     "docs/tasks/done/backend-indicator-history-performance-followups.json",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "docs/tasks/done/backend-indicator-history-performance-followups.json's second `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time (per CLAUDE.md's guidance to run `date -u +%Y-%m-%dT%H:%M:%SZ` rather than estimating/guessing a timestamp), and it sorts *before* the first `decisions` entry's `2026-09-21T11:20:00Z` timestamp even though it was recorded later chronologically. Doesn't affect the substance of the record (both entries are otherwise accurate and verified), but worth correcting the timestamp (or at minimum noting why it's approximate) so the array stays chronologically meaningful for anyone reading it later.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T20:09:03Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the placeholder timestamp `2026-09-21T00:00:00Z` on docs/tasks/done/backend-indicator-history-performance-followups.json's second `decisions` entry to `2026-09-21T11:21:16Z`, derived from `git log --follow --format='%aI' -- docs/tasks/done/backend-indicator-history-performance-followups.json`, which shows the file was introduced (with both `decisions` entries already present) in a single squash-merge commit, `d2f3782` (`2026-09-21T14:21:16+03:00`, i.e. `11:21:16Z`), landing PR #232. That is the most precise real timestamp git actually has for when this entry's text was captured -- the pre-squash per-commit history on task-worker's original branch no longer exists to give finer granularity -- and it sorts correctly after the first entry's `11:20:00Z` (both entries land within the ~9-minute window between this task's own `git.pushed_at` of `11:12:28Z` and the `d2f3782` merge at `11:21:16Z`, consistent with the first entry describing work done earlier in that same PR cycle and the second describing a later verification/close-out pass).",
+      "rationale": "Preferred deriving a value from git history (per this task's own checklist instruction to 'check git log/commit timestamps for that file to derive an accurate value') over falling back to 'use the current time', since git actually retains a real, verifiable timestamp for this file even though squashing lost sub-commit granularity -- using today's current wall-clock time instead would have been further from the truth (the decision was recorded months ago, not now) purely for the sake of a round number. Rejected trying to guess a more precise sub-minute value between 11:20:00Z and 11:21:16Z (e.g. splitting the difference) as fabricating false precision; the commit timestamp itself is the most defensible value that is both real and correctly ordered."
     }
   ]
 }
