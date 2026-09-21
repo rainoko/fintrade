@@ -3,7 +3,7 @@
   "title": "Speed up GET /api/stocks/{ticker}/indicators (cache response, fetch concurrently)",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -12,10 +12,36 @@
   ],
   "description": "GET /api/stocks/{ticker}/indicators re-runs the entire Triple Screen pipeline once per daily bar in the requested range, and fetches daily then weekly OHLCV sequentially. This task covers the two lowest-risk, highest-leverage fixes from docs/ideas.md's performance entry: caching the computed IndicatorHistoryResponse itself (a pure function of daily/weekly OHLCV 'as of today', so a (ticker, range)-keyed same-day-TTL cache makes every request after the first same-day one instant) and fetching daily+weekly OHLCV concurrently instead of sequentially. Explicitly excludes the bigger, riskier 'vectorize the per-bar loop' rewrite and the 'downsample very long ranges' idea (both flagged in docs/ideas.md as needing their own separate scoping) -- those are not in scope here.",
   "checklist": [
-    { "step": "Add a (ticker, range)-keyed cache for the computed IndicatorHistoryResponse with a same-day TTL, analogous to the existing ohlcv_cache/extended_data_cache tables.", "done": false },
-    { "step": "Fetch daily and weekly OHLCV concurrently in get_indicator_history instead of sequentially.", "done": false },
-    { "step": "Decide and record whether the existing 24h OHLCV cache TTL should also change now that daily bars only close once per trading day (docs/ideas.md's TTL question) -- record a decisions entry either way, even if the decision is to leave it unchanged.", "done": false },
-    { "step": "Unit tests covering cache hit, cache miss, and TTL expiry for the new response cache, plus a test that the concurrent fetch still degrades correctly if one of the two calls fails.", "done": false },
-    { "step": "Confirm no response shape change (this is caching-only) -- if it turns out one is needed, regenerate backend/openapi.json/frontend types.", "done": false }
+    { "step": "Add a (ticker, range)-keyed cache for the computed IndicatorHistoryResponse with a same-day TTL, analogous to the existing ohlcv_cache/extended_data_cache tables.", "done": true },
+    { "step": "Fetch daily and weekly OHLCV concurrently in get_indicator_history instead of sequentially.", "done": true },
+    { "step": "Decide and record whether the existing 24h OHLCV cache TTL should also change now that daily bars only close once per trading day (docs/ideas.md's TTL question) -- record a decisions entry either way, even if the decision is to leave it unchanged.", "done": true },
+    { "step": "Unit tests covering cache hit, cache miss, and TTL expiry for the new response cache, plus a test that the concurrent fetch still degrades correctly if one of the two calls fails.", "done": true },
+    { "step": "Confirm no response shape change (this is caching-only) -- if it turns out one is needed, regenerate backend/openapi.json/frontend types.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The new IndicatorHistoryResponse cache (IndicatorHistoryCacheORM, keyed by (ticker, range)) uses a same-*calendar-day* freshness check (row.fetched_at.date() == today()) rather than a rolling timedelta window like CachedDataProvider's existing 24h _CACHE_TTL.",
+      "rationale": "The computed response is a pure function of 'daily/weekly OHLCV as of today' -- it doesn't change intraday regardless of what hour it was first computed, so it's valid for the rest of whatever UTC calendar day it was computed on and should go stale exactly at the next day boundary, not N hours after the specific fetch timestamp. A rolling 24h window was considered (simpler, reuses the exact pattern CachedDataProvider already has) but rejected: it would still force a full recompute once every 24h even during a single trading day's normal usage pattern (e.g. a user opening the same ticker's detail page at 9am and again at 8am the next day would get a stale-by-the-clock miss despite both requests being 'today's' data from the trader's perspective), which defeats a chunk of this task's own goal of making same-day repeat views instant."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Left CachedDataProvider's existing 24h OHLCV cache TTL (_CACHE_TTL in app/data/cache.py) unchanged, rather than widening it or switching to a trading-calendar-aware ('cache until next market close') policy, despite daily bars only closing once per trading day.",
+      "rationale": "docs/ideas.md itself lists 'reconsider the 24h OHLCV cache TTL' as a separate, lower-priority candidate fix (listed after the two this task's own description explicitly scopes in), not something this task's checklist requires changing -- only requires recording a decision either way. Three reasons to leave it alone for now: (1) the new same-calendar-day IndicatorHistoryResponse cache added by this same task is a strictly better lever for the specific hot path this task targets -- once a same-day response is cached, GET /api/stocks/{ticker}/indicators never reaches CachedDataProvider at all on a repeat request, so the OHLCV TTL becomes irrelevant to that endpoint's repeat-view cost regardless of its own value; (2) CachedDataProvider is shared by many more consumers than just this endpoint (GET /api/stocks/{ticker}/analysis, GET /api/stocks/{ticker}/history, portfolio price enrichment, the watchlist, the market scanner) -- changing its TTL semantics is a much wider-blast-radius change than anything scoped here, and a genuinely correct 'cache until next market close' policy would need real trading-calendar awareness (weekends, market holidays, timezone handling) that doesn't exist anywhere in this codebase yet -- a nontrivial feature of its own, not a one-line constant change; (3) the actual cost of leaving it as-is is bounded and already tolerable -- at worst one extra provider round trip per ticker/interval every 24 hours when the rolling window happens to expire mid-trading-day, which is exactly the kind of cost the docs/ideas.md entry calls 'may tolerate' rather than 'must fix'. Revisit as its own separately-scoped task if the 24h TTL is ever shown to be a real bottleneck on its own merits."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "IndicatorHistoryCacheORM stores the whole computed response as one opaque response_json column (via IndicatorHistoryResponse.model_dump_json()/model_validate_json()) rather than decomposing IndicatorHistoryPoint's fields into per-column/per-row storage.",
+      "rationale": "Mirrors ExtendedDataCacheORM's own insider_transactions_json convention (SQLite has no native JSON column type) for the same reason: this row is only ever read back as one whole IndicatorHistoryResponse object (IndicatorHistoryResponseCache.get), never queried into by an individual field or date -- a decomposed one-row-per-point schema would add real complexity (a child table, N inserts per cache population instead of 1) for zero query benefit, while also coupling this cache table's shape to IndicatorHistoryPoint's, which already changes independently as new indicators are added to that response (most recently OBV/A-D, backend-indicator-obv-ad)."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "When daily and weekly OHLCV are fetched concurrently via a ThreadPoolExecutor, a failing daily fetch's exception always takes priority over a failing weekly fetch's exception (daily_future.result() is awaited before weekly_future.result()) if both would fail.",
+      "rationale": "Preserves the previous sequential implementation's observable error-priority behavior exactly: sequentially, get_daily_ohlcv() ran first, so if it failed, get_weekly_ohlcv() was never even called and its own potential failure could never surface. Concurrently, both calls now always run regardless of the other's outcome, so resolving daily_future first (even though weekly_future may have already failed by the time we check) reproduces the same 'daily failure wins' priority without needing to special-case a genuinely-new 'both failed' scenario the old code could never actually produce. This does mean the ThreadPoolExecutor's `with` block waits for the (already-running, harmless) weekly fetch to finish before the daily exception propagates out of the block, rather than returning the instant daily fails -- an accepted, minor cost given the whole point of this change is a large one-time round-trip win on the common (both-succeed) path, not shaving milliseconds off an already-rare failure path."
+    }
   ]
 }

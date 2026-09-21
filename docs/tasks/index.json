@@ -1447,7 +1447,7 @@
       "id": "backend-indicator-history-performance",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-indicator-history-performance.json"
     },
     {

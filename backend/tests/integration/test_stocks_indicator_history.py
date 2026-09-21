@@ -3,11 +3,28 @@
 Uses a stub `DataProvider` (via a `get_data_provider` dependency override, same pattern as
 tests/integration/test_stocks_analysis.py and test_stocks_history.py) so these tests never
 touch a live market data provider or the SQLite cache underneath it.
+
+`_isolated_db` below (autouse) gives every test in this module its own fresh in-memory
+`IndicatorHistoryCacheORM` table (via a `get_db` override, same StaticPool in-memory-SQLite
+pattern as tests/integration/conftest.py's own `db_session` fixture) -- this endpoint now reads
+through `app.api.indicator_history_cache.IndicatorHistoryResponseCache`
+(backend-indicator-history-performance), so without this override every call here would hit
+the real on-disk `fintrade.db` (app/config.py's default `database_url`) instead of a test-only
+database. Cache-specific behavior (hit/miss/TTL) has its own dedicated coverage in
+test_stocks_indicator_history_cache.py; this module's own tests never rely on caching between
+calls (each test's ticker+range combinations are either called once, or with distinct `range`
+values that don't collide on the same cache key), so a fresh per-test cache is enough to keep
+the two concerns from interfering.
 """
+
+import threading
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_data_provider
 from app.data.base import ExtendedData
@@ -16,11 +33,34 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.db.models import Base
+from app.db.session import get_db
 from app.indicators.accumulation_distribution import (
     accumulation_distribution as compute_accumulation_distribution,
 )
 from app.indicators.obv import obv as compute_obv
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db():
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = session_factory()
+
+    def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield session
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        session.close()
+        engine.dispose()
 
 # Every ticker gets this all-null/empty ExtendedData -- this file's tests exercise
 # GET /api/stocks/{ticker}/indicators (which never calls get_extended_data at all) plus a few
@@ -608,6 +648,80 @@ class TestGetIndicatorHistory:
 
         assert response.status_code == 200
         assert response.json()["points"] == []
+
+
+class TestConcurrentOhlcvFetch:
+    """Covers backend-indicator-history-performance's second fix: daily and weekly OHLCV are
+    fetched concurrently (via a `ThreadPoolExecutor`), not sequentially."""
+
+    def test_daily_and_weekly_are_fetched_concurrently(self) -> None:
+        """A stub whose `get_daily_ohlcv` blocks until `get_weekly_ohlcv` has actually started
+        running -- deterministic proof the two calls run in parallel rather than one strictly
+        after the other: a genuinely sequential `get_daily_ohlcv`-then-`get_weekly_ohlcv`
+        implementation would deadlock here (the daily call would wait forever for an event only
+        the weekly call, which would never get a turn to run, can set), whereas a concurrent
+        implementation lets both run in their own threads at once."""
+        weekly_started = threading.Event()
+
+        class _ConcurrentStubProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                assert weekly_started.wait(timeout=2), (
+                    "weekly fetch never started while daily fetch was blocked -- "
+                    "fetches are not running concurrently"
+                )
+                return _hold_daily_ohlcv()
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                weekly_started.set()
+                return _hold_weekly_ohlcv()
+
+            def get_extended_data(self, ticker: str) -> ExtendedData:
+                return _EMPTY_EXTENDED_DATA
+
+        response = _get_indicator_history(_ConcurrentStubProvider())
+
+        assert response.status_code == 200
+
+    def test_daily_failure_still_returns_404_when_fetched_concurrently(self) -> None:
+        """The degrade-correctly-on-failure case the concurrent rewrite's checklist item
+        calls for: a failing daily fetch (which starts a concurrent, successful weekly fetch
+        alongside it) must still surface as the same 404 the old sequential implementation
+        raised, not a hang, a swallowed exception, or an unrelated 500."""
+
+        class _DailyFailsProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise TickerNotFoundError(ticker)
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                return _hold_weekly_ohlcv()
+
+            def get_extended_data(self, ticker: str) -> ExtendedData:
+                return _EMPTY_EXTENDED_DATA
+
+        response = _get_indicator_history(_DailyFailsProvider(), ticker="ZZZZ")
+
+        assert response.status_code == 404
+        assert "ZZZZ" in response.json()["detail"]
+
+    def test_weekly_failure_still_returns_422_when_fetched_concurrently(self) -> None:
+        """Same as test_daily_failure_still_returns_404_when_fetched_concurrently, but for a
+        weekly-side failure (the priority-inversion case: unlike the old sequential
+        implementation, the daily fetch here actually succeeds and completes before the
+        failing weekly fetch is even resolved -- the failure must still propagate correctly)."""
+
+        class _WeeklyFailsProvider:
+            def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
+                return _hold_daily_ohlcv()
+
+            def get_weekly_ohlcv(self, ticker: str) -> pd.DataFrame:
+                raise InsufficientHistoryError(ticker, available=5, required=26)
+
+            def get_extended_data(self, ticker: str) -> ExtendedData:
+                return _EMPTY_EXTENDED_DATA
+
+        response = _get_indicator_history(_WeeklyFailsProvider())
+
+        assert response.status_code == 422
 
 
 class TestObvAndAccumulationDistributionFields:

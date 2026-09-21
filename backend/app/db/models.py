@@ -191,6 +191,43 @@ class ExtendedDataCacheORM(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class IndicatorHistoryCacheORM(Base):
+    """Cached `GET /api/stocks/{ticker}/indicators` response body, keyed by
+    `(ticker, range)` (docs/tasks/backend-indicator-history-performance.json) --
+    analogous to `OHLCVCacheORM`/`ExtendedDataCacheORM` above but one layer up the
+    stack: those cache the raw provider data `app.data.cache.CachedDataProvider`
+    fetches, while this caches the fully-computed `IndicatorHistoryResponse` itself
+    (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`), so a same-day
+    repeat request for the same ticker/range skips the whole per-bar Triple Screen
+    recompute in `app.signals.engine.analyse_history` -- not just the OHLCV fetch --
+    entirely.
+
+    `response_json` stores the response's own `model_dump_json()` (SQLite has no
+    native JSON column type, same convention as `ExtendedDataCacheORM.
+    insider_transactions_json`) rather than being decomposed into per-field columns:
+    unlike `ExtendedDataCacheORM` (a fixed handful of scalar/list fields queried
+    individually elsewhere), this whole row is only ever read back as one opaque
+    `IndicatorHistoryResponse` blob (`IndicatorHistoryResponseCache.get`), never
+    queried into by an individual field, so a decomposed schema would add no query
+    benefit while coupling this table's shape to `IndicatorHistoryPoint`'s (which
+    already changes independently as new indicators are added).
+
+    `fetched_at` is compared against *calendar day*, not a rolling
+    `timedelta`-based TTL like `OHLCVCacheORM`'s `_CACHE_TTL` -- see this task's
+    `decisions` entry for why: the computed response is a pure function of
+    "daily/weekly OHLCV as of today," so it's valid for the rest of the calendar day
+    it was computed on regardless of what hour that was, and goes stale exactly at
+    the UTC calendar-day boundary rather than N hours after the specific fetch time.
+    """
+
+    __tablename__ = "indicator_history_cache"
+
+    ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    range: Mapped[str] = mapped_column(String, primary_key=True)
+    response_json: Mapped[str] = mapped_column(String)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class IBKRBreadthSnapshotORM(Base):
     """One row per (`series_key`, calendar day) IBKR-scanner-derived market-breadth count
     (docs/tasks/backend-market-breadth-indicators.json, Elder ch. 34-36's NH-NL/Advance-Decline

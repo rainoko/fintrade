@@ -178,6 +178,8 @@ Historical indicator values and the resulting signal for each daily bar — the 
 
 Query params: `range` (same grammar as `/history`'s `range` — `<N>d` | `<N>w` | `<N>m` | `<N>y` | `max`, default `1y`). Daily bars only — no `interval` param, since every indicator/Screen this endpoint computes is itself daily-cadence.
 
+The full computed response is cached, keyed by `(ticker, range)`, with a same-*calendar-day* TTL (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`, backed by the `indicator_history_cache` table alongside `ohlcv_cache`/`extended_data_cache` — Backend.md §7) — a repeat same-day request for the same ticker/range skips both the OHLCV fetch and the whole per-bar Triple Screen recompute below entirely. Only a successful response is ever cached, never an error. On a cache miss, daily and weekly OHLCV are fetched concurrently rather than sequentially — see the `backend-indicator-history-performance` task's `decisions` for both the TTL-shape choice (calendar-day, not a rolling window like `ohlcv_cache`'s own 24h TTL) and why that existing OHLCV TTL itself was deliberately left unchanged.
+
 ```json
 {
   "ticker": "AAPL",
