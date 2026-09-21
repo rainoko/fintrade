@@ -3,7 +3,7 @@
   "title": "Real market breadth (NH-NL / Advance-Decline / Stocks-above-50-day-MA) via IBKR, disabled otherwise",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -50,5 +50,33 @@
     "pr_number": 217,
     "pr_url": "https://github.com/rainoko/fintrade/pull/217",
     "pushed_at": "2026-09-21T02:25:59Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T02:34:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/217",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Check-then-insert race: two concurrent POST /api/ibkr/breadth/snapshot requests for the same (series_key, snapshot_date) on a cache miss both see row is None, both call run_scanner, and the second db.commit() would raise an uncaught IntegrityError (composite PK violation) surfacing as a raw 500, instead of falling back to the already-inserted row. Same category of gap already flagged (and later addressed) for OHLCVCacheORM in docs/tasks/done/data-cache-followups.json's third item. Low real-world likelihood for this manually-triggered endpoint; non-blocking. Tracked on backend-market-breadth-indicators-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 271
+      },
+      {
+        "summary": "_ROLLING_WINDOW_DAYS = (5, 20) reads like the single source of truth for the rolling windows but is only actually consulted via max() for the query LIMIT -- the literal 5/20 values are separately hardcoded in the rolling_5d/rolling_20d/days_recorded>=5/20 expressions (and again in the schema docstrings), so editing the tuple alone wouldn't change behavior. Non-blocking reuse/simplification nit. Tracked on backend-market-breadth-indicators-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 60
+      },
+      {
+        "summary": "record_ibkr_breadth_snapshot issues two separate queries after resolving the cache hit/miss (a func.count() for days_recorded, then a separate ORDER BY...LIMIT for the rolling-window counts) that could be combined into one round trip. Pure efficiency nit, correctness unaffected. Tracked on backend-market-breadth-indicators-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 275
+      },
+      {
+        "summary": "test_invalid_series_key_rejected only exercises spaces/uppercase against the series_key pattern, not the 1-40 length boundary itself (a 41-char key or empty string). Minor test-coverage completeness gap. Tracked on backend-market-breadth-indicators-followups.",
+        "file": "backend/tests/integration/test_ibkr_breadth.py",
+        "line": 267
+      }
+    ],
+    "notes": "Full review: gh pr checkout 217, backend pytest --cov (1020 passed, 99.94% total coverage, app/api/routers/ibkr.py at 100%), frontend vitest --coverage (700 passed, 99%+ across the board -- unaffected, this PR only regenerates frontend/src/api/types.ts, no component/page changes), ruff+mypy clean, eslint+tsc clean. backend/openapi.json and frontend/src/api/types.ts both regenerated locally and diffed byte-for-byte identical to the committed versions -- snapshot is current. Alembic migration f9d808fbe05c applies cleanly against a fresh sqlite db (single head, chains correctly off 7d2a1f8a6ca8) and produces the exact schema the ORM model declares. No frontend component/page work is in this PR (frontend-market-breadth-widget is a separate, still-planned task) so the browser walkthrough and e2e suite (steps 9/9a) don't apply -- explicitly skipped, no UI surface. area is backend/api (not backend/signals or backend/portfolio) and skill is add-api-endpoint (not verify-elder-signal), so the verify-elder-signal skill isn't formally triggered by CLAUDE.md's rule, but given the task's own subject matter I still checked the scoping decision and its documentation directly against docs/Analyse.md/ch.34-36: the research decision (IBKR's scanner returns a bounded ranked shortlist, never a genuine count; Stocks-above-50-Day-MA dropped for lacking any moving-average-relative scan category at all) is exactly the outcome the task's checklist item 1 explicitly anticipated and authorized, and both docs/Analyse.md's new 'IBKR-scanner breadth approximation' section and the API docs/schema field descriptions are clear and explicit that count/rolling_5d/rolling_20d are a capped single-scan-result-count approximation, not a literal full-market NH-NL/Advance-Decline value, and that none of ch.34's numeric thresholds are comparable to it or exposed as reference lines -- this reads as honest, non-overclaiming documentation, not a methodology bug. The reused _resolve_scanner_unavailable helper is applied identically to the existing scanner routes (confirmed via its own already-reviewed logic plus this PR's dedicated tests for gateway_unreachable/not_authenticated/transient-503/429 paths). Rolling-window/same-day-cache logic verified correct at its edges: tests cover a first-of-day scan+persist, a same-day repeat served from storage without re-scanning (asserted via a stub that raises if run_scanner is called again), rolling_5d/rolling_20d both null below their day thresholds, both populated exactly at the threshold with the correct sum, and a 21-days-ago row correctly excluded from the 20-day window -- all match the implementation. Every checklist item phrased as 'decide X' (storage/refresh approach, threshold exposure) has a corresponding decisions entry recording rationale and rejected alternatives, per CLAUDE.md's decision-memory rule -- no undocumented judgment call found. Independent code-review pass (own manual read plus a dispatched code-review skill run) turned up two real, both non-blocking, findings (the concurrent-insert race and the unused-as-config _ROLLING_WINDOW_DAYS tuple) plus two more minor ones from my own pass (double-query inefficiency, series_key length-boundary test gap) -- none rise to blocking since they're either a low-probability edge case matching an already-accepted precedent elsewhere in the codebase, or pure polish. No blocking findings: tests/coverage pass with no regression, static analysis is clean, OpenAPI/frontend-types snapshots are current, the scoping decision is honest and well-documented, and the reused unavailable-state/rolling-window logic is correct at its edges."
   }
 }
