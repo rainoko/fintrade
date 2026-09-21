@@ -57,5 +57,10 @@
       }
     ],
     "notes": "Pure task-board bookkeeping fix, no application code. Area is backend/api (not backend/signals or backend/portfolio, skill is null), so verify-elder-signal is not applicable; no new module/dependency/layer, so architecture-review is not applicable; no frontend component touched, so the 7a placement check is not applicable. No blocking findings; no new non-blocking findings to track as a further follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T20:43:08Z",
+    "verdict": "merge",
+    "notes": "Independently confirmed: `git log -1 --format='%H %aI %cI' a9fb6cb` shows both authored and committer timestamps equal 2026-09-21T20:24:02Z, matching the task's claim, and `git show a9fb6cb -- docs/tasks/backend-ibkr-status-endpoint-followups.json` shows that commit genuinely introducing the decisions array with the placeholder 2026-09-21T00:00:00Z timestamp. `git diff origin/main...HEAD` touches only the three claimed task-board JSON files, no application code. Re-ran backend suite myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly."
   }
 }
