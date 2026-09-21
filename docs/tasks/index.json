@@ -1461,8 +1461,8 @@
       "id": "backend-indicator-history-performance-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-indicator-history-performance-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-history-performance-followups-followups.json"
     },
     {
       "id": "backend-trade-strategy-tagging",
