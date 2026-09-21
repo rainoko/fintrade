@@ -2955,7 +2955,15 @@
                 }
               }
             },
-            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header"
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header",
+            "headers": {
+              "Retry-After": {
+                "description": "Number of seconds to wait before retrying the scanner run",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -3049,7 +3057,15 @@
                 }
               }
             },
-            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header"
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header",
+            "headers": {
+              "Retry-After": {
+                "description": "Number of seconds to wait before retrying the scanner run",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "503": {
             "content": {

@@ -1,0 +1,61 @@
+{
+  "id": "backend-market-scanner-followups-followups",
+  "title": "Non-blocking follow-up from backend-market-scanner-followups review (PR #238)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-market-scanner-followups"],
+  "references": [
+    "docs/tasks/done/backend-market-scanner-followups.json",
+    "https://github.com/rainoko/fintrade/pull/238"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #238 (the Retry-After header added to POST /api/ibkr/scanner/run's and POST /api/ibkr/breadth/snapshot's 429 responses), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "The 429 `responses={}` entries for POST /api/ibkr/scanner/run and POST /api/ibkr/breadth/snapshot (backend/app/api/routers/ibkr.py) describe the new `Retry-After` header only in the `description` prose, not via a `headers` key in FastAPI's `responses={...}` dict. Because of that, the generated `frontend/src/api/types.ts` still types each 429 response's `headers` as the generic `{ [name: string]: unknown }` instead of a typed `Retry-After: string` field a frontend consumer could read without an unsafe cast. Add `headers: {\"Retry-After\": {\"description\": ..., \"schema\": {\"type\": \"integer\"}}}` to both routes' 429 response specs and regenerate backend/openapi.json + frontend/src/api/types.ts.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T21:43:07Z",
+      "recorded_by": "task-worker",
+      "decision": "Used `\"schema\": {\"type\": \"integer\"}` (as the checklist item itself specifies) for the `Retry-After` OpenAPI header spec on both 429 responses, even though `_rate_limited_http_exception` sets the actual wire value via `headers={\"Retry-After\": str(retry_after_seconds)}` (HTTP headers are always transmitted as strings).",
+      "rationale": "OpenAPI's header object schema describes the header's semantic value type, not its wire encoding -- every HTTP header is a string on the wire regardless of declared schema type, and openapi-typescript maps a `type: integer` header schema to a TypeScript `number`, which is what a caller actually wants when reading `Retry-After` (a number of seconds to wait) rather than a bare untyped string they'd have to parseInt themselves. Considered `type: string` to literally match the wire format, but rejected it since it would just re-introduce the unsafe-cast problem this task exists to fix, only with `string` instead of `unknown`."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-scanner-followups-followups",
+    "pr_number": 239,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/239",
+    "pushed_at": "2026-09-21T21:43:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T21:51:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/239",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The generated `\"Retry-After\"?: number` field on both 429 responses is currently unreachable from any actual frontend code: the hand-rolled `frontend/src/api/client.ts` `request()`/`ApiError` never surfaces `response.headers` to callers at all (ApiError only carries `status`/`detail`), so this typed field is dead information until a future change threads response headers through the client. Not a bug in this PR (the same was true of the pre-existing untyped `headers` bag), but worth tracking so the follow-on work that actually consumes Retry-After doesn't get surprised.",
+        "file": "frontend/src/api/client.ts",
+        "line": 22
+      },
+      {
+        "summary": "The new `Retry-After` header spec omits `required: true`, even though `_rate_limited_http_exception` unconditionally sets this header on every 429 these two routes raise -- so the generated type marks it optional (`\"Retry-After\"?: number`) when it's actually always present for this status code.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 195
+      },
+      {
+        "summary": "The `headers: {\"Retry-After\": {...}}` dict literal (and its enclosing 429 `description` string) is duplicated verbatim between `run_ibkr_scanner`'s and `record_ibkr_breadth_snapshot`'s `responses={}`. A shared module-level constant (e.g. `_RETRY_AFTER_HEADER_SPEC`) would prevent the two 429 specs from silently drifting out of sync on a future edit.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 195
+      }
+    ],
+    "notes": "Verified independently: (1) `python scripts/export_openapi.py` and `npm run generate:api-types` both reproduce `backend/openapi.json` and `frontend/src/api/types.ts` byte-for-byte -- no hand-editing drift, and `git diff main...HEAD` for both generated files contains only the two intended Retry-After header additions, nothing else. (2) Sanity-checked the `type: integer` vs `type: string` decision recorded on this task: `_rate_limited_http_exception` computes `retry_after_seconds = math.ceil(exc.retry_after)` (an integer number of seconds) and only stringifies it (`str(retry_after_seconds)`) for wire transmission, so `integer` correctly describes the header's semantic value, not its wire encoding -- exactly the same pattern the official OpenAPI/Swagger documentation itself uses for rate-limit headers (e.g. its own worked example types `X-RateLimit-Limit` as `integer`). `type: string` would have been wire-literal but strictly less useful (forces every consumer to parse), and every other OpenAPI parameter location (query/path) already types primitives semantically despite being text on the wire too, so this isn't a departure from convention. The reasoning holds. (3) Full backend suite: 1135 passed, coverage 99.95% (ibkr.py at 100%). Full frontend suite: 71 files / 704 tests passed, coverage 99.72% statements / 99.18% branches -- both well above the 90% gate, no regression. (4) Static analysis clean: backend ruff + mypy, frontend eslint + tsc, and the profit-target stale-wording guard all pass with zero findings. (5) No API contract issue beyond the three non-blocking notes above -- response_model/operation_id/summary/docstring/responses all already present and unaffected; the `headers` key addition itself is exactly what CLAUDE.md's API documentation standard calls for. (6) No UI surface: the changed field is never read by any frontend component (`grep -rn \"Retry-After\" frontend/src` matches only the generated types.ts itself), so the browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as not applicable -- this PR has no clickable surface. (7) Ran the `code-review` skill twice (medium-effort synchronous pass, plus an independent high-effort pass) against the diff; both corroborate no correctness bugs and surfaced the same three non-blocking findings recorded above (dead/unreachable typed field given the current client, missing `required: true`, and the duplicated header-spec dict), now tracked on `backend-market-scanner-followups-followups-followups`."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T21:55:00Z",
+    "verdict": "merge",
+    "notes": "Re-ran `python scripts/export_openapi.py` and `npm run generate:api-types` myself: both produced zero diff against the committed backend/openapi.json and frontend/src/api/types.ts, confirming the regeneration is genuinely clean. Re-ran the full backend suite myself: 1135 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly. Read `_rate_limited_http_exception` in backend/app/api/routers/ibkr.py directly (lines 120-136): `retry_after_seconds = math.ceil(exc.retry_after)` is computed as a Python int and only `str()`-ified for the `headers={...}` dict, so `type: integer` in the OpenAPI header schema correctly describes the semantic value rather than the wire encoding -- I independently agree this is the right choice (matches OpenAPI convention for rate-limit headers; `type: string` would just reintroduce the unsafe-cast problem this task fixes). Skimmed `git diff origin/main...HEAD` file by file: the only source changes are the two Retry-After `headers` additions in ibkr.py (mirrored in openapi.json/types.ts), plus expected task-board bookkeeping (task moved to done/, index.json mirrored, and a new backend-market-scanner-followups-followups-followups task correctly filed for the three non-blocking findings) -- nothing unintended."
+  }
+}

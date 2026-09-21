@@ -2402,6 +2402,8 @@ export interface operations {
             /** @description Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header */
             429: {
                 headers: {
+                    /** @description Number of seconds to wait before retrying the scanner run */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2482,6 +2484,8 @@ export interface operations {
             /** @description Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header */
             429: {
                 headers: {
+                    /** @description Number of seconds to wait before retrying the scanner run */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
