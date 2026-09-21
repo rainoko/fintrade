@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-daily-homework-self-test PR #216 review",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-daily-homework-self-test"],
   "references": [
     "docs/tasks/backend-daily-homework-self-test.json",
