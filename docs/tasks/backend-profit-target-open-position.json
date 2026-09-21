@@ -3,7 +3,7 @@
   "title": "Compute a profit target for open positions regardless of today's signal",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-profit-target-weekly-channel"],
   "references": [
     "backend/app/portfolio/profit_target.py",
@@ -39,5 +39,11 @@
       "rationale": "Recorded explicitly per the verify-elder-signal skill's own 'Before calling a divergence deliberate, check the corresponding task's decisions array' guidance and CLAUDE.md's decision-memory rule -- this checklist item's completion criteria (what was checked, against what, with what result) needs to be independently verifiable by a later reader, not just a checked box.",
       "context": null
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-profit-target-open-position",
+    "pr_number": 224,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/224",
+    "pushed_at": "2026-09-21T06:20:00Z"
+  }
 }
