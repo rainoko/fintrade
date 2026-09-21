@@ -1,0 +1,42 @@
+{
+  "id": "backend-profit-target-weekly-channel-followups-followups",
+  "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups PR #223 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-profit-target-weekly-channel-followups"],
+  "references": [
+    "docs/tasks/backend-profit-target-weekly-channel-followups.json",
+    "https://github.com/rainoko/fintrade/pull/223",
+    "scripts/check_profit_target_wording.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #223 (backend-profit-target-weekly-channel-followups, the check_profit_target_wording.py guard script), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges. All six were verified as real, demonstrated gaps in the guard's own robustness (confirmed by directly constructing inputs and running the affected functions), not currently-live false positives/negatives against the real repo tree -- and critically, none of them defeat the guard's actual protection for the 8 known regression-prone files: the per-file positive check (check_known_files_mention_weekly) operates on whole-file text at the character-window level, not per physical line, so it independently still catches a reversion in any of those 8 files even where the repo-wide negative check's line-based scanning is fooled (verified directly by reverting schemas.py's `source` field to the old stale wording, wrapped across lines matching the file's own dominant style for long Field descriptions elsewhere -- the negative check missed it, the positive check still caught it). That's why these are follow-ups rather than blocking findings.",
+  "checklist": [
+    {
+      "step": "check_banned_patterns() scans each physical line independently (text.splitlines()), so it misses a banned phrase split across two source lines by Python implicit string concatenation -- a style already used throughout backend/app/api/schemas.py's own IndicatorsOut field descriptions (ATR, ADX, +DI/-DI, channel_upper/channel_lower, RSI all wrap this way), just not (currently) ProfitTargetOut's own fields. Verified directly: a description=(\"...today's \"\\n    \"Autoenvelope/channel height...\") input produces zero violations from check_banned_patterns(). This only matters for a brand-new file outside the 8-file known-locations list (the known 8 are independently protected by the positive per-file check regardless of line-wrapping, verified directly) -- worth having the negative check join adjacent lines (or scan the whole file text with re.DOTALL/single-string search) before matching, so its own docstring's 'anywhere in the repo, including a brand-new file' claim actually holds.",
+      "done": false
+    },
+    {
+      "step": "_WEEKLY_RE = re.compile(r'\\bweek(ly)?\\b') doesn't match the plural 'weeks' on its own (\\b right after the non-'ly' branch fails since 'weeks' has no boundary between 'week' and the following 's') -- verified directly: _WEEKLY_RE.search('100 weeks') is None while _WEEKLY_RE.search('100 weekly') matches. Currently harmless since every real occurrence in the repo pairs 'weeks' with 'weekly' nearby, but a future, fully-correct edit phrasing the warm-up window as e.g. '~100 weeks of price history' without the adjective 'weekly' anywhere nearby would be wrongly flagged as a stale-daily-channel regression by check_known_files_mention_weekly. Fix the regex to r'\\bweeks?(ly)?\\b' (or equivalent) so the plural noun form is recognized on its own.",
+      "done": false
+    },
+    {
+      "step": "_iter_scanned_files() calls REPO_ROOT.rglob('*') over the entire repo tree and only filters out node_modules/.venv/.git/dist/build/coverage/etc. after full enumeration, rather than pruning those directories during traversal (e.g. an os.walk with dirnames[:] = [d for d in dirnames if d not in _EXCLUDED_DIR_NAMES]). Since this script now runs as static-verify's own step 5 -- which pr-reviewer and task-qa-reviewer both run unconditionally on every task -- this wasted walk over tens of thousands of node_modules/.venv/.git files repeats on every PR review and QA pass and will only get slower as those directories grow.",
+      "done": false
+    },
+    {
+      "step": "_PROFIT_TARGET_CONTEXT_RE's `profit[\\s_]target` alternative doesn't match the hyphenated form 'profit-target' -- the literal text of methodologyContent.ts's own start_anchor (id: 'profit-target'). Verified directly: the id text alone doesn't match. In practice the check currently still passes because the same entry's `name` field ('Profit Target (+ reward:risk ratio)') independently matches the space-separated form -- a genuine structural field of the entry, not throwaway incidental prose, so the practical fragility is lower than it first appears, but it's still an unnecessary gap: add a hyphenated alternative (`profit[\\s_-]target`) so the anchor's own id text is self-sufficient context, not reliant on a second field happening to also mention it.",
+      "done": false
+    },
+    {
+      "step": "_extract_region() silently falls back to scanning to the end of the file when end_anchor fails to match, with no violation/warning emitted -- asymmetric with the explicit 'this guard's start anchor no longer matches -- update...' violation raised when start_anchor fails. If a known file's structure changes so the end anchor stops matching (e.g. profitTargetHelp becomes the last export in a metricHelpContent.ts, or profit-target becomes the last id: entry in methodologyContent.ts), the scanned region would silently balloon to include unrelated trailing content (e.g. the genuinely-different DAILY trade-grading description) with no signal to a maintainer that the anchor needs updating -- worth emitting the same kind of 'anchor no longer scoping correctly, update this guard' violation in that case too, for symmetry with the start-anchor check.",
+      "done": false
+    },
+    {
+      "step": "scripts/check_profit_target_wording.py has one ruff finding (SIM103: `_should_scan_for_banned_patterns` could return `not _is_test_file(path)` directly instead of the trailing if/return). Not part of the enforced backend `ruff check app/` gate (scripts/ at the repo root is out of scope, same precedent as scripts/validate_tasks.py) so non-blocking, but scripts/validate_tasks.py itself -- the sibling script this one explicitly mirrors -- is fully ruff-clean, so this is a small, easy inconsistency worth tidying up to match.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
