@@ -1,0 +1,82 @@
+{
+  "id": "backend-indicator-history-performance",
+  "title": "Speed up GET /api/stocks/{ticker}/indicators (cache response, fetch concurrently)",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/stocks.py",
+    "backend/app/signals/engine.py",
+    "docs/ideas.md#performance-ticker-detail-view-is-slow-to-load-charts"
+  ],
+  "description": "GET /api/stocks/{ticker}/indicators re-runs the entire Triple Screen pipeline once per daily bar in the requested range, and fetches daily then weekly OHLCV sequentially. This task covers the two lowest-risk, highest-leverage fixes from docs/ideas.md's performance entry: caching the computed IndicatorHistoryResponse itself (a pure function of daily/weekly OHLCV 'as of today', so a (ticker, range)-keyed same-day-TTL cache makes every request after the first same-day one instant) and fetching daily+weekly OHLCV concurrently instead of sequentially. Explicitly excludes the bigger, riskier 'vectorize the per-bar loop' rewrite and the 'downsample very long ranges' idea (both flagged in docs/ideas.md as needing their own separate scoping) -- those are not in scope here.",
+  "checklist": [
+    { "step": "Add a (ticker, range)-keyed cache for the computed IndicatorHistoryResponse with a same-day TTL, analogous to the existing ohlcv_cache/extended_data_cache tables.", "done": true },
+    { "step": "Fetch daily and weekly OHLCV concurrently in get_indicator_history instead of sequentially.", "done": true },
+    { "step": "Decide and record whether the existing 24h OHLCV cache TTL should also change now that daily bars only close once per trading day (docs/ideas.md's TTL question) -- record a decisions entry either way, even if the decision is to leave it unchanged.", "done": true },
+    { "step": "Unit tests covering cache hit, cache miss, and TTL expiry for the new response cache, plus a test that the concurrent fetch still degrades correctly if one of the two calls fails.", "done": true },
+    { "step": "Confirm no response shape change (this is caching-only) -- if it turns out one is needed, regenerate backend/openapi.json/frontend types.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The new IndicatorHistoryResponse cache (IndicatorHistoryCacheORM, keyed by (ticker, range)) uses a same-*calendar-day* freshness check (row.fetched_at.date() == today()) rather than a rolling timedelta window like CachedDataProvider's existing 24h _CACHE_TTL.",
+      "rationale": "The computed response is a pure function of 'daily/weekly OHLCV as of today' -- it doesn't change intraday regardless of what hour it was first computed, so it's valid for the rest of whatever UTC calendar day it was computed on and should go stale exactly at the next day boundary, not N hours after the specific fetch timestamp. A rolling 24h window was considered (simpler, reuses the exact pattern CachedDataProvider already has) but rejected: it would still force a full recompute once every 24h even during a single trading day's normal usage pattern (e.g. a user opening the same ticker's detail page at 9am and again at 8am the next day would get a stale-by-the-clock miss despite both requests being 'today's' data from the trader's perspective), which defeats a chunk of this task's own goal of making same-day repeat views instant."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Left CachedDataProvider's existing 24h OHLCV cache TTL (_CACHE_TTL in app/data/cache.py) unchanged, rather than widening it or switching to a trading-calendar-aware ('cache until next market close') policy, despite daily bars only closing once per trading day.",
+      "rationale": "docs/ideas.md itself lists 'reconsider the 24h OHLCV cache TTL' as a separate, lower-priority candidate fix (listed after the two this task's own description explicitly scopes in), not something this task's checklist requires changing -- only requires recording a decision either way. Three reasons to leave it alone for now: (1) the new same-calendar-day IndicatorHistoryResponse cache added by this same task is a strictly better lever for the specific hot path this task targets -- once a same-day response is cached, GET /api/stocks/{ticker}/indicators never reaches CachedDataProvider at all on a repeat request, so the OHLCV TTL becomes irrelevant to that endpoint's repeat-view cost regardless of its own value; (2) CachedDataProvider is shared by many more consumers than just this endpoint (GET /api/stocks/{ticker}/analysis, GET /api/stocks/{ticker}/history, portfolio price enrichment, the watchlist, the market scanner) -- changing its TTL semantics is a much wider-blast-radius change than anything scoped here, and a genuinely correct 'cache until next market close' policy would need real trading-calendar awareness (weekends, market holidays, timezone handling) that doesn't exist anywhere in this codebase yet -- a nontrivial feature of its own, not a one-line constant change; (3) the actual cost of leaving it as-is is bounded and already tolerable -- at worst one extra provider round trip per ticker/interval every 24 hours when the rolling window happens to expire mid-trading-day, which is exactly the kind of cost the docs/ideas.md entry calls 'may tolerate' rather than 'must fix'. Revisit as its own separately-scoped task if the 24h TTL is ever shown to be a real bottleneck on its own merits."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "IndicatorHistoryCacheORM stores the whole computed response as one opaque response_json column (via IndicatorHistoryResponse.model_dump_json()/model_validate_json()) rather than decomposing IndicatorHistoryPoint's fields into per-column/per-row storage.",
+      "rationale": "Mirrors ExtendedDataCacheORM's own insider_transactions_json convention (SQLite has no native JSON column type) for the same reason: this row is only ever read back as one whole IndicatorHistoryResponse object (IndicatorHistoryResponseCache.get), never queried into by an individual field or date -- a decomposed one-row-per-point schema would add real complexity (a child table, N inserts per cache population instead of 1) for zero query benefit, while also coupling this cache table's shape to IndicatorHistoryPoint's, which already changes independently as new indicators are added to that response (most recently OBV/A-D, backend-indicator-obv-ad)."
+    },
+    {
+      "timestamp": "2026-09-21T10:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "When daily and weekly OHLCV are fetched concurrently via a ThreadPoolExecutor, a failing daily fetch's exception always takes priority over a failing weekly fetch's exception (daily_future.result() is awaited before weekly_future.result()) if both would fail.",
+      "rationale": "Preserves the previous sequential implementation's observable error-priority behavior exactly: sequentially, get_daily_ohlcv() ran first, so if it failed, get_weekly_ohlcv() was never even called and its own potential failure could never surface. Concurrently, both calls now always run regardless of the other's outcome, so resolving daily_future first (even though weekly_future may have already failed by the time we check) reproduces the same 'daily failure wins' priority without needing to special-case a genuinely-new 'both failed' scenario the old code could never actually produce. This does mean the ThreadPoolExecutor's `with` block waits for the (already-running, harmless) weekly fetch to finish before the daily exception propagates out of the block, rather than returning the instant daily fails -- an accepted, minor cost given the whole point of this change is a large one-time round-trip win on the common (both-succeed) path, not shaving milliseconds off an already-rare failure path."
+    },
+    {
+      "timestamp": "2026-09-21T11:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed PR #231's needs_work Session-thread-safety finding (two threads sharing the single request-scoped SQLAlchemy Session via CachedDataProvider) with reviewer option (b): a per-instance `threading.Lock` inside `CachedDataProvider` (app/data/cache.py) that serializes only the sections of `_get`/`get_extended_data` that actually touch `self._db` (the freshness read, and the upsert/commit) -- the network round trip to the primary/fallback provider itself deliberately runs unlocked, so two concurrent calls (e.g. the endpoint's own daily+weekly fan-out) still overlap on the slow part that's actually worth parallelizing.",
+      "rationale": "Rejected (a) giving each concurrent fetch its own Session: it would require plumbing a second SessionLocal()-backed provider construction through app/api/routers/stocks.py (bypassing the existing `Depends(get_data_provider)` wiring that every dependency-override test in tests/integration/ relies on), plus explicit close()-on-every-path bookkeeping for the extra session, for a benefit (fully independent DB access) this endpoint doesn't actually need -- the two threads never write conflicting rows (daily vs. weekly are different `interval` values, so no shared composite-PK row), they only needed to stop touching one `Session` object at the same instant. Rejected (c) dropping the concurrent fetch entirely: it would fully defeat this task's own second checklist item and its measured round-trip win on a cache miss, to fix a bug that has a much smaller, targeted repair available. Chose (b) because the actual unsafe operation is narrow (two threads calling `self._db.query()`/`self._db.add()`/`self._db.commit()` at the same instant) and a lock scoped to just those sections fixes exactly that without changing `get_data_provider`'s signature, without touching any existing dependency-override test, and while still letting the expensive network I/O run genuinely in parallel -- verified with a real DB-backed regression test (tests/unit/data/test_cache.py::TestConcurrentDailyAndWeeklySessionSafety) that reproduces the reviewer's exact `IllegalStateChangeError`/`ResourceClosedError` failure modes when the lock is removed, and passes cleanly with it in place."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-history-performance",
+    "pr_number": 231,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/231",
+    "pushed_at": "2026-09-21T11:30:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T11:00:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/231",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Re-review of the Session-thread-safety fix (per-instance threading.Lock in CachedDataProvider serializing only the DB-touching sections of _get/get_extended_data). Reproduced the original bug myself by running the new regression test (tests/unit/data/test_cache.py::TestConcurrentDailyAndWeeklySessionSafety) against the pre-fix commit's cache.py: got the exact IllegalStateChangeError/ResourceClosedError failure previously reported. Restored the fix and reran: passes. Also wrote an independent race script (not reusing the PR's own test) against a real DB-backed CachedDataProvider (StaticPool SQLite, two real threading.Threads) with my own instrumentation on both the Session methods and the underlying provider fetch calls: zero errors, zero DB-call overlap, correct row counts (1 daily + 1 weekly), and -- critically -- the two network fetches genuinely overlapped in wall-clock time (~0.23s total wall time for two 0.15s fetches, vs ~0.30s if serialized), confirming the lock does not accidentally serialize the whole call and defeat the concurrent-fetch feature.",
+        "file": "backend/app/data/cache.py",
+        "line": 58
+      },
+      {
+        "summary": "Both non-blocking follow-ups from the prior review verified correct and complete: (1) test_daily_failure_takes_priority_when_both_fetches_fail uses distinct status codes (404 vs 422) for the daily/weekly failures so the assertion can't pass by coincidence if priority logic regressed -- ran it, passes; (2) the docstring/schema softening of the '/analysis always matches' claim is consistently applied across the router docstring, IndicatorHistoryResponse.points's Field description, and docs/architecture/API.md (two locations), and backend/openapi.json/frontend/src/api/types.ts were regenerated -- reran python scripts/export_openapi.py myself and got a clean diff (no drift).",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 567
+      }
+    ],
+    "notes": "Full re-review after the prior needs_work verdict's Session-thread-safety fix. Backend: pytest --cov=app --cov-fail-under=90 -> 1129 passed, 99.95% coverage. Frontend: vitest run --coverage -> all passing, ~99.7%+ across statements/branches/functions/lines (unaffected by this backend-only change; only frontend/src/api/types.ts changed, a regenerated doc-comment diff). Static analysis: backend ruff+mypy clean, frontend eslint+tsc clean, profit-target-wording guard clean. code-review skill (medium, diff 454ba74..e0fd568): no findings. No UI surface in this change (cache internals, docstrings/schema descriptions, tests only) -- browser walkthrough and the persisted e2e suite are not applicable and were explicitly skipped. Task decisions are thorough, including the rejected (a) per-thread Session and (c) drop-concurrency alternatives. No blocking findings; no new non-blocking findings -- the existing backend-indicator-history-performance-followups task already tracks both items addressed in this fix, and its checklist already shows them done."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T11:06:15Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite: 1129 passed, 99.95% coverage, matching pr-reviewer's numbers exactly. Skimmed the full diff (app/data/cache.py lock scoping, stocks.py ThreadPoolExecutor fan-out, new IndicatorHistoryCacheORM/response cache, schema doc softening) -- confirmed no IBKR/network dependency was touched. Reproduced the original race myself: swapped in the pre-fix cache.py (git show 454ba74) and reran tests/unit/data/test_cache.py::TestConcurrentDailyAndWeeklySessionSafety -- it failed with the exact reported IllegalStateChangeError/ResourceClosedError; restored the fixed version and it passed. Wrote my own independent timing script (not reusing the PR's test) with a SlowStubProvider (0.15s simulated network delay each) racing get_daily_ohlcv/get_weekly_ohlcv: wall time 0.163s (vs ~0.30s if serialized) with a 0.149s overlap window between the two fetch calls, and both DB rows (daily+weekly) written correctly with zero errors -- confirms the lock serializes only DB access, not the network fetch."
+  }
+}

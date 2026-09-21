@@ -670,15 +670,29 @@ export interface paths {
          *     itself recomputed per bar from only the weekly data available as of that bar's own
          *     calendar week -- not held fixed at today's value.
          *
-         *     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. Malformed
-         *     bars (NaN OHLC, see `app.signals.engine.drop_malformed_daily_bars`) are dropped from
-         *     `daily_ohlcv` up front, same as `/analysis`. The full (untrimmed) daily history is always
-         *     fetched first so every emitted point -- including ones near the start of the requested
-         *     `range` -- has correct indicator warm-up context; `range` only controls which already-
-         *     computed points are included in the response, not how much history feeds the computation.
-         *     The last entry in `points` always matches `GET /api/stocks/{ticker}/analysis`'s
-         *     `signal`/`confidence`/`indicators` for this same ticker at the same date, since it's
-         *     produced from the exact same (untruncated) inputs.
+         *     The computed response is served from a same-calendar-day `(ticker, range)`-keyed cache
+         *     (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`,
+         *     docs/tasks/backend-indicator-history-performance.json) when a fresh entry exists -- the
+         *     whole per-bar recompute below, and both OHLCV fetches, are skipped entirely on a cache hit.
+         *     Only a successfully computed response is cached; an error response (404/422/503) never is.
+         *
+         *     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. On a cache
+         *     miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since neither
+         *     depends on the other; if either fetch fails, that failure is what's raised, matching this
+         *     endpoint's previous sequential-fetch error priority (a failing daily fetch takes priority
+         *     over a failing weekly one, since sequentially the daily fetch would have failed first and
+         *     the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
+         *     `app.signals.engine.drop_malformed_daily_bars`) are dropped from `daily_ohlcv` up front,
+         *     same as `/analysis`. The full (untrimmed) daily history is always fetched first so every
+         *     emitted point -- including ones near the start of the requested `range` -- has correct
+         *     indicator warm-up context; `range` only controls which already-computed points are included
+         *     in the response, not how much history feeds the computation. The last entry in `points`
+         *     matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for this
+         *     same ticker at the same date whenever both are computed fresh (same untruncated inputs) --
+         *     but a same-calendar-day cache hit here can still return a signal computed from an
+         *     earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
+         *     picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
+         *     `decisions` entry and its `-followups` task for the accepted tradeoff.
          */
         get: operations["get_stock_indicator_history"];
         put?: never;
@@ -1579,7 +1593,7 @@ export interface components {
         IndicatorHistoryResponse: {
             /**
              * Points
-             * @description Oldest-first, one entry per daily bar in the requested range. The last entry always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
+             * @description Oldest-first, one entry per daily bar in the requested range. The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
              */
             points: components["schemas"]["IndicatorHistoryPoint"][];
             /** Ticker */

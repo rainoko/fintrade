@@ -1,0 +1,31 @@
+{
+  "id": "backend-indicator-history-performance-followups",
+  "title": "Non-blocking follow-ups from backend-indicator-history-performance review (PR #231)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-indicator-history-performance"],
+  "references": [
+    "docs/tasks/backend-indicator-history-performance.json",
+    "https://github.com/rainoko/fintrade/pull/231"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #231 (GET /api/stocks/{ticker}/indicators response cache + concurrent OHLCV fetch), tracked here per CLAUDE.md's convention so they aren't lost once the PR merges. Filed alongside a needs_work verdict on the parent task for a separate, blocking Session-thread-safety bug -- these two items stand independently of that fix.",
+  "checklist": [
+    {
+      "step": "Add a test proving the concurrent OHLCV fetch's documented error-priority behavior (a failing daily fetch's exception always takes priority over a failing weekly one) for the case where BOTH fetches fail, not just the single-sided daily-only/weekly-only cases tests/integration/test_stocks_indicator_history.py::TestConcurrentOhlcvFetch currently covers. The logic itself (daily_future.result() awaited before weekly_future.result()) is correct by inspection, but the task's own decisions entry explicitly claims this both-fail priority and nothing currently exercises it.",
+      "done": true
+    },
+    {
+      "step": "Reconsider (or at least soften the docstring for) the same-calendar-day IndicatorHistoryResponse cache's interaction with GET /api/stocks/{ticker}/analysis: once the response cache serves a same-day hit, it can keep returning a signal computed from an earlier-in-the-day OHLCV snapshot even after the underlying ohlcv_cache row it derived from is refreshed later that day (e.g. today's daily bar settling after market close, or another endpoint's request refreshing the raw OHLCV cache). get_indicator_history's own updated docstring still states 'The last entry in points always matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker at the same date' as an unconditional invariant, which is no longer strictly true whenever the response cache is serving a hit. Either caveat that docstring sentence (and docs/architecture/API.md's mirrored text) to note the same-day-cache exception, or invalidate the response cache when the underlying OHLCV data it was computed from has since been refreshed.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T11:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Both checklist items were implemented directly on branch task/backend-indicator-history-performance (PR #231) while fixing that task's blocking Session-thread-safety needs_work finding, rather than on a separate branch/PR for this followups task.",
+      "rationale": "The task instructing this work (backend-indicator-history-performance's needs_work fix) explicitly asked to address these two non-blocking findings 'while in this area' if convenient, and both changes (a both-fetches-fail test in tests/integration/test_stocks_indicator_history.py, and softened docstring wording in app/api/routers/stocks.py + docs/architecture/API.md) are small, low-risk, and directly adjacent to code already being touched. Left this task's own `state` as `planned` (not advanced to `done`) since marking a task done is a pr-reviewer/pr-decision action per CLAUDE.md's task-board convention, not something task-worker does unilaterally -- the checklist above is complete and verifiable once PR #231 is reviewed and merged."
+    }
+  ]
+}

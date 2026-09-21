@@ -6,6 +6,8 @@ StooqProvider, so nothing here ever makes a live network call (this suite's
 own "no live network calls" scenario, per this task's checklist).
 """
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -484,6 +486,113 @@ class TestUpsertDuplicateDateWithinFrame:
         assert len(rows) == 2
         assert rows[0].close == 32.0
         assert rows[1].close == 40.0
+
+
+class TestConcurrentDailyAndWeeklySessionSafety:
+    """Regression test for the Session-thread-safety bug found in PR #231's review
+    (docs/tasks/backend-indicator-history-performance.json's `review` field):
+    `app.api.routers.stocks.get_indicator_history` fans daily+weekly OHLCV fetches out to
+    two threads that share one request-scoped `Session` via `CachedDataProvider`. SQLAlchemy's
+    `Session` is not safe for two threads to touch at once -- on a cold cache this reliably
+    raised `IllegalStateChangeError`/`ResourceClosedError`/a corrupted-state `AttributeError`/a
+    duplicate-insert `IntegrityError`, none of which the endpoint's except clauses caught.
+
+    This races a *real* DB-backed `CachedDataProvider` (a real in-memory SQLite `Session`, not a
+    stub) with two real `threading.Thread`s calling `get_daily_ohlcv`/`get_weekly_ohlcv`
+    concurrently on a cold cache -- the exact shape of the endpoint's own `ThreadPoolExecutor`
+    fan-out -- with a non-reentrant detector lock wrapped around the `Session`'s own
+    `query`/`add`/`commit` methods (plus an injected delay to widen the window) that fails the
+    test the instant two threads are ever inside a `Session` call at the same time. A stub-based
+    test (the existing `TestConcurrentOhlcvFetch` integration coverage, which never touches a
+    real `Session`) could not have caught this and would not prove `CachedDataProvider._lock`'s
+    fix (app/data/cache.py) actually works either.
+
+    Uses its own dedicated `poolclass=StaticPool` engine/session rather than this module's
+    shared `session` fixture: SQLAlchemy's default pool for a `sqlite:///:memory:` URL is a
+    `SingletonThreadPool`, which hands each *thread* its own separate physical connection --
+    and for an in-memory database, a separate connection means a separate, unmigrated, empty
+    database. Two real threads sharing one logical `Session` (this test's whole point) need
+    `StaticPool` to actually share the one physical connection/schema, matching the
+    `poolclass=StaticPool` pattern `tests/integration/test_stocks_indicator_history.py`'s own
+    `_isolated_db` fixture already uses for the same reason. Not a production concern: the real
+    app (app/db/session.py) points at an on-disk SQLite file, where every connection already
+    sees the same data regardless of pool/thread.
+    """
+
+    @pytest.fixture
+    def threaded_session(self):
+        from sqlalchemy.pool import StaticPool
+
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        db: Session = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+            engine.dispose()
+
+    def test_concurrent_daily_and_weekly_fetch_never_touch_the_session_at_the_same_time(
+        self, threaded_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = threaded_session
+        daily = _frame(["2026-08-03"], [123.0])
+        weekly = _frame(["2026-08-01"], [124.0])
+        primary = _StubProvider(daily=daily, weekly=weekly)
+        fallback = _StubProvider()
+        provider = CachedDataProvider(primary, fallback, session)
+
+        detector_lock = threading.Lock()
+        overlap_detected = threading.Event()
+
+        def _guarded(original, *args, **kwargs):
+            acquired = detector_lock.acquire(blocking=False)
+            if not acquired:
+                # Another thread is already inside a Session call right now -- a real,
+                # instantaneously-detected overlap, not a timing guess.
+                overlap_detected.set()
+            time.sleep(0.02)  # widen the window so a real race reliably overlaps
+            try:
+                return original(*args, **kwargs)
+            finally:
+                if acquired:
+                    detector_lock.release()
+
+        for method_name in ("query", "add", "commit"):
+            original = getattr(session, method_name)
+            monkeypatch.setattr(
+                session, method_name, lambda *a, _orig=original, **k: _guarded(_orig, *a, **k)
+            )
+
+        errors: list[BaseException] = []
+
+        def _run(method):
+            try:
+                method("RACE")
+            except BaseException as exc:  # noqa: BLE001 -- captured for the assertion below
+                errors.append(exc)
+
+        t1 = threading.Thread(target=_run, args=(provider.get_daily_ohlcv,))
+        t2 = threading.Thread(target=_run, args=(provider.get_weekly_ohlcv,))
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        assert not errors, f"concurrent fetch raised on a real DB-backed session: {errors!r}"
+        assert not overlap_detected.is_set(), (
+            "two threads were simultaneously inside a Session call -- CachedDataProvider's "
+            "own lock did not serialize DB access"
+        )
+        assert (
+            session.query(OHLCVCacheORM).filter_by(ticker="RACE", interval="daily").count() == 1
+        )
+        assert (
+            session.query(OHLCVCacheORM).filter_by(ticker="RACE", interval="weekly").count() == 1
+        )
 
 
 def _extended(**overrides) -> ExtendedData:
