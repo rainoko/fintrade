@@ -1,0 +1,25 @@
+{
+  "id": "backend-daily-homework-self-test-followups",
+  "title": "Non-blocking follow-ups from backend-daily-homework-self-test PR #216 review",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-daily-homework-self-test"],
+  "references": [
+    "docs/tasks/backend-daily-homework-self-test.json",
+    "https://github.com/rainoko/fintrade/pull/216"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #216 (backend-daily-homework-self-test), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/architecture/Backend.md §7's persistence table enumeration (the sentence listing positions/account/watchlist/ohlcv_cache) doesn't mention the new daily_homework_entries table -- update it, and while there, note it's already missing closed_trades/extended_data_cache too (a pre-existing staleness this PR's own omission continues; see commit 5d5b86d which filed an identical follow-up for watchlist_items previously).",
+      "done": false
+    },
+    {
+      "step": "_today()/_utcnow() naive-UTC helper functions are now duplicated a 4th time (app/api/routers/portfolio.py, app/api/routers/watchlist.py, app/api/routers/homework.py, app/data/cache.py) with near-identical docstrings cross-referencing each other -- consider consolidating into one shared module (e.g. app/api/time_utils.py or similar) rather than continuing to copy-paste it into every new router.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
