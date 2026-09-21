@@ -3,7 +3,7 @@
   "title": "Free-text 'why did I take this trade' entry notes",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
@@ -34,5 +34,18 @@
     "pr_number": 213,
     "pr_url": "https://github.com/rainoko/fintrade/pull/213",
     "pushed_at": "2026-09-20T23:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T00:03:53Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/213",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "entry_notes has no field_validator to strip whitespace or normalize an empty string to null, unlike PositionIn.ticker's own strip-and-reject-blank validator. An explicit entry_notes: \"\" is stored/returned as \"\" rather than null, and a whitespace-only note is truthy so it would still get appended on a merge. Low severity, non-blocking -- filed as backend-trade-journal-entry-notes-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 379
+      }
+    ],
+    "notes": "Full review: pytest --cov=app (949 passed, 99.94% coverage, no regression), ruff/mypy/eslint/tsc all clean, code-review skill (effort=high) found no correctness bugs. Verified the two decisions recorded above actually hold: (1) adding entry_notes to Position would break tests/unit/test_portfolio_models.py's exact-dict equality against the docs/architecture/API.md example (Position has no model_config excluding None fields from model_dump(mode=\"json\")), and app.portfolio.risk/exits both consume Position directly with no use for entry_notes -- placement on EnrichedPosition is correct; (2) the merge-append behavior is tested for all four combinations (no-note create, note+no-incoming keeps existing, note+note appends blank-line-separated with neither note dropped, no-existing+incoming sets it) in tests/integration/test_portfolio_positions.py. backend/openapi.json and frontend/src/api/types.ts regenerated locally and confirmed byte-identical to the committed snapshot. Migration a9adc10fa37c verified as the single head with a correct up/down pair. No UI surface touched (only generated types.ts) -- browser walkthrough and e2e suite genuinely not applicable, explicitly skipped."
   }
 }
