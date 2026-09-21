@@ -363,6 +363,13 @@ class PositionOut(BaseModel):
         "PositionIn.entry_notes when this position was opened (Elder ch. 59 Trade Journal "
         "Section A) -- null if none was ever given.",
     )
+    strategy: str | None = Field(
+        default=None,
+        description="The trader's own personal, named strategy/setup tag supplied via "
+        "PositionIn.strategy when this position was opened (Elder ch. 55/56/58/59 -- his own "
+        "examples: 'false breakout with a divergence,' 'pullback to value') -- null if none "
+        "was ever given.",
+    )
 
 
 class PortfolioResponse(BaseModel):
@@ -385,6 +392,19 @@ class PositionIn(BaseModel):
         "see the backend-trade-journal-entry-notes task's `decisions`. Carried through "
         "unchanged to the resulting `ClosedTradeOut.entry_notes` if/when this position is "
         "later closed.",
+    )
+    strategy: str | None = Field(
+        default=None,
+        description="Optional free-text personal, named strategy/setup tag for this trade "
+        "(Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false "
+        "breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, "
+        "predefined list, since Elder's own framing is that a trader's strategies are "
+        "personal and evolve over time -- see the backend-trade-strategy-tagging task's "
+        "`decisions`. On merge with an existing position for the same ticker, an incoming "
+        "`strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a "
+        "merge with no incoming `strategy` leaves the existing one untouched. Carried through "
+        "unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later "
+        "closed.",
     )
 
     @field_validator("ticker")
@@ -586,6 +606,12 @@ class ClosedTradeOut(BaseModel):
         description="Carried over verbatim from the position's own PositionIn.entry_notes "
         "(Elder ch. 59 Trade Journal Section A) at the moment it was closed -- null if the "
         "position never had a note recorded.",
+    )
+    strategy: str | None = Field(
+        default=None,
+        description="Carried over verbatim from the position's own PositionIn.strategy "
+        "(Elder ch. 55/56/58/59 personal named strategy tag) at the moment it was closed -- "
+        "null if the position never had a strategy tag recorded.",
     )
 
 

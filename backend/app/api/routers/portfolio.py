@@ -254,6 +254,7 @@ def get_portfolio(
                 confidence=signal_result.confidence if signal_result is not None else None,
                 confidence_band=signal_result.confidence_band if signal_result is not None else None,
                 entry_notes=e.entry_notes,
+                strategy=e.strategy,
             )
         )
 
@@ -300,6 +301,12 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     a merge, an incoming note is appended to the existing one (blank-line separated) rather
     than overwritten, so notes from multiple buys aren't lost -- see the
     backend-trade-journal-entry-notes task's `decisions`.
+    `strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is set outright on a new
+    position; on a merge, an incoming `strategy` *overwrites* the existing one (unlike
+    `entry_notes`) so this field stays a single clean tag for future strategy-segmented
+    grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
+    merge with no incoming `strategy` leaves the existing one untouched -- see the
+    backend-trade-strategy-tagging task's `decisions`.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -316,6 +323,7 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
             avg_cost_basis=position.avg_cost_basis,
             entry_date=position.entry_date,
             entry_notes=position.entry_notes,
+            strategy=position.strategy,
         )
         db.add(row)
     else:
@@ -366,6 +374,14 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
                 if existing.entry_notes
                 else position.entry_notes
             )
+        # strategy merges by overwriting rather than appending -- see this task's `decisions`
+        # entry: unlike entry_notes' narrative text, strategy is meant to be grouped/
+        # aggregated on exactly (equity-curves-by-strategy, the future backend-trade-apgar
+        # task), so a merge with an incoming strategy replaces the existing tag outright. A
+        # merge with no incoming strategy leaves the existing one untouched (nothing to
+        # replace it with).
+        if position.strategy:
+            existing.strategy = position.strategy
         row = existing
 
     db.commit()
@@ -383,6 +399,7 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
         confidence=None,
         confidence_band=None,
         entry_notes=row.entry_notes,
+        strategy=row.strategy,
     )
 
 
@@ -450,12 +467,14 @@ def delete_position(
     reducing a position means deleting and re-adding it with the new quantity.
 
     Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
-    realized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously
-    had no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month
-    component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
-    task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
-    carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
-    Section A, see POST /api/portfolio/positions) -- null if none was ever recorded.
+    realized P&L, exit_reason, entry_notes, strategy) -- the trade-history/ledger this app
+    previously had no model for at all -- feeding both GET /api/portfolio/risk's
+    realized-losses-this-month component of the 6% Rule (docs/Analyse.md §7) and, longer-term,
+    the backend-trade-grading task's buy/sell/trade-grade formulas plus a trade-journal
+    frontend page. `entry_notes` is carried over verbatim from the position's own entry note
+    (Elder ch. 59 Trade Journal Section A, see POST /api/portfolio/positions) -- null if none
+    was ever recorded. `strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is
+    carried over the same way -- null if none was ever recorded.
 
     By default, `exit_price` is today's latest close for this ticker, fetched the same way
     `current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),
@@ -510,6 +529,7 @@ def delete_position(
                 realized_pnl=row.quantity * (resolved_exit_price - row.avg_cost_basis),
                 exit_reason=exit_reason.value,
                 entry_notes=row.entry_notes,
+                strategy=row.strategy,
             )
         )
 
@@ -713,6 +733,7 @@ def get_closed_trades(
                 sell_grade_pct=grades[row.id].sell_grade_pct,
                 trade_grade_pct=grades[row.id].trade_grade_pct,
                 entry_notes=row.entry_notes,
+                strategy=row.strategy,
             )
             for row in rows
         ]

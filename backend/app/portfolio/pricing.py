@@ -40,6 +40,11 @@ class EnrichedPosition:
     serialization is pinned to the exact docs/architecture/API.md `GET /api/portfolio` example
     in tests/unit/test_portfolio_models.py -- see the backend-trade-journal-entry-notes task's
     `decisions` entry."""
+    strategy: str | None = None
+    """`PositionORM.strategy` verbatim, carried alongside `position` for the same reason
+    `entry_notes` above is: `Position` has no use for it and its serialization is pinned to
+    the docs/architecture/API.md example -- see the backend-trade-strategy-tagging task's
+    `decisions` entry."""
 
 
 def enrich_positions_with_price(
@@ -75,6 +80,7 @@ def enrich_positions_with_price(
                 ),
                 daily_ohlcv=daily_ohlcv,
                 entry_notes=row.entry_notes,
+                strategy=row.strategy,
             )
         )
     return enriched

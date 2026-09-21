@@ -263,6 +263,18 @@
             "description": "(exit_price - exit day's low) / (exit day's high - exit day's low), as a percentage -- how close to the exit day's high the sell actually was. >50% is 'very good'. Null under the same conditions as buy_grade_pct, evaluated for the exit day instead.",
             "title": "Sell Grade Pct"
           },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Carried over verbatim from the position's own PositionIn.strategy (Elder ch. 55/56/58/59 personal named strategy tag) at the moment it was closed -- null if the position never had a strategy tag recorded.",
+            "title": "Strategy"
+          },
           "ticker": {
             "title": "Ticker",
             "type": "string"
@@ -1814,6 +1826,18 @@
             "title": "Quantity",
             "type": "number"
           },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.",
+            "title": "Strategy"
+          },
           "ticker": {
             "description": "Stock ticker symbol, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker that's already held merges into the existing position (quantity-weighted average cost basis) rather than creating a duplicate row \u2014 see the api-portfolio-add-position task's decisions.",
             "minLength": 1,
@@ -1918,6 +1942,18 @@
             ],
             "description": "BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md \u00a75) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so current_price is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.",
             "title": "Signal"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The trader's own personal, named strategy/setup tag supplied via PositionIn.strategy when this position was opened (Elder ch. 55/56/58/59 -- his own examples: 'false breakout with a divergence,' 'pullback to value') -- null if none was ever given.",
+            "title": "Strategy"
           },
           "ticker": {
             "title": "Ticker",
@@ -2906,7 +2942,7 @@
     },
     "/api/portfolio/positions": {
       "post": {
-        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on\na merge, an incoming note is appended to the existing one (blank-line separated) rather\nthan overwritten, so notes from multiple buys aren't lost -- see the\nbackend-trade-journal-entry-notes task's `decisions`.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.",
+        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on\na merge, an incoming note is appended to the existing one (blank-line separated) rather\nthan overwritten, so notes from multiple buys aren't lost -- see the\nbackend-trade-journal-entry-notes task's `decisions`.\n`strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is set outright on a new\nposition; on a merge, an incoming `strategy` *overwrites* the existing one (unlike\n`entry_notes`) so this field stays a single clean tag for future strategy-segmented\ngrouping/equity-curve use, rather than accumulating multiple concatenated values -- a\nmerge with no incoming `strategy` leaves the existing one untouched -- see the\nbackend-trade-strategy-tagging task's `decisions`.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.",
         "operationId": "add_position",
         "requestBody": {
           "content": {
@@ -2955,7 +2991,7 @@
     },
     "/api/portfolio/positions/{position_id}": {
       "delete": {
-        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously\nhad no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month\ncomponent of the 6% Rule (docs/Analyse.md \u00a77) and, longer-term, the backend-trade-grading\ntask's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is\ncarried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal\nSection A, see POST /api/portfolio/positions) -- null if none was ever recorded.\n\nBy default, `exit_price` is today's latest close for this ticker, fetched the same way\n`current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),\nand `exit_date` is today -- not a caller-supplied price/date, since this app already treats\n\"current market price\" as authoritative for mark-to-market elsewhere rather than trusting a\nclient-supplied number. Callers may instead supply `exit_price` and `exit_date` together to\nbackfill a trade that already happened in the past (see their own descriptions above and\nthe backend-close-position-manual-exit task's `decisions` entry for why this is a\ndeliberate, narrow exception to that rule rather than a silent override of it).\n`realized_pnl` is `quantity * (exit_price - avg_cost_basis)` either way. If the default\n(no override) price fetch fails (unknown/delisted ticker, provider unavailable), the\nposition is still deleted -- a data-provider outage must never block removing a position --\nbut no `closed_trades` row is recorded, since there's no way to compute a realized P&L\nwithout an exit price; see the backend-trade-history-table task's `decisions` entry for the\nfull rationale.",
+        "description": "Removes a position entirely. There is no partial-quantity reduction endpoint --\nreducing a position means deleting and re-adding it with the new quantity.\n\nAlso records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,\nrealized P&L, exit_reason, entry_notes, strategy) -- the trade-history/ledger this app\npreviously had no model for at all -- feeding both GET /api/portfolio/risk's\nrealized-losses-this-month component of the 6% Rule (docs/Analyse.md \u00a77) and, longer-term,\nthe backend-trade-grading task's buy/sell/trade-grade formulas plus a trade-journal\nfrontend page. `entry_notes` is carried over verbatim from the position's own entry note\n(Elder ch. 59 Trade Journal Section A, see POST /api/portfolio/positions) -- null if none\nwas ever recorded. `strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is\ncarried over the same way -- null if none was ever recorded.\n\nBy default, `exit_price` is today's latest close for this ticker, fetched the same way\n`current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),\nand `exit_date` is today -- not a caller-supplied price/date, since this app already treats\n\"current market price\" as authoritative for mark-to-market elsewhere rather than trusting a\nclient-supplied number. Callers may instead supply `exit_price` and `exit_date` together to\nbackfill a trade that already happened in the past (see their own descriptions above and\nthe backend-close-position-manual-exit task's `decisions` entry for why this is a\ndeliberate, narrow exception to that rule rather than a silent override of it).\n`realized_pnl` is `quantity * (exit_price - avg_cost_basis)` either way. If the default\n(no override) price fetch fails (unknown/delisted ticker, provider unavailable), the\nposition is still deleted -- a data-provider outage must never block removing a position --\nbut no `closed_trades` row is recorded, since there's no way to compute a realized P&L\nwithout an exit price; see the backend-trade-history-table task's `decisions` entry for the\nfull rationale.",
         "operationId": "delete_position",
         "parameters": [
           {

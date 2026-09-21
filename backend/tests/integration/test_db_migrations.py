@@ -82,6 +82,7 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "avg_cost_basis",
             "entry_date",
             "entry_notes",
+            "strategy",
         }
         assert _table_columns(db_path, "account") == {"id", "cash"}
         assert _table_columns(db_path, "ohlcv_cache") == {
@@ -107,6 +108,7 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "realized_pnl",
             "exit_reason",
             "entry_notes",
+            "strategy",
         }
 
     def test_records_the_head_revision_in_alembic_version(self, tmp_path: Path) -> None:

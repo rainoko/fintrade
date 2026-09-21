@@ -322,6 +322,12 @@ export interface paths {
          *     a merge, an incoming note is appended to the existing one (blank-line separated) rather
          *     than overwritten, so notes from multiple buys aren't lost -- see the
          *     backend-trade-journal-entry-notes task's `decisions`.
+         *     `strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is set outright on a new
+         *     position; on a merge, an incoming `strategy` *overwrites* the existing one (unlike
+         *     `entry_notes`) so this field stays a single clean tag for future strategy-segmented
+         *     grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
+         *     merge with no incoming `strategy` leaves the existing one untouched -- see the
+         *     backend-trade-strategy-tagging task's `decisions`.
          *     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
          *     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
          *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -351,12 +357,14 @@ export interface paths {
          *     reducing a position means deleting and re-adding it with the new quantity.
          *
          *     Also records a `closed_trades` row (ticker, quantity, entry price/date, exit price/date,
-         *     realized P&L, exit_reason, entry_notes) -- the trade-history/ledger this app previously
-         *     had no model for at all -- feeding both GET /api/portfolio/risk's realized-losses-this-month
-         *     component of the 6% Rule (docs/Analyse.md §7) and, longer-term, the backend-trade-grading
-         *     task's buy/sell/trade-grade formulas plus a trade-journal frontend page. `entry_notes` is
-         *     carried over verbatim from the position's own entry note (Elder ch. 59 Trade Journal
-         *     Section A, see POST /api/portfolio/positions) -- null if none was ever recorded.
+         *     realized P&L, exit_reason, entry_notes, strategy) -- the trade-history/ledger this app
+         *     previously had no model for at all -- feeding both GET /api/portfolio/risk's
+         *     realized-losses-this-month component of the 6% Rule (docs/Analyse.md §7) and, longer-term,
+         *     the backend-trade-grading task's buy/sell/trade-grade formulas plus a trade-journal
+         *     frontend page. `entry_notes` is carried over verbatim from the position's own entry note
+         *     (Elder ch. 59 Trade Journal Section A, see POST /api/portfolio/positions) -- null if none
+         *     was ever recorded. `strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is
+         *     carried over the same way -- null if none was ever recorded.
          *
          *     By default, `exit_price` is today's latest close for this ticker, fetched the same way
          *     `current_price` is everywhere else in this router (`app.portfolio.pricing.latest_close`),
@@ -841,6 +849,11 @@ export interface components {
              * @description (exit_price - exit day's low) / (exit day's high - exit day's low), as a percentage -- how close to the exit day's high the sell actually was. >50% is 'very good'. Null under the same conditions as buy_grade_pct, evaluated for the exit day instead.
              */
             sell_grade_pct?: number | null;
+            /**
+             * Strategy
+             * @description Carried over verbatim from the position's own PositionIn.strategy (Elder ch. 55/56/58/59 personal named strategy tag) at the moment it was closed -- null if the position never had a strategy tag recorded.
+             */
+            strategy?: string | null;
             /** Ticker */
             ticker: string;
             /**
@@ -1641,6 +1654,11 @@ export interface components {
              */
             quantity: number;
             /**
+             * Strategy
+             * @description Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.
+             */
+            strategy?: string | null;
+            /**
              * Ticker
              * @description Stock ticker symbol, normalized to uppercase (leading/trailing whitespace is stripped). Adding a ticker that's already held merges into the existing position (quantity-weighted average cost basis) rather than creating a duplicate row — see the api-portfolio-add-position task's decisions.
              */
@@ -1684,6 +1702,11 @@ export interface components {
              * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so current_price is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
              */
             signal?: ("BUY" | "SELL" | "HOLD") | null;
+            /**
+             * Strategy
+             * @description The trader's own personal, named strategy/setup tag supplied via PositionIn.strategy when this position was opened (Elder ch. 55/56/58/59 -- his own examples: 'false breakout with a divergence,' 'pullback to value') -- null if none was ever given.
+             */
+            strategy?: string | null;
             /** Ticker */
             ticker: string;
             /**

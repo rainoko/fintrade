@@ -1454,7 +1454,7 @@
       "id": "backend-trade-strategy-tagging",
       "area": "backend/portfolio",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-trade-strategy-tagging.json"
     },
     {
