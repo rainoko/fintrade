@@ -8,11 +8,22 @@ day's OHLC + entry-day channel bounds (`app.indicators.autoenvelope.autoenvelope
 All three grades are preferred over grading a trade by raw dollars/percent-return alone,
 since they account for how much was *realistically available to capture* that day/that
 channel, not just what was actually captured.
+
+`trade_grade_pct` also gets an Elder-style A/B/C/D letter grade (`trade_letter_grade`, below)
+-- see its own docstring/module-level comment for the full decision record on how the book's
+two numeric anchors (>=30% "A", ~10% "C") were extended into a full four-band scale.
+`buy_grade_pct`/`sell_grade_pct` deliberately do **not** get a letter grade: the book gives
+them only a single ">50% = very good" anchor each and no letter-grade scale at all (no A/B/C/D
+banding is ever attached to buy/sell grade in ch. 55), so there's nothing to interpolate --
+inventing a four-band scale with zero anchors would be a materially different, much weaker
+judgment call than the one made for `trade_grade_pct` above, so they stay percentage-only
+(`backend-trade-grade-letter` task `decisions`).
 """
 
 import math
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 import pandas as pd
 
@@ -71,6 +82,58 @@ def trade_grade_pct(
     return _ratio_pct(
         sell_price - buy_price, channel_upper_entry_day - channel_lower_entry_day
     )
+
+
+TradeLetterGrade = Literal["A", "B", "C", "D"]
+
+# Elder ch. 55 ("Is This an A-Trade?") frames trade_grade_pct as a letter grade, not a raw
+# number -- footnote: "This term comes from the U.S. school grading system: A is excellent, B
+# good, C mediocre, and D poor" -- but the primary source only ever gives two numeric anchors
+# for that letter scale: >=30% capture is an "A" (ch. 55 itself) and ~10% is a "C" (ch. 22,
+# cross-referenced from ch. 55). B and D have no stated numeric threshold anywhere in the book,
+# only qualitative color (Kerry Lovvorn, quoted in ch. 55: "if I saw no A-trades... I'd go for
+# B-trades, and on a really slow day, reach for a C-trade") and an unlabelled banding diagram
+# (fig. 55.1).
+#
+# docs/ideas.md's own "Letter-grade scores" entry lays out three candidate ways to fill that
+# gap -- this is the `decisions`-recorded judgment call (`backend-trade-grade-letter` task)
+# picking one:
+#   1. Linearly interpolate/extrapolate an even letter-grade scale from the two known anchors.
+#   2. Only ever show "A" or "C-or-below", leaving B (and D) ungraded rather than invented.
+#   3. Something else entirely (a different curve, a wider/narrower A band, etc).
+#
+# Chosen: (1). The two anchors are exactly 20 percentage points apart and exactly two letter
+# steps apart (C -> B -> A), which places B, unambiguously and without inventing any new
+# slope, exactly halfway between them at the same 10-point-per-letter spacing the book's own
+# two data points already imply: A >= 30%, B in [20%, 30%), C in [10%, 20%), D < 10%. D has no
+# floor (a losing trade, i.e. negative trade_grade_pct, is still "poor" -- exactly what D
+# means -- not a separate, undefined case) and A has no ceiling (there's no textual anchor for
+# a grade *above* "excellent", and a >30% capture only ever being described as "as good as it
+# gets" argues against inventing one). This is different from (and a considered decision
+# beyond) `TradeJournalPanel.tsx`'s earlier, still-correct-as-far-as-it-went call to *not*
+# invent this boundary at all -- that call was made without directly reading ch. 55's own
+# numeric anchors or Lovvorn's B/C ordering, so it had nothing to interpolate between; this
+# task started from actually reading the chapter, found the two anchors are evenly spaced by
+# construction, and recorded that as the fill for the gap rather than leaving it unfilled a
+# second time. See this task's `decisions` entry for the full alternatives considered.
+_TRADE_GRADE_A_THRESHOLD_PCT = 30.0
+_TRADE_GRADE_B_THRESHOLD_PCT = 20.0
+_TRADE_GRADE_C_THRESHOLD_PCT = 10.0
+
+
+def trade_letter_grade(trade_grade_pct: float | None) -> TradeLetterGrade | None:
+    """Maps `trade_grade_pct` to Elder's own A/B/C/D letter scale (see the module-level
+    comment above `_TRADE_GRADE_A_THRESHOLD_PCT` for the full rationale/decision record) --
+    `None` when `trade_grade_pct` itself is `None` (ungraded trade, not a fabricated letter)."""
+    if trade_grade_pct is None:
+        return None
+    if trade_grade_pct >= _TRADE_GRADE_A_THRESHOLD_PCT:
+        return "A"
+    if trade_grade_pct >= _TRADE_GRADE_B_THRESHOLD_PCT:
+        return "B"
+    if trade_grade_pct >= _TRADE_GRADE_C_THRESHOLD_PCT:
+        return "C"
+    return "D"
 
 
 def grade_trade(

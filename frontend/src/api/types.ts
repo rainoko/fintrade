@@ -285,6 +285,10 @@ export interface paths {
          *     `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is
          *     preferred over judging it by raw P&L alone, since it accounts for how much was
          *     realistically available to capture that day/that channel, not just what was captured.
+         *     `trade_grade_pct` is additionally mapped to an Elder-style `trade_letter_grade` (A/B/C/D --
+         *     see `app.portfolio.grading.trade_letter_grade`'s own docstring for the thresholds and the
+         *     decision record behind them); `buy_grade_pct`/`sell_grade_pct` stay percentage-only since
+         *     the book gives them no letter-grade scale at all.
          *
          *     Grading never fails the request: a ticker whose current daily-history fetch fails, or a
          *     trade whose entry/exit date isn't an exact row in that history (e.g. it predates the
@@ -861,6 +865,11 @@ export interface components {
              * @description (exit_price - entry_price) / (channel_upper - channel_lower, measured on entry_date), as a percentage -- the trade's actual gain as a fraction of the entry day's Autoenvelope/channel height (docs/Analyse.md §4, same channel AnalysisResponse.indicators.channel_upper/channel_lower expose). >=30% capture is an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't available -- the ticker's fetched daily history doesn't reach back to entry_date, or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.
              */
             trade_grade_pct?: number | null;
+            /**
+             * Trade Letter Grade
+             * @description Elder's own A/B/C/D letter grade (ch. 55 footnote: 'A is excellent, B good, C mediocre, and D poor') derived from trade_grade_pct: A >= 30%, B in [20%, 30%), C in [10%, 20%), D < 10% (including a losing trade, i.e. a negative trade_grade_pct). Only trade_grade_pct gets a letter -- buy_grade_pct/sell_grade_pct have no letter-grade scale documented in the book at all, only a single '>50% = very good' anchor each, so they stay percentage-only. Null exactly when trade_grade_pct is null (see app.portfolio.grading.trade_letter_grade for the full threshold rationale/decision record).
+             */
+            trade_letter_grade?: ("A" | "B" | "C" | "D") | null;
         };
         /** ClosedTradesResponse */
         ClosedTradesResponse: {

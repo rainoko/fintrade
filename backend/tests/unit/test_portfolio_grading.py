@@ -31,6 +31,7 @@ from app.portfolio.grading import (
     grade_trade_from_filtered_history,
     sell_grade_pct,
     trade_grade_pct,
+    trade_letter_grade,
 )
 
 
@@ -320,3 +321,52 @@ class TestGradeTradeFromFilteredHistory:
             exit_date=frame.index[115].date(),
             daily_ohlcv=frame,
         )
+
+
+class TestTradeLetterGrade:
+    """`trade_letter_grade` -- the `backend-trade-grade-letter` task's A/B/C/D mapping of
+    `trade_grade_pct` (see that function's own docstring/module comment for the full
+    decision record). A >= 30%, B in [20%, 30%), C in [10%, 20%), D < 10% (no floor)."""
+
+    def test_none_when_trade_grade_pct_is_none(self) -> None:
+        assert trade_letter_grade(None) is None
+
+    def test_book_given_a_anchor_is_graded_a(self) -> None:
+        """The book's own explicit anchor: >=30% capture is an 'A' trade."""
+        assert trade_letter_grade(30.0) == "A"
+
+    def test_book_given_c_anchor_is_graded_c(self) -> None:
+        """The book's own explicit anchor: ~10% capture is a 'C' trade."""
+        assert trade_letter_grade(10.0) == "C"
+
+    def test_well_above_a_threshold_is_a(self) -> None:
+        assert trade_letter_grade(97.3) == "A"
+
+    def test_just_above_a_threshold_is_a(self) -> None:
+        assert trade_letter_grade(30.01) == "A"
+
+    def test_just_below_a_threshold_is_b(self) -> None:
+        assert trade_letter_grade(29.99) == "B"
+
+    def test_midpoint_between_anchors_is_b(self) -> None:
+        assert trade_letter_grade(25.0) == "B"
+
+    def test_at_b_threshold_is_b(self) -> None:
+        assert trade_letter_grade(20.0) == "B"
+
+    def test_just_below_b_threshold_is_c(self) -> None:
+        assert trade_letter_grade(19.99) == "C"
+
+    def test_just_above_c_threshold_is_c(self) -> None:
+        assert trade_letter_grade(10.01) == "C"
+
+    def test_just_below_c_threshold_is_d(self) -> None:
+        assert trade_letter_grade(9.99) == "D"
+
+    def test_zero_is_d(self) -> None:
+        assert trade_letter_grade(0.0) == "D"
+
+    def test_negative_losing_trade_is_d_with_no_floor(self) -> None:
+        """A losing trade (sell price below buy price) yields a negative trade_grade_pct --
+        still "poor", i.e. D, not a separate undefined case."""
+        assert trade_letter_grade(-42.0) == "D"

@@ -290,6 +290,24 @@
             ],
             "description": "(exit_price - entry_price) / (channel_upper - channel_lower, measured on entry_date), as a percentage -- the trade's actual gain as a fraction of the entry day's Autoenvelope/channel height (docs/Analyse.md \u00a74, same channel AnalysisResponse.indicators.channel_upper/channel_lower expose). >=30% capture is an 'A' trade, ~10% a 'C' trade. Null whenever the entry day's channel bounds aren't available -- the ticker's fetched daily history doesn't reach back to entry_date, or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
             "title": "Trade Grade Pct"
+          },
+          "trade_letter_grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Elder's own A/B/C/D letter grade (ch. 55 footnote: 'A is excellent, B good, C mediocre, and D poor') derived from trade_grade_pct: A >= 30%, B in [20%, 30%), C in [10%, 20%), D < 10% (including a losing trade, i.e. a negative trade_grade_pct). Only trade_grade_pct gets a letter -- buy_grade_pct/sell_grade_pct have no letter-grade scale documented in the book at all, only a single '>50% = very good' anchor each, so they stay percentage-only. Null exactly when trade_grade_pct is null (see app.portfolio.grading.trade_letter_grade for the full threshold rationale/decision record).",
+            "title": "Trade Letter Grade"
           }
         },
         "required": [
@@ -2920,7 +2938,7 @@
     },
     "/api/portfolio/closed-trades": {
       "get": {
-        "description": "Every row in the `closed_trades` table (docs/Analyse.md \u00a77's trade-history/ledger\ntable, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first\n(`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors\n`_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since\ntrade history is read for recency rather than portfolio composition).\n\nEach trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`\n(Elder ch. 55 \"Is This an A-Trade?\", docs/Analyse.md \u00a77 / docs/ideas.md ch. 55) --\n`app.portfolio.grading.grade_trade_from_filtered_history`, sourced from the ticker's daily OHLCV (that\nday's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation\n`AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is\npreferred over judging it by raw P&L alone, since it accounts for how much was\nrealistically available to capture that day/that channel, not just what was captured.\n\nGrading never fails the request: a ticker whose current daily-history fetch fails, or a\ntrade whose entry/exit date isn't an exact row in that history (e.g. it predates the\nfetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets\nnull grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s\ndocstring.",
+        "description": "Every row in the `closed_trades` table (docs/Analyse.md \u00a77's trade-history/ledger\ntable, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first\n(`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors\n`_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since\ntrade history is read for recency rather than portfolio composition).\n\nEach trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`\n(Elder ch. 55 \"Is This an A-Trade?\", docs/Analyse.md \u00a77 / docs/ideas.md ch. 55) --\n`app.portfolio.grading.grade_trade_from_filtered_history`, sourced from the ticker's daily OHLCV (that\nday's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation\n`AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is\npreferred over judging it by raw P&L alone, since it accounts for how much was\nrealistically available to capture that day/that channel, not just what was captured.\n`trade_grade_pct` is additionally mapped to an Elder-style `trade_letter_grade` (A/B/C/D --\nsee `app.portfolio.grading.trade_letter_grade`'s own docstring for the thresholds and the\ndecision record behind them); `buy_grade_pct`/`sell_grade_pct` stay percentage-only since\nthe book gives them no letter-grade scale at all.\n\nGrading never fails the request: a ticker whose current daily-history fetch fails, or a\ntrade whose entry/exit date isn't an exact row in that history (e.g. it predates the\nfetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets\nnull grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s\ndocstring.",
         "operationId": "get_closed_trades",
         "responses": {
           "200": {

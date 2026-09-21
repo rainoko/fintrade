@@ -269,6 +269,8 @@ Once a position is closed (recorded in the `closed_trades` table above), grade i
 
 Implementation: `app.portfolio.grading` (pure formulas, hand-verified against the book's own worked ADSK example — buy grade 97%, sell grade 35%, trade grade 32% — in `tests/unit/test_portfolio_grading.py`), exposed per closed trade via `GET /api/portfolio/closed-trades`. Any grade is `null` when its inputs aren't available for that trade (the ticker's fetched daily history doesn't reach back to the entry/exit date, or — trade grade only — the entry date falls inside the Autoenvelope's own ~100-bar warm-up window) rather than a fabricated number.
 
+Elder's own framing of these grades is a **letter grade**, not a raw number ("A is excellent, B good, C mediocre, and D poor") — `trade_grade_pct` is additionally mapped to a letter (`trade_letter_grade`): `A` >= 30%, `B` in [20%, 30%), `C` in [10%, 20%), `D` < 10%. Only the A (30%) and C (10%) thresholds are ever stated numerically in the book; B and D fill that gap via even 10-point-per-letter spacing implied by those two anchors being exactly two letter-steps apart — see the `backend-trade-grade-letter` task's `decisions` for the full rationale. `buy_grade_pct`/`sell_grade_pct` stay percentage-only (no letter grade) since the book gives them only a single ">50% = very good" anchor each, with no letter scale attached.
+
 ### Existing-position exit signals (beyond fresh technical SELL)
 A held position should be flagged **SELL/reduce** if any of:
 - Price closes below its computed protective stop.

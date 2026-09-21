@@ -27,7 +27,7 @@ from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.portfolio.exits import evaluate_exit_flags
-from app.portfolio.grading import TradeGrade, grade_trade_from_filtered_history
+from app.portfolio.grading import TradeGrade, grade_trade_from_filtered_history, trade_letter_grade
 from app.portfolio.models import Account, ExitReason
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import (
@@ -704,6 +704,10 @@ def get_closed_trades(
     `AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is
     preferred over judging it by raw P&L alone, since it accounts for how much was
     realistically available to capture that day/that channel, not just what was captured.
+    `trade_grade_pct` is additionally mapped to an Elder-style `trade_letter_grade` (A/B/C/D --
+    see `app.portfolio.grading.trade_letter_grade`'s own docstring for the thresholds and the
+    decision record behind them); `buy_grade_pct`/`sell_grade_pct` stay percentage-only since
+    the book gives them no letter-grade scale at all.
 
     Grading never fails the request: a ticker whose current daily-history fetch fails, or a
     trade whose entry/exit date isn't an exact row in that history (e.g. it predates the
@@ -732,6 +736,7 @@ def get_closed_trades(
                 buy_grade_pct=grades[row.id].buy_grade_pct,
                 sell_grade_pct=grades[row.id].sell_grade_pct,
                 trade_grade_pct=grades[row.id].trade_grade_pct,
+                trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
                 entry_notes=row.entry_notes,
                 strategy=row.strategy,
             )

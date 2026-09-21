@@ -3,7 +3,7 @@
   "title": "Compute a letter grade (A/B/C/D) alongside the existing raw grade percentages",
   "area": "backend/portfolio",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/grading.py",
@@ -12,10 +12,24 @@
   ],
   "description": "Ch. 55, read directly, frames grades as letters (A/B/C/D -- 'A is excellent, B good, C mediocre, D poor'), not raw percentages, but this app only ever shows the raw trade_grade_pct/buy_grade_pct/sell_grade_pct numbers. The book gives only two numeric anchors for trade_grade_pct (>=30% capture = 'A', ~10% = 'C', per ch.22's cross-reference) -- B and D have no stated numeric threshold anywhere in the primary source, only qualitative descriptions. TradeJournalPanel.tsx's own existing code comment already flags this exact gap and why it was left undone. This task makes the explicit, documented judgment call needed to fill it.",
   "checklist": [
-    { "step": "Decide and record (a decisions entry) how to fill the B/D gap the book leaves open -- e.g. linearly interpolating between the two known anchors (10%->C, 30%->A) and extrapolating a D-floor/A-ceiling, versus showing only 'A' and 'C-or-below' and leaving B ungraded, versus another approach -- the decision must explicitly engage with why the frontend previously chose not to invent this boundary.", "done": false },
-    { "step": "Implement a pure function computing a letter grade from trade_grade_pct per the decided thresholds.", "done": false },
-    { "step": "Decide whether buy_grade_pct/sell_grade_pct also get a letter grade, given the book gives no letter scale for them at all (only the single '>50% = very good' anchor) -- record the decision either way, including 'no, stay percentage-only' as a valid outcome.", "done": false },
-    { "step": "Unit tests covering values at and around each threshold boundary, including the two book-given anchor values themselves (10% and 30%).", "done": false },
-    { "step": "Expose the letter grade(s) on ClosedTradeOut; regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+    { "step": "Decide and record (a decisions entry) how to fill the B/D gap the book leaves open -- e.g. linearly interpolating between the two known anchors (10%->C, 30%->A) and extrapolating a D-floor/A-ceiling, versus showing only 'A' and 'C-or-below' and leaving B ungraded, versus another approach -- the decision must explicitly engage with why the frontend previously chose not to invent this boundary.", "done": true },
+    { "step": "Implement a pure function computing a letter grade from trade_grade_pct per the decided thresholds.", "done": true },
+    { "step": "Decide whether buy_grade_pct/sell_grade_pct also get a letter grade, given the book gives no letter scale for them at all (only the single '>50% = very good' anchor) -- record the decision either way, including 'no, stay percentage-only' as a valid outcome.", "done": true },
+    { "step": "Unit tests covering values at and around each threshold boundary, including the two book-given anchor values themselves (10% and 30%).", "done": true },
+    { "step": "Expose the letter grade(s) on ClosedTradeOut; regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fill the B/D gap by linearly extending the two book-given anchors at even letter-grade spacing: A >= 30%, B in [20%, 30%), C in [10%, 20%), D < 10% (no floor). Implemented as app.portfolio.grading.trade_letter_grade(trade_grade_pct).",
+      "rationale": "Elder ch. 55 gives exactly two numeric anchors for trade_grade_pct -- >=30% is 'A' (ch. 55 itself) and ~10% is 'C' (ch. 22, cross-referenced from ch. 55) -- with B and D described only qualitatively (Kerry Lovvorn's ordering 'A-trades... B-trades... C-trade' in the same chapter, and an unlabelled banding diagram, fig. 55.1). The two anchors are exactly 20 percentage points apart and exactly two letter-steps apart (C -> B -> A), which places B unambiguously at the midpoint (20%) using the same 10-point-per-letter spacing the book's own two data points already imply, without inventing any new slope or an arbitrary band width. D gets no floor (a losing trade, i.e. a negative trade_grade_pct, is still 'poor' -- exactly what D means -- not a separate undefined case) and A gets no ceiling (the book never describes anything better than 'excellent'/'as good as it gets', so an upper cap would be an unjustified extra invention). Alternatives considered and rejected: (1) showing only 'A' (>=30%) and 'C-or-below' (<30%), leaving B ungraded -- rejected because it throws away exactly the distinction Lovvorn's own quote cares about ('if I saw no A-trades... I'd go for B-trades'), and because a binary split isn't meaningfully less invented than an even 4-way split once you accept any B/D line has to be drawn somewhere; (2) a non-even split (e.g. weighting C more narrowly since it's described as merely 'mediocre') -- rejected for having no textual anchor to weight by at all, i.e. strictly more invention than the even-spacing option with no compensating benefit. This is a considered continuation of, not a contradiction of, TradeJournalPanel.tsx's earlier call not to invent this boundary: that call was made without directly reading ch. 55's own numeric anchors, so there was nothing yet to interpolate between; this task started from reading the chapter directly, found the two anchors are evenly spaced by construction, and recorded that fill rather than leaving the gap unfilled a second time."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "buy_grade_pct and sell_grade_pct do NOT get a letter grade; they stay percentage-only.",
+      "rationale": "The book gives buy/sell grade only a single numeric anchor each (>50% is 'very good') and no letter-grade scale is ever attached to either metric in ch. 55 -- unlike trade_grade_pct's two anchors (10%/30%), there are zero data points to interpolate a 4-band A/B/C/D scale from for buy/sell grade. Inventing one from nothing would be a materially weaker, unjustified judgment call compared to the trade_grade_pct decision above, which at least interpolates between two real anchors. Kept as percentage-only, matching the existing schema/UI treatment."
+    }
   ]
 }

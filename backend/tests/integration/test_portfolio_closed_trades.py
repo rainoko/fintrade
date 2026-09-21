@@ -127,6 +127,10 @@ class TestGetClosedTradesFields:
         assert item["entry_notes"] is None
         # Same for strategy: not passed above, so null rather than an empty string.
         assert item["strategy"] is None
+        # trade_letter_grade is present as a key even when null-checked elsewhere -- here it's
+        # a real letter since the fixture trade is gradeable (see
+        # test_grades_match_the_formulas_applied_to_the_fixture_frame for the exact value).
+        assert item["trade_letter_grade"] in {"A", "B", "C", "D"}
 
     def test_entry_notes_is_carried_through_when_present(
         self, client: TestClient, db_session: Session
@@ -169,6 +173,8 @@ class TestGetClosedTradesFields:
         assert item["buy_grade_pct"] == pytest.approx(expected_buy_grade)
         assert item["sell_grade_pct"] == pytest.approx(expected_sell_grade)
         assert item["trade_grade_pct"] == pytest.approx(expected_trade_grade)
+        # expected_trade_grade is well above the 30% "A" threshold for this fixture.
+        assert item["trade_letter_grade"] == "A"
 
 
 class TestGetClosedTradesOrdering:
@@ -204,6 +210,7 @@ class TestGetClosedTradesGradingDegradesGracefully:
             assert item["buy_grade_pct"] is None
             assert item["sell_grade_pct"] is None
             assert item["trade_grade_pct"] is None
+            assert item["trade_letter_grade"] is None
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_data_provider, None)
@@ -218,6 +225,7 @@ class TestGetClosedTradesGradingDegradesGracefully:
         assert item["buy_grade_pct"] is None
         assert item["sell_grade_pct"] is None
         assert item["trade_grade_pct"] is None
+        assert item["trade_letter_grade"] is None
         # The row itself is still fully present -- ungradeable is not the same as unlisted.
         assert item["entry_date"] == "1999-01-01"
 
@@ -232,7 +240,9 @@ class TestGetClosedTradesGradingDegradesGracefully:
             response = client.get("/api/portfolio/closed-trades")
             items = {item["id"]: item for item in response.json()["items"]}
             assert items["trade_ok"]["trade_grade_pct"] is not None
+            assert items["trade_ok"]["trade_letter_grade"] is not None
             assert items["trade_bad"]["trade_grade_pct"] is None
+            assert items["trade_bad"]["trade_letter_grade"] is None
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_data_provider, None)
