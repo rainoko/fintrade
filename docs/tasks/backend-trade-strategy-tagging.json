@@ -3,7 +3,7 @@
   "title": "Add a personal named 'strategy' tag to positions and closed trades",
   "area": "backend/portfolio",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/schemas.py",
@@ -32,5 +32,11 @@
       "decision": "On `POST /api/portfolio/positions` merging into an existing same-ticker position, an incoming `strategy` *overwrites* the existing tag (if any) rather than being appended to it the way `entry_notes` is. A merge with no incoming `strategy` leaves the existing tag untouched.",
       "rationale": "This deliberately diverges from `entry_notes`' own merge-append convention (backend-trade-journal-entry-notes task), even though the two fields look superficially similar (both nullable free-text strings carried the same way from PositionIn through to ClosedTradeOut). `entry_notes` is a narrative, human-readable note where preserving every buy's own rationale has value and concatenation reads fine. `strategy` is meant to be a single, consistent tag a later feature groups/aggregates on exactly -- the ch. 59 'equity curves segmented by strategy' idea and the future backend-trade-apgar task both need one clean value per trade to bucket by, not a growing concatenation of every strategy ever associated with a ticker's position (e.g. 'Pullback to value\\n\\nFalse breakout with a divergence' would be its own distinct, never-repeated bucket, defeating the whole point of grouping). Overwriting keeps the field usable for that purpose; rejecting the merge or erroring on a strategy mismatch was considered and rejected as unnecessarily strict for what is otherwise a totally ordinary, always-allowed same-ticker merge (api-portfolio-add-position task's own `decisions`)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-trade-strategy-tagging",
+    "pr_number": 218,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/218",
+    "pushed_at": "2026-09-21T02:58:00Z"
+  }
 }
