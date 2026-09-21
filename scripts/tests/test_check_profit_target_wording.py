@@ -168,6 +168,61 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         )
         self.assertEqual(cptw.check_banned_patterns([path]), [])
 
+    def test_ordinary_line_break_without_string_concatenation_is_not_flagged_in_md(self) -> None:
+        # PR #226 review finding (round 3): the negative check must never bridge an
+        # ORDINARY physical line break -- no quotes, no implicit string
+        # concatenation involved at all, just a sentence that happens to wrap --
+        # regardless of file type. Verified as a genuine regression on the round-3
+        # branch (whole-text `\s+` matching over `pattern.finditer(joined)`), not
+        # present on main.
+        path = self.repo.write(
+            "docs/example_wrap.md",
+            "It happened that day's\nAutoenvelope reading looked odd.\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_ordinary_line_break_without_string_concatenation_is_not_flagged_in_ts(self) -> None:
+        # Same finding as above, for a .ts file.
+        path = self.repo.write(
+            "frontend/src/utils/example_wrap.ts",
+            "// The analyst said today's\n// Autoenvelope feature shipped fine.\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_ordinary_line_break_in_a_py_docstring_is_not_flagged(self) -> None:
+        # A single triple-quoted docstring that merely wraps across two lines is
+        # not implicit string concatenation (only one STRING token exists, so no
+        # run is ever formed) -- must not be flagged just because the words split
+        # at an ordinary line break within it. This must still hold in .py files
+        # specifically, since that's the file type the join logic runs against.
+        path = self.repo.write(
+            "backend/app/api/example_docstring.py",
+            '"""\n'
+            "The analyst said today's\n"
+            "Autoenvelope feature shipped fine.\n"
+            '"""\n',
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_line_numbers_after_an_earlier_join_stay_accurate_for_a_later_violation(self) -> None:
+        # PR #226 review finding (round 3): a real implicit-concatenation join
+        # earlier in the file must not shift the reported line number of an
+        # unrelated, later real violation -- the join must never collapse a
+        # physical line or otherwise desync line-number reporting.
+        path = self.repo.write(
+            "backend/app/api/example_multiline.py",
+            "import os\n"
+            "\n"
+            "value = (\n"
+            '    "prefix "\n'
+            '    "suffix"\n'
+            ")\n"
+            'STALE = "~100 days of history"\n',
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_multiline.py:7", violations[0])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",

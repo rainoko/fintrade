@@ -48,6 +48,7 @@ otherwise.
 
 from __future__ import annotations
 
+import ast
 import io
 import os
 import re
@@ -198,32 +199,32 @@ def _iter_scanned_files() -> list[Path]:
 # Two adjacent string literals separated only by whitespace across a line break --
 # Python's own implicit string concatenation, a style already used throughout
 # schemas.py's own long Field descriptions -- join into one logical string at parse
-# time, but a naive line-by-line scan sees two separate, shorter lines and can miss a
+# time, but a naive per-line scan sees two separate, shorter lines and can miss a
 # banned phrase split across the join. Only genuine .py files can even contain this
-# syntax, so the join below is only ever attempted for those (see
-# check_banned_patterns); within a .py file, the join itself is scoped to real
-# implicit concatenation (not merely "any two quoted strings across a line break")
-# by using the stdlib `tokenize` module to find two adjacent STRING tokens with
-# nothing but whitespace/comments between them. This distinction matters because
-# Python's own grammar only allows two string literals to be adjacent *tokens* (as
-# opposed to two separate statements) across a physical line break when they're
-# inside an open bracket or a backslash continuation -- outside of one, the
-# tokenizer emits a logical-line-ending NEWLINE token between them instead of the
-# non-logical NL token used inside brackets, and a NEWLINE always breaks the join
-# below. That's precisely how this also rejects two unrelated, individually valid
-# bare string-literal statements that merely happen to sit on adjacent lines.
-
-
-def _line_start_offsets(text: str) -> list[int]:
-    offsets = [0]
-    for line in text.splitlines(keepends=True):
-        offsets.append(offsets[-1] + len(line))
-    return offsets
-
-
-def _to_offset(line_offsets: list[int], row: int, col: int) -> int:
-    return line_offsets[row - 1] + col
-
+# syntax, so runs are only ever looked for in those (see check_banned_patterns);
+# within a .py file, a run is scoped to real implicit concatenation (not merely "any
+# two quoted strings across a line break") by using the stdlib `tokenize` module to
+# find adjacent STRING tokens with nothing but whitespace/comments between them.
+# This distinction matters because Python's own grammar only allows two string
+# literals to be adjacent *tokens* (as opposed to two separate statements) across a
+# physical line break when they're inside an open bracket or a backslash
+# continuation -- outside of one, the tokenizer emits a logical-line-ending NEWLINE
+# token between them instead of the non-logical NL token used inside brackets, and a
+# NEWLINE always breaks a run below. That's precisely how this also rejects two
+# unrelated, individually valid bare string-literal statements that merely happen to
+# sit on adjacent lines.
+#
+# Crucially, a run is never flattened into a shared "joined" text buffer that the
+# banned-pattern regexes then scan across an arbitrary physical line break: the
+# ordinary per-line scan below never crosses a real newline at all (so it can't
+# false-positive on prose that just happens to wrap mid-sentence), and a run's own
+# *decoded string values* (via ast.literal_eval, i.e. what Python's runtime would
+# actually concatenate -- no injected whitespace, no leftover newline) are matched
+# separately, scoped to just that run. This also means no other line's numbering is
+# ever perturbed by a run found earlier in the file, since nothing here mutates or
+# re-derives line numbers from a modified buffer -- every reported line number comes
+# from the untouched original text (or, for a run, the real tokenize-reported start
+# line of the token the match falls in).
 
 # Token types that never end a logical line/expression on their own and so don't
 # break a run of otherwise-adjacent STRING tokens: comments, non-logical newlines
@@ -239,55 +240,108 @@ _NON_BREAKING_TOKEN_TYPES = {
 }
 
 
-def _join_implicit_string_concatenation(text: str) -> str:
-    """Join genuinely-adjacent Python string literals (real implicit string
-    concatenation, per the module-level comment above) into one logical string,
-    dropping just the two quote characters at the join and preserving every other
-    character -- including every newline -- exactly, so a match found in the
-    result still maps back to the right physical line via a plain newline count.
-    Returns `text` unchanged if it doesn't parse as Python at all."""
+def _iter_implicit_concat_runs(text: str) -> list[list[tokenize.TokenInfo]]:
+    """Return every maximal run of 2+ genuinely-adjacent Python STRING tokens (real
+    implicit string concatenation, per the module-level comment above). Returns an
+    empty list if `text` doesn't parse as Python at all."""
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
-        return text
+        return []
 
-    line_offsets = _line_start_offsets(text)
-    replacements: list[tuple[int, int]] = []
+    runs: list[list[tokenize.TokenInfo]] = []
+    current_run: list[tokenize.TokenInfo] = []
     prev_string_token: tokenize.TokenInfo | None = None
     for tok in tokens:
         if tok.type in _NON_BREAKING_TOKEN_TYPES:
             continue
         if tok.type == tokenize.STRING:
-            if (
+            adjacent = (
                 prev_string_token is not None
                 and prev_string_token.end[0] != tok.start[0]
                 and prev_string_token.string[-1:] in ("'", '"')
                 and prev_string_token.string[-1:] == tok.string[:1]
-            ):
-                prev_end_offset = _to_offset(line_offsets, *prev_string_token.end)
-                cur_start_offset = _to_offset(line_offsets, *tok.start)
-                # Drop just the closing quote of the previous literal and the
-                # opening quote of this one; everything else in between
-                # (whitespace, newlines, comments) is left exactly as-is.
-                replacements.append((prev_end_offset - 1, cur_start_offset + 1))
+            )
+            if adjacent:
+                if not current_run:
+                    current_run.append(prev_string_token)  # type: ignore[arg-type]
+                current_run.append(tok)
+            elif current_run:
+                runs.append(current_run)
+                current_run = []
             prev_string_token = tok
         else:
-            # Any other real token (crucially tokenize.NEWLINE) between two
-            # string literals means they're not part of the same expression --
-            # e.g. two unrelated bare string-literal statements on adjacent
-            # lines -- so the adjacency run resets.
+            # Any other real token (crucially tokenize.NEWLINE) between two string
+            # literals means they're not part of the same expression -- e.g. two
+            # unrelated bare string-literal statements on adjacent lines -- so the
+            # adjacency run resets.
+            if current_run:
+                runs.append(current_run)
+                current_run = []
             prev_string_token = None
+    if current_run:
+        runs.append(current_run)
+    return runs
 
-    if not replacements:
-        return text
 
-    pieces = []
-    last = 0
-    for start, end in replacements:
-        pieces.append(text[last:start])
-        last = end
-    pieces.append(text[last:])
-    return "".join(pieces)
+def _decode_string_token(tok: tokenize.TokenInfo) -> str | None:
+    """Return the real runtime value of a STRING token (what Python's own parser
+    would produce), or None if it can't be evaluated as a plain string literal (e.g.
+    an f-string, or a byte-string -- rare in practice for this guard's purpose, and
+    safer to skip than to approximate)."""
+    try:
+        value = ast.literal_eval(tok.string)
+    except (ValueError, SyntaxError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
+    """Scan one implicit-concatenation run's true, decoded, concatenated string
+    value (no injected whitespace or leftover newlines -- exactly what Python's own
+    runtime would produce) for banned patterns, reporting each match at the real
+    source line of whichever token it falls in."""
+    pieces: list[str] = []
+    spans: list[tuple[int, int, tokenize.TokenInfo]] = []
+    cursor = 0
+    for tok in run:
+        value = _decode_string_token(tok)
+        if value is None:
+            return []
+        pieces.append(value)
+        spans.append((cursor, cursor + len(value), tok))
+        cursor += len(value)
+    concatenated = "".join(pieces)
+
+    # The original source lines the run spans, in order, deduplicated -- used only
+    # for the printed excerpt, so it shows real (quoted) source text rather than a
+    # synthetic decoded buffer.
+    display_lines: list[str] = []
+    seen_linenos: set[int] = set()
+    for tok in run:
+        if tok.start[0] not in seen_linenos:
+            seen_linenos.add(tok.start[0])
+            display_lines.append(tok.line.strip())
+    display_text = " ".join(display_lines)
+
+    violations: list[str] = []
+    reported: set[int] = set()
+    for pattern in _BANNED_PATTERNS:
+        for match in pattern.finditer(concatenated):
+            token_for_match = spans[-1][2]
+            for start, end, tok in spans:
+                if start <= match.start() < end:
+                    token_for_match = tok
+                    break
+            lineno = token_for_match.start[0]
+            if lineno in reported:
+                continue
+            reported.add(lineno)
+            violations.append(
+                f"{rel}:{lineno}: stale daily-channel wording found "
+                f"(split across an implicit string concatenation): {display_text!r}"
+            )
+    return violations
 
 
 def check_banned_patterns(paths: list[Path]) -> list[str]:
@@ -295,26 +349,34 @@ def check_banned_patterns(paths: list[Path]) -> list[str]:
     violations = []
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="ignore")
-        # The implicit-string-concatenation join only makes sense for actual Python
-        # source (see the module-level comment above _line_start_offsets) --
-        # restricting it to .py files keeps it from ever being applied to
-        # .ts/.tsx/.md prose, where "quote ... newline ... same quote" has no
-        # relationship to Python's join semantics at all.
-        joined = _join_implicit_string_concatenation(text) if path.suffix == ".py" else text
-        joined_lines = joined.splitlines()
         rel = path.relative_to(REPO_ROOT)
+
+        # Ordinary per-line scan: never crosses a real physical line break, so an
+        # unrelated sentence that merely wraps mid-thought (in any scanned file
+        # type, .py included) can't be false-flagged just for spanning two lines.
         reported: set[tuple[int, int]] = set()
-        for pattern_index, pattern in enumerate(_BANNED_PATTERNS):
-            for match in pattern.finditer(joined):
-                lineno = joined.count("\n", 0, match.start()) + 1
-                key = (pattern_index, lineno)
-                if key in reported:
-                    continue
-                reported.add(key)
-                line_text = joined_lines[lineno - 1].strip()
-                violations.append(
-                    f"{rel}:{lineno}: stale daily-channel wording found: {line_text!r}"
-                )
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for pattern_index, pattern in enumerate(_BANNED_PATTERNS):
+                if pattern.search(line):
+                    key = (pattern_index, lineno)
+                    if key in reported:
+                        continue
+                    reported.add(key)
+                    violations.append(
+                        f"{rel}:{lineno}: stale daily-channel wording found: {line.strip()!r}"
+                    )
+
+        # Implicit-string-concatenation runs only make sense for actual Python
+        # source (see the module-level comment above _NON_BREAKING_TOKEN_TYPES) --
+        # restricting this to .py files keeps it from ever being applied to
+        # .ts/.tsx/.md prose, where "quote ... newline ... same quote" has no
+        # relationship to Python's join semantics at all. Each run is scanned via
+        # its own real, decoded, concatenated value -- entirely independent of the
+        # per-line scan above and of any other run in the file -- so it can never
+        # perturb another violation's reported line number.
+        if path.suffix == ".py":
+            for run in _iter_implicit_concat_runs(text):
+                violations.extend(_find_run_violations(rel, run))
     return violations
 
 
