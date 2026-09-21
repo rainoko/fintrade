@@ -34,30 +34,25 @@ import {
  * docs/Analyse.md §7). A parallel entry to `features/stocks/components/
  * metricHelpContent.ts`'s own `profitTargetHelp` -- same registry-per-
  * feature convention this file's own top-of-file comment already
- * documents, not a cross-feature import, so this file's `interpretValue`
- * additionally handles a signal of `null` (a held position whose own
- * signal couldn't be computed at all, `PositionOut.signal`'s own null-on-
- * failure case) as a THIRD distinct null-target cause alongside "not a
- * fresh BUY" and "BUY but no current candidate" -- a case the stock-detail
- * page's `AnalysisResponse.signal` never needs, since that field is never
- * null.
+ * documents, not a cross-feature import.
+ *
+ * Unlike the stock-detail page's `profitTargetHelp` (`AnalysisResponse.
+ * profit_target`, still gated on a fresh BUY signal), this one takes no
+ * `signal` parameter at all: `RiskPosition.profit_target` (the field this
+ * reads, `GET /api/portfolio/risk`) is computed for every open position
+ * regardless of that ticker's current live signal -- see the
+ * `backend-profit-target-open-position` task's `decisions` entry. A null
+ * value here means only "neither target technique currently produces a
+ * candidate for this position" (or the rarer column-validation degrade),
+ * never "not a fresh BUY" -- there's no such gate to explain any more.
  */
 export const profitTargetHelp = {
   metricLabel: 'Profit Target',
   definition: PROFIT_TARGET_DEFINITION,
   elderContext: `Paired with a sanity check Elder treats as close to a hard rule: potential reward should be at least 2x the risk to this same position’s protective stop shown alongside it ${PROFIT_TARGET_ELDER_CONTEXT_SUFFIX} A held position’s own profit target reflects what a FRESH entry at today’s price would target -- not a re-evaluation of the price this position was originally bought at.`,
-  interpretValue(
-    profitTarget: ProfitTargetOut | null,
-    signal: 'BUY' | 'SELL' | 'HOLD' | null,
-  ): string {
-    if (signal === null) {
-      return 'Not applicable right now -- this position’s own current signal couldn’t be computed (its price or history fetch failed), so a profit target can’t be either.'
-    }
-    if (signal !== 'BUY') {
-      return `Not applicable -- a profit target is only ever computed for a fresh BUY signal; this position’s ticker is currently ${signal}.`
-    }
+  interpretValue(profitTarget: ProfitTargetOut | null): string {
     if (!profitTarget) {
-      return 'Currently unavailable for this BUY signal -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 weeks of weekly history and no yet-detected resistance zone above the current price.'
+      return 'Currently unavailable for this position -- neither technique (the channel/Tradebill formula or the nearest support/resistance zone above current price) currently produces a candidate, e.g. a young ticker with under ~100 weeks of weekly history and no yet-detected resistance zone above the current price.'
     }
     const sourceLabel =
       profitTarget.source === 'channel'

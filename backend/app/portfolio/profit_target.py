@@ -1,9 +1,13 @@
-"""Suggested profit target + reward:risk ratio for a fresh BUY signal (Elder ch. 53 "How to
-Set Profit Targets" plus ch. 58's Tradebill formula -- docs/ideas.md, docs/Analyse.md §7). See
-the `backend-profit-target` task's `decisions` entry for the full rationale behind every
-judgment call below (BUY-only scope, target-source selection, endpoint placement), and the
+"""Suggested profit target + reward:risk ratio for a position (fresh BUY signal, or an already
+open long position -- see the BUY-only paragraph below for the distinction) per Elder ch. 53
+"How to Set Profit Targets" plus ch. 58's Tradebill formula (docs/ideas.md, docs/Analyse.md
+§7). See the `backend-profit-target` task's `decisions` entry for the full rationale behind
+every judgment call below (target-source selection, endpoint placement), the
 `backend-profit-target-weekly-channel` task's `decisions` entry for the weekly-vs-daily
-channel-timeframe correction below.
+channel-timeframe correction below, and the `backend-profit-target-open-position` task's
+`decisions` entry for why this function itself has never taken (and still doesn't take) a
+`signal` parameter to gate on -- that gating is each *caller's* own choice, not something
+`suggest_profit_target` enforces internally.
 
 Two of Elder's three style-dependent target techniques are implemented here (the third -- a
 day-trade's first-sign-of-opposing-divergence exit -- is explicitly out of this app's scope,
@@ -38,12 +42,35 @@ the more conservative choice wherever Elder's own text leaves a range rather tha
 number (e.g. docs/Analyse.md §7's SafeZone coefficient uses the book's stated 2x minimum, not a
 wider multiple).
 
-BUY-only: this app's protective-stop formula (`app.portfolio.risk.stop_from_price_action`,
-which this module calls to get a risk distance) is explicitly long-only, with no symmetric
-short-side stop formula anywhere in the app to pair with a SELL-side reward:risk ratio -- see
-that module's own comments and the `backend-safezone-stop-coefficient-fix` task's `decisions`
-entry (a future short-position feature would need its own short-side stop coefficient before a
-SELL-side profit target/reward:risk ratio could be computed the same way).
+Long-only, not BUY-only: this app's protective-stop formula
+(`app.portfolio.risk.stop_from_price_action`, which this module calls to get a risk distance)
+is explicitly long-only, with no symmetric short-side stop formula anywhere in the app to pair
+with a SELL-side reward:risk ratio -- see that module's own comments and the
+`backend-safezone-stop-coefficient-fix` task's `decisions` entry (a future short-position
+feature would need its own short-side stop coefficient before a SELL-side profit target/
+reward:risk ratio could be computed the same way). That constraint only actually rules out
+computing a target for a *fresh SELL signal* (a candidate new short entry, which this app has
+no long-only-safe way to size a target for) -- it says nothing about an *already-open* long
+position, which is unconditionally a long trade no matter what today's live signal happens to
+read. `GET /api/stocks/{ticker}/analysis` (`app.api.routers.stocks.get_analysis`) gates its own
+call to this function on `signal == "BUY"` (a fresh-entry candidate, so HOLD/SELL both mean "no
+candidate to target" there), but `GET /api/portfolio/risk` (`app.api.routers.portfolio.
+get_risk`) calls this function for every position with usable OHLCV regardless of that
+ticker's current live signal -- ch. 53, read directly, doesn't gate an open position's target
+to entry day/fresh-BUY-signal only ("a target set at entry ... is meant to be tracked for the
+life of the trade, not recomputed only while the signal happens to say BUY"), and a held
+position already has a real entry to track, unlike a fresh-signal candidate. See the
+`backend-profit-target-open-position` task's `decisions` entry, which revisits this exact
+question (previously answered BUY-only for both callers, before ch. 53 had been read directly)
+for the full rationale.
+
+`get_risk` passes its own already-computed protective-stop (derived from `daily_ohlcv.iloc[:-1]`,
+excluding today's bar -- see that handler's own docstring for why) into `suggest_profit_target`'s
+`stop` parameter below, rather than letting this module derive a second, different stop from the
+full `daily_ohlcv` -- otherwise `RiskPosition.profit_target`'s own reward:risk math could disagree
+with that same position's `RiskPosition.protective_stop` field within one API response. See
+`suggest_profit_target`'s own docstring for the full reasoning and this same task's `decisions`
+entry for the discrepancy this fixes.
 """
 
 import math
@@ -81,9 +108,10 @@ _MIN_REWARD_RISK_RATIO = 2.0
 
 @dataclass(frozen=True)
 class ProfitTarget:
-    """One suggested target for a fresh BUY signal, plus the reward:risk ratio it implies
-    against the ticker's current protective-stop distance. See `suggest_profit_target`'s own
-    docstring for how each field is derived."""
+    """One suggested target for a long position (a fresh BUY signal, or an already-open
+    position), plus the reward:risk ratio it implies against the ticker's current
+    protective-stop distance. See `suggest_profit_target`'s own docstring for how each field is
+    derived."""
 
     price: float
     source: TargetSource
@@ -145,10 +173,34 @@ def suggest_profit_target(
     *,
     weekly_ohlcv: pd.DataFrame,
     short_ema: pd.Series | None = None,
+    stop: float | None = None,
 ) -> ProfitTarget | None:
-    """A suggested profit target + reward:risk ratio for a FRESH BUY signal on `daily_ohlcv`
+    """A suggested profit target + reward:risk ratio for a long position on `daily_ohlcv`
     (already cleaned of malformed bars via `app.signals.engine.drop_malformed_daily_bars`,
-    most-recent bar last). See this module's docstring for why this is BUY-only.
+    most-recent bar last) -- a fresh BUY-signal candidate, or an already-open position,
+    whichever the caller is using this for. This function itself takes no `signal` parameter
+    and enforces no BUY-only gate -- see this module's own docstring for why that gating is
+    each caller's own choice (`GET /api/stocks/{ticker}/analysis` only calls this for a fresh
+    BUY; `GET /api/portfolio/risk` calls this for every open position regardless of that
+    ticker's current live signal).
+
+    `stop`, if given, is used directly as the protective-stop value the reward:risk math is
+    computed against, instead of this function deriving its own via
+    `app.portfolio.risk.stop_from_price_action(daily_ohlcv, ...)` internally. `GET
+    /api/portfolio/risk` (`app.api.routers.portfolio.get_risk`) MUST pass its own
+    already-computed `stops[position.id]` here -- that value comes from
+    `protective_stop(position, daily_ohlcv.iloc[:-1])`, deliberately excluding today's bar to
+    avoid a lookahead desync between today's close and today's stop (see that handler's own
+    docstring) -- rather than let this function recompute a *different* stop from the FULL
+    `daily_ohlcv` (today's bar included) via `short_ema`/the default `None` path below: doing so
+    would make `RiskPosition.profit_target`'s own internal reward:risk math disagree with that
+    same position's `RiskPosition.protective_stop` field within one API response, silently
+    reintroducing the exact class of bug this module's `stop` passthrough exists to prevent (see
+    the `backend-profit-target-open-position` task's `decisions` entry for the discrepancy this
+    fixes -- verified via a fixture where the full-frame stop and the `iloc[:-1]` stop diverged
+    by ~21 points on identical underlying data). `GET /api/stocks/{ticker}/analysis` has no
+    separate `protective_stop` field to desync from, so it leaves `stop` at its default `None`
+    and lets this function derive its own from the full `daily_ohlcv` as before.
 
     `weekly_ohlcv` is this same ticker's weekly OHLCV (most-recent bar last, the same frame
     passed to `app.signals.engine.analyse`'s own `weekly_ohlcv` parameter) -- used here ONLY to
@@ -228,11 +280,18 @@ def suggest_profit_target(
     # The TIGHTER (closer to current price) candidate wins -- see this module's own docstring.
     price, source = min(candidates, key=lambda candidate: abs(candidate[0] - current_price))
 
+    # `stop` passed in by the caller (see this function's own docstring for why get_risk MUST
+    # do this) wins outright -- only derive our own from `daily_ohlcv` when the caller hasn't
+    # already computed one against the correct (possibly today's-bar-excluded) frame.
     # columns_validated=True: validate_daily_ohlcv_columns(daily_ohlcv) above already checked
     # the identical low/close requirement -- avoids a redundant second pass, mirroring
     # app.portfolio.exits.evaluate_exit_flags's own convention.
-    stop = stop_from_price_action(daily_ohlcv, short_ema=short_ema, columns_validated=True)
-    distance_to_stop = current_price - stop
+    resolved_stop = (
+        stop
+        if stop is not None
+        else stop_from_price_action(daily_ohlcv, short_ema=short_ema, columns_validated=True)
+    )
+    distance_to_stop = current_price - resolved_stop
     distance_to_target = price - current_price
     reward_risk_ratio = distance_to_target / distance_to_stop if distance_to_stop > 0 else None
     meets_minimum_reward_risk = (
