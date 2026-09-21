@@ -3,7 +3,7 @@
   "title": "'Am I ready to trade?' daily psychological readiness self-test",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
@@ -49,26 +49,26 @@
     "pushed_at": "2026-09-21T02:15:00Z"
   },
   "review": {
-    "reviewed_at": "2026-09-21T01:45:49Z",
+    "reviewed_at": "2026-09-21T02:01:04Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/216",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: suggested_yesterday_trading_score uses exact float equality (net_realized_pnl == 0) to detect a breakeven day. Binary floating point can't exactly represent most two-decimal currency sums, so a genuinely breakeven day across 2+ closed trades (e.g. sum([100.10, 5.05, -105.15]) == -1.15e-14) falls through to 'traded poorly' (0) instead of 'neutral' (1). The existing breakeven test only uses 50.0/-50.0, both exactly representable in binary floating point, so it doesn't catch this. Fix: round to cents or use math.isclose before the equality check.",
+        "summary": "Re-review confirms the prior blocking finding (exact float equality on net_realized_pnl misclassifying a genuinely-breakeven multi-trade day as a loss) is fixed correctly. Traced it by hand: sum([100.10, 5.05, -105.15]) == -1.1546319456101628e-14 in this Python/pandas build; round(that, 2) == -0.0, and -0.0 == 0 is True in Python, so suggested_yesterday_trading_score now returns 1 (neutral) as intended. The new regression test asserts the raw sum != 0.0 before asserting the fixed classification, so it genuinely exercises the reported failure mode rather than passing for an unrelated reason. Full test suite re-run confirms it: 1008 passed (was 1007), 99.94% backend coverage.",
         "file": "backend/app/portfolio/homework.py",
-        "line": 53
+        "line": 56
       },
       {
-        "summary": "Non-blocking: docs/architecture/Backend.md §7's persistence table enumeration wasn't updated to mention the new daily_homework_entries table (continuing a pre-existing staleness -- closed_trades/extended_data_cache are already missing from that sentence too). Tracked as a follow-up per precedent commit 5d5b86d.",
-        "file": "docs/architecture/Backend.md",
-        "line": 101
+        "summary": "Both non-blocking follow-ups from the prior review are also correctly addressed in this same commit: docs/architecture/Backend.md §7 now lists closed_trades/extended_data_cache/daily_homework_entries alongside the tables already named, and the four duplicated _today()/_utcnow() helpers (app/api/routers/{portfolio,watchlist,homework}.py, app/data/cache.py) are consolidated into a new backend/app/time_utils.py (today()/utcnow()), imported consistently at every former call site with no behavior change. Verified docs/tasks/backend-daily-homework-self-test-followups.json's checklist items are marked done for both, while that followups task's own state correctly stays 'planned' rather than being self-closed (it has no PR of its own to point at, per its own decisions entry) -- exactly right, not a scope-widening or a premature close.",
+        "file": "backend/app/time_utils.py",
+        "line": 1
       },
       {
-        "summary": "Non-blocking: _today()/_utcnow() naive-UTC helpers are now duplicated a 4th time across app/api/routers/{portfolio,watchlist,homework}.py and app/data/cache.py rather than shared from one module. Pre-existing pattern this PR continues, not a new regression, but worth consolidating.",
-        "file": "backend/app/api/routers/homework.py",
-        "line": 30
+        "summary": "Minor/non-blocking, newly introduced by this same consolidation: backend/tests/integration/test_portfolio_delete_position.py and backend/tests/integration/test_portfolio_risk.py each have a local _today() test helper whose docstring says 'Matches app.api.routers.portfolio._today() exactly' -- that function no longer exists (renamed/moved to app.time_utils.today() by this PR). The test helpers themselves still work correctly (self-contained, not importing the removed name), this is purely a stale doc-comment cross-reference. Tracked as a follow-up.",
+        "file": "backend/tests/integration/test_portfolio_delete_position.py",
+        "line": 32
       }
     ],
-    "notes": "Everything else checked out clean: band boundaries (band_for_total_score) correctly implement <=4 red / 5-6 yellow / 7-8 green / 9-10 yellow, and unit tests explicitly cover every edge (4/5, 6/7, 8/9) plus 0/10 extremes. Verified record_daily_homework never calls suggested_yesterday_trading_score -- the 'stays manual' decision is genuinely reflected in code, not just in the decisions entry. Reproduced the _OptionalDate CPython class-body-annotation gotcha independently (TypeError without the workaround, clean nullable-date round-trip with it) -- confirmed real and correctly applied, not a red herring. Backend: 1007 passed, 99.94% coverage. Frontend: 99.72%+ coverage unaffected, yarn lint/tsc clean. ruff/mypy clean. backend/openapi.json and frontend/src/api/types.ts regenerated with zero diff against committed snapshots (re-ran scripts/export_openapi.py and yarn generate:api-types myself). Alembic migration verified: single head, upgrade -> downgrade -1 -> upgrade -> alembic check all clean against a scratch DB. Scope matches docs/ideas.md's ch. 57 entry exactly. No frontend consumer in this PR, so no browser walkthrough/e2e run applies -- confirmed via file list (only generated frontend/src/api/types.ts touched)."
+    "notes": "Full re-verification, not a rubber-stamp of the fix report: re-ran the entire backend suite (1008 passed, 99.94% coverage, unchanged gate pass), ruff (clean except pre-existing failures in indicator/stooq/triple-screen test files untouched by this branch -- confirmed via `git diff main..HEAD --stat` showing zero changes to those paths, so not a regression), mypy (clean -- note: hit a false failure mid-review from my own mistaken `git checkout main -- .` while trying to diff, which staged main's older schemas.py/models.py/openapi.json over the branch's working tree; caught it immediately via checksum mismatch against HEAD, ran `git checkout HEAD -- .` to restore, and reconfirmed the working tree matched HEAD exactly before re-running mypy clean and tests green again -- no application code was touched, just a transient working-tree state during my own review), openapi.json (re-ran scripts/export_openapi.py and yarn generate:api-types, zero diff against committed snapshots), frontend lint/tsc (clean, no frontend logic touched -- only generated src/api/types.ts). Also ran the code-review skill against 573df59..HEAD, which independently reported zero further bugs, confirming the time_utils consolidation preserves the four original helpers' exact behavior at every call site. No new API route/schema in this fix commit, no UI-facing change (backend-only + generated types file, same as originally noted), so no browser walkthrough/e2e run applies here either -- confirmed by file list."
   }
 }

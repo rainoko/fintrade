@@ -18,6 +18,10 @@
     {
       "step": "_today()/_utcnow() naive-UTC helper functions are now duplicated a 4th time (app/api/routers/portfolio.py, app/api/routers/watchlist.py, app/api/routers/homework.py, app/data/cache.py) with near-identical docstrings cross-referencing each other -- consider consolidating into one shared module (e.g. app/api/time_utils.py or similar) rather than continuing to copy-paste it into every new router.",
       "done": true
+    },
+    {
+      "step": "Found during PR #216's re-review (backend-daily-homework-self-test): after the _today()/_utcnow() consolidation into app/time_utils.py, two integration test files still have local test-only _today() helpers whose docstrings say 'Matches app.api.routers.portfolio._today() exactly' -- that function no longer exists (moved/renamed to app.time_utils.today()). The test helpers themselves are self-contained and still correct, this is purely a stale docstring cross-reference. Update the docstrings in backend/tests/integration/test_portfolio_delete_position.py (around line 32) and backend/tests/integration/test_portfolio_risk.py (around line 36) to reference app.time_utils.today() instead.",
+      "done": false
     }
   ],
   "decisions": [
