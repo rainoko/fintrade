@@ -1454,7 +1454,7 @@
       "id": "backend-indicator-history-performance-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-indicator-history-performance-followups.json"
     },
     {
