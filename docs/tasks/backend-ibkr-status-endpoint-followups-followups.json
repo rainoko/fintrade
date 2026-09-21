@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #234 review (backend-ibkr-status-endpoint-followups)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-status-endpoint-followups"],
   "references": [
     "docs/tasks/backend-ibkr-status-endpoint-followups.json",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "docs/tasks/backend-ibkr-status-endpoint-followups.json's `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time, reproducing the exact defect pattern that PR #233 (backend-indicator-history-performance-followups-followups) already fixed once in a sibling task. The commit that actually recorded this decision (a9fb6cb) has an authored/committer timestamp of `2026-09-21T20:24:02Z`, ~20 hours after the placeholder. Correct the timestamp (deriving it from git history the way PR #233 did) so the array stays chronologically meaningful.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T20:37:49Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the placeholder timestamp `2026-09-21T00:00:00Z` on docs/tasks/done/backend-ibkr-status-endpoint-followups.json's `decisions` entry to `2026-09-21T20:24:02Z`, derived from `git log -1 --format='%H %aI %cI' a9fb6cb` (both authored and committer timestamps agree), which is the commit that introduced this decision text (confirmed via `git show --stat a9fb6cb`, which touches exactly docs/tasks/backend-ibkr-status-endpoint-followups.json among the task-board files, along with the schema/openapi/API.md fix it accompanied).",
+      "rationale": "Followed the same approach PR #233 (backend-indicator-history-performance-followups-followups) already established for this exact defect pattern: derive the real timestamp from the git commit that actually recorded the decision, rather than guessing or substituting the current wall-clock time (which would misrepresent when the decision was actually made). Unlike the PR #233 case, this repo's history was not squashed between the decision-recording commit and now, so the commit's own timestamp is directly available with no need to fall back to a squash-merge commit's timestamp."
     }
   ]
 }

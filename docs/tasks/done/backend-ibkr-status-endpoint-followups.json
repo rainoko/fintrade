@@ -18,7 +18,7 @@
   ],
   "decisions": [
     {
-      "timestamp": "2026-09-21T00:00:00Z",
+      "timestamp": "2026-09-21T20:24:02Z",
       "recorded_by": "task-worker",
       "decision": "Reworded IBKRStatusResponse.detail's description to say detail is always populated (a fixed explanatory string) for 'disabled', rather than just deleting the false 'always null' claim entirely.",
       "rationale": "The old text was actively wrong (claimed always-null), not merely vague, so the fix states the real behavior (a fixed non-null string, `_DISABLED_DETAIL` in app/api/routers/ibkr.py) rather than just removing the claim -- callers reading the schema benefit from knowing detail is reliably populated for 'disabled', which is useful for e.g. displaying it in a UI. Only IBKRStatusResponse's own description carried the wrong claim; IBKRScannerParamsResponse/IBKRScannerRunResponse/IBKRBreadthSnapshotResponse's detail fields already just said 'same convention as GET /api/ibkr/status's `detail`' without repeating the false claim themselves, so fixing the one source description was sufficient without touching those three."

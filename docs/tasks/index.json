@@ -1524,7 +1524,7 @@
       "id": "backend-ibkr-status-endpoint-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-status-endpoint-followups-followups.json"
     },
     {
