@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-indicator-history-performance review (PR #231)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-indicator-history-performance"],
   "references": [
     "docs/tasks/backend-indicator-history-performance.json",
@@ -26,6 +26,12 @@
       "recorded_by": "task-worker",
       "decision": "Both checklist items were implemented directly on branch task/backend-indicator-history-performance (PR #231) while fixing that task's blocking Session-thread-safety needs_work finding, rather than on a separate branch/PR for this followups task.",
       "rationale": "The task instructing this work (backend-indicator-history-performance's needs_work fix) explicitly asked to address these two non-blocking findings 'while in this area' if convenient, and both changes (a both-fetches-fail test in tests/integration/test_stocks_indicator_history.py, and softened docstring wording in app/api/routers/stocks.py + docs/architecture/API.md) are small, low-risk, and directly adjacent to code already being touched. Left this task's own `state` as `planned` (not advanced to `done`) since marking a task done is a pr-reviewer/pr-decision action per CLAUDE.md's task-board convention, not something task-worker does unilaterally -- the checklist above is complete and verifiable once PR #231 is reviewed and merged."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Confirmed on current `main` (PR #231 already merged as commit bf2b86e) that both checklist items are fully and correctly satisfied, and closed out this task without adding any new code -- there is no remaining scope here.",
+      "rationale": "Verified item 1 directly: `backend/tests/integration/test_stocks_indicator_history.py::TestConcurrentOhlcvFetch::test_daily_failure_takes_priority_when_both_fetches_fail` exists, exercises a provider where the daily fetch raises `TickerNotFoundError` (404) and the weekly fetch raises `InsufficientHistoryError` (422) simultaneously, and asserts the response is the daily-side 404 -- i.e. it pins the both-fail priority with two failure modes that map to *different* status codes (so a lost priority would surface as a visibly wrong 422, not a same-looking false pass), not just the pre-existing single-sided daily-only/weekly-only cases. Ran `pytest tests/integration/test_stocks_indicator_history.py::TestConcurrentOhlcvFetch -q` (backend/.venv) -- all 4 tests in that class, including this one, pass. Verified item 2 directly: `get_indicator_history`'s docstring in `backend/app/api/routers/stocks.py` no longer states the last-entry-matches-`/analysis` invariant unconditionally -- it now explicitly caveats that 'a same-calendar-day cache hit here can still return a signal computed from an earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since picked up a refreshed `ohlcv_cache` row', crediting this task's `-followups` entry. `docs/architecture/API.md` mirrors the same caveat in two places (the response-cache paragraph and the `points` semantics paragraph), both explicitly citing 'this task's `-followups` entry'. Ran the full `tests/integration/test_stocks_indicator_history.py` file (28 tests) -- all pass, no regressions. Considered inventing additional scope (e.g. actually invalidating the response cache on OHLCV refresh, which the checklist offered as an alternative to softening the docstring) but rejected it: the checklist phrasing is an explicit either/or ('Either caveat... or invalidate...'), the caveat-the-docstring option was the one actually chosen and implemented in PR #231, and CLAUDE.md's task-worker contract is to verify and close out already-satisfied work rather than manufacture new work when a task turns out to be fully done. No code changes were needed or made on this branch; this decisions entry and the checklist/state bookkeeping are the only diff."
     }
   ]
 }
