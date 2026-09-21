@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-status-endpoint review (PR #212)",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "docs/tasks/done/backend-ibkr-status-endpoint.json",
@@ -23,5 +23,11 @@
       "decision": "Reworded IBKRStatusResponse.detail's description to say detail is always populated (a fixed explanatory string) for 'disabled', rather than just deleting the false 'always null' claim entirely.",
       "rationale": "The old text was actively wrong (claimed always-null), not merely vague, so the fix states the real behavior (a fixed non-null string, `_DISABLED_DETAIL` in app/api/routers/ibkr.py) rather than just removing the claim -- callers reading the schema benefit from knowing detail is reliably populated for 'disabled', which is useful for e.g. displaying it in a UI. Only IBKRStatusResponse's own description carried the wrong claim; IBKRScannerParamsResponse/IBKRScannerRunResponse/IBKRBreadthSnapshotResponse's detail fields already just said 'same convention as GET /api/ibkr/status's `detail`' without repeating the false claim themselves, so fixing the one source description was sufficient without touching those three."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint-followups",
+    "pr_number": 234,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/234",
+    "pushed_at": "2026-09-21T20:24:22Z"
+  }
 }
