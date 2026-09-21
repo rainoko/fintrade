@@ -1573,7 +1573,7 @@
       "id": "backend-trade-journal-followup-review-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "implementing",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-journal-followup-review-followups.json"
     },
     {
