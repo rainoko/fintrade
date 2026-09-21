@@ -1475,8 +1475,8 @@
       "id": "backend-profit-target-weekly-channel",
       "area": "backend/signals",
       "skill": "verify-elder-signal",
-      "state": "planned",
-      "path": "docs/tasks/backend-profit-target-weekly-channel.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target-weekly-channel.json"
     },
     {
       "id": "backend-profit-target-open-position",
@@ -1708,6 +1708,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-daily-homework-self-test-followups.json"
+    },
+    {
+      "id": "backend-profit-target-weekly-channel-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-profit-target-weekly-channel-followups.json"
     }
   ]
 }

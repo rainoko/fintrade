@@ -336,7 +336,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
         name: 'Profit Target (+ reward:risk ratio)',
         citation: 'Elder ch. 53/58, docs/Analyse.md §7',
         summary:
-          'For a fresh BUY: current price + 30% of that day’s Autoenvelope/channel height (ch. 58’s "A"-target formula), or the nearest support/resistance zone above current price -- whichever is TIGHTER (closer to current price) is used.',
+          'For a fresh BUY: current price + 30% of the weekly chart’s Autoenvelope/channel height (ch. 58’s "A"-target formula, ch. 39 p.161’s long-term-chart-for-targets rule), or the nearest support/resistance zone above current price -- whichever is TIGHTER (closer to current price) is used.',
         elderContext:
           'Paired with a sanity check: potential reward should be at least 2x the risk to the same protective stop ("it seldom pays to risk a dollar to make a dollar"). BUY-only -- this app’s stop model is long-only, so there’s no symmetric SELL-side target.',
         appStatus: 'risk_management',

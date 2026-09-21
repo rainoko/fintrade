@@ -438,15 +438,18 @@ def get_analysis(
     # see this task's `decisions` entry.
     zones = detect_support_resistance_zones(daily_ohlcv)
     # BUY-only (see app.portfolio.profit_target's module docstring and this task's `decisions`
-    # entry for why) -- reuses `zones` above and `result.indicators["channel_upper"/"channel_
-    # lower"]` rather than recomputing either, matching this endpoint's existing
-    # compute-once-share pattern.
+    # entry for why) -- reuses `zones` above (the daily support/resistance candidate) but passes
+    # `weekly_ohlcv` (already fetched above) rather than `result.indicators["channel_upper"/
+    # "channel_lower"]`: per Elder ch. 39 p.161 ("the value zone on a weekly chart presents a
+    # good target"), the channel candidate is computed from the WEEKLY chart inside
+    # `suggest_profit_target` itself, a separate pass from the DAILY channel `indicators`
+    # reports for the price-chart overlay -- see the backend-profit-target-weekly-channel
+    # task's `decisions` entry.
     profit_target = (
         suggest_profit_target(
             daily_ohlcv,
             zones,
-            channel_upper=result.indicators["channel_upper"],
-            channel_lower=result.indicators["channel_lower"],
+            weekly_ohlcv=weekly_ohlcv,
         )
         if result.signal == "BUY"
         else None
