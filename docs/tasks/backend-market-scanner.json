@@ -3,7 +3,7 @@
   "title": "Market scanner using IBKR's scanner categories, disabled when IBKR isn't available",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -30,5 +30,38 @@
     "pr_number": 214,
     "pr_url": "https://github.com/rainoko/fintrade/pull/214",
     "pushed_at": "2026-09-21T00:19:11Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T00:26:57Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/214",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: GET /api/ibkr/scanner/params and POST /api/ibkr/scanner/run can return state: \"available\" together with categories/results left null, violating the schema's own documented \"non-null iff state == 'available'\" invariant. Happens when IBKRProvider's scanner-specific call itself fails transiently (a non-200 response, transport error, or unparseable body from /iserver/scanner/params or /iserver/scanner/run) while a fresh get_gateway_status() call (hitting the unrelated /iserver/auth/status endpoint) still reports 'available'. Reproduced directly against the branch: a stub with get_gateway_status() -> available and get_scanner_params() raising IBKRUnavailableError('...HTTP 500...') yields 200 {\"state\": \"available\", \"categories\": null} (and the mirror case for run_scanner/results). No existing test exercises this path.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 88
+      },
+      {
+        "summary": "Non-blocking: IBKRRateLimitedError.retry_after is discarded by the 429 response, only embedded in detail's free-text sentence rather than a structured field or Retry-After header. Tracked on backend-market-scanner-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 127
+      },
+      {
+        "summary": "Non-blocking: the except IBKRUnavailableError fallback pattern is duplicated verbatim between get_ibkr_scanner_params and run_ibkr_scanner; worth extracting a shared helper, especially once the blocking finding there is fixed. Tracked on backend-market-scanner-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 90
+      },
+      {
+        "summary": "Non-blocking: get_ibkr_scanner_params's isinstance(params, dict) check is redundant given the trailing `or []` already normalizes any falsy/non-dict result. Tracked on backend-market-scanner-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 94
+      },
+      {
+        "summary": "Non-blocking: test_ibkr_scanner.py covers not_authenticated for GET /api/ibkr/scanner/params but not for POST /api/ibkr/scanner/run. Tracked on backend-market-scanner-followups.",
+        "file": "backend/tests/integration/test_ibkr_scanner.py",
+        "line": null
+      }
+    ],
+    "notes": "Tests/coverage: backend 959 passed, 99.94% coverage; frontend 700 passed, 99.7%+ coverage (both well above the 90% gate). Static analysis (ruff/mypy, eslint/tsc) clean on both sides. openapi.json and frontend/src/api/types.ts regenerated and verified to match the committed snapshot exactly. The rate-limit-as-429 vs unavailable-as-200 distinction this task's context flagged as worth double-checking is correctly implemented and tested. No test attempts a live gateway call; FINTRADE_IBKR_ENABLED defaults to false throughout. No UI surface (backend-only change) -- browser walkthrough and e2e suite don't apply. The checklist's 'decide X' item has a matching decisions entry. One blocking correctness bug found via code-review pass + manual reproduction (see comments) -- needs a fix and a regression test before re-review."
   }
 }
