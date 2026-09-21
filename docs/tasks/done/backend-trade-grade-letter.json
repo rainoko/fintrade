@@ -3,7 +3,7 @@
   "title": "Compute a letter grade (A/B/C/D) alongside the existing raw grade percentages",
   "area": "backend/portfolio",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/grading.py",
@@ -37,5 +37,53 @@
       "decision": "buy_grade_pct and sell_grade_pct do NOT get a letter grade; they stay percentage-only.",
       "rationale": "The book gives buy/sell grade only a single numeric anchor each (>50% is 'very good') and no letter-grade scale is ever attached to either metric in ch. 55 -- unlike trade_grade_pct's two anchors (10%/30%), there are zero data points to interpolate a 4-band A/B/C/D scale from for buy/sell grade. Inventing one from nothing would be a materially weaker, unjustified judgment call compared to the trade_grade_pct decision above, which at least interpolates between two real anchors. Kept as percentage-only, matching the existing schema/UI treatment."
     }
-  ]
+  ],
+  "review": {
+    "reviewed_at": "2026-09-21T03:23:30Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/219",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Boundary math verified exactly at the documented edges: A>=30.0 (30.0 itself is A, 29.99 is B), B in [20.0, 30.0) (20.0 itself is B, 19.99 is C), C in [10.0, 20.0) (10.0 itself is C, 9.99 is D), D<10.0 with no floor (0.0 and -42.0 both D). Confirmed by reading trade_letter_grade's >= comparisons directly and cross-checking against TestTradeLetterGrade's boundary-adjacent test cases (30.01/29.99, 20.0/19.99, 10.01/9.99, plus both book anchors 30.0->A and 10.0->C) -- no off-by-one.",
+        "file": "backend/app/portfolio/grading.py",
+        "line": 123
+      },
+      {
+        "summary": "Null handling verified correct: trade_letter_grade(None) is None (not a fabricated letter), and _ratio_pct (which produces trade_grade_pct) already guarantees a finite float or None -- trade_letter_grade never sees a stray NaN. Confirmed via test_none_when_trade_grade_pct_is_none plus the null-grade integration tests (ticker history fetch failure, entry_date not in fetched history) asserting trade_letter_grade is null exactly when trade_grade_pct is null.",
+        "file": "backend/app/portfolio/grading.py",
+        "line": 127
+      },
+      {
+        "summary": "The even-10-point-band decision is genuinely defensible, not an arbitrary unexplained number: the book's own two anchors (>=30% 'A', ~10% 'C') are exactly 20 points and exactly two letter-steps apart, which places B unambiguously at the midpoint (20%) without inventing a new slope; D gets no floor and A no ceiling for stated, textual reasons (a loss is still 'poor'; the book never describes anything above 'excellent'). Alternatives (binary A/not-A split; a non-even split) are considered and rejected with reasoning, and the decision explicitly engages with why TradeJournalPanel.tsx's earlier call not to invent this boundary doesn't contradict this one (that call was made without reading ch. 55's own anchors). Matches docs/Analyse.md's own restatement of the same thresholds -- doc and decisions record agree.",
+        "file": "docs/tasks/backend-trade-grade-letter.json",
+        "line": 32
+      },
+      {
+        "summary": "buy_grade_pct/sell_grade_pct staying percentage-only is a well-reasoned decision (book gives zero anchors to interpolate a letter scale from, vs. two for trade_grade_pct) and matches the checklist's explicit 'no, stay percentage-only is a valid outcome' framing.",
+        "file": "docs/tasks/backend-trade-grade-letter.json",
+        "line": 38
+      },
+      {
+        "summary": "backend/openapi.json regenerated and committed correctly -- re-running scripts/export_openapi.py from this checkout produces zero diff against the committed snapshot. frontend/src/api/types.ts and frontend/tests/mocks/handlers.ts were updated in lockstep. docs/Analyse.md and docs/architecture/API.md were both updated with the new field/thresholds, keeping doc and code in sync.",
+        "file": "backend/openapi.json",
+        "line": 150
+      },
+      {
+        "summary": "Backend: 1043 tests passed, 99.94% coverage. Frontend: 700 tests passed, 99%+ coverage on all metrics. Both well above the 90% gate; no regression. ruff/mypy/eslint/tsc all clean. Frontend e2e suite (make e2e, 18/18 specs) passed, including a portfolio-page run that exercises GET /api/portfolio/closed-trades end to end with the new field present in the response.",
+        "file": "backend/tests/unit/test_portfolio_grading.py",
+        "line": 247
+      },
+      {
+        "summary": "Non-blocking: TradeJournalPanel.tsx's existing code comment (lines 19-24) is now stale -- it still claims the letter-grade boundary is undocumented, which this PR's decision record resolves -- and the panel doesn't render trade_letter_grade at all. This is intentionally out of this task's scope (its checklist only requires backend exposure + type regen) and is already tracked by the separate, still-planned frontend-trade-grade-letter-display task (which explicitly includes updating/removing that stale comment), so no new follow-up needed for it.",
+        "file": "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+        "line": 19
+      },
+      {
+        "summary": "Non-blocking (minor, tracked in backend-trade-grade-letter-followups): TradeLetterGrade's Literal[\"A\",\"B\",\"C\",\"D\"] is duplicated between grading.py's alias and schemas.py's inline field annotation instead of importing the shared alias. Not a bug today, just a reuse nit.",
+        "file": "backend/app/api/schemas.py",
+        "line": 41
+      }
+    ],
+    "notes": "No UI-facing surface in this PR itself: the new trade_letter_grade field is exposed on the API but not yet consumed by any frontend component (TradeJournalPanel.tsx still only renders trade_grade_pct), confirmed by code inspection and the full frontend test suite/e2e suite passing unchanged with the new field present in fixtures/mocks. Ran the full backend+frontend test/coverage suites, static-verify (ruff/mypy/eslint/tsc), a re-run of scripts/export_openapi.py to confirm the committed snapshot is current, and the e2e-test skill's persisted Playwright suite (18/18 passed) as the closest applicable 'UI-facing' check given there is no new UI surface to walk through interactively. No blocking findings."
+  }
 }

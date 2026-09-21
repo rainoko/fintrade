@@ -1,0 +1,19 @@
+{
+  "id": "backend-trade-grade-letter-followups",
+  "title": "trade_letter_grade -- non-blocking review follow-ups",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trade-grade-letter"],
+  "references": [
+    "docs/tasks/backend-trade-grade-letter.json#review",
+    "https://github.com/rainoko/fintrade/pull/219"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #219 (backend-trade-grade-letter), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "`Literal[\"A\", \"B\", \"C\", \"D\"]` is written out twice -- once as `TradeLetterGrade` in `backend/app/portfolio/grading.py` and once inline as the type annotation on `ClosedTradeOut.trade_letter_grade` in `backend/app/api/schemas.py` -- instead of the schema importing and reusing the shared `TradeLetterGrade` alias. Not a bug (both literals are identical today), but a reuse nit: a future change to the letter set would need updating both call sites in lockstep with nothing enforcing that. Consider importing `TradeLetterGrade` from `app.portfolio.grading` into `schemas.py` (or defining the alias in a shared location) and using it for the field's type instead of the duplicated inline literal.",
+      "done": false
+    }
+  ]
+}
