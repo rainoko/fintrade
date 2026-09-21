@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups PR #223 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "done",
+  "state": "implementing",
   "depends_on": ["backend-profit-target-weekly-channel-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups.json",
@@ -65,26 +65,31 @@
     "pushed_at": "2026-09-21T08:11:40Z"
   },
   "review": {
-    "reviewed_at": "2026-09-21T08:20:04Z",
+    "reviewed_at": "2026-09-21T08:23:19Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/226",
-    "verdict": "accepted",
+    "verdict": "needs_work",
     "comments": [
       {
-        "summary": "A banned-phrase violation caught via the new implicit-string-concatenation join has its printed 'found' text excerpt missing a boundary quote character (an artifact of the join removing quote chars but not newlines) -- cosmetic diagnostic-clarity nit only; line number is still correct.",
-        "file": "scripts/check_profit_target_wording.py",
-        "line": 218
-      },
-      {
-        "summary": "_STRING_CONCAT_JOIN_RE only recognizes implicit concatenation between two literals using the same quote character (backreference-tied); Python also permits mixed-quote-style concatenation, which this join won't catch. Not exercised by the current codebase's wrapping style, so no live gap today.",
+        "summary": "BLOCKING: _join_implicit_string_concatenation() is applied to every scanned file type (.py, .ts, .tsx, .md), not scoped to genuine Python implicit-string-concatenation syntax, so it merges any two lines where one ends with a quote character and the next begins with the same quote character (modulo whitespace) -- regardless of whether that's actually adjacent Python string literals. Reproduced directly: a .md file containing two entirely unrelated, individually-clean sentences (`Some analyst said \"today's\"` / `\"Autoenvelope reading\" is unrelated.`) is joined into `...today's\nAutoenvelope...`, which then false-flags as a stale-daily-channel violation. Reproduced the same false positive in a .py file with two unrelated adjacent string-literal statements (not real implicit concatenation, e.g. one ending a `description=` assignment and the next being an unrelated bare string-literal statement). Since this script runs unconditionally as static-verify's step 5 on every PR review/QA pass, this can false-fail a completely unrelated PR that merely wraps two quoted phrases across a line boundary in any .md/.py/.ts/.tsx file in the repo -- a real regression risk introduced by this PR's own fix for checklist item 1, and in tension with that fix's own decision-record rationale which explicitly claimed the join would stay narrow ('leaving every other newline in a file inert to the banned-pattern regexes, exactly as before'). Needs the join scoped to actual Python-literal-continuation context (e.g. restrict to .py files and/or require the join to occur inside an open paren/bracket as part of an expression) before this can be accepted.",
         "file": "scripts/check_profit_target_wording.py",
         "line": 201
       },
       {
-        "summary": "ruff still reports SIM110 on _is_excluded_path (pre-existing, not introduced by this PR). Checklist item 6 aimed for parity with validate_tasks.py's fully ruff-clean state but that parity isn't fully achieved yet.",
+        "summary": "Non-blocking: a banned-phrase violation caught via the implicit-string-concatenation join has its printed 'found' text excerpt missing a boundary quote character (an artifact of the join removing quote chars but not newlines) -- cosmetic diagnostic-clarity nit only; line number is still correct.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 218
+      },
+      {
+        "summary": "Non-blocking: _STRING_CONCAT_JOIN_RE only recognizes implicit concatenation between two literals using the same quote character (backreference-tied); Python also permits mixed-quote-style concatenation, which this join won't catch. Not exercised by the current codebase's wrapping style, so no live gap today.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 201
+      },
+      {
+        "summary": "Non-blocking: ruff still reports SIM110 on _is_excluded_path (pre-existing, not introduced by this PR). Checklist item 6 aimed for parity with validate_tasks.py's fully ruff-clean state but that parity isn't fully achieved yet.",
         "file": "scripts/check_profit_target_wording.py",
         "line": 157
       }
     ],
-    "notes": "All 6 claimed fixes verified directly: (1) implicit-string-concatenation split now caught (pre-fix vs post-fix repro, main's _iter_scanned_files/check_banned_patterns confirmed to miss it), (2) plural 'weeks' now matches _WEEKLY_RE (pre-fix None, post-fix matches), (3) os.walk directory-pruning refactor confirmed behavior-preserving by running both the pre-fix rglob-based and post-fix os.walk-based _iter_scanned_files() against the real repo tree in-process and diffing the resulting sorted file lists -- 217 files, byte-for-byte identical, not just the PR's own claim taken on faith, (4) hyphenated 'profit-target' now matches _PROFIT_TARGET_CONTEXT_RE (pre-fix None, post-fix matches), (5) failed end_anchor now emits a symmetric violation while still scanning the fallback region (verified via direct _extract_region call returning the new 3-tuple, and via the PR's own new regression test), (6) the named SIM103 finding is gone per ruff (a separate pre-existing SIM110 remains, tracked as a follow-up, not part of this checklist item's claim). scripts/tests/test_check_profit_target_wording.py: 46/46 passed via `python3 -m unittest discover -s scripts/tests`. Backend: pytest --cov=app --cov-fail-under=90 -> 1109 passed, 99.95% coverage. Frontend: vitest run --coverage -> 704 tests passed, 99%+ across all metrics. ruff check app/ and mypy (backend) clean; yarn lint and yarn tsc -b --noEmit (frontend) clean. The real check_profit_target_wording.py run against the repo itself: 'Scanned 217 file(s) ... no stale daily-channel wording found.' Not UI-facing (scripts/ + docs/tasks/ only) so browser walkthrough/e2e suite skipped explicitly. area is backend/signals (inherited) but this diff touches no app/signals or app/portfolio code, so the Elder-methodology checklist doesn't apply. No API/schema changes, so no OpenAPI snapshot concern. All judgment calls in this PR are recorded in decisions[] per CLAUDE.md. Three non-blocking findings filed as checklist items on new follow-up task backend-profit-target-weekly-channel-followups-followups-followups (none existed yet for this task id)."
+    "notes": "Initial pass verified all 6 claimed fixes directly (pre-fix vs post-fix repros for the implicit-concatenation join, plural-weeks regex, and hyphenated profit-target context regex; a real before/after file-set diff on the real repo tree confirming the rglob->os.walk refactor is behavior-preserving -- 217 files, byte-for-byte identical; the end-anchor symmetry fix via a direct _extract_region call and the PR's own new regression test) and all suites passed clean (scripts/tests: 46/46; backend pytest --cov=app --cov-fail-under=90: 1109 passed, 99.95% coverage; frontend vitest --coverage: 704 tests passed, 99%+ across all metrics; ruff/mypy/eslint/tsc clean; the real guard run against the repo: 'Scanned 217 file(s) ... no stale daily-channel wording found.'). A background code-review pass (dispatched in parallel, self-review recipe rather than a second independent reviewer) then surfaced a real, directly-reproduced false-positive bug in fix #1 itself: the join used to fix the implicit-concatenation gap is not scoped to Python syntax or any file type, so it false-flags unrelated prose/code in .md/.ts/.tsx files (and non-implicit-concatenation .py files) wherever a line happens to end and the next happens to begin with the same quote character. This is blocking: the guard runs on every PR's static-verify pass, so this false-positive surface could incorrectly fail completely unrelated future PRs. Reverting the verdict from an earlier premature 'accepted' pass to 'needs_work' on this same review action, before any PR comment or task-JSON commit reflecting the accept was left uncorrected. Not UI-facing (scripts/ + docs/tasks/ only) so browser walkthrough/e2e suite skipped explicitly. area is backend/signals (inherited) but this diff touches no app/signals or app/portfolio code, so the Elder-methodology checklist doesn't apply. No API/schema changes, so no OpenAPI snapshot concern. The 3 non-blocking findings remain filed as checklist items on backend-profit-target-weekly-channel-followups-followups-followups; that follow-up task's checklist items stay valid regardless of this blocking finding and are left in place rather than removed."
   }
 }
