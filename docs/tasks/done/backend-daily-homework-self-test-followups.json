@@ -51,5 +51,10 @@
     "verdict": "accepted",
     "comments": [],
     "notes": "Verified the two 'already done' checklist items genuinely exist on the current tree: docs/architecture/Backend.md §7 lists closed trades/extended data cache/daily homework entries, and backend/app/time_utils.py exists with today()/utcnow() consumed by app/data/cache.py and app/api/routers/{portfolio,watchlist,homework}.py (no _today/_utcnow duplicates remain). Confirmed app.api.routers.portfolio._today() no longer exists anywhere in the repo and app.time_utils.today() is the correct replacement referenced by the updated docstrings. Diff is docstring-text-only in both test files -- no behavior change. Backend suite: 1134 passed, 99.95% coverage. ruff/mypy clean, profit-target wording guard clean, validate_tasks.py clean. code-review skill (medium effort) found no issues. No UI surface (browser walkthrough / e2e-test skipped as not applicable); no API/schema change (no openapi.json update needed); area is backend/api and skill is null so verify-elder-signal not applicable; no new module/dependency so architecture-review not applicable. No blocking or non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T21:15:40Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: grep confirms app.api.routers.portfolio._today() no longer exists anywhere in the repo (only self-contained test-local _today() helpers remain, unrelated), and backend/app/time_utils.py's today()/utcnow() are the real replacement, consumed by cache.py and the portfolio/watchlist/homework/ibkr routers. Confirmed both 'already done' claims live on the current tree: docs/architecture/Backend.md §7 prose lists closed trades, the extended-data cache, and the daily homework entries table; the four duplicated _today/_utcnow helpers are gone in favor of app/time_utils.py. Diff is docstring-text-only in the two integration test files plus task bookkeeping -- re-ran both affected files (51 passed) and the full backend suite myself (1134 passed, 99.95% coverage), matching pr-reviewer's reported numbers exactly."
   }
 }
