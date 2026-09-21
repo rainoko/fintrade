@@ -3,7 +3,7 @@
   "title": "Speed up GET /api/stocks/{ticker}/indicators (cache response, fetch concurrently)",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/stocks.py",
@@ -43,5 +43,11 @@
       "decision": "When daily and weekly OHLCV are fetched concurrently via a ThreadPoolExecutor, a failing daily fetch's exception always takes priority over a failing weekly fetch's exception (daily_future.result() is awaited before weekly_future.result()) if both would fail.",
       "rationale": "Preserves the previous sequential implementation's observable error-priority behavior exactly: sequentially, get_daily_ohlcv() ran first, so if it failed, get_weekly_ohlcv() was never even called and its own potential failure could never surface. Concurrently, both calls now always run regardless of the other's outcome, so resolving daily_future first (even though weekly_future may have already failed by the time we check) reproduces the same 'daily failure wins' priority without needing to special-case a genuinely-new 'both failed' scenario the old code could never actually produce. This does mean the ThreadPoolExecutor's `with` block waits for the (already-running, harmless) weekly fetch to finish before the daily exception propagates out of the block, rather than returning the instant daily fails -- an accepted, minor cost given the whole point of this change is a large one-time round-trip win on the common (both-succeed) path, not shaving milliseconds off an already-rare failure path."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-indicator-history-performance",
+    "pr_number": 231,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/231",
+    "pushed_at": "2026-09-21T10:23:29Z"
+  }
 }
