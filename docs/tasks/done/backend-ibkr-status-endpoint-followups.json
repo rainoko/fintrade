@@ -67,5 +67,10 @@
       }
     ],
     "notes": "Narrow, low-risk documentation-accuracy fix with no behavior change. Area is backend/api (not backend/signals or backend/portfolio, skill is null not verify-elder-signal), so verify-elder-signal was not applicable; no new module/dependency/layer, so architecture-review was not applicable; no frontend component touched (only the generated types.ts description string), so the 7a placement check was not applicable. openapi.json regeneration confirmed byte-identical to a fresh export. One non-blocking finding (placeholder decisions timestamp) filed as docs/tasks/backend-ibkr-status-endpoint-followups-followups.json per CLAUDE.md's follow-up convention, since a PR comment alone would be lost once this PR merges."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T20:33:28Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read backend/app/api/routers/ibkr.py line 86 myself, confirming get_ibkr_status always returns detail=_DISABLED_DETAIL (a fixed non-empty string) for state=\"disabled\", matching test_ibkr_status.py::test_status_disabled's `detail is not None` assertion and the corrected schema description. Diffed the PR against origin/main and confirmed the only changes are the one-line description string in schemas.py/openapi.json/API.md/types.ts plus the task-board bookkeeping files -- no unintended drift. Re-ran `python scripts/export_openapi.py` myself and diffed against the committed openapi.json: byte-identical. Re-ran the full backend suite myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly."
   }
 }
