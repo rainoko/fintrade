@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #228 review (backend-trade-journal-followup-review-followups-followups)",
   "area": "backend/db",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-journal-followup-review-followups-followups"],
   "references": [
     "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
@@ -14,11 +14,25 @@
   "checklist": [
     {
       "step": "docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry, as corrected by PR #228, still contains a parenthetical that doesn't logically reconcile: '...backend-trade-grade-letter added trade_letter_grade and backend-trade-journal-entry-notes added entry_notes/strategy (net +1 after removing the original description's undercount)...'. Those two named PRs add three fields total (trade_letter_grade, entry_notes, strategy), not one, so a stated 'net +1' from a 16-field baseline to a 17-field final doesn't square with '3 fields added' unless the 16-field baseline was itself an *overcount* by 2 -- yet the text calls it an 'undercount', which is the wrong direction. This confusion predates PR #228 (the original '18 fields'/'net +2' version had the same unreconciled arithmetic against the same 3 named field additions); PR #228 only made the headline count and its raw arithmetic (16->17) internally consistent, it didn't fix the underlying explanation. Worth rewriting the parenthetical (or removing it) so it accurately explains how the baseline and the three named additions produce the actual final count, rather than leaving a plausible-sounding but backwards 'undercount' explanation in a decision record that's now been corrected twice.",
-      "done": false
+      "done": true
     },
     {
       "step": "PR #228's task-worker edited an already-merged PR's (#227) GitHub description in place to correct a stale field count, rather than leaving it as-is and relying on review.comments/pr_decision.notes (which already correctly stated the real count) as the corrective record, or posting a new additive PR comment. This was a reasonable, low-risk, transparently-documented call (recorded as a `decisions` entry with rationale, GitHub's own edit history preserves the prior text) and pr-reviewer did not treat it as blocking -- but nothing in CLAUDE.md or the task-worker agent instructions currently says whether editing a merged PR's description post-merge is an acceptable pattern versus something that should default to an additive comment instead (a comment is more visible in the PR timeline/notifications and never overwrites the original text other readers may have already relied on). Worth deciding and documenting this as an explicit convention (e.g. in CLAUDE.md's task board section or the task-worker/pr-reviewer agent docs) so future occurrences don't each have to re-derive the same judgment call from scratch.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconstructed the real ClosedTradeOut field-count history via each contributing PR's `pushed_at` and rewrote docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry to state it correctly, rather than removing the arithmetic and settling for a vague 'it grew over time' note. backend-trade-journal-entry-notes (entry_notes, PR #213), backend-trade-strategy-tagging (strategy, PR #218), and backend-trade-grade-letter (trade_letter_grade, PR #219) all merged to main *before* PR #221 was even pushed, so all three fields were already present in ClosedTradeOut (17 fields total) by the time PR #221's own review claimed '16 fields' -- that '16' was a plain miscount at the time, not an earlier true baseline that later grew to 17 via those three PRs' additions. The old parenthetical's 'net +1'/'undercount' arithmetic was trying to derive a 16->17 change from three field additions that didn't happen after the 16-field claim at all; there was never a genuine 16-field state to net up from.",
+      "rationale": "The task's own fallback option (drop the arithmetic, just state the current count) was available and safer, but the PRs' `pushed_at` timestamps make the actual sequence cleanly reconstructable -- entry-notes at 2026-09-20T23:58:00Z, strategy-tagging at 2026-09-21T02:58:00Z, grade-letter at 2026-09-21T03:15:30Z, all before followup-review's 2026-09-21T04:13:44Z -- so simplifying away the explanation would have thrown away a real, checkable answer in favor of a vaguer one for no reason. A correct, reconciled account is strictly more useful to a future reader trying to understand 'how did this decision record's field count go wrong twice' than a shrug that just states 17 with no explanation of why '16' and '18' were both once believed."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented a house convention in CLAUDE.md's Autonomous pipeline section: correcting a stale claim in an already-merged PR's description defaults to an additive PR comment (or a task-board `review.comments`/`decisions`/follow-up entry), not an in-place edit of the merged PR's body. An in-place edit is permitted only when it's a narrow factual correction (not a rewrite of the PR's substantive claims), the prior text stays recoverable via GitHub's edit history, the correction is also recorded as a task `decisions` entry with rationale, and the edit doesn't touch code or merge state -- and even then, an additive comment is still preferred unless the task/checklist item explicitly names the description itself (not just a passing mention of the mistake) as the thing to fix.",
+      "rationale": "A PR comment is strictly more visible (timeline, notifications, never silently overwrites text another reader may have already linked to or relied on) and is the lower-risk default for exactly the reason pr-reviewer's own PR #228 review flagged: nothing previously said which pattern to prefer, so the same judgment call would otherwise be re-litigated from scratch every time it comes up (as it already had once, on PR #227/#228). Editing in place isn't banned outright because PR #228's own instance was judged reasonable, transparent, and low-risk by two independent reviews (pr-reviewer and pr-decision on PR #228) -- a blanket ban would contradict that precedent -- so the convention instead narrows it to conditions that reproduce exactly what made that instance safe (narrow factual fix, recoverable history, documented decision, no code/merge-state impact) plus a requirement that the task itself called out the description by name, rather than leaving the choice fully open-ended for the next occurrence to reason about unaided."
     }
   ]
 }
