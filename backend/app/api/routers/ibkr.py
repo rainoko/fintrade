@@ -192,6 +192,12 @@ def get_ibkr_scanner_params(
             "model": ErrorDetail,
             "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
             "number of seconds in the `Retry-After` response header",
+            "headers": {
+                "Retry-After": {
+                    "description": "Number of seconds to wait before retrying the scanner run",
+                    "schema": {"type": "integer"},
+                },
+            },
         },
         503: {
             "model": ErrorDetail,
@@ -259,6 +265,12 @@ def _unavailable_breadth_response(
             "model": ErrorDetail,
             "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
             "number of seconds in the `Retry-After` response header",
+            "headers": {
+                "Retry-After": {
+                    "description": "Number of seconds to wait before retrying the scanner run",
+                    "schema": {"type": "integer"},
+                },
+            },
         },
         503: {
             "model": ErrorDetail,

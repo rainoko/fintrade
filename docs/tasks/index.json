@@ -1720,7 +1720,7 @@
       "id": "backend-market-scanner-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-market-scanner-followups-followups.json"
     },
     {
