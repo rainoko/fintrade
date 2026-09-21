@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from PR #228 review (backend-trade-journal-followup-review-followups-followups)",
   "area": "backend/db",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-journal-followup-review-followups-followups"],
   "references": [
     "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
@@ -40,5 +40,33 @@
     "pr_number": 229,
     "pr_url": "https://github.com/rainoko/fintrade/pull/229",
     "pushed_at": "2026-09-21T09:45:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T09:53:57Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/229",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-derived the PR field-count timeline from source rather than trusting the PR body: `gh pr view --json mergedAt` confirms PR #213 merged 2026-09-21T00:09:23Z, #218 merged 03:04:35Z, #219 merged 03:29:52Z, all before PR #221 was even created/pushed (04:13:42Z). `git show c2130b8~1:backend/app/api/schemas.py` (the commit immediately before PR #221's merge) shows ClosedTradeOut already had 15 fields including entry_notes, strategy, and trade_letter_grade before PR #221 added its own follow_up_notes/follow_up_reviewed_at (bringing it to 17) -- confirming the three named fields genuinely predate PR #221 and the original '16 fields' claim in PR #221's own review was a plain miscount of the final (post-#221) 17-field state, not a true earlier baseline. The claimed ordering and conclusion are both correct.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "Re-read the rewritten decisions entry end to end: it's now internally coherent, not just re-worded to sound confident. It states the current/actual count (17, independently re-verified via an AST field count of ClosedTradeOut), correctly attributes each of the three inherited fields to its origin PR with pushed_at evidence, and correctly states there was never a genuine 16-field state to net up from -- resolving the backwards 'undercount' arithmetic the parent task flagged twice. The two 'Correction (...)' notes appended for history are a reasonable way to preserve the record of what was previously wrong without leaving the wrong text as the live account.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "The new CLAUDE.md bullet (Autonomous pipeline section) is clearly written, matches the surrounding bullets' bold-lead-phrase/colon/explanation structure and tone, and actually resolves the ambiguity it targets: additive-comment default, with a narrow, checkable four-condition exception for an in-place edit, plus a concrete precedent citation. Independently confirmed via `gh api graphql` on PR #227's `userContentEdits` that GitHub's edit-history claim in the bullet is accurate (both the original '18 fields' and corrected '17 fields' text remain queryable).",
+        "file": "CLAUDE.md",
+        "line": 91
+      },
+      {
+        "summary": "Non-blocking: this task-worker amended CLAUDE.md itself (a governance/process document) unilaterally via the task's ordinary automated pipeline, with no distinct human sign-off gate for governance-doc changes as such. This instance was appropriate (explicitly requested by the parent task's checklist item, and consistent with this repo's long-running precedent of CLAUDE.md evolving through this exact same pipeline), so not blocking here, but the general question of whether CLAUDE.md/.claude/ changes should require an explicit human touchpoint has never been decided. Tracked as a follow-up.",
+        "file": "CLAUDE.md",
+        "line": 91
+      }
+    ],
+    "notes": "Documentation/task-board-only PR (CLAUDE.md + 2 task JSON files + index.json; no application code). Backend re-run: 1109 passed, 99.95% coverage; ruff/mypy clean. Frontend re-run: 704 passed, 99.7%+ coverage; eslint/tsc clean (unaffected by this diff, confirmed no drift). scripts/validate_tasks.py: 248 files, no violations. scripts/check_profit_target_wording.py: clean. No UI surface -- browser walkthrough and the persisted e2e suite explicitly skipped for that reason, not silently omitted. area is backend/db (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No API route/schema touched, so no openapi.json regeneration needed. code-review skill (medium effort, forked/background) ran independently and found zero issues, corroborating this review's own independent timestamp/field-count reconstruction. Both checklist items are legitimately done (field-count arithmetic fixed and reconciled; house convention decided and documented) and both have corresponding decisions entries with real rationale. Filed docs/tasks/backend-trade-journal-followup-review-followups-followups-followups-followups.json for the one non-blocking finding (CLAUDE.md governance-edit sign-off question)."
   }
 }
