@@ -188,6 +188,24 @@ class TestRunScanner:
         assert response.status_code == 200
         assert response.json() == {"state": "gateway_unreachable", "detail": "down", "results": None}
 
+    def test_not_authenticated(self, client: TestClient) -> None:
+        """Mirrors `TestGetScannerParams.test_not_authenticated` for symmetry -- both routes
+        share the exact same `except IBKRUnavailableError` handling.
+        """
+        _override(
+            _StubIBKRProvider(
+                status=GatewayStatus(state="not_authenticated", detail="please log in"),
+                run_scanner_result=IBKRUnavailableError(
+                    "IBKR gateway not available (not_authenticated): please log in"
+                ),
+            )
+        )
+
+        response = client.post("/api/ibkr/scanner/run", json={"scan_config": self._SCAN_CONFIG})
+
+        assert response.status_code == 200
+        assert response.json() == {"state": "not_authenticated", "detail": "please log in", "results": None}
+
     def test_transient_scanner_call_failure_with_available_gateway_returns_503(self, client: TestClient) -> None:
         """Regression test for the pr-reviewer finding on PR #214 -- see the mirror test on
         `TestGetScannerParams` for the full rationale. Here `run_scanner()` itself fails
@@ -206,12 +224,17 @@ class TestRunScanner:
         assert "500" in response.json()["detail"]
 
     def test_rate_limited_returns_429(self, client: TestClient) -> None:
+        """`retry_after` must be exposed as a structured `Retry-After` header (rounded up to
+        a whole second), not just embedded in `detail`'s free-text sentence -- see the
+        pr-reviewer follow-up on PR #214.
+        """
         _override(_StubIBKRProvider(run_scanner_result=IBKRRateLimitedError(retry_after=0.42)))
 
         response = client.post("/api/ibkr/scanner/run", json={"scan_config": self._SCAN_CONFIG})
 
         assert response.status_code == 429
         assert "retry" in response.json()["detail"].lower()
+        assert response.headers["retry-after"] == "1"
 
     def test_successful_scan_returns_results(self, client: TestClient) -> None:
         results = [

@@ -2955,7 +2955,7 @@
                 }
               }
             },
-            "description": "Scanner run rate limit (1 request/second) exceeded"
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header"
           },
           "503": {
             "content": {
@@ -3008,7 +3008,7 @@
     },
     "/api/ibkr/scanner/run": {
       "post": {
-        "description": "Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56\nmarket-scanning entry's \"near-term, using what's already half-built\" option: IBKR's own\npredefined scan categories run broker-side across their whole market universe, not this\napp's own signal engine run over a downloaded ticker universe (a separate, much larger\nidea, explicitly out of scope here -- see this task's `description`).\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being\nrate-limited (more than 1 request/second since this process's own last scan run,\nenforced client-side by `IBKRProvider` itself -- this handler adds no second, competing\nthrottle) is different: it's a genuine, actionable, transient error for an *enabled and\notherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A\nscanner-run call that itself fails transiently against an otherwise-`available` gateway\n(see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into\n`state`.",
+        "description": "Runs `body.scan_config` through `IBKRProvider.run_scanner` -- docs/ideas.md's ch. 56\nmarket-scanning entry's \"near-term, using what's already half-built\" option: IBKR's own\npredefined scan categories run broker-side across their whole market universe, not this\napp's own signal engine run over a downloaded ticker universe (a separate, much larger\nidea, explicitly out of scope here -- see this task's `description`).\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`GET /api/ibkr/scanner/params` -- a normal `200` response, never an HTTP error. Being\nrate-limited (more than 1 request/second since this process's own last scan run,\nenforced client-side by `IBKRProvider` itself -- this handler adds no second, competing\nthrottle) is different: it's a genuine, actionable, transient error for an *enabled and\notherwise-available* scanner, so it's surfaced as `429`, not folded into `state` -- with\nthe exact retry delay `IBKRRateLimitedError` already computed exposed via the standard\n`Retry-After` header (see `_rate_limited_http_exception`), not just embedded in `detail`'s\nfree-text sentence. A scanner-run call that itself fails transiently against an\notherwise-`available` gateway (see `_resolve_scanner_unavailable`) is likewise surfaced as\na `503`, not folded into `state`.",
         "operationId": "run_ibkr_scanner",
         "requestBody": {
           "content": {
@@ -3049,7 +3049,7 @@
                 }
               }
             },
-            "description": "Scanner run rate limit (1 request/second) exceeded"
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header"
           },
           "503": {
             "content": {

@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-market-scanner review (PR #214)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-market-scanner"],
   "references": [
     "docs/tasks/backend-market-scanner.json",
@@ -13,7 +13,8 @@
   "checklist": [
     {
       "step": "IBKRRateLimitedError.retry_after (a float already computed by IBKRProvider.run_scanner) is discarded by run_ibkr_scanner's `raise HTTPException(status_code=429, detail=str(exc))` -- only embedded in detail's free-text sentence. Expose it as a structured field (or a standard Retry-After header) so a frontend consumer can schedule a retry without parsing a sentence whose wording isn't a stable API contract.",
-      "done": false
+      "done": true,
+      "resolution": "Added a shared `_rate_limited_http_exception(exc)` helper in backend/app/api/routers/ibkr.py that raises the 429 with a standard `Retry-After` header (RFC 9110 Sec 10.2.3, `math.ceil(exc.retry_after)` seconds) instead of only embedding the value in `detail`'s free-text sentence. Applied to both `run_ibkr_scanner` and `record_ibkr_breadth_snapshot` (POST /api/ibkr/breadth/snapshot) since both hit the exact same `except IBKRRateLimitedError` case against the same underlying `IBKRProvider.run_scanner` client-side throttle -- fixing only one of the two would have left them inconsistent. Regression tests added asserting `response.headers['retry-after'] == '1'` for `retry_after=0.42` in both test_ibkr_scanner.py and test_ibkr_breadth.py. Regenerated backend/openapi.json and frontend/src/api/types.ts for the updated 429 response descriptions (docs-only change, no schema/route signature change)."
     },
     {
       "step": "The `except IBKRUnavailableError: status = provider.get_gateway_status(); return Response(state=status.state, detail=status.detail, X=None)` fallback in backend/app/api/routers/ibkr.py is duplicated verbatim between get_ibkr_scanner_params and run_ibkr_scanner. Extract a small shared helper (e.g. `_unavailable_state(provider) -> GatewayStatus`), especially once the blocking finding on the parent task (the state/null-field inconsistency in that same fallback) is fixed there.",
@@ -22,11 +23,27 @@
     },
     {
       "step": "get_ibkr_scanner_params's `categories = params.get(\"scan_type_list\") if isinstance(params, dict) else None` followed by `categories or []` -- the isinstance check is redundant given the trailing `or []` already normalizes any falsy/non-dict result to `[]`. Simplify to `params.get(\"scan_type_list\") or []` (params is always a dict per IBKRProvider.get_scanner_params's own return type).",
-      "done": false
+      "done": true,
+      "resolution": "Simplified to `categories=params.get(\"scan_type_list\") or []` directly in the response constructor, dropping the intermediate `isinstance(params, dict)` check and the now-unused local variable. Existing tests (test_available_returns_scan_type_list, test_available_but_no_scan_type_list_returns_empty_categories) already exercise both the truthy and falsy `scan_type_list` cases and still pass unchanged."
     },
     {
       "step": "backend/tests/integration/test_ibkr_scanner.py covers the not_authenticated state for GET /api/ibkr/scanner/params but not for POST /api/ibkr/scanner/run (only disabled/gateway_unreachable/429/success/empty-result are tested there). Add a not_authenticated case to TestRunScanner for symmetry/completeness, even though the code path is shared and already at 100% line coverage.",
-      "done": false
+      "done": true,
+      "resolution": "Added TestRunScanner.test_not_authenticated, mirroring TestGetScannerParams.test_not_authenticated exactly (same GatewayStatus/IBKRUnavailableError stub shape), asserting the 200 response with state='not_authenticated' and results=None."
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T21:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Exposed IBKRRateLimitedError.retry_after via a standard `Retry-After` response header (RFC 9110 Sec 10.2.3) rather than adding a new structured JSON field (e.g. extending ErrorDetail or introducing a dedicated 429 response model).",
+      "rationale": "The task's own checklist wording explicitly allowed either option ('a structured field (or a standard Retry-After header)'). A header is the HTTP-native mechanism for exactly this signal, needs no change to the shared ErrorDetail schema (which every other error response in this app also uses, so widening it just for this one route would ripple), and is trivially readable by any HTTP client/fetch wrapper without a body-shape special case. Rejected extending ErrorDetail with an optional retry_after field: it would have made every other 4xx/5xx response's schema carry a field that's meaningless outside this one route, and FastAPI's `responses={}` mechanism already supports per-status headers cleanly via `HTTPException(headers=...)` without any schema change at all."
+    },
+    {
+      "timestamp": "2026-09-21T21:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Applied the Retry-After fix to POST /api/ibkr/breadth/snapshot's `except IBKRRateLimitedError` handling as well, via the same new shared `_rate_limited_http_exception` helper, even though the checklist item only named run_ibkr_scanner.",
+      "rationale": "record_ibkr_breadth_snapshot hits the exact same exception (IBKRProvider.run_scanner's own client-side 1 req/sec throttle) through an identical `raise HTTPException(status_code=429, detail=str(exc)) from exc` line. Fixing only run_ibkr_scanner would leave two routes handling the same exception inconsistently for no reason, and the parent task's own precedent (_resolve_scanner_unavailable) already shares 429/503 handling logic across these two routes' occurrences. Rejected leaving breadth/snapshot's 429 unchanged: that would just recreate the same gap this checklist item exists to close, one route later."
     }
   ]
 }
