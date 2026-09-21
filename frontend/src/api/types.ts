@@ -182,10 +182,12 @@ export interface paths {
          *     rate-limited (more than 1 request/second since this process's own last scan run,
          *     enforced client-side by `IBKRProvider` itself -- this handler adds no second, competing
          *     throttle) is different: it's a genuine, actionable, transient error for an *enabled and
-         *     otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A
-         *     scanner-run call that itself fails transiently against an otherwise-`available` gateway
-         *     (see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into
-         *     `state`.
+         *     otherwise-available* scanner, so it's surfaced as `429`, not folded into `state` -- with
+         *     the exact retry delay `IBKRRateLimitedError` already computed exposed via the standard
+         *     `Retry-After` header (see `_rate_limited_http_exception`), not just embedded in `detail`'s
+         *     free-text sentence. A scanner-run call that itself fails transiently against an
+         *     otherwise-`available` gateway (see `_resolve_scanner_unavailable`) is likewise surfaced as
+         *     a `503`, not folded into `state`.
          */
         post: operations["run_ibkr_scanner"];
         delete?: never;
@@ -2397,7 +2399,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description Scanner run rate limit (1 request/second) exceeded */
+            /** @description Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2477,7 +2479,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description Scanner run rate limit (1 request/second) exceeded */
+            /** @description Scanner run rate limit (1 request/second) exceeded -- retry after the number of seconds in the `Retry-After` response header */
             429: {
                 headers: {
                     [name: string]: unknown;

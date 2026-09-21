@@ -1713,8 +1713,15 @@
       "id": "backend-market-scanner-followups",
       "area": "backend/api",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-scanner-followups.json"
+    },
+    {
+      "id": "backend-market-scanner-followups-followups",
+      "area": "backend/api",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-market-scanner-followups.json"
+      "path": "docs/tasks/backend-market-scanner-followups-followups.json"
     },
     {
       "id": "frontend-market-scanner-page",

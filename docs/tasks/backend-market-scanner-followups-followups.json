@@ -1,0 +1,19 @@
+{
+  "id": "backend-market-scanner-followups-followups",
+  "title": "Non-blocking follow-up from backend-market-scanner-followups review (PR #238)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-market-scanner-followups"],
+  "references": [
+    "docs/tasks/done/backend-market-scanner-followups.json",
+    "https://github.com/rainoko/fintrade/pull/238"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #238 (the Retry-After header added to POST /api/ibkr/scanner/run's and POST /api/ibkr/breadth/snapshot's 429 responses), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "The 429 `responses={}` entries for POST /api/ibkr/scanner/run and POST /api/ibkr/breadth/snapshot (backend/app/api/routers/ibkr.py) describe the new `Retry-After` header only in the `description` prose, not via a `headers` key in FastAPI's `responses={...}` dict. Because of that, the generated `frontend/src/api/types.ts` still types each 429 response's `headers` as the generic `{ [name: string]: unknown }` instead of a typed `Retry-After: string` field a frontend consumer could read without an unsafe cast. Add `headers: {\"Retry-After\": {\"description\": ..., \"schema\": {\"type\": \"integer\"}}}` to both routes' 429 response specs and regenerate backend/openapi.json + frontend/src/api/types.ts.",
+      "done": false
+    }
+  ]
+}

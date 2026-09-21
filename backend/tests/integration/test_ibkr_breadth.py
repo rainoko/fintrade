@@ -147,6 +147,10 @@ class TestRecordBreadthSnapshot:
         assert "500" in response.json()["detail"]
 
     def test_rate_limited_returns_429(self, client: TestClient) -> None:
+        """`retry_after` is exposed as a structured `Retry-After` header, not just embedded in
+        `detail`'s free-text sentence -- see the pr-reviewer follow-up on PR #214's mirror
+        test on `test_ibkr_scanner.py::TestRunScanner`.
+        """
         _override(_StubIBKRProvider(run_scanner_result=IBKRRateLimitedError(retry_after=0.42)))
 
         response = client.post(
@@ -155,6 +159,7 @@ class TestRecordBreadthSnapshot:
 
         assert response.status_code == 429
         assert "retry" in response.json()["detail"].lower()
+        assert response.headers["retry-after"] == "1"
 
     def test_first_call_of_the_day_runs_the_scan_and_persists_a_row(
         self, client: TestClient, db_session: Session

@@ -27,6 +27,8 @@ of matching contracts, never a genuine full-market count or percentage) and
 docs/Analyse.md's "IBKR-scanner breadth approximation" section for the full caveat.
 """
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -115,6 +117,25 @@ def _resolve_scanner_unavailable(provider: IBKRProvider, exc: IBKRUnavailableErr
     return status
 
 
+def _rate_limited_http_exception(exc: IBKRRateLimitedError) -> HTTPException:
+    """Shared `except IBKRRateLimitedError` handling for `run_ibkr_scanner` and
+    `record_ibkr_breadth_snapshot` (both eventually call `IBKRProvider.run_scanner`, the
+    only method this client-side rate limit applies to).
+
+    `exc.retry_after` was previously discarded -- available only embedded in `detail`'s
+    free-text sentence, whose wording isn't a stable API contract a caller can parse. Also
+    surfaces it as the standard `Retry-After` response header (RFC 9110 §10.2.3), rounded up
+    to a whole second (the header's own unit) so a caller never retries a fraction of a
+    second too early.
+    """
+    retry_after_seconds = math.ceil(exc.retry_after)
+    return HTTPException(
+        status_code=429,
+        detail=str(exc),
+        headers={"Retry-After": str(retry_after_seconds)},
+    )
+
+
 @router.get(
     "/scanner/params",
     response_model=IBKRScannerParamsResponse,
@@ -156,8 +177,9 @@ def get_ibkr_scanner_params(
         status = _resolve_scanner_unavailable(provider, exc)
         return IBKRScannerParamsResponse(state=status.state, detail=status.detail, categories=None)
 
-    categories = params.get("scan_type_list") if isinstance(params, dict) else None
-    return IBKRScannerParamsResponse(state="available", detail=None, categories=categories or [])
+    return IBKRScannerParamsResponse(
+        state="available", detail=None, categories=params.get("scan_type_list") or []
+    )
 
 
 @router.post(
@@ -166,7 +188,11 @@ def get_ibkr_scanner_params(
     operation_id="run_ibkr_scanner",
     summary="Run an IBKR market scan, or report why the scanner is unavailable",
     responses={
-        429: {"model": ErrorDetail, "description": "Scanner run rate limit (1 request/second) exceeded"},
+        429: {
+            "model": ErrorDetail,
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
+            "number of seconds in the `Retry-After` response header",
+        },
         503: {
             "model": ErrorDetail,
             "description": "The scanner-run call itself failed transiently (not a gateway/session "
@@ -189,10 +215,12 @@ def run_ibkr_scanner(
     rate-limited (more than 1 request/second since this process's own last scan run,
     enforced client-side by `IBKRProvider` itself -- this handler adds no second, competing
     throttle) is different: it's a genuine, actionable, transient error for an *enabled and
-    otherwise-available* scanner, so it's surfaced as `429`, not folded into `state`. A
-    scanner-run call that itself fails transiently against an otherwise-`available` gateway
-    (see `_resolve_scanner_unavailable`) is likewise surfaced as a `503`, not folded into
-    `state`.
+    otherwise-available* scanner, so it's surfaced as `429`, not folded into `state` -- with
+    the exact retry delay `IBKRRateLimitedError` already computed exposed via the standard
+    `Retry-After` header (see `_rate_limited_http_exception`), not just embedded in `detail`'s
+    free-text sentence. A scanner-run call that itself fails transiently against an
+    otherwise-`available` gateway (see `_resolve_scanner_unavailable`) is likewise surfaced as
+    a `503`, not folded into `state`.
     """
     if provider is None:
         return IBKRScannerRunResponse(state="disabled", detail=_DISABLED_DETAIL, results=None)
@@ -200,7 +228,7 @@ def run_ibkr_scanner(
     try:
         results = provider.run_scanner(body.scan_config)
     except IBKRRateLimitedError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        raise _rate_limited_http_exception(exc) from exc
     except IBKRUnavailableError as exc:
         status = _resolve_scanner_unavailable(provider, exc)
         return IBKRScannerRunResponse(state=status.state, detail=status.detail, results=None)
@@ -227,7 +255,11 @@ def _unavailable_breadth_response(
     operation_id="record_ibkr_breadth_snapshot",
     summary="Record (or fetch) today's IBKR-scanner-based breadth count for one series, with rolling sums",
     responses={
-        429: {"model": ErrorDetail, "description": "Scanner run rate limit (1 request/second) exceeded"},
+        429: {
+            "model": ErrorDetail,
+            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
+            "number of seconds in the `Retry-After` response header",
+        },
         503: {
             "model": ErrorDetail,
             "description": "The scanner-run call itself failed transiently (not a gateway/session "
@@ -274,7 +306,7 @@ def record_ibkr_breadth_snapshot(
         try:
             results = provider.run_scanner(body.scan_config)
         except IBKRRateLimitedError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
+            raise _rate_limited_http_exception(exc) from exc
         except IBKRUnavailableError as exc:
             status = _resolve_scanner_unavailable(provider, exc)
             return _unavailable_breadth_response(body.series_key, status.state, status.detail)
