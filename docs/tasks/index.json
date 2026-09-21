@@ -1580,8 +1580,15 @@
       "id": "backend-trade-journal-followup-review-followups-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-journal-followup-review-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-followup-review-followups-followups.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review-followups-followups-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-trade-journal-followup-review-followups-followups-followups.json"
     },
     {
       "id": "backend-close-position-manual-exit",
