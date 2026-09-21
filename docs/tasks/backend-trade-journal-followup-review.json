@@ -3,17 +3,31 @@
   "title": "Two-months-later trade follow-up review workflow",
   "area": "backend/db",
   "skill": "add-api-endpoint",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
   ],
   "description": "Ch. 59 Section E: Elder treats reviewing every closed trade again about two months after exit as one of the Trade Journal's three core benefits, not optional -- reopening the trade with the benefit of hindsight and writing what it teaches. This app has nothing like a 'trades due for follow-up review' surface today. Add fields to record a follow-up review and a way to find trades that are due for one.",
   "checklist": [
-    { "step": "Add nullable follow_up_notes (text) and follow_up_reviewed_at (timestamp) fields to ClosedTradeORM/ClosedTradeOut.", "done": false },
-    { "step": "Add an endpoint or query parameter to list closed trades due for follow-up review (exit_date roughly two months ago, follow_up_reviewed_at still null) -- decide and record the exact window definition (e.g. exit_date between 8 and 10 weeks ago).", "done": false },
-    { "step": "Add an endpoint to record a follow-up review (sets follow_up_notes and follow_up_reviewed_at for a given closed trade).", "done": false },
-    { "step": "Unit tests covering a trade inside the due window, outside it (too recent and too old), and before/after being reviewed.", "done": false },
-    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+    { "step": "Add nullable follow_up_notes (text) and follow_up_reviewed_at (timestamp) fields to ClosedTradeORM/ClosedTradeOut.", "done": true },
+    { "step": "Add an endpoint or query parameter to list closed trades due for follow-up review (exit_date roughly two months ago, follow_up_reviewed_at still null) -- decide and record the exact window definition (e.g. exit_date between 8 and 10 weeks ago).", "done": true },
+    { "step": "Add an endpoint to record a follow-up review (sets follow_up_notes and follow_up_reviewed_at for a given closed trade).", "done": true },
+    { "step": "Unit tests covering a trade inside the due window, outside it (too recent and too old), and before/after being reviewed.", "done": true },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T04:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The 'due for follow-up review' window is exit_date between 8 and 10 weeks ago inclusive (both boundaries inclusive), computed against app.time_utils.today() -- exposed as an optional `due_for_follow_up: bool = false` query parameter on the existing `GET /api/portfolio/closed-trades` (not a new endpoint), filtering on `follow_up_reviewed_at IS NULL AND exit_date BETWEEN today-10w AND today-8w`.",
+      "rationale": "Elder's own instruction is 'about two months' (~8.7 weeks), not an exact date, and this app has no scheduled job that checks daily -- a single-date window (e.g. exit_date == today - 60 days) would be missed entirely by a user who only opens the app every few days, silently dropping trades out of view forever once the exact day passes; that exact-date alternative was rejected for this reason. An 8-10-week (2-week-wide) band centered close to the ~8.7-week mark gives a practical, forgiving catch window without being so wide it starts surfacing trades that are barely a month old (not yet enough hindsight) or many months old (which remain visible in the default unfiltered GET regardless, just not flagged as 'due' by this filter). A query parameter on the existing endpoint was chosen over a new dedicated endpoint (e.g. GET /api/portfolio/closed-trades/due-for-review, considered and rejected) because this is a filtered view of the exact same resource/shape (same grading, same ClosedTradeOut), not a new resource -- reusing the endpoint avoids duplicating the grading/serialization logic _grade_closed_trades already provides, matching how DELETE /api/portfolio/positions/{id} already uses Query() params for optional manual-override behavior rather than a separate endpoint."
+    },
+    {
+      "timestamp": "2026-09-21T04:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The review-recording endpoint is `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review`, taking a required, non-blank `follow_up_notes` string (stripped of surrounding whitespace, rejecting blank/whitespace-only via a field_validator matching PositionIn.ticker's own pattern) and returning the full updated `ClosedTradeOut` (recomputed grade included). Calling it again for the same trade_id overwrites both `follow_up_notes` and `follow_up_reviewed_at` with the new call's values rather than appending (unlike PositionIn.entry_notes's append-on-merge behavior) or rejecting a second call with a 409/422.",
+      "rationale": "follow_up_notes is required (not optional like entry_notes) because this endpoint's entire purpose is recording that note -- an optional/blank note would defeat the point of the action, unlike entry_notes which is a nice-to-have annotation on a POST whose primary purpose (adding a position) doesn't depend on it. Overwrite-on-repeat-call (rather than append, or rejecting a second review) was chosen because a follow-up review is a single, evolving personal reflection on one trade, not a multi-buy narrative like entry_notes (where each buy genuinely has its own separate 'why') -- and this is a personal journal tool, not an immutable audit log, so revising an earlier review after further reflection is a legitimate, expected use case rather than something to block. Append-on-repeat-call (like entry_notes) was considered and rejected because concatenating an evolving reflection with blank-line separators over multiple edits would produce a confusing running log rather than one clear takeaway; rejecting a second call outright (409 Conflict) was also considered and rejected as unnecessarily restrictive for a personal tool with no compliance requirement to preserve a first-draft review untouched. Returning the full ClosedTradeOut (not a bare 204/ack) mirrors add_position's POST-returns-resource convention and saves the frontend a second round trip to see the updated row."
+    }
   ]
 }

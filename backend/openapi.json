@@ -238,6 +238,31 @@
             "title": "Exit Reason",
             "type": "string"
           },
+          "follow_up_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text note from the mandatory two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- reopening this trade with the benefit of hindsight and writing what it teaches. Set by POST /api/portfolio/closed-trades/{trade_id}/follow-up-review; null until that review has happened.",
+            "title": "Follow Up Notes"
+          },
+          "follow_up_reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "UTC timestamp of the most recent follow-up review, set together with follow_up_notes by POST /api/portfolio/closed-trades/{trade_id}/follow-up-review. Null means this trade hasn't been reviewed yet -- exactly the condition GET /api/portfolio/closed-trades?due_for_follow_up=true filters on.",
+            "title": "Follow Up Reviewed At"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -851,6 +876,21 @@
           "extreme_price"
         ],
         "title": "FalseBreakoutOut",
+        "type": "object"
+      },
+      "FollowUpReviewIn": {
+        "properties": {
+          "follow_up_notes": {
+            "description": "Free-text note from reopening this closed trade with hindsight, about two months after it closed (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- what the trade actually teaches, seen with the benefit of hindsight. Required and must not be blank/whitespace-only (leading/trailing whitespace is stripped) -- unlike PositionIn.entry_notes, this endpoint's entire purpose is recording that note, so an empty one would defeat the point. Calling this endpoint again for the same trade overwrites both this field and follow_up_reviewed_at rather than appending -- see the backend-trade-journal-followup-review task's `decisions` entry.",
+            "minLength": 1,
+            "title": "Follow Up Notes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "follow_up_notes"
+        ],
+        "title": "FollowUpReviewIn",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3063,8 +3103,22 @@
     },
     "/api/portfolio/closed-trades": {
       "get": {
-        "description": "Every row in the `closed_trades` table (docs/Analyse.md \u00a77's trade-history/ledger\ntable, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first\n(`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors\n`_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since\ntrade history is read for recency rather than portfolio composition).\n\nEach trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`\n(Elder ch. 55 \"Is This an A-Trade?\", docs/Analyse.md \u00a77 / docs/ideas.md ch. 55) --\n`app.portfolio.grading.grade_trade_from_filtered_history`, sourced from the ticker's daily OHLCV (that\nday's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation\n`AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is\npreferred over judging it by raw P&L alone, since it accounts for how much was\nrealistically available to capture that day/that channel, not just what was captured.\n`trade_grade_pct` is additionally mapped to an Elder-style `trade_letter_grade` (A/B/C/D --\nsee `app.portfolio.grading.trade_letter_grade`'s own docstring for the thresholds and the\ndecision record behind them); `buy_grade_pct`/`sell_grade_pct` stay percentage-only since\nthe book gives them no letter-grade scale at all.\n\nGrading never fails the request: a ticker whose current daily-history fetch fails, or a\ntrade whose entry/exit date isn't an exact row in that history (e.g. it predates the\nfetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets\nnull grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s\ndocstring.",
+        "description": "Every row in the `closed_trades` table (docs/Analyse.md \u00a77's trade-history/ledger\ntable, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first\n(`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors\n`_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since\ntrade history is read for recency rather than portfolio composition). `due_for_follow_up`\nnarrows this to trades due for Elder's mandatory two-months-later follow-up review -- see\nthat parameter's own description for the exact window.\n\nEach trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`\n(Elder ch. 55 \"Is This an A-Trade?\", docs/Analyse.md \u00a77 / docs/ideas.md ch. 55) --\n`app.portfolio.grading.grade_trade_from_filtered_history`, sourced from the ticker's daily OHLCV (that\nday's own high/low) and the entry day's Autoenvelope/channel bounds (the same computation\n`AnalysisResponse.indicators.channel_upper`/`channel_lower` expose). Grading a trade is\npreferred over judging it by raw P&L alone, since it accounts for how much was\nrealistically available to capture that day/that channel, not just what was captured.\n`trade_grade_pct` is additionally mapped to an Elder-style `trade_letter_grade` (A/B/C/D --\nsee `app.portfolio.grading.trade_letter_grade`'s own docstring for the thresholds and the\ndecision record behind them); `buy_grade_pct`/`sell_grade_pct` stay percentage-only since\nthe book gives them no letter-grade scale at all.\n\nGrading never fails the request: a ticker whose current daily-history fetch fails, or a\ntrade whose entry/exit date isn't an exact row in that history (e.g. it predates the\nfetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets\nnull grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s\ndocstring.",
         "operationId": "get_closed_trades",
+        "parameters": [
+          {
+            "description": "If true, only return closed trades due for their mandatory two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry): `follow_up_reviewed_at` is still null and `exit_date` falls between 8 and 10 weeks ago inclusive -- see the backend-trade-journal-followup-review task's `decisions` entry for why this specific 8-10-week window (not a single exact date) was chosen. A trade exited less than 8 weeks ago isn't due yet; one exited more than 10 weeks ago without a review has aged out of this filtered view but still appears in the default, unfiltered listing. Defaults to false (every closed trade, the original behavior).",
+            "in": "query",
+            "name": "due_for_follow_up",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "If true, only return closed trades due for their mandatory two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry): `follow_up_reviewed_at` is still null and `exit_date` falls between 8 and 10 weeks ago inclusive -- see the backend-trade-journal-followup-review task's `decisions` entry for why this specific 8-10-week window (not a single exact date) was chosen. A trade exited less than 8 weeks ago isn't due yet; one exited more than 10 weeks ago without a review has aged out of this filtered view but still appears in the default, unfiltered listing. Defaults to false (every closed trade, the original behavior).",
+              "title": "Due For Follow Up",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3075,9 +3129,82 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get closed trades (trade history) with A-trade grades",
+        "tags": [
+          "portfolio"
+        ]
+      }
+    },
+    "/api/portfolio/closed-trades/{trade_id}/follow-up-review": {
+      "post": {
+        "description": "Records Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal\nSection E, docs/ideas.md's ch. 59 entry) for one `closed_trades` row: sets\n`follow_up_notes` to the supplied note and `follow_up_reviewed_at` to now (naive UTC, see\n`app.time_utils.utcnow`). Calling this again for the same `trade_id` overwrites both\nfields with the new call's values rather than appending or rejecting the second call --\nsee this task's `decisions` entry for why (a personal journal tool, not an\nimmutable/append-only audit log).\n\nNot restricted to trades currently `GET /api/portfolio/closed-trades?due_for_follow_up=true`\nwould surface -- a trade can be reviewed early, late, or reviewed again, and this endpoint\nplaces no window restriction of its own on `trade_id`, only on whether it exists at all.\n\nReturns the full updated `ClosedTradeOut`, including a freshly recomputed grade (same\n`_grade_closed_trades` computation `GET /api/portfolio/closed-trades` uses), so a caller\ngets the complete, current record in one round trip rather than a bare acknowledgement.",
+        "operationId": "record_follow_up_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosedTradeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "Closed trade not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record a two-months-later follow-up review for a closed trade",
         "tags": [
           "portfolio"
         ]

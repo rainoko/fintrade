@@ -338,7 +338,9 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
       "trade_grade_pct": 32.1,
       "trade_letter_grade": "A",
       "entry_notes": "Breakout above resistance, strong earnings beat.",
-      "strategy": "Pullback to value"
+      "strategy": "Pullback to value",
+      "follow_up_notes": null,
+      "follow_up_reviewed_at": null
     }
   ]
 }
@@ -349,6 +351,26 @@ The three grade fields are `null` whenever they can't currently be computed — 
 `trade_letter_grade` is Elder's own A/B/C/D letter grade (ch. 55 "Is This an A-Trade?" footnote: "A is excellent, B good, C mediocre, and D poor"), derived from `trade_grade_pct`: `A` >= 30%, `B` in [20%, 30%), `C` in [10%, 20%), `D` < 10% (no floor — a losing trade is still "poor"). The book only gives two numeric anchors (>=30% "A", ~10% "C"); the B/D thresholds fill that gap by even 10-point-per-letter spacing implied by those two anchors — see the `backend-trade-grade-letter` task's `decisions` for the full rationale and alternatives considered. `null` exactly when `trade_grade_pct` is `null`. `buy_grade_pct`/`sell_grade_pct` deliberately stay percentage-only — the book gives them no letter-grade scale at all, only a single ">50% = very good" anchor each.
 
 `entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded. `strategy` is carried over the same way (Elder ch. 55/56/58/59's personal named strategy tag) — `null` if the position never had a strategy tag recorded.
+
+`follow_up_notes`/`follow_up_reviewed_at` record Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) — both `null` until `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review` (below) has been called for this trade.
+
+An optional `?due_for_follow_up=true` query parameter narrows the response to trades due for that review right now: `follow_up_reviewed_at` still `null` and `exit_date` between 8 and 10 weeks ago inclusive — see the `backend-trade-journal-followup-review` task's `decisions` entry for why an 8-10-week band (not a single exact "exactly 2 months" date) was chosen. Defaults to `false` (every closed trade, unfiltered).
+
+### `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review`
+
+Records Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal Section E) for one closed trade: reopening it with the benefit of hindsight and writing what it teaches.
+
+Request:
+
+```json
+{ "follow_up_notes": "Sold too early -- the tide was still bullish two months later." }
+```
+
+`follow_up_notes` is required and must not be blank/whitespace-only (leading/trailing whitespace is stripped) — unlike `entry_notes` above, this endpoint's entire purpose is recording that note.
+
+Response: the full updated `ClosedTradeOut` (same shape as a `GET /api/portfolio/closed-trades` item, including a freshly recomputed grade), with `follow_up_notes` set and `follow_up_reviewed_at` set to now (naive UTC).
+
+Calling this again for the same `trade_id` overwrites both fields with the new call's values (not append, not reject) — see this task's `decisions` entry. Not restricted to trades the due-for-follow-up filter above would currently surface; a trade can be reviewed early, late, or reviewed more than once. 404s if `trade_id` doesn't exist.
 
 ### `POST /api/portfolio/trade-apgar`
 

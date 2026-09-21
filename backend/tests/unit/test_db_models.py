@@ -323,6 +323,8 @@ class TestClosedTradeORM:
         assert fetched.exit_reason == "target_hit"
         assert fetched.entry_notes is None
         assert fetched.strategy is None
+        assert fetched.follow_up_notes is None
+        assert fetched.follow_up_reviewed_at is None
 
     def test_create_and_read_with_entry_notes(self, session: Session) -> None:
         session.add(
@@ -365,6 +367,30 @@ class TestClosedTradeORM:
         fetched = session.get(ClosedTradeORM, "trade_125")
         assert fetched is not None
         assert fetched.strategy == "Pullback to value"
+
+    def test_create_and_read_with_follow_up_review(self, session: Session) -> None:
+        reviewed_at = datetime(2026, 8, 1, 12, 0, 0)
+        session.add(
+            ClosedTradeORM(
+                id="trade_126",
+                ticker="AAPL",
+                quantity=100.0,
+                entry_price=195.30,
+                entry_date=date(2026, 5, 14),
+                exit_price=210.0,
+                exit_date=date(2026, 6, 1),
+                realized_pnl=1470.0,
+                exit_reason="target_hit",
+                follow_up_notes="Sold too early -- tide was still bullish two months later.",
+                follow_up_reviewed_at=reviewed_at,
+            )
+        )
+        session.commit()
+
+        fetched = session.get(ClosedTradeORM, "trade_126")
+        assert fetched is not None
+        assert fetched.follow_up_notes == "Sold too early -- tide was still bullish two months later."
+        assert fetched.follow_up_reviewed_at == reviewed_at
 
     def test_delete(self, session: Session) -> None:
         session.add(

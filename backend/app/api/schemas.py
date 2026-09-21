@@ -624,6 +624,21 @@ class ClosedTradeOut(BaseModel):
         "(Elder ch. 55/56/58/59 personal named strategy tag) at the moment it was closed -- "
         "null if the position never had a strategy tag recorded.",
     )
+    follow_up_notes: str | None = Field(
+        default=None,
+        description="Free-text note from the mandatory two-months-later follow-up review "
+        "(Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- reopening "
+        "this trade with the benefit of hindsight and writing what it teaches. Set by POST "
+        "/api/portfolio/closed-trades/{trade_id}/follow-up-review; null until that review has "
+        "happened.",
+    )
+    follow_up_reviewed_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp of the most recent follow-up review, set together with "
+        "follow_up_notes by POST /api/portfolio/closed-trades/{trade_id}/follow-up-review. "
+        "Null means this trade hasn't been reviewed yet -- exactly the condition GET "
+        "/api/portfolio/closed-trades?due_for_follow_up=true filters on.",
+    )
 
 
 class ClosedTradesResponse(BaseModel):
@@ -631,6 +646,32 @@ class ClosedTradesResponse(BaseModel):
         description="Every closed trade (the docs/Analyse.md §7 trade-history/ledger table), "
         "most recently exited first."
     )
+
+
+# --- POST /api/portfolio/closed-trades/{trade_id}/follow-up-review ---------
+
+
+class FollowUpReviewIn(BaseModel):
+    follow_up_notes: str = Field(
+        min_length=1,
+        description="Free-text note from reopening this closed trade with hindsight, about "
+        "two months after it closed (Elder ch. 59 Trade Journal Section E, docs/ideas.md's "
+        "ch. 59 entry) -- what the trade actually teaches, seen with the benefit of "
+        "hindsight. Required and must not be blank/whitespace-only (leading/trailing "
+        "whitespace is stripped) -- unlike PositionIn.entry_notes, this endpoint's entire "
+        "purpose is recording that note, so an empty one would defeat the point. Calling "
+        "this endpoint again for the same trade overwrites both this field and "
+        "follow_up_reviewed_at rather than appending -- see the "
+        "backend-trade-journal-followup-review task's `decisions` entry.",
+    )
+
+    @field_validator("follow_up_notes")
+    @classmethod
+    def _strip_and_require_non_blank_follow_up_notes(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("follow_up_notes must not be blank or whitespace-only")
+        return stripped
 
 
 # --- /api/portfolio/trade-apgar ---------------------------------------------

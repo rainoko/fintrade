@@ -1,6 +1,6 @@
 import math
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import cast
 
@@ -15,6 +15,7 @@ from app.api.schemas import (
     Equity,
     ErrorDetail,
     ExitReasonOut,
+    FollowUpReviewIn,
     PortfolioResponse,
     PositionIn,
     PositionOut,
@@ -53,7 +54,7 @@ from app.portfolio.risk import (
 from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
-from app.time_utils import today
+from app.time_utils import today, utcnow
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -62,6 +63,12 @@ from app.time_utils import today
 # imported from app.portfolio.risk -- see this task's `decisions` entry.
 _TWO_PERCENT_RULE_THRESHOLD = 2.0
 _SIX_PERCENT_RULE_THRESHOLD = 6.0
+
+# The "roughly two months ago" follow-up-review due window (Elder ch. 59 Trade Journal
+# Section E) -- see get_closed_trades's `due_for_follow_up` parameter and this task's
+# `decisions` entry for why 8-10 weeks (not a single exact date) was chosen.
+_FOLLOW_UP_DUE_WINDOW_MIN = timedelta(weeks=8)
+_FOLLOW_UP_DUE_WINDOW_MAX = timedelta(weeks=10)
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -698,6 +705,18 @@ def get_risk(
     summary="Get closed trades (trade history) with A-trade grades",
 )
 def get_closed_trades(
+    due_for_follow_up: bool = Query(
+        False,
+        description="If true, only return closed trades due for their mandatory "
+        "two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, "
+        "docs/ideas.md's ch. 59 entry): `follow_up_reviewed_at` is still null and `exit_date` "
+        "falls between 8 and 10 weeks ago inclusive -- see the "
+        "backend-trade-journal-followup-review task's `decisions` entry for why this specific "
+        "8-10-week window (not a single exact date) was chosen. A trade exited less than 8 "
+        "weeks ago isn't due yet; one exited more than 10 weeks ago without a review has "
+        "aged out of this filtered view but still appears in the default, unfiltered listing. "
+        "Defaults to false (every closed trade, the original behavior).",
+    ),
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
 ) -> ClosedTradesResponse:
@@ -705,7 +724,9 @@ def get_closed_trades(
     table, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first
     (`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors
     `_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since
-    trade history is read for recency rather than portfolio composition).
+    trade history is read for recency rather than portfolio composition). `due_for_follow_up`
+    narrows this to trades due for Elder's mandatory two-months-later follow-up review -- see
+    that parameter's own description for the exact window.
 
     Each trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`
     (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7 / docs/ideas.md ch. 55) --
@@ -724,11 +745,15 @@ def get_closed_trades(
     fetched history, or falls inside the Autoenvelope's ~100-bar warm-up window), simply gets
     null grade fields on an otherwise fully-populated row -- see `_grade_closed_trades`'s
     docstring."""
-    rows = (
-        db.query(ClosedTradeORM)
-        .order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc())
-        .all()
-    )
+    query = db.query(ClosedTradeORM)
+    if due_for_follow_up:
+        as_of = today()
+        query = query.filter(
+            ClosedTradeORM.follow_up_reviewed_at.is_(None),
+            ClosedTradeORM.exit_date >= as_of - _FOLLOW_UP_DUE_WINDOW_MAX,
+            ClosedTradeORM.exit_date <= as_of - _FOLLOW_UP_DUE_WINDOW_MIN,
+        )
+    rows = query.order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc()).all()
     grades = _grade_closed_trades(rows, provider)
 
     return ClosedTradesResponse(
@@ -749,9 +774,72 @@ def get_closed_trades(
                 trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
                 entry_notes=row.entry_notes,
                 strategy=row.strategy,
+                follow_up_notes=row.follow_up_notes,
+                follow_up_reviewed_at=row.follow_up_reviewed_at,
             )
             for row in rows
         ]
+    )
+
+
+@router.post(
+    "/closed-trades/{trade_id}/follow-up-review",
+    response_model=ClosedTradeOut,
+    operation_id="record_follow_up_review",
+    summary="Record a two-months-later follow-up review for a closed trade",
+    responses={
+        404: {"model": ErrorDetail, "description": "Closed trade not found"},
+    },
+)
+def record_follow_up_review(
+    trade_id: str,
+    review: FollowUpReviewIn,
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> ClosedTradeOut:
+    """Records Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal
+    Section E, docs/ideas.md's ch. 59 entry) for one `closed_trades` row: sets
+    `follow_up_notes` to the supplied note and `follow_up_reviewed_at` to now (naive UTC, see
+    `app.time_utils.utcnow`). Calling this again for the same `trade_id` overwrites both
+    fields with the new call's values rather than appending or rejecting the second call --
+    see this task's `decisions` entry for why (a personal journal tool, not an
+    immutable/append-only audit log).
+
+    Not restricted to trades currently `GET /api/portfolio/closed-trades?due_for_follow_up=true`
+    would surface -- a trade can be reviewed early, late, or reviewed again, and this endpoint
+    places no window restriction of its own on `trade_id`, only on whether it exists at all.
+
+    Returns the full updated `ClosedTradeOut`, including a freshly recomputed grade (same
+    `_grade_closed_trades` computation `GET /api/portfolio/closed-trades` uses), so a caller
+    gets the complete, current record in one round trip rather than a bare acknowledgement."""
+    row = db.get(ClosedTradeORM, trade_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Closed trade '{trade_id}' not found")
+
+    row.follow_up_notes = review.follow_up_notes
+    row.follow_up_reviewed_at = utcnow()
+    db.commit()
+    db.refresh(row)
+
+    grades = _grade_closed_trades([row], provider)
+    return ClosedTradeOut(
+        id=row.id,
+        ticker=row.ticker,
+        quantity=row.quantity,
+        entry_price=row.entry_price,
+        entry_date=row.entry_date,
+        exit_price=row.exit_price,
+        exit_date=row.exit_date,
+        realized_pnl=row.realized_pnl,
+        exit_reason=cast(ExitReasonOut, row.exit_reason),
+        buy_grade_pct=grades[row.id].buy_grade_pct,
+        sell_grade_pct=grades[row.id].sell_grade_pct,
+        trade_grade_pct=grades[row.id].trade_grade_pct,
+        trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
+        entry_notes=row.entry_notes,
+        strategy=row.strategy,
+        follow_up_notes=row.follow_up_notes,
+        follow_up_reviewed_at=row.follow_up_reviewed_at,
     )
 
 

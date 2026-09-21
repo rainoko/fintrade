@@ -109,6 +109,8 @@ class TestUpgradeHeadAgainstAFreshDatabase:
             "exit_reason",
             "entry_notes",
             "strategy",
+            "follow_up_notes",
+            "follow_up_reviewed_at",
         }
 
     def test_records_the_head_revision_in_alembic_version(self, tmp_path: Path) -> None:

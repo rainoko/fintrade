@@ -276,7 +276,9 @@ export interface paths {
          *     table, populated by `DELETE /api/portfolio/positions/{id}`), most recently exited first
          *     (`exit_date` descending, `id` descending as a same-day tiebreaker -- mirrors
          *     `_ordered_positions`'s own deterministic-ordering rationale, just newest-first here since
-         *     trade history is read for recency rather than portfolio composition).
+         *     trade history is read for recency rather than portfolio composition). `due_for_follow_up`
+         *     narrows this to trades due for Elder's mandatory two-months-later follow-up review -- see
+         *     that parameter's own description for the exact window.
          *
          *     Each trade is annotated with its `buy_grade_pct`/`sell_grade_pct`/`trade_grade_pct`
          *     (Elder ch. 55 "Is This an A-Trade?", docs/Analyse.md §7 / docs/ideas.md ch. 55) --
@@ -299,6 +301,40 @@ export interface paths {
         get: operations["get_closed_trades"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/portfolio/closed-trades/{trade_id}/follow-up-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a two-months-later follow-up review for a closed trade
+         * @description Records Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal
+         *     Section E, docs/ideas.md's ch. 59 entry) for one `closed_trades` row: sets
+         *     `follow_up_notes` to the supplied note and `follow_up_reviewed_at` to now (naive UTC, see
+         *     `app.time_utils.utcnow`). Calling this again for the same `trade_id` overwrites both
+         *     fields with the new call's values rather than appending or rejecting the second call --
+         *     see this task's `decisions` entry for why (a personal journal tool, not an
+         *     immutable/append-only audit log).
+         *
+         *     Not restricted to trades currently `GET /api/portfolio/closed-trades?due_for_follow_up=true`
+         *     would surface -- a trade can be reviewed early, late, or reviewed again, and this endpoint
+         *     places no window restriction of its own on `trade_id`, only on whether it exists at all.
+         *
+         *     Returns the full updated `ClosedTradeOut`, including a freshly recomputed grade (same
+         *     `_grade_closed_trades` computation `GET /api/portfolio/closed-trades` uses), so a caller
+         *     gets the complete, current record in one round trip rather than a bare acknowledgement.
+         */
+        post: operations["record_follow_up_review"];
         delete?: never;
         options?: never;
         head?: never;
@@ -881,6 +917,16 @@ export interface components {
              * @enum {string}
              */
             exit_reason: "target_hit" | "stop_hit" | "reached_value_zone" | "going_nowhere" | "starting_to_turn" | "couldnt_stand_the_pain" | "recognized_junk_trade_after_entry" | "unspecified";
+            /**
+             * Follow Up Notes
+             * @description Free-text note from the mandatory two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- reopening this trade with the benefit of hindsight and writing what it teaches. Set by POST /api/portfolio/closed-trades/{trade_id}/follow-up-review; null until that review has happened.
+             */
+            follow_up_notes?: string | null;
+            /**
+             * Follow Up Reviewed At
+             * @description UTC timestamp of the most recent follow-up review, set together with follow_up_notes by POST /api/portfolio/closed-trades/{trade_id}/follow-up-review. Null means this trade hasn't been reviewed yet -- exactly the condition GET /api/portfolio/closed-trades?due_for_follow_up=true filters on.
+             */
+            follow_up_reviewed_at?: string | null;
             /** Id */
             id: string;
             /** Quantity */
@@ -1211,6 +1257,14 @@ export interface components {
              * @description First subsequent date price closed back inside [lower, upper] -- what confirms the breakout was false, per docs/ideas.md's Elder ch. 18 note.
              */
             reentry_date: string;
+        };
+        /** FollowUpReviewIn */
+        FollowUpReviewIn: {
+            /**
+             * Follow Up Notes
+             * @description Free-text note from reopening this closed trade with hindsight, about two months after it closed (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry) -- what the trade actually teaches, seen with the benefit of hindsight. Required and must not be blank/whitespace-only (leading/trailing whitespace is stripped) -- unlike PositionIn.entry_notes, this endpoint's entire purpose is recording that note, so an empty one would defeat the point. Calling this endpoint again for the same trade overwrites both this field and follow_up_reviewed_at rather than appending -- see the backend-trade-journal-followup-review task's `decisions` entry.
+             */
+            follow_up_notes: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2434,7 +2488,10 @@ export interface operations {
     };
     get_closed_trades: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description If true, only return closed trades due for their mandatory two-months-later follow-up review (Elder ch. 59 Trade Journal Section E, docs/ideas.md's ch. 59 entry): `follow_up_reviewed_at` is still null and `exit_date` falls between 8 and 10 weeks ago inclusive -- see the backend-trade-journal-followup-review task's `decisions` entry for why this specific 8-10-week window (not a single exact date) was chosen. A trade exited less than 8 weeks ago isn't due yet; one exited more than 10 weeks ago without a review has aged out of this filtered view but still appears in the default, unfiltered listing. Defaults to false (every closed trade, the original behavior). */
+                due_for_follow_up?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2448,6 +2505,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClosedTradesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_follow_up_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosedTradeOut"];
+                };
+            };
+            /** @description Closed trade not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
