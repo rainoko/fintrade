@@ -3,7 +3,7 @@
   "title": "trade_letter_grade -- non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-grade-letter"],
   "references": [
     "docs/tasks/backend-trade-grade-letter.json#review",
@@ -29,5 +29,12 @@
       "decision": "Import `TradeLetterGrade` from `app.portfolio.grading` into `backend/app/api/schemas.py` and use it as `ClosedTradeOut.trade_letter_grade`'s annotation, in place of the duplicated inline `Literal[\"A\", \"B\", \"C\", \"D\"]`.",
       "rationale": "This is exactly the fix the review comment suggested, and no alternative was seriously in play: `app/api/schemas.py` already has no reverse dependency from `app.portfolio` back onto `app.api` (checked via grep across app/portfolio, app/signals, app/indicators), so importing the domain-layer alias into the schema module introduces no circular import -- confirmed by a clean `python -c \"import app.api.schemas\"` and the full test suite passing unchanged. Defining a third, shared alias location elsewhere was considered and rejected as unnecessary extra indirection: `grading.py` is already the single source of truth for the letter-grade domain concept (the function that produces the value lives there too), so schemas.py depending on it directly is the more direct fix. This is the first cross-import from `app.api.schemas` into a domain module in this codebase, but nothing in docs/architecture/Backend.md or API.md prohibits it, and it doesn't invert the layering the docs do describe (`app.api` already depends on `app.portfolio` at the router level; `schemas.py` picking up one type-only import from the same package is consistent with that direction, not against it)."
     }
-  ]
+  ],
+  "review": {
+    "reviewed_at": "2026-09-22T05:39:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/251",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Independently re-verified every claim in the PR description rather than trusting it. Backend suite: 1139 passed, 99.95% coverage (gate 90%) -- matches PR claim. ruff check app/, mypy, and scripts/check_profit_target_wording.py all clean. Re-ran python scripts/export_openapi.py and diffed against the committed backend/openapi.json: zero diff, confirming the no-OpenAPI-drift claim. Circular-import claim verified directly: python -c 'import app.api.schemas' succeeds, and grepping app/portfolio, app/signals, app/indicators for 'from app.api'/'import app.api' finds zero reverse imports, so app.api.schemas -> app.portfolio.grading introduces no cycle. Layering check against docs/architecture/Backend.md: api/routers/*.py already imports heavily from app.portfolio/app.signals/app.indicators (e.g. portfolio.py imports TradeGrade/grade_trade_from_filtered_history/trade_letter_grade from the same grading module), so api-depends-on-domain is the established direction; grepping app/api/schemas.py's own imports confirms this PR's TradeLetterGrade import is indeed the first schemas.py-specific instance of that pattern, not a second one contradicting an existing precedent -- task-worker's claim holds on both counts (new precedent for this specific file, consistent with the codebase's existing direction). area is backend/portfolio so ran verify-elder-signal: the diff touches zero threshold/methodology logic (trade_letter_grade's A/B/C/D thresholds in grading.py are completely untouched by this PR), so no drift from docs/Analyse.md ch. 55 is possible here. No frontend/UI surface at all (openapi.json has zero diff, so no frontend consumer is affected) -- browser walkthrough and e2e suite explicitly skipped as inapplicable, not merely omitted. code-review skill (medium effort) ran independently and returned zero findings. No pr_decision field was present to clear. No non-blocking findings surfaced, so no follow-up task was needed."
+  }
 }

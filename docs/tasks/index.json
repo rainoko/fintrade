@@ -1559,8 +1559,8 @@
       "id": "backend-trade-grade-letter-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-grade-letter-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-grade-letter-followups.json"
     },
     {
       "id": "backend-daily-homework-self-test",
