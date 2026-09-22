@@ -25,5 +25,11 @@
       "rationale": "27 days is `<=` every real calendar month's length (28-31 days), so the pagination cursor can never overshoot into the next page's already-collected range and skip a bar -- the only failure mode that matters, per the checklist item's own analysis (underestimating just causes a few redundant, already-deduplicated re-fetched days). An exact calendar-aware step (e.g. walking back one real month via a date library) would be more precise but adds real complexity for a code path that's provably unreachable today (`_MAX_BARS_PER_PAGE`=1000 means a monthly-bar page only triggers a second page after ~83 years of lookback) and has no live caller requesting `bar_size='1m'` yet. Rejected: keeping 30 days (the original bug); rejected: an exact calendar-aware step, deferred until a real caller of monthly bars exists and the extra precision is actually load-bearing."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-bar-interval-param-followups",
+    "pr_number": 266,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/266",
+    "pushed_at": "2026-09-22T00:00:00Z"
+  }
 }
