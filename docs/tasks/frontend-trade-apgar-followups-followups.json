@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-trade-apgar-followups review (PR #255)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-trade-apgar-followups"],
   "references": [
     "docs/tasks/frontend-trade-apgar-followups.json",
@@ -13,8 +13,15 @@
   "checklist": [
     {
       "step": "useResetOnSubjectChange.ts was placed under features/portfolio/hooks/ (frontend-trade-apgar-followups's own decisions entry explains the reasoning) rather than utils/, but Frontend.md §3's own literal utils/ placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component (no props, no rendering, no Storybook story) -> utils/') is satisfied here: the hook's signature (subjectId: string | null, onReset: () => void) references no domain concept at all (no ticker/position/trade), and it's a plain function, not a component. The doc's separate hooks bullet ('Hooks wrap exactly one API concern each and live under the feature they serve') is framed specifically around API-concern (fetch/query) hooks, which this one isn't -- it does no fetching. This is a genuinely arguable placement call, not a clear-cut violation (both readings have real support in the doc, and the task's decision reasoned through it), so it wasn't blocking. Worth reconsidering if a third caller from a different feature (e.g. features/stocks or features/watchlist) ever needs the same subject-reset pattern -- at that point the cross-feature-sharing case for utils/ becomes unambiguous, per the hook's own decisions entry.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Left `useResetOnSubjectChange.ts` at `frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts` rather than moving it to `utils/`. Re-checked for a third, cross-feature caller (`grep -rn useResetOnSubjectChange frontend/src`): still only two, `TradeApgarDialog.tsx` and `FollowUpReviewDialog.tsx`, both under `features/portfolio/components/`.",
+      "rationale": "The original `frontend-trade-apgar-followups` decision reasoned through this exact tension (Frontend.md §3's literal `utils/` placement test — domain-agnostic + non-component -> `utils/` — versus its 'hooks live under the feature they serve' bullet) and explicitly named the trigger for revisiting it: 'if a third caller from a different feature ... ever needs the same pattern, that's the trigger to promote it to utils/ then, not now.' That trigger hasn't fired — no new caller exists anywhere in the frontend tree since PR #255 merged, and both current consumers still belong to the same `portfolio` feature, so there's still no cross-feature-sharing problem to solve. Moving it now would be exactly the kind of preemptive `utils/` promotion Frontend.md warns against ('only introduce a shared ... utility when a second, unrelated component genuinely needs it — not preemptively'), applied here to a hypothetical third caller that doesn't exist yet. Rejected moving it anyway on the strength of the literal `utils/` test alone: that test is a tiebreaker for genuinely single-owner-ambiguous code, and here there's a clear tiebreaker already established (single-feature ownership, both call sites colocated) that the original decision used and that still holds; re-litigating the same facts to a different conclusion without new information would make the placement rule less predictable, not more. If a third, cross-feature caller does show up later, promoting the hook to `utils/` at that point (updating both existing imports plus the new one) remains the right move, per the original decision."
+    }
+  ]
 }
