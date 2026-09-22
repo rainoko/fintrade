@@ -3,15 +3,35 @@
   "title": "Surface trades due for their two-months-later follow-up review",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-journal-followup-review"],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
   ],
   "description": "Surface trades the backend now identifies as due for a two-months-later follow-up review, and let the user record that review.",
   "checklist": [
-    { "step": "Add a 'due for follow-up' indicator/section in TradeJournalPanel (or a dedicated panel) listing trades due for review.", "done": false },
-    { "step": "Add a small form/dialog to record follow_up_notes for a given trade.", "done": false },
-    { "step": "Component tests for both: the due-list rendering and submitting a follow-up review.", "done": false }
+    { "step": "Add a 'due for follow-up' indicator/section in TradeJournalPanel (or a dedicated panel) listing trades due for review.", "done": true },
+    { "step": "Add a small form/dialog to record follow_up_notes for a given trade.", "done": true },
+    { "step": "Component tests for both: the due-list rendering and submitting a follow-up review.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Built a dedicated `TradeFollowUpDuePanel` component (GET /api/portfolio/closed-trades?due_for_follow_up=true) rendered on PortfolioPage alongside — not inside — `TradeJournalPanel`, rather than folding the due-list into `TradeJournalPanel` itself.",
+      "rationale": "TradeJournalPanel's whole DataTable is sorted/keyed around every closed trade ever, with one row per trade and a Notes column tucked in among nine other columns; the due-for-follow-up list is a small, action-oriented subset (usually 0-1 rows) whose entire point is prompting an action (open a review dialog), not another column to scan in a wide historical table. A second `DataTable` instance with its own three columns (ticker/exit date/realized P&L) plus a 'Record Review' action column reads far more like SellFlaggedPositionsCard's existing 'positions needing attention' precedent than like another row of TradeJournalPanel. Folding it into TradeJournalPanel (e.g. a highlighted row style or an inline action per row) was considered and rejected: it would require plumbing the review dialog's open/selected-trade state through a component that already owns nine columns of rendering logic, and would make the 'due right now' set need to be recomputed client-side from the same `useClosedTrades()` unfiltered response rather than just querying the endpoint's own `due_for_follow_up` filter directly — two fetches (one the API already offers a dedicated query parameter for) is simpler than one fetch plus client-side date-window recomputation duplicating backend logic the endpoint already encapsulates."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`useDueForFollowUpTrades()` is a separate TanStack Query hook/key (`portfolioKeys.dueForFollowUpTrades`, nested one level under `portfolioKeys.closedTrades`) from the existing `useClosedTrades()`, rather than one hook taking a parameter with a single shared cache entry.",
+      "rationale": "The unfiltered journal table and the due-list are genuinely different server responses (different query strings, different item sets) that both need to be independently cached and independently refetchable — TanStack Query already models 'the same resource under different filters' as distinct query keys (see how `usePortfolioRisk`/`useClosedTrades` are already separate top-level keys nested under `portfolioKeys.all` for exactly this reason). Nesting `dueForFollowUpTrades` one level under `closedTrades` (rather than a same-level sibling) means `useRecordFollowUpReview`'s existing broad `portfolioKeys.all` invalidation (matching the app's established convention of invalidating the whole `['portfolio']` prefix on any portfolio-affecting write) refreshes both the full journal and the due-list in one call via TanStack Query's default prefix-matching invalidation, with zero new invalidation logic required in the mutation hook itself. A single `useClosedTrades(dueForFollowUp?: boolean)` hook keying its query solely off a fixed key (ignoring the parameter) was considered and rejected — it would either silently share one cache entry between two genuinely different response shapes (a bug: switching between the filtered and unfiltered view would show stale data from whichever was fetched first) or require the caller to thread a variable key manually anyway, which the two-named-hooks approach does more explicitly and readably at each call site."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`FollowUpReviewDialog` closes immediately (calling `onClose`) on a successful `POST .../follow-up-review`, with no intermediate 'success' screen/message — unlike `AddPositionDialog`, which shows an explicit 'Added X' / 'Merged into X' message before the user clicks Done.",
+      "rationale": "AddPositionDialog's success message exists because the outcome is ambiguous from the user's own input alone (a duplicate ticker silently merges rather than creating a new position, per API.md's documented merge behavior) — the message is the *only* way the user learns which of two outcomes happened. Recording a follow-up review has exactly one outcome (the note is saved) with no such hidden branching to disclose, and the visible, immediate effect (the trade disappearing from the 'Due for Follow-Up Review' list once the due-query refetches) already confirms success without an extra modal step end users would need to dismiss. An AddPositionDialog-style intermediate success screen with a 'Done' button was considered and rejected as an unnecessary extra click for an action with no ambiguous outcome to disclose."
+    }
   ]
 }

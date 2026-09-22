@@ -1699,7 +1699,7 @@
       "id": "frontend-trade-journal-followup-review",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-trade-journal-followup-review.json"
     },
     {

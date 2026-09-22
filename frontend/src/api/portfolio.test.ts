@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { resetPortfolioStore } from '../../tests/mocks/handlers'
-import { addPosition, deletePosition, getPortfolio, getPortfolioRisk } from './portfolio'
+import {
+  addPosition,
+  deletePosition,
+  getClosedTrades,
+  getPortfolio,
+  getPortfolioRisk,
+  recordFollowUpReview,
+} from './portfolio'
 
 describe('api/portfolio', () => {
   beforeEach(() => {
@@ -133,5 +140,48 @@ describe('api/portfolio', () => {
 
   it('deletePosition throws a 404 ApiError for an id that does not exist', async () => {
     await expect(deletePosition('does-not-exist')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('getClosedTrades with no arguments returns every closed trade, unfiltered', async () => {
+    const response = await getClosedTrades()
+
+    // The two fixed-date rows plus the mock store's own relative-date row
+    // seeded specifically to fall inside the due-for-follow-up window.
+    expect(response.items.map((item) => item.ticker).sort()).toEqual([
+      'ADSK',
+      'NVDA',
+      'TSLA',
+    ])
+  })
+
+  it('getClosedTrades({ dueForFollowUp: true }) narrows to the trade currently due for review', async () => {
+    const response = await getClosedTrades({ dueForFollowUp: true })
+
+    expect(response.items).toHaveLength(1)
+    expect(response.items[0]?.ticker).toBe('NVDA')
+    expect(response.items[0]?.follow_up_reviewed_at).toBeNull()
+  })
+
+  it('recordFollowUpReview sets follow_up_notes/follow_up_reviewed_at and drops the trade out of the due filter', async () => {
+    const due = await getClosedTrades({ dueForFollowUp: true })
+    const tradeId = due.items[0]?.id as string
+
+    const updated = await recordFollowUpReview(tradeId, {
+      follow_up_notes: 'Sold too early -- the tide was still bullish two months later.',
+    })
+
+    expect(updated.follow_up_notes).toBe(
+      'Sold too early -- the tide was still bullish two months later.',
+    )
+    expect(updated.follow_up_reviewed_at).not.toBeNull()
+
+    const stillDue = await getClosedTrades({ dueForFollowUp: true })
+    expect(stillDue.items).toHaveLength(0)
+  })
+
+  it('recordFollowUpReview throws a 404 ApiError for a trade id that does not exist', async () => {
+    await expect(
+      recordFollowUpReview('does-not-exist', { follow_up_notes: 'Some hindsight.' }),
+    ).rejects.toMatchObject({ status: 404 })
   })
 })
