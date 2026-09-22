@@ -34,5 +34,11 @@
       "rationale": "The checklist item's own wording ('follow the same fix pattern already applied twice before... check those diffs for precedent') is a direct instruction to replicate the existing order-dependent pattern here, not to re-litigate its robustness -- that concern was deliberately scoped to checklist item 1's SellFlaggedPositionsCard fix only. Not applying the same explicit-prop treatment to these three chart components here also keeps this PR's diff focused and consistent with precedent; if the render-order coupling on StockCharts is later judged to need the same robustness treatment as SellFlaggedPositionsCard, that is exactly the kind of finding a future PR review of this task's PR would surface as its own follow-up task, the same way this task itself originated as a followup of PR #259's review."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-position-risk-columns-followups-followups-followups",
+    "pr_number": 260,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/260",
+    "pushed_at": "2026-09-22T09:58:00Z"
+  }
 }
