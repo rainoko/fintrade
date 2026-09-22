@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-ibkr-status-indicator PR #244 review",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-ibkr-status-indicator"],
   "references": [
     "docs/tasks/frontend-ibkr-status-indicator.json",
@@ -44,5 +44,12 @@
     "pr_number": 245,
     "pr_url": "https://github.com/rainoko/fintrade/pull/245",
     "pushed_at": "2026-09-22T02:45:55Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T02:55:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/245",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (1139 passed, 99.95% cov, unchanged), frontend vitest+coverage (723 passed, 99.72%/99.19%/99.72%/99.79%, IbkrStatusIndicator.tsx itself 100%), static-verify (ruff/mypy/eslint/tsc/profit-target-wording all clean), code-review skill (medium effort, no findings), e2e-test skill (18/18 Playwright specs passing), and a real-headless-Chromium browser walkthrough of all five states (disabled/available/gateway_unreachable/not_authenticated/transport-failure) plus the specific late-background-poll-failure regression this PR fixes -- confirmed live, not just via the unit test, that the chip correctly flips from 'IBKR: Connected' to 'IBKR: Unknown' after the 30s refetchInterval poll fails, and that role=\"status\" is present in every state. Verified the new fake-timers regression test is not a fake pass by reverting IbkrStatusIndicator.tsx to its pre-fix branch order while keeping the new tests -- both new tests failed against the old code as expected, then passed again once restored. Both checklist items have corresponding decisions entries with concrete rationale; no undecided judgment call. No API/schema change (openapi.json correctly untouched); no new module/component needing an architecture or placement review. scripts/validate_tasks.py clean. No blocking or non-blocking findings -- a genuinely clean pass, so no follow-up task was filed."
   }
 }
