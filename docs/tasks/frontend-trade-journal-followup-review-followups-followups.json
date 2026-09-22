@@ -1,0 +1,32 @@
+{
+  "id": "frontend-trade-journal-followup-review-followups-followups",
+  "title": "Non-blocking follow-ups from frontend-trade-journal-followup-review-followups PR #249 review",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-trade-journal-followup-review-followups"],
+  "references": [
+    "docs/tasks/frontend-trade-journal-followup-review-followups.json",
+    "https://github.com/rainoko/fintrade/pull/249",
+    "frontend/tests/e2e/portfolio.spec.ts",
+    "frontend/tests/mocks/handlers.ts",
+    "frontend/src/features/portfolio/components/FollowUpReviewDialog.test.tsx"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #249 (frontend-trade-journal-followup-review-followups), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges. Everything else in that review passed cleanly: static analysis (ruff/mypy/eslint/tsc/profit-target-wording), backend coverage (99.95%, 1139 passed), frontend coverage (statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79%, 745 passed), the persisted e2e suite (21/21 passing, including the 3 new specs), the seeding-via-API approach (isolated by a distinct fixture ticker (TSLA) not used by any other spec, closed before the block's own first assertion, single-worker/non-parallel config rules out cross-file races), and the task's `decisions` entry (accurately reflects the actual 8-10-week due window in `app/api/routers/portfolio.py` and the 9-week choice already used by the mocked-test fixture).",
+  "checklist": [
+    {
+      "step": "`frontend/tests/e2e/portfolio.spec.ts`'s new `isoDateWeeksAgo` helper is line-for-line identical to the existing `isoDateWeeksAgo` in `frontend/tests/mocks/handlers.ts` (added by PR #248 for the mocked-test `dueTradeFixture`). Both compute an ISO date N weeks in the past for the same reason (landing a fixture inside the backend's 8-10-week follow-up-due window). Worth extracting to a small shared test utility if a third near-identical copy ever appears; currently only two, in two different test layers (MSW mock handlers for vitest vs. Playwright e2e fixtures), so the coupling tradeoff of sharing across those layers now is arguable rather than clear-cut -- non-blocking.",
+      "done": false
+    },
+    {
+      "step": "task-worker reported one flaky timeout in `frontend/src/features/portfolio/components/FollowUpReviewDialog.test.tsx` on its first vitest run of this PR's changes, which then passed clean on rerun and in isolation. pr-reviewer investigated: this file is entirely untouched by PR #249's diff (the PR only touches `frontend/tests/e2e/portfolio.spec.ts`, `docs/architecture/Testing.md`, and task JSON files), so the flake can't be something this PR introduced or exacerbated. Re-ran the file in isolation 13 times and the full vitest suite 3 times (16 runs total) with zero reproductions -- no evidence of a genuine recurring pre-existing flake, most likely a one-off environmental fluke (e.g. sandbox scheduling jitter) rather than a real timing race in the test or component. Recorded here rather than dropped, per CLAUDE.md's 'would this be lost if nobody re-read this PR' bar: if this timeout recurs on a future run of this file, this entry gives the next investigator a starting point (13+3 clean reruns already ruled out) instead of re-litigating from zero.",
+      "done": false
+    },
+    {
+      "step": "The new `test.describe.serial('portfolio: due-for-follow-up review flow', ...)` block in `frontend/tests/e2e/portfolio.spec.ts` has no tolerance for a leftover unreviewed trade from an earlier interrupted run, unlike the sibling 'view, add, and delete a position' block in the same file, whose own doc comment explains it tolerates a pre-existing MSFT position specifically because `playwright.config.ts`'s webServer 'only guarantees a clean database at the start of a whole `yarn test:e2e` invocation, not before each individual spec file.' If test 1 or 2 of the new block fails, leaving the `beforeAll`-seeded TSLA trade unreviewed and due, and the suite is then re-run against a still-alive webServer (e.g. `yarn test:e2e:ui` interactive debugging, which keeps the webServer running across reruns -- not the routine `make e2e`/`yarn test:e2e` path, which always wipes `e2e.db` and restarts both webServers fresh per `reuseExistingServer: false`), `seedDueForFollowUpTrade` seeds a second unreviewed TSLA due trade, and `dueForFollowUpRow(page)` then resolves to two rows, turning every subsequent assertion/click on it into a Playwright strict-mode violation rather than a clean, debuggable failure. Non-blocking: doesn't affect the documented, actually-used CI/routine run path (confirmed clean on a real `make e2e` run as part of this PR's review), only the interactive UI-mode debugging workflow the e2e-test skill itself already calls out as non-routine; and the failure mode is loud (an exception), not a silent false pass. Worth a defensive tweak later (e.g. scope the seed's assertion to accept/clean up a pre-existing due TSLA row, mirroring the sibling block's own pattern) for consistency and smoother interactive debugging.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

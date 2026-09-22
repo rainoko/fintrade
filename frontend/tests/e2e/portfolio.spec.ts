@@ -1,9 +1,14 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 // A fixture ticker (see backend/app/data/fixture_provider.py) distinct from the one
 // navigation/stock-analysis specs use (AAPL), so this spec's add/delete cycle can't be
 // confused with state either of those leave behind.
 const TICKER = 'MSFT'
+
+// A fixture ticker distinct from every other one this suite uses (AAPL: navigation/
+// stock-analysis; MSFT: the add/delete cycle above; GOOGL: watchlist.spec.ts) so the
+// due-for-follow-up flow below can't be confused with any of their state either.
+const FOLLOW_UP_TICKER = 'TSLA'
 
 // Scoped to the positions table specifically (not just any row on the page): once a
 // position is added, RiskPanel's separate "Portfolio risk" table also gets a row starting
@@ -90,5 +95,124 @@ test.describe.serial('portfolio: view, add, and delete a position', () => {
     await expect(confirmDialog).not.toBeVisible()
 
     await expect(positionRow(page)).toHaveCount(0)
+  })
+})
+
+// Scoped to the due-for-follow-up table specifically (not just any row on the page): once
+// the seeded trade is reviewed it also shows up as a row in TradeJournalPanel's separate
+// "Trade journal" table, which would otherwise make this locator ambiguous.
+function dueForFollowUpRow(page: Page) {
+  return page
+    .getByRole('table', { name: 'Trades due for follow-up review' })
+    .getByRole('row', { name: new RegExp(`^${FOLLOW_UP_TICKER}\\b`) })
+}
+
+function isoDateWeeksAgo(weeks: number): string {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() - weeks * 7)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * Seeds one closed trade for `FOLLOW_UP_TICKER` whose `exit_date` lands inside the backend's
+ * 8-10-week due-for-follow-up window (API.md's `due_for_follow_up` query parameter, `app.api.
+ * routers.portfolio`'s `_FOLLOW_UP_DUE_WINDOW_MIN`/`_MAX`) -- 9 weeks back, comfortably inside
+ * both edges, matching the mocked-test suite's own choice for the same reason
+ * (`frontend/tests/mocks/handlers.ts`'s `dueTradeFixture`). There's no UI path yet to backdate
+ * a trade's exit date (`frontend-close-position-dialog`, still `planned`, is what will
+ * eventually expose `DELETE .../positions/{id}`'s own `exit_price`/`exit_date` override in the
+ * UI) -- so this drives the real running backend directly through the same two calls a
+ * UI-driven add-then-manually-close flow would eventually make: `POST` a position dated well
+ * before the intended exit, then `DELETE` it with an explicit `exit_price`/`exit_date` pair.
+ */
+async function seedDueForFollowUpTrade(request: APIRequestContext): Promise<void> {
+  const addResponse = await request.post('/api/portfolio/positions', {
+    data: {
+      ticker: FOLLOW_UP_TICKER,
+      quantity: 10,
+      avg_cost_basis: 200,
+      entry_date: isoDateWeeksAgo(20),
+    },
+  })
+  expect(addResponse.ok()).toBe(true)
+  const position = (await addResponse.json()) as { id: string }
+
+  const deleteResponse = await request.delete(
+    `/api/portfolio/positions/${encodeURIComponent(position.id)}`,
+    { params: { exit_price: 220, exit_date: isoDateWeeksAgo(9) } },
+  )
+  expect(deleteResponse.ok()).toBe(true)
+}
+
+/**
+ * Trades due for their two-months-later follow-up review (`TradeFollowUpDuePanel.tsx`,
+ * `FollowUpReviewDialog.tsx` -- Elder ch. 59 Trade Journal Section E): the due panel lists a
+ * trade whose exit is 8-10 weeks back and not yet reviewed, recording a review through the
+ * dialog removes it from that list. Seeded via direct API calls rather than the UI (see
+ * `seedDueForFollowUpTrade`'s own doc) since there's no UI flow yet to backdate an exit date --
+ * everything downstream of that seed (the due panel rendering it, opening the dialog, client-
+ * side blank-notes validation, submitting, and the row disappearing and staying gone after a
+ * reload) is driven through the real UI against the real running backend, same as every other
+ * flow in this suite. A single `test.describe.serial` block, same reasoning as the add/delete
+ * block above: submitting a review depends on the panel/dialog state the previous step left
+ * behind.
+ */
+test.describe.serial('portfolio: due-for-follow-up review flow', () => {
+  test.beforeAll(async ({ request }) => {
+    await seedDueForFollowUpTrade(request)
+  })
+
+  test('a trade due for follow-up review appears in the due panel', async ({ page }) => {
+    await page.goto('/portfolio')
+
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Due for Follow-Up Review' }),
+    ).toBeVisible()
+    await expect(dueForFollowUpRow(page)).toBeVisible()
+  })
+
+  test('submitting blank notes shows a validation error and keeps the dialog open', async ({
+    page,
+  }) => {
+    await page.goto('/portfolio')
+
+    await dueForFollowUpRow(page).getByRole('button', { name: 'Record Review' }).click()
+
+    // Not filtered by accessible name, same reasoning as the "Add Position" dialog above:
+    // only one MUI dialog is ever open at a time in this app.
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(
+      dialog.getByRole('heading', { name: `Follow-Up Review: ${FOLLOW_UP_TICKER}` }),
+    ).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Save Review' }).click()
+
+    await expect(dialog.getByText('Follow-up notes are required.')).toBeVisible()
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).not.toBeVisible()
+  })
+
+  test('recording a review closes the dialog and removes the trade from the due list, even after a reload', async ({
+    page,
+  }) => {
+    await page.goto('/portfolio')
+
+    await dueForFollowUpRow(page).getByRole('button', { name: 'Record Review' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await dialog
+      .getByLabel('Follow-up notes')
+      .fill('Shaken out on a normal pullback, then it ran without me -- give this setup more room next time.')
+    await dialog.getByRole('button', { name: 'Save Review' }).click()
+
+    await expect(dialog).not.toBeVisible()
+    await expect(dueForFollowUpRow(page)).toHaveCount(0)
+
+    await page.reload()
+    await expect(dueForFollowUpRow(page)).toHaveCount(0)
   })
 })
