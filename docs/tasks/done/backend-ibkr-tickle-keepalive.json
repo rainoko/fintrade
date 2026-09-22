@@ -76,5 +76,10 @@
       }
     ],
     "notes": "Round 1 (2026-09-22T14:34:04Z) found the flaky test blocking; task-worker's fix (commit 8eeee9d) replaced the fixed-200-iteration bare asyncio.sleep(0) busy-wait with a real-timer _wait_until helper bounded by asyncio.wait_for. Verified the fix genuinely non-flaky via 75 of my own repeated runs across three conditions (plain, --cov, --cov+CPU-load), on top of task-worker's own reported 40+15. Full backend suite (1170 passed, 100% coverage) and static analysis (ruff/mypy) clean on all touched files. Independent code-review pass found no new issues beyond the three already-tracked non-blocking findings on backend-ibkr-tickle-keepalive-followups (still planned, no duplicates added). No pr_decision was present from a prior pass to clear. Accepted; posted as a COMMENTED-type PR review, never merged."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T15:09:34Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (1170 passed, 100% line+branch coverage, matching pr-reviewer's reported numbers exactly) and ruff/mypy clean on all touched files. Sanity-checked the flake claim myself: 65 repeated runs of tests/unit/test_main.py (25 plain, 20 under --cov=app.main, 20 more under --cov while the host was under deliberate CPU load from 16 parallel `yes` processes) all green, and confirmed via a standalone repro that _wait_until genuinely raises asyncio.TimeoutError (not a silent pass) when its predicate never becomes true. Confirmed Settings.ibkr_enabled defaults to False and no FINTRADE_IBKR_ENABLED env var is set. Skimmed the full diff (app/main.py, app/data/ibkr_provider.py, both test files) myself and confirmed it matches the four recorded decisions; the three non-blocking findings pr-reviewer filed are accurately captured on backend-ibkr-tickle-keepalive-followups (still planned, depends_on this task). index.json path/state mirror is consistent (done -> docs/tasks/done/)."
   }
 }
