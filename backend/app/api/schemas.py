@@ -428,17 +428,9 @@ class PositionIn(BaseModel):
             raise ValueError("ticker must not be blank or whitespace-only")
         return stripped
 
-    @field_validator("entry_notes")
+    @field_validator("entry_notes", "strategy")
     @classmethod
-    def _strip_and_normalize_entry_notes(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
-    @field_validator("strategy")
-    @classmethod
-    def _strip_and_normalize_strategy(cls, value: str | None) -> str | None:
+    def _strip_and_normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()

@@ -1482,7 +1482,7 @@
       "id": "backend-trade-strategy-tagging-followups-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-trade-strategy-tagging-followups-followups.json"
     },
     {
