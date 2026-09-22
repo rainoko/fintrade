@@ -50,11 +50,61 @@ DEFAULT_BASE_URL = "https://localhost:5000/v1/api"
 # docs/ideas.md: "max 1,000 data points per call" on /iserver/marketdata/history.
 _MAX_BARS_PER_PAGE = 1000
 
-# The one bar size this provider requests -- docs/ideas.md's confirmed-supported
-# ``bar=1h``, matching this task's title ("hourly bars"). A finer/coarser interval would
-# need its own method (or a `bar` parameter) if a future task needs one; not added here
-# since nothing in this task's checklist asks for it (see this task's `decisions` entry).
+# `get_hourly_bars`'s default bar size -- kept for backward compatibility with every
+# existing caller (none of which pass `bar_size` explicitly yet, per this task's own
+# `decisions` entry).
 _BAR_INTERVAL = "1h"
+
+# IBKR's own documented set of accepted `bar` values for `/iserver/marketdata/history`
+# (Web API reference for that endpoint: `bar` is one of a fixed enumerated list, not an
+# arbitrary duration string -- there is no way to request e.g. a 39-minute bar the way
+# docs/ideas.md's "Switchable trading mode" note speculated about, since IBKR's `bar`
+# values aren't freely composable). This task's own `decisions` entry records which of
+# these are confirmed against IBKR's published docs vs. genuinely untested against a
+# live gateway, per this module's mocked-only testing constraint.
+_VALID_BAR_INTERVALS: frozenset[str] = frozenset(
+    {
+        "1min",
+        "2min",
+        "3min",
+        "5min",
+        "10min",
+        "15min",
+        "30min",
+        "1h",
+        "2h",
+        "3h",
+        "4h",
+        "8h",
+        "1d",
+        "1w",
+        "1m",
+    }
+)
+
+# The step to walk the pagination cursor back by, per bar size -- must equal one bar's
+# worth of time so the next page's `startTime` sits just before (not re-fetching) the
+# earliest bar already collected, without also skipping bars in between for anything
+# finer than the `1h` this pagination logic was originally written against. `"1m"`
+# (IBKR's monthly bar) uses a 30-day approximation since a calendar month has no fixed
+# `timedelta` length and no caller of this provider requests monthly bars today.
+_BAR_INTERVAL_STEP: dict[str, timedelta] = {
+    "1min": timedelta(minutes=1),
+    "2min": timedelta(minutes=2),
+    "3min": timedelta(minutes=3),
+    "5min": timedelta(minutes=5),
+    "10min": timedelta(minutes=10),
+    "15min": timedelta(minutes=15),
+    "30min": timedelta(minutes=30),
+    "1h": timedelta(hours=1),
+    "2h": timedelta(hours=2),
+    "3h": timedelta(hours=3),
+    "4h": timedelta(hours=4),
+    "8h": timedelta(hours=8),
+    "1d": timedelta(days=1),
+    "1w": timedelta(weeks=1),
+    "1m": timedelta(days=30),
+}
 
 # Safety bound on how many pages `get_hourly_bars` will walk backward, independent of
 # `lookback_days` -- caps worst-case request volume (and, if the pagination cursor logic
@@ -100,7 +150,9 @@ class GatewayStatus:
 
 @dataclass(frozen=True)
 class IBKRBar:
-    """One hourly OHLCV bar from `/iserver/marketdata/history` (docs/ideas.md)."""
+    """One OHLCV bar from `/iserver/marketdata/history` (docs/ideas.md), at whatever
+    granularity `get_hourly_bars`'s `bar_size` parameter requested (`"1h"` by default --
+    `backend-ibkr-bar-interval-param`)."""
 
     timestamp: datetime
     open: float
@@ -222,12 +274,27 @@ class IBKRProvider:
             return GatewayStatus(state="not_authenticated", detail=detail)
         return GatewayStatus(state="available")
 
-    def get_hourly_bars(self, conid: int, *, lookback_days: int = 30) -> list[IBKRBar]:
-        """Hourly OHLCV bars for IBKR contract id `conid`, covering roughly the last
+    def get_hourly_bars(
+        self, conid: int, *, lookback_days: int = 30, bar_size: str = _BAR_INTERVAL
+    ) -> list[IBKRBar]:
+        """OHLCV bars for IBKR contract id `conid`, covering roughly the last
         `lookback_days` days -- the Screen 3 intraday entry-timing mechanism this task's
         `description` names. Walks `/iserver/marketdata/history`'s `startTime` parameter
         backward across as many calls as needed, since a single call returns at most
-        `_MAX_BARS_PER_PAGE` (1,000) points (~41 days of hourly bars) -- checklist item 3.
+        `_MAX_BARS_PER_PAGE` (1,000) points (~41 days at the default `"1h"` `bar_size`) --
+        checklist item 3.
+
+        `bar_size` (`backend-ibkr-bar-interval-param`) selects the granularity via
+        `/iserver/marketdata/history`'s own `bar` query parameter, defaulting to `"1h"`
+        so every existing caller's behavior is unchanged. Must be one of
+        `_VALID_BAR_INTERVALS` (IBKR's documented enumerated set) -- this method still
+        keeps its `get_hourly_bars` name (rather than a generic `get_bars`) since that
+        default remains the only granularity any real caller uses today; see this task's
+        `decisions` entry. `_MAX_PAGINATION_PAGES`'s 20-page safety bound was sized
+        against `"1h"` bars (~833 days of history); a finer `bar_size` (e.g. `"5min"`)
+        covers proportionally less history before hitting that same page cap -- a day-
+        trader-mode feature that actually needs deep finer-grained history would need to
+        revisit that bound, out of scope here (see this task's `description`).
 
         `conid` is `int` (not `str`) to match `resolve_conid`'s return type and
         `ScannerResult.conid` -- this class's one consistent in-memory representation of
@@ -237,16 +304,22 @@ class IBKRProvider:
         method's signature changed rather than `resolve_conid`'s.
 
         Raises:
+            ValueError: `bar_size` isn't one of IBKR's documented accepted bar values.
             IBKRUnavailableError: the gateway isn't `available` (see `get_gateway_status`),
                 or a request made while paginating fails.
         """
+        if bar_size not in _VALID_BAR_INTERVALS:
+            raise ValueError(
+                f"Unsupported IBKR bar interval {bar_size!r}; must be one of "
+                f"{sorted(_VALID_BAR_INTERVALS)}"
+            )
         self._require_available()
         cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
         collected: dict[datetime, IBKRBar] = {}
         start_time: str | None = None
         for _ in range(_MAX_PAGINATION_PAGES):
-            params: dict[str, str] = {"conid": str(conid), "bar": _BAR_INTERVAL}
+            params: dict[str, str] = {"conid": str(conid), "bar": bar_size}
             if start_time is None:
                 # First page: no cursor yet, so ask for the whole requested span via
                 # `period` -- if `lookback_days` implies more than 1,000 hourly bars,
@@ -278,8 +351,10 @@ class IBKRProvider:
                 # (a non-advancing cursor -- stop rather than loop without progress).
                 break
             # Walk the cursor to just before the earliest bar this page returned, so the
-            # next page doesn't re-fetch it.
-            start_time = (earliest - timedelta(hours=1)).strftime("%Y%m%d-%H:%M:%S")
+            # next page doesn't re-fetch it -- stepped by one `bar_size`-worth of time
+            # (not a hardcoded hour) so a finer interval than the `"1h"` this logic was
+            # originally written against doesn't skip bars in the gap.
+            start_time = (earliest - _BAR_INTERVAL_STEP[bar_size]).strftime("%Y%m%d-%H:%M:%S")
 
         return sorted((bar for bar in collected.values() if bar.timestamp >= cutoff), key=lambda b: b.timestamp)
 

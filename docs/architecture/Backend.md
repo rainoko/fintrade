@@ -150,10 +150,12 @@ while scoping this task:**
   than raising, so a caller can distinguish "gateway isn't running at all" from
   "running, but the browser login step hasn't been done (or has expired)" — checked
   before every other call this provider makes.
-- `GET /iserver/marketdata/history` (`bar=1h`) — hourly OHLCV bars, capped at 1,000
-  points per call (~41 days) by IBKR itself; `get_hourly_bars` walks the `startTime`
-  cursor backward across as many calls as needed to cover the requested lookback
-  window, up to a fixed page-count safety bound.
+- `GET /iserver/marketdata/history` (`bar=1h` by default, or another of IBKR's
+  documented `bar` values via `get_hourly_bars`'s `bar_size` parameter —
+  `backend-ibkr-bar-interval-param`) — OHLCV bars, capped at 1,000 points per call
+  (~41 days at `1h`) by IBKR itself; `get_hourly_bars` walks the `startTime` cursor
+  backward across as many calls as needed to cover the requested lookback window, up to
+  a fixed page-count safety bound.
 - `GET /iserver/scanner/params` — the scanner's valid filter/instrument/location
   options, rate-limited by IBKR to 1 request/15 minutes; `get_scanner_params` caches
   the result for that same window rather than re-fetching on every call.
