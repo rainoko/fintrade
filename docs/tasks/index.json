@@ -1804,7 +1804,7 @@
       "id": "frontend-market-breadth-widget",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-market-breadth-widget.json"
     },
     {

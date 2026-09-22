@@ -3,7 +3,7 @@
   "title": "Real market-breadth widget, alongside the existing personal-breadth proxy",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-market-breadth-indicators"],
   "references": [
     "frontend/src/features/watchlist/components",
@@ -12,8 +12,29 @@
   ],
   "description": "Surface the new real market-breadth indicator(s) alongside the existing personal-watchlist-only breadth widget, clearly labeled as distinct (one reflects the whole market via IBKR, the other only the user's own tracked tickers) -- with a clear disabled/unavailable state when IBKR isn't connected.",
   "checklist": [
-    { "step": "Build a widget/panel for the new market-breadth indicator(s), clearly distinguishing it from the existing PersonalBreadthCard so a user doesn't confuse the two.", "done": false },
-    { "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.", "done": false },
-    { "step": "Component tests covering available data and the disabled state.", "done": false }
-  ]
+    { "step": "Build a widget/panel for the new market-breadth indicator(s), clearly distinguishing it from the existing PersonalBreadthCard so a user doesn't confuse the two.", "done": true },
+    { "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.", "done": true },
+    { "step": "Component tests covering available data and the disabled state.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "New `MarketBreadthCard` (features/ibkr/components/, not features/watchlist/) composes `POST /api/ibkr/breadth/snapshot` twice, with two fixed, hardcoded scan configs: `series_key: 'adv'` using IBKR's `TOP_PERC_GAIN` scan type, and `series_key: 'dec'` using `TOP_PERC_LOSE` -- a top-gainers-vs-top-losers proxy for Advance/Decline, computing the spread (`rolling_5d`/`rolling_20d` difference) client-side. Rendered on WatchlistPage directly below the existing PersonalBreadthCard.",
+      "rationale": "`backend-market-breadth-indicators` deliberately left `series_key`/`scan_config` fully caller-supplied rather than hardcoding which IBKR scan-type code means 'new highs' vs 'new lows' (unconfirmed against a live gateway) -- this frontend widget is exactly the 'caller' docs/Analyse.md's own 'IBKR-scanner breadth approximation' section anticipates ('the caller supplies both the label and the scan_config... and combines two labeled readings into a spread itself'), and that same section explicitly names 'top-gainers vs. top-losers for an Advance/Decline reading' as the example pairing -- so hardcoding TOP_PERC_GAIN/TOP_PERC_LOSE here isn't a new unverified guess, it's implementing the exact example the architecture docs already committed to. Considered building a live category-picker (fetching GET /api/ibkr/scanner/params and letting the user choose which two categories to use) instead of a fixed pairing -- rejected as out of this task's scope and a duplicate of `frontend-market-scanner-page`'s own still-planned 'category picker, run a scan, review results' feature; building a second one here for just this widget would pre-empt and diverge from that page's eventual UI. If TOP_PERC_GAIN/TOP_PERC_LOSE turn out not to be real category codes once tested against a live gateway, the failure mode is a transient scan-call error (this widget's own ErrorState), never a silently wrong number -- the same fail-safe every other IBKR-backed route in this app already relies on for an unconfirmed scan-type code."
+    },
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "`useMarketBreadth` fetches the 'adv' and 'dec' snapshots sequentially (awaiting the first before starting the second), and retries a `429` once after sleeping for the `Retry-After` value before giving up.",
+      "rationale": "`IBKRProvider.run_scanner`'s 1-request/second throttle is enforced instance-wide on the backend's process-level singleton (per backend-market-breadth-indicators's own decisions entry) -- firing both POSTs concurrently would very likely 429 the second one on a same-day cache miss (first load ever, or first load of a new calendar day; every other load is two fast cache hits and never touches the throttle at all). Sequencing avoids that in the common case; the one-shot retry-after-Retry-After fallback covers the residual case where the two calls still land under a second apart. Considered surfacing the 429 as an immediate ErrorState instead (matching this app's default `retry: 1` TanStack Query behavior) -- rejected because that would make the widget visibly fail on every very-first load for a reason entirely of this widget's own making (two sequential calls it chose to issue), not a genuine external error a user should see."
+    },
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "`useMarketBreadth`/`MarketBreadthCard` live under `features/ibkr/` (a `useQuery`, not `useMutation`, despite the underlying calls being POSTs).",
+      "rationale": "Placement: every field this widget renders and the endpoint it calls are IBKR-scanner domain concepts, not watchlist ones -- WatchlistPage imports it directly the same way AppShell already imports features/ibkr's IbkrStatusIndicator from outside that feature folder, so a cross-feature import here isn't a new pattern. useQuery over useMutation: this is an auto-fetch-on-mount, per-calendar-day-cacheable read (the backend itself caches by day), the same shape useWatchlistBreadth/usePortfolioRisk already have -- unlike useScoreTradeApgar's useMutation, which is explicitly a user-triggered on-demand computation (see that hook's own doc comment), nothing here is triggered by a user action."
+    }
+  ],
+  "questions": []
 }
