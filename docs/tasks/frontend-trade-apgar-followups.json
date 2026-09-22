@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-trade-apgar review (PR #254)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-trade-apgar"],
   "references": [
     "docs/tasks/done/frontend-trade-apgar.json",
@@ -13,11 +13,31 @@
   "checklist": [
     {
       "step": "TradeApgarDialog's results table Value column renders TradeApgarQuestionOut.value verbatim (raw snake_case strings like 'on_the_verge'/'in_value_zone'/'already_happened') instead of humanized/friendly text, inconsistent with both the dialog's own FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS label maps and the rest of the app's convention of running snake_case enum-ish values through utils/format.ts's humanizeSnakeCase before display (see ScreensPanel's Tide trend/Wave state/Trigger reference, SignalSummary's confidence_breakdown component). Reuse the existing label maps (or humanizeSnakeCase) for the Value column instead of the raw API value.",
-      "done": false
+      "done": true
     },
     {
       "step": "The 'reset local state when the subject prop changes' boilerplate (a derived prevSubject useState comparison + field resets + mutation.reset(), all performed during render) is now duplicated verbatim between TradeApgarDialog.tsx (prevTicker) and FollowUpReviewDialog.tsx (prevTradeId). Extract a small shared hook (e.g. `useResetOnSubjectChange(subjectId, resetters)`) so a future fix to this pattern doesn't need to be applied in both places by hand.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "TradeApgarDialog's Value column now renders `humanizeSnakeCase(row.value, VALUE_LABELS)`, where `VALUE_LABELS` is built by merging the dialog's own `FALSE_BREAKOUT_OPTIONS`/`PERFECTION_OPTIONS` arrays into a `Record<string, string>` (so the two manual questions get the exact same bespoke wording as their own `<Select>` options), and every other raw value (Impulse's `'GREEN'/'RED'/'BLUE'`, `price_vs_value`'s `'above_value'/'in_value_zone'/'below_value'`) falls through to `humanizeSnakeCase`'s generic underscores-to-spaces/capitalize fallback.",
+      "rationale": "This matches the exact convention the review comment pointed at (ScreensPanel's Tide trend/Wave state/Trigger reference, SignalSummary's confidence_breakdown component) and reuses wording the dialog already has rather than inventing a second, possibly-inconsistent label set for the same values. Rejected building a bespoke label map for the three auto values too (e.g. explicit 'Green'/'Red'/'Blue'/'Above value' entries): humanizeSnakeCase's generic fallback already produces the same readable text for these values with no bespoke wording needed (unlike 'on_the_verge' -> 'On the verge', which reads worse without the dialog's own more specific label), so a bespoke map would just be duplicate data with no wording benefit."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted `useResetOnSubjectChange(subjectId: string | null, onReset: () => void)` into `frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts` (a `features/portfolio` hook, not `utils/` or `components/common/`), and had both `TradeApgarDialog` (keyed on `ticker`) and `FollowUpReviewDialog` (keyed on `trade?.id ?? null`) call it with an inline closure doing their own field resets + `mutation.reset()`.",
+      "rationale": "Both current call sites already live under `features/portfolio/components/`, so keeping the hook in that same feature's `hooks/` folder needs no cross-feature import and matches Frontend.md's 'hooks live under the feature they serve' rule closely enough, even though this hook isn't an API-fetching hook like its siblings there -- it's UI-behavior logic (no rendering, no props, no fetch), which is exactly what Frontend.md's `utils/` placement test asks for instead. Chose `features/portfolio/hooks/` over `utils/` anyway because `utils/`'s own documented exception (`utils/profitTargetHelpText.ts`) is reserved for content genuinely shared *across* two different top-level features with neither owning it; here both consumers already belong to the same `portfolio` feature, so there's no cross-feature ownership problem to solve, and moving it to `utils/` preemptively would go against Frontend.md's guidance ('only introduce a shared Context/utility when a second, unrelated component genuinely needs it -- not preemptively') applied by analogy. If a third caller from a different feature (e.g. `features/stocks` or `features/watchlist`) ever needs the same pattern, that's the trigger to promote it to `utils/` then, not now. Took a single `onReset: () => void` callback parameter (as the task's own suggested `useResetOnSubjectChange(subjectId, resetters)` signature implied) rather than an array of individual resetter functions: a single closure lets each caller order its own resets/mutation.reset() call exactly as before with no array-of-functions indirection, and both call sites only ever need one reset step anyway."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No separate `useResetOnSubjectChange.test.ts` unit test file was added for the new hook; its behavior (initial mount, transition between two non-null subjects, and transition to/from `null`) continues to be exercised only indirectly, through `TradeApgarDialog.test.tsx`'s and `FollowUpReviewDialog.test.tsx`'s existing 'resets ... when switching to a different ticker/trade' and 'closes when the ... prop transitions to null' tests (both already passing, both hooks/components at 100% coverage after the refactor).",
+      "rationale": "No hook in this codebase (`features/*/hooks/*.ts`) has its own standalone `renderHook`-based test file today -- every hook is covered exclusively through the component(s) that use it, per this codebase's established (if unwritten) convention, and introducing the first one here for a small, already-covered helper would be inconsistent with every sibling hook around it. Rejected adding one anyway for extra direct documentation value: the two existing dialog tests already exercise every branch this hook has (same-subject no-op, subject change, non-null-to-null and null-to-non-null transitions), so a dedicated test would be redundant coverage rather than closing an actual gap."
     }
   ]
 }

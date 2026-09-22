@@ -10,6 +10,7 @@ import { useState, type FormEvent } from 'react'
 import type { ClosedTradeOut } from '../../../api/portfolio'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import { useRecordFollowUpReview } from '../hooks/useRecordFollowUpReview'
+import { useResetOnSubjectChange } from '../hooks/useResetOnSubjectChange'
 
 export interface FollowUpReviewDialogProps {
   /**
@@ -42,16 +43,13 @@ export default function FollowUpReviewDialog({ trade, onClose }: FollowUpReviewD
 
   // Reset local state whenever the dialog switches to a different trade (or
   // closes), so a second review doesn't start pre-filled with the previous
-  // trade's notes or a stale error/pending state. Done during render (React's
-  // documented "adjusting state when a prop changes" pattern), matching
-  // AddPositionDialog's own `prevOpen` comparison.
-  const [prevTradeId, setPrevTradeId] = useState<string | null>(trade?.id ?? null)
-  if ((trade?.id ?? null) !== prevTradeId) {
-    setPrevTradeId(trade?.id ?? null)
+  // trade's notes or a stale error/pending state, same shared pattern
+  // TradeApgarDialog uses for its own `ticker` prop.
+  useResetOnSubjectChange(trade?.id ?? null, () => {
     setNotes('')
     setValidationError(null)
     recordReview.reset()
-  }
+  })
 
   const handleClose = () => {
     onClose()
