@@ -2,7 +2,9 @@ import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
 import type { IBKRStatusResponse } from '../../src/api/ibkr'
 import type {
+  ClosedTradeOut,
   ClosedTradesResponse,
+  FollowUpReviewIn,
   PortfolioResponse,
   PositionIn,
   PositionOut,
@@ -242,6 +244,8 @@ const closedTradesFixture: ClosedTradesResponse = {
       sell_grade_pct: 35.5,
       trade_grade_pct: 32.1,
       trade_letter_grade: 'A',
+      follow_up_notes: null,
+      follow_up_reviewed_at: null,
     },
     {
       id: 'trade_def456',
@@ -257,8 +261,74 @@ const closedTradesFixture: ClosedTradesResponse = {
       sell_grade_pct: null,
       trade_grade_pct: null,
       trade_letter_grade: null,
+      follow_up_notes: null,
+      follow_up_reviewed_at: null,
     },
   ],
+}
+
+function isoDateWeeksAgo(weeks: number): string {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() - weeks * 7)
+  return date.toISOString().slice(0, 10)
+}
+
+// A third row dated *relative to now* (unlike the two fixed-date rows
+// above), so it reliably falls inside the 8-10-week due-for-follow-up window
+// (API.md's `due_for_follow_up` query parameter) regardless of when the test
+// suite happens to run -- a fixed date would drift out of the window as real
+// time passes. Exercises `POST .../follow-up-review` end to end too: it
+// starts unreviewed and, once reviewed, correctly drops out of the
+// due-filtered GET (see `isDueForFollowUp` below).
+const dueTradeFixture: ClosedTradeOut = {
+  id: 'trade_due_nvda',
+  ticker: 'NVDA',
+  quantity: 10,
+  entry_price: 100.0,
+  entry_date: isoDateWeeksAgo(12),
+  exit_price: 120.0,
+  exit_date: isoDateWeeksAgo(9),
+  realized_pnl: 200.0,
+  exit_reason: 'target_hit',
+  buy_grade_pct: null,
+  sell_grade_pct: null,
+  trade_grade_pct: null,
+  trade_letter_grade: null,
+  follow_up_notes: null,
+  follow_up_reviewed_at: null,
+}
+
+// Mutable in-memory closed-trades store backing GET/POST
+// /api/portfolio/closed-trades(/*), the same pattern (and reset convention)
+// `positions`/`resetPortfolioStore` establish above -- so a test can record a
+// follow-up review and then observe it both on a subsequent unfiltered GET
+// and dropping out of the due-filtered GET.
+type StoredClosedTrade = ClosedTradeOut
+
+const FOLLOW_UP_MIN_WEEKS = 8
+const FOLLOW_UP_MAX_WEEKS = 10
+const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
+
+// Mirrors the backend's own due-for-follow-up filter (API.md,
+// backend-trade-journal-followup-review's `decisions` entry): not yet
+// reviewed, and `exit_date` between 8 and 10 weeks ago inclusive.
+function isDueForFollowUp(trade: StoredClosedTrade): boolean {
+  if (trade.follow_up_reviewed_at !== null) {
+    return false
+  }
+  const exitMs = new Date(`${trade.exit_date}T00:00:00Z`).getTime()
+  const weeksAgo = (Date.now() - exitMs) / MS_PER_WEEK
+  return weeksAgo >= FOLLOW_UP_MIN_WEEKS && weeksAgo <= FOLLOW_UP_MAX_WEEKS
+}
+
+function initialClosedTrades(): StoredClosedTrade[] {
+  return [...closedTradesFixture.items, dueTradeFixture].map((trade) => ({ ...trade }))
+}
+
+let closedTrades: StoredClosedTrade[] = initialClosedTrades()
+
+export function resetClosedTradesStore(): void {
+  closedTrades = initialClosedTrades()
 }
 
 const riskFixture: RiskResponse = {
@@ -376,6 +446,7 @@ let nextPositionId = 1
 export function resetPortfolioStore(): void {
   positions = initialPositions.map((position) => ({ ...position }))
   nextPositionId = 1
+  resetClosedTradesStore()
 }
 
 function cash(): number {
@@ -451,7 +522,26 @@ export const handlers: HttpHandler[] = [
 
   http.get('/api/portfolio/risk', () => HttpResponse.json(riskFixture)),
 
-  http.get('/api/portfolio/closed-trades', () => HttpResponse.json(closedTradesFixture)),
+  http.get('/api/portfolio/closed-trades', ({ request }) => {
+    const url = new URL(request.url)
+    const dueForFollowUp = url.searchParams.get('due_for_follow_up') === 'true'
+    const items = dueForFollowUp ? closedTrades.filter(isDueForFollowUp) : closedTrades
+    return HttpResponse.json({ items })
+  }),
+
+  http.post('/api/portfolio/closed-trades/:trade_id/follow-up-review', async ({
+    params,
+    request,
+  }) => {
+    const trade = closedTrades.find((candidate) => candidate.id === params.trade_id)
+    if (!trade) {
+      return HttpResponse.json({ detail: 'Closed trade not found' }, { status: 404 })
+    }
+    const body = (await request.json()) as FollowUpReviewIn
+    trade.follow_up_notes = body.follow_up_notes
+    trade.follow_up_reviewed_at = new Date().toISOString()
+    return HttpResponse.json(trade)
+  }),
 
   http.post('/api/portfolio/positions', async ({ request }) => {
     const body = (await request.json()) as PositionIn

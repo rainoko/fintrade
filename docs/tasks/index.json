@@ -1699,8 +1699,8 @@
       "id": "frontend-trade-journal-followup-review",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-journal-followup-review.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followup-review.json"
     },
     {
       "id": "frontend-trade-apgar",
@@ -1799,6 +1799,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json"
+    },
+    {
+      "id": "frontend-trade-journal-followup-review-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-trade-journal-followup-review-followups.json"
     }
   ]
 }

@@ -9,6 +9,7 @@ import StatCard from '../components/common/StatCard/StatCard'
 import AddPositionDialog from '../features/portfolio/components/AddPositionDialog'
 import PositionsTable from '../features/portfolio/components/PositionsTable'
 import RiskPanel from '../features/portfolio/components/RiskPanel'
+import TradeFollowUpDuePanel from '../features/portfolio/components/TradeFollowUpDuePanel'
 import TradeJournalPanel from '../features/portfolio/components/TradeJournalPanel'
 import { usePortfolio } from '../features/portfolio/hooks/usePortfolio'
 import { formatCurrency } from '../utils/format'
@@ -64,6 +65,7 @@ export default function PortfolioPage() {
           </Stack>
           <PositionsTable positions={portfolioQuery.data.positions} />
           <RiskPanel positions={portfolioQuery.data.positions} />
+          <TradeFollowUpDuePanel />
           <TradeJournalPanel />
         </Stack>
       )}

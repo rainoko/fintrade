@@ -11,6 +11,7 @@ export type PositionIn = components['schemas']['PositionIn']
 export type PositionOut = components['schemas']['PositionOut']
 export type ClosedTradeOut = components['schemas']['ClosedTradeOut']
 export type ClosedTradesResponse = components['schemas']['ClosedTradesResponse']
+export type FollowUpReviewIn = components['schemas']['FollowUpReviewIn']
 
 /** `GET /api/portfolio` — current positions plus account equity. */
 export function getPortfolio(): Promise<PortfolioResponse> {
@@ -47,7 +48,36 @@ export function deletePosition(id: string): Promise<void> {
  * buy/sell/trade "A-trade" grades (Elder ch. 55, docs/Analyse.md §7). Grade
  * fields are `null` whenever they can't currently be computed — never a
  * request-level error (see API.md).
+ *
+ * Pass `{ dueForFollowUp: true }` to narrow the response to trades due for
+ * Elder's mandatory two-months-later follow-up review right now (ch. 59
+ * Trade Journal Section E) — `follow_up_reviewed_at` still null and
+ * `exit_date` between 8 and 10 weeks ago inclusive (API.md's
+ * `due_for_follow_up` query parameter). Omitted/false returns every closed
+ * trade, unfiltered — the original behavior.
  */
-export function getClosedTrades(): Promise<ClosedTradesResponse> {
-  return request<ClosedTradesResponse>('/api/portfolio/closed-trades')
+export function getClosedTrades(params?: {
+  dueForFollowUp?: boolean
+}): Promise<ClosedTradesResponse> {
+  const query = params?.dueForFollowUp ? '?due_for_follow_up=true' : ''
+  return request<ClosedTradesResponse>(`/api/portfolio/closed-trades${query}`)
+}
+
+/**
+ * `POST /api/portfolio/closed-trades/{trade_id}/follow-up-review` — records
+ * Elder's mandatory two-months-later follow-up review (ch. 59 Trade Journal
+ * Section E) for one closed trade: `follow_up_notes` plus `follow_up_reviewed_at`
+ * set to now. Calling this again for the same `trade_id` overwrites both
+ * fields with the new call's values rather than appending or rejecting the
+ * second call (API.md). Returns the full updated `ClosedTradeOut`, including
+ * a freshly recomputed grade.
+ */
+export function recordFollowUpReview(
+  tradeId: string,
+  payload: FollowUpReviewIn,
+): Promise<ClosedTradeOut> {
+  return request<ClosedTradeOut>(
+    `/api/portfolio/closed-trades/${encodeURIComponent(tradeId)}/follow-up-review`,
+    { method: 'POST', body: payload },
+  )
 }
