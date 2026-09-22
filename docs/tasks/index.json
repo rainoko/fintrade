@@ -1713,8 +1713,15 @@
       "id": "frontend-daily-homework-page",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-daily-homework-page.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page.json"
+    },
+    {
+      "id": "frontend-daily-homework-page-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-daily-homework-page-followups.json"
     },
     {
       "id": "frontend-trade-journal-entry-notes",

@@ -1,0 +1,31 @@
+{
+  "id": "frontend-daily-homework-page-followups",
+  "title": "Non-blocking findings from PR #271's review (Daily Homework self-test page)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-page"],
+  "references": [
+    "docs/tasks/frontend-daily-homework-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/271"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #271 (frontend-daily-homework-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "No `frontend/tests/e2e/*.spec.ts` spec was added for the new `/homework` flow (nav to the page, submit the form, see the color-coded score banner) -- the e2e-test skill's own \"Relationship to Other Checks\" section calls for a new UI flow to get e2e coverage alongside its MSW-mocked component tests. Component tests plus a one-off manual browser walkthrough (both done for this PR's review) cover the behavior today, but the persisted regression suite has no spec that would catch a future unrelated change silently breaking this page.",
+      "done": false
+    },
+    {
+      "step": "HomeworkScoreBanner's two \"yellow\" bands (5-6 \"trade cautiously\" vs. 9-10 Elder's \"too perfect\" caution) render with an identical MUI Alert severity=\"warning\" (same icon, same color) and are distinguished only by the body text underneath. Verified in a real browser walkthrough that the text itself is correct and different for each band, but a fast glance that skims past the paragraph could conflate two behaviorally very different messages. Worth reconsidering a secondary visual cue (e.g. a distinct icon, or a small label variant for the high-yellow case) -- a genuinely arguable UX call, not a clear-cut miss, so left as a follow-up rather than blocking.",
+      "done": false
+    },
+    {
+      "step": "DailyHomeworkForm.tsx's render gate is `todayQuery.isLoading || suggestionQuery.isLoading`, so the entire 5-question form stays behind a loading spinner until *both* queries settle, not just the one field (`yesterday_trading_score`) the suggestion actually feeds. In production (main.tsx's real QueryClient has `retry: 1`, unlike tests' `retry: false`), a slow/failing suggestion endpoint adds a real, bounded-but-noticeable extra delay before any field renders, larger than the 'sub-second, imperceptible' wait this task's own decisions entry assumed. Consider decoupling the two: render the form as soon as `todayQuery` settles, treating `suggestionQuery` as still-loading (falling back to the neutral default) rather than gating the whole form on it.",
+      "done": false
+    },
+    {
+      "step": "When today's entry already exists, `suggestedScore` is never used (the `existingEntry ? scoresFromEntry(existingEntry) : {...}` branch discards it entirely) -- yet the render gate still waits on `suggestionQuery` to settle before showing anything. A user re-opening the page after already recording today's homework waits on a network call whose result is provably irrelevant to what they'll see. Consider skipping the wait on `suggestionQuery` once `todayQuery` resolves with a non-null `entry`.",
+      "done": false
+    }
+  ]
+}
