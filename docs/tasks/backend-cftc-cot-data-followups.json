@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #270's review (CFTC COT data)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-cftc-cot-data"],
   "references": [
     "docs/tasks/backend-cftc-cot-data.json#review",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "The task's `decisions` entry for the 5 fixed cftc_contract_market_code values, and the matching inline code comments in app/data/cftc_cot_provider.py (COT_MARKETS dict), record `market_and_exchange_names` display text for the oil (067651) and bonds (020601) contracts that no longer matches what the live CFTC Socrata endpoint actually returns today: oil was recorded as \"CRUDE OIL, LIGHT SWEET (WTI) - NEW YORK MERCANTILE EXCHANGE\" but the live endpoint now returns \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\" for that same code; bonds was recorded as \"U.S. TREASURY BONDS - CHICAGO BOARD OF TRADE\" but the live endpoint now returns \"UST BOND - CHICAGO BOARD OF TRADE\". Confirmed (via a historical lookback query on the same contract code) that CFTC renamed both contracts at some point after the names in the decisions entry were presumably valid -- the contract codes themselves are still correct/live and unaffected, and the endpoint's own `display_name` response field is always populated live from the API response rather than hardcoded, so this is a documentation-accuracy issue only, not a functional bug. Worth a small comment/decisions-text update next time this file is touched, so a future reader cross-checking the decision against a live query isn't confused by the mismatch.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T18:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the display-name mismatch by making the illustrative names in `app/data/cftc_cot_provider.py`'s `COT_MARKETS` inline comments explicitly illustrative-only (added a block comment above the dict stating these are non-authoritative labels for a human skimmer, never read by code, that CFTC does rename contracts over time, and that the live `market_and_exchange_names` field on a fetched `COTWeeklyReport` is the only authoritative source), and appended a `oil`/`bonds`-specific note recording the two confirmed renames (067651 -> \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\", 020601 -> \"UST BOND - CHICAGO BOARD OF TRADE\") without deleting the original research-time names. Also appended a NOTE to the `backend-cftc-cot-data` task's own second `decisions` entry (in docs/tasks/done/backend-cftc-cot-data.json) recording the same drift, so a reader of that historical decision record isn't misled either.",
+      "rationale": "Chose 'mark as illustrative + append the current known drift' over silently rewriting the original names to their new live values, because the original names were correct at research time and rewriting them in place would erase that history without leaving a trace that CFTC renaming is an ongoing risk (the same drift could recur again later for these or the other three markets). Chose an in-place amendment of the already-done task's decisions entry (rather than only a new comment/decisions entry on this followup task) because the misleading claim lives specifically in that entry's own text -- a reader who opens `backend-cftc-cot-data.json` looking for the current display name has no reason to also check this followup task's file unless the original entry itself points them there. This is a narrow, additive correction (nothing deleted, decision itself unchanged, only appended text distinguishing 'name at research time' from 'name today'), not a rewrite of what was decided or a touch to code/merge state -- CLAUDE.md's stricter 'additive-comment-only' rule specifically targets *merged PR descriptions*, not a task board decisions entry, and there is no code/functional behavior change here since the endpoint's own live `display_name`/`market_and_exchange_names` field was never hardcoded in the first place."
     }
   ]
 }

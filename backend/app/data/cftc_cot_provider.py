@@ -46,12 +46,26 @@ _BASE_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
 # have multiple CFTC-tracked contracts across different exchanges (e.g. NYMEX WTI vs. ICE
 # Brent for oil), and this app deliberately picks the single most commonly-referenced US
 # contract for each rather than surfacing all of them -- see this task's `decisions` entry.
+#
+# The trailing comments below are illustrative labels only, for a human skimming this dict --
+# never read by the code -- and the *codes* themselves are what's live/authoritative. The
+# actual display name for a contract is always taken from the live response's own
+# `market_and_exchange_names` field (see `_to_report`), never hardcoded here, and CFTC does
+# rename contracts over time: confirmed (backend-cftc-cot-data-followups, 2026-09-22) that the
+# live endpoint now returns "WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE" for 067651 (labeled
+# below from this dict's original research as "CRUDE OIL, LIGHT SWEET (WTI)") and "UST BOND -
+# CHICAGO BOARD OF TRADE" for 020601 (labeled below as "U.S. TREASURY BONDS"). Don't treat
+# these comments as a live cross-check -- they're allowed to drift from CFTC's current naming
+# without it being a bug; if you need the current name, query the endpoint or read
+# `market_and_exchange_name` off a fetched `COTWeeklyReport`.
 COT_MARKETS: dict[str, str] = {
     "eur": "099741",  # EURO FX - CHICAGO MERCANTILE EXCHANGE
     "jpy": "097741",  # JAPANESE YEN - CHICAGO MERCANTILE EXCHANGE
-    "oil": "067651",  # CRUDE OIL, LIGHT SWEET (WTI) - NEW YORK MERCANTILE EXCHANGE
+    "oil": "067651",  # CRUDE OIL, LIGHT SWEET (WTI) - NEW YORK MERCANTILE EXCHANGE, per this
+    # dict's original research; CFTC's live name for this code has since changed, see above
     "gold": "088691",  # GOLD - COMMODITY EXCHANGE INC.
-    "bonds": "020601",  # U.S. TREASURY BONDS - CHICAGO BOARD OF TRADE
+    "bonds": "020601",  # U.S. TREASURY BONDS - CHICAGO BOARD OF TRADE, per this dict's
+    # original research; CFTC's live name for this code has since changed, see above
 }
 
 # ~1 trading year of weekly reports -- enough to judge Elder's "against historical norms"
