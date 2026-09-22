@@ -86,8 +86,18 @@ _VALID_BAR_INTERVALS: frozenset[str] = frozenset(
 # worth of time so the next page's `startTime` sits just before (not re-fetching) the
 # earliest bar already collected, without also skipping bars in between for anything
 # finer than the `1h` this pagination logic was originally written against. `"1m"`
-# (IBKR's monthly bar) uses a 30-day approximation since a calendar month has no fixed
-# `timedelta` length and no caller of this provider requests monthly bars today.
+# (IBKR's monthly bar) has no fixed `timedelta` length (a calendar month is 28-31 days),
+# so it uses a 27-day *underestimate* rather than a 30-day approximation -- the cursor
+# step only needs to be `<=` the true bar-to-bar gap: an underestimate just means the
+# next page's `startTime` sits a few days earlier than the previous page's earliest bar,
+# causing a handful of redundant re-fetched bars that `get_hourly_bars`'s `collected`
+# dict already deduplicates by timestamp, whereas an overestimate like the shortest
+# possible month (28 days) minus a day of margin could sit *after* the actual preceding
+# bar's timestamp and skip it -- the same pagination bug this constant exists to prevent
+# for every other bar size (docs/tasks/backend-ibkr-bar-interval-param-followups.json).
+# No caller of this provider requests monthly bars today (`_MAX_BARS_PER_PAGE` means a
+# second page only triggers after ~83 years of requested lookback), so this is
+# unreachable in practice, but a safe-by-construction constant costs nothing.
 _BAR_INTERVAL_STEP: dict[str, timedelta] = {
     "1min": timedelta(minutes=1),
     "2min": timedelta(minutes=2),
@@ -103,7 +113,7 @@ _BAR_INTERVAL_STEP: dict[str, timedelta] = {
     "8h": timedelta(hours=8),
     "1d": timedelta(days=1),
     "1w": timedelta(weeks=1),
-    "1m": timedelta(days=30),
+    "1m": timedelta(days=27),
 }
 
 # Safety bound on how many pages `get_hourly_bars` will walk backward, independent of
