@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-ibkr-bar-interval-param PR review (#265)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-bar-interval-param"],
   "references": [
     "docs/tasks/backend-ibkr-bar-interval-param.json",
@@ -14,9 +14,16 @@
   "checklist": [
     {
       "step": "`_BAR_INTERVAL_STEP['1m']`'s 30-day approximation for IBKR's monthly bar can overshoot the actual bar-to-bar gap whenever a real calendar month is shorter than 30 days (e.g. the Feb->Mar transition in a non-leap year is a 28-day gap). Since the pagination cursor is `earliest - step`, an overshoot produces a `startTime` earlier than the actual preceding bar's timestamp, which (assuming IBKR's documented `startTime` semantics of 'bars at or before this timestamp') would exclude that bar from the next page -- a genuine skip, the same bug class this PR set out to fix for finer intervals, just reintroduced for the coarsest one. Verified by direct simulation (2026-02-01 vs a naive 2026-03-01 minus 30 days = 2026-01-30, which sits before the actual Feb 1 bar). Currently unreachable in practice: `_MAX_BARS_PER_PAGE` (1000) means a monthly-bar page only fills enough to trigger a second page after ~83 years of requested lookback, far beyond any realistic `lookback_days` a caller would pass, so no live code path can hit it today. Worth either using a smaller (never-overshooting) approximation -- e.g. `timedelta(days=27)`, since underestimating the step is safe (only causes redundant/overlapping fetches, deduplicated by the `collected` dict) whereas overestimating it can skip -- or computing the exact prior-month boundary with a calendar-aware step, if/when a caller actually requests `bar_size='1m'`.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Changed `_BAR_INTERVAL_STEP['1m']` from `timedelta(days=30)` to `timedelta(days=27)` (a fixed, safe underestimate) rather than computing an exact calendar-aware prior-month boundary.",
+      "rationale": "27 days is `<=` every real calendar month's length (28-31 days), so the pagination cursor can never overshoot into the next page's already-collected range and skip a bar -- the only failure mode that matters, per the checklist item's own analysis (underestimating just causes a few redundant, already-deduplicated re-fetched days). An exact calendar-aware step (e.g. walking back one real month via a date library) would be more precise but adds real complexity for a code path that's provably unreachable today (`_MAX_BARS_PER_PAGE`=1000 means a monthly-bar page only triggers a second page after ~83 years of lookback) and has no live caller requesting `bar_size='1m'` yet. Rejected: keeping 30 days (the original bug); rejected: an exact calendar-aware step, deferred until a real caller of monthly bars exists and the extra precision is actually load-bearing."
+    }
+  ],
   "questions": []
 }

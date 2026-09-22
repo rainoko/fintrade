@@ -219,6 +219,35 @@ class TestGetHourlyBars:
         second_call_params = request.call_args_list[1].kwargs["params"]
         assert second_call_params["startTime"] == expected_start_time
 
+    def test_pagination_cursor_for_monthly_bars_steps_by_27_days_not_30(
+        self, mocker
+    ) -> None:
+        """`bar_size="1m"` (IBKR's monthly bar) must step the pagination cursor back by
+        the 27-day safe underestimate, not the old 30-day approximation which could
+        overshoot a real calendar month shorter than 30 days (e.g. Feb) and skip a bar
+        (docs/tasks/backend-ibkr-bar-interval-param-followups.json)."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        first_page = {"data": [self._bar_at(hours_ago=i * 27 * 24) for i in range(1000)]}
+        second_page = {"data": [self._bar_at(hours_ago=1000 * 27 * 24 + 1)]}
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[first_page, second_page],
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=30000, bar_size="1m")
+
+        earliest_first_page = min(
+            datetime.fromtimestamp(row["t"] / 1000, tz=UTC) for row in first_page["data"]
+        )
+        expected_start_time = (earliest_first_page - timedelta(days=27)).strftime(
+            "%Y%m%d-%H:%M:%S"
+        )
+        second_call_params = request.call_args_list[1].kwargs["params"]
+        assert second_call_params["startTime"] == expected_start_time
+
     def test_paginates_backward_when_first_page_is_full(self, mocker) -> None:
         """A full 1,000-bar first page (spanning ~41.6 days back, less than the 60-day
         lookback requested) must trigger a second call with a `startTime` cursor --
@@ -358,6 +387,20 @@ class TestGetHourlyBars:
 
         assert request.call_count == 20  # _MAX_PAGINATION_PAGES
         assert len(bars) == 20_000
+
+
+class TestBarIntervalStep:
+    def test_monthly_step_never_exceeds_the_shortest_real_calendar_month(self) -> None:
+        """`_BAR_INTERVAL_STEP["1m"]` must stay `<=` every real calendar month's length,
+        including the shortest one (a non-leap February, 28 days) -- an overestimate
+        would push the pagination cursor's `startTime` past the actual preceding bar's
+        timestamp and silently skip it (docs/tasks/backend-ibkr-bar-interval-param-followups.json).
+        Underestimating (as the current 27-day value does) is always safe: it only
+        causes a redundant, already-deduplicated re-fetch of a few days' overlap."""
+        from app.data.ibkr_provider import _BAR_INTERVAL_STEP
+
+        shortest_real_month = timedelta(days=28)  # February in a non-leap year
+        assert _BAR_INTERVAL_STEP["1m"] <= shortest_real_month
 
 
 class TestGetScannerParams:
