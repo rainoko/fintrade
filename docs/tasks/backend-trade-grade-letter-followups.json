@@ -3,7 +3,7 @@
   "title": "trade_letter_grade -- non-blocking review follow-ups",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-grade-letter"],
   "references": [
     "docs/tasks/backend-trade-grade-letter.json#review",
@@ -13,7 +13,15 @@
   "checklist": [
     {
       "step": "`Literal[\"A\", \"B\", \"C\", \"D\"]` is written out twice -- once as `TradeLetterGrade` in `backend/app/portfolio/grading.py` and once inline as the type annotation on `ClosedTradeOut.trade_letter_grade` in `backend/app/api/schemas.py` -- instead of the schema importing and reusing the shared `TradeLetterGrade` alias. Not a bug (both literals are identical today), but a reuse nit: a future change to the letter set would need updating both call sites in lockstep with nothing enforcing that. Consider importing `TradeLetterGrade` from `app.portfolio.grading` into `schemas.py` (or defining the alias in a shared location) and using it for the field's type instead of the duplicated inline literal.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Import `TradeLetterGrade` from `app.portfolio.grading` into `backend/app/api/schemas.py` and use it as `ClosedTradeOut.trade_letter_grade`'s annotation, in place of the duplicated inline `Literal[\"A\", \"B\", \"C\", \"D\"]`.",
+      "rationale": "This is exactly the fix the review comment suggested, and no alternative was seriously in play: `app/api/schemas.py` already has no reverse dependency from `app.portfolio` back onto `app.api` (checked via grep across app/portfolio, app/signals, app/indicators), so importing the domain-layer alias into the schema module introduces no circular import -- confirmed by a clean `python -c \"import app.api.schemas\"` and the full test suite passing unchanged. Defining a third, shared alias location elsewhere was considered and rejected as unnecessary extra indirection: `grading.py` is already the single source of truth for the letter-grade domain concept (the function that produces the value lives there too), so schemas.py depending on it directly is the more direct fix. This is the first cross-import from `app.api.schemas` into a domain module in this codebase, but nothing in docs/architecture/Backend.md or API.md prohibits it, and it doesn't invert the layering the docs do describe (`app.api` already depends on `app.portfolio` at the router level; `schemas.py` picking up one type-only import from the same package is consistent with that direction, not against it)."
     }
   ]
 }

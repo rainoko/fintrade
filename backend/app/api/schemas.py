@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.portfolio.grading import TradeLetterGrade
+
 Signal = Literal["BUY", "SELL", "HOLD"]
 ConfidenceBand = Literal["Low", "Medium", "High"]
 Interval = Literal["daily", "weekly"]
@@ -615,7 +617,7 @@ class ClosedTradeOut(BaseModel):
         "available -- the ticker's fetched daily history doesn't reach back to entry_date, "
         "or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
     )
-    trade_letter_grade: Literal["A", "B", "C", "D"] | None = Field(
+    trade_letter_grade: TradeLetterGrade | None = Field(
         default=None,
         description="Elder's own A/B/C/D letter grade (ch. 55 footnote: 'A is excellent, B "
         "good, C mediocre, and D poor') derived from trade_grade_pct: A >= 30%, B in "
