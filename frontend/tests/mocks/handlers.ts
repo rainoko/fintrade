@@ -568,8 +568,32 @@ const defaultIbkrStatusResponse: IBKRStatusResponse = {
   detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
 }
 
+// POST /api/ibkr/breadth/snapshot (frontend-market-breadth-widget):
+// defaults to 'disabled', mirroring `defaultIbkrStatusResponse` above --
+// every test that renders WatchlistPage (MarketBreadthCard lives there)
+// hits this handler whether or not it cares about real market breadth
+// specifically, so the default has to be a fixed, deterministic value. A
+// test that cares about the 'available' case (or a different unavailable
+// state, or a 429/503) overrides it directly with `server.use()`, echoing
+// back `series_key` from the request body the same way the real backend
+// does.
+const defaultIbkrBreadthSnapshotResponse = {
+  state: 'disabled' as const,
+  detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
+  snapshot_date: null,
+  count: null,
+  days_recorded: 0,
+  rolling_5d: null,
+  rolling_20d: null,
+}
+
 export const handlers: HttpHandler[] = [
   http.get('/api/ibkr/status', () => HttpResponse.json(defaultIbkrStatusResponse)),
+
+  http.post('/api/ibkr/breadth/snapshot', async ({ request }) => {
+    const body = (await request.json()) as { series_key: string }
+    return HttpResponse.json({ ...defaultIbkrBreadthSnapshotResponse, series_key: body.series_key })
+  }),
 
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
 

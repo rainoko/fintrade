@@ -1,0 +1,31 @@
+{
+  "id": "frontend-market-breadth-widget-followups",
+  "title": "Non-blocking findings from PR #262's review (MarketBreadthCard)",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-market-breadth-widget"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-market-breadth-widget.json#review",
+    "https://github.com/rainoko/fintrade/pull/262"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #262 (frontend-market-breadth-widget), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. None of these blocked acceptance -- tests/coverage/static analysis/methodology/placement/browser walkthrough/e2e all passed clean.",
+  "checklist": [
+    {
+      "step": "formatSpread is implemented twice with slightly different null-handling/parameter types: MarketBreadthCard.tsx's own local `formatSpread(number | null | undefined, number | null | undefined)` (returns '—' on null/undefined) and marketBreadthHelp.ts's separate `formatSpread(number | null, number | null)` (returns 'not enough history yet' on null). Both compute the same `advance - decline` plus '+N'/'N' sign formatting. Consider consolidating into one shared helper so a future change to the spread-formatting rule (rounding, sign convention) doesn't need to be remembered and applied at both call sites.",
+      "done": false
+    },
+    {
+      "step": "docs/tasks/done/frontend-market-breadth-widget.json sets `\"questions\": []` even though no question was ever raised during that task's implementation -- CLAUDE.md's task-board section documents that `questions` (like `decisions`/`test`/`review`/`pr_decision`) should stay absent entirely until populated, not present-but-empty. Minor board-hygiene nit; worth cleaning up (removing the empty array) next time that task file is touched.",
+      "done": false
+    },
+    {
+      "step": "No frontend/tests/e2e/*.spec.ts spec exercises MarketBreadthCard directly (its 'available' data-rendering vs. 'disabled' unavailable-panel states) as a persisted, versioned regression check -- watchlist.spec.ts only incidentally hits the new POST /api/ibkr/breadth/snapshot endpoint's default-disabled fixture response in passing, since the e2e stack never enables IBKR. vitest component coverage for the card itself is already thorough (100% lines/branches via MarketBreadthCard.test.tsx), so this is a nice-to-have for the persisted e2e layer specifically, not a unit-coverage gap. Consider extending watchlist.spec.ts (or a new spec) with an explicit assertion on the Market Breadth card's disabled-panel copy/IbkrStatusBadge text, matching the level of e2e attention PersonalBreadthCard already gets there.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
