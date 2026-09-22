@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #275's review (frontend vitest flaky timeouts under parallel execution)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-cftc-cot-data-followups-followups"],
   "references": [
     "docs/tasks/done/backend-cftc-cot-data-followups-followups.json#review",
@@ -16,9 +16,16 @@
   "checklist": [
     {
       "step": "Investigate whether AddPositionDialog.test.tsx and FollowUpReviewDialog.test.tsx's user-interaction-driven tests are being starved by vitest's default one-worker-per-file parallelism (84 workers spawned in this environment) rather than by a genuine race in the component/test code -- e.g. via vitest's own worker-count/pool tuning (`pool: 'vmThreads'`/`isolate: false`/`poolOptions.threads.maxThreads`), a higher per-test timeout for interaction-heavy tests specifically, or confirming this is a devcontainer-resource-specific symptom that wouldn't reproduce in CI. Cross-reference and reconcile with frontend-trade-journal-followup-review-followups-followups's existing checklist item on the same FollowUpReviewDialog.test.tsx flake (still planned) rather than duplicating the investigation from scratch -- consider whether the two findings should be merged into one task once a root cause is confirmed.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Root-caused the flaky timeouts to vitest's default `pool: 'forks'` spawning one forked process per test file (uncapped except by `os.availableParallelism() - 1`, which was 84 on the host that produced the '84 workers' observation this task was filed from) -- not a race in the component or test code. Reproduced 5/5 times on a 24-core devcontainer with the suite's unmodified default config (`Error: Test timed out in 5000ms` in `AddPositionDialog.test.tsx` and/or `FollowUpReviewDialog.test.tsx` every time), then 0/7 across repeated full-suite runs (both via `--maxWorkers=4` and, separately, the committed `test.maxWorkers: 4` config) after capping worker count in `frontend/vite.config.ts`. Rejected `pool: 'vmThreads'` (the environment-reuse-per-worker approach vitest's own performance guidance recommends for this exact symptom) because it broke MSW's fetch interception suite-wide (`ReferenceError: TransformStream is not defined` -- a `vm` context's globals lack the Web Streams API that `pool: 'forks'`/`'threads'` inherit from Node's own process/worker globals) and would need a larger MSW/setup rework to fix, which is out of proportion to a flaky-test task. Rejected a global testTimeout bump alone (the checklist's other suggested approach) because it treats a symptom (occasional CPU starvation) rather than the cause (too many concurrent OS processes for the actual host), and a cap that fixes the cause outright needs no such compensating timeout increase. This finding is the same root cause as frontend-trade-journal-followup-review-followups-followups's FollowUpReviewDialog.test.tsx checklist item (both are the same 5000ms-timeout-under-default-forks-parallelism symptom, on an overlapping file) -- resolved there too via a cross-reference decision rather than duplicating this one, per this task's own checklist instruction to reconcile rather than treat them as two separate flakes.",
+      "rationale": "The two prior investigations (13+3 reruns with zero repro on frontend-trade-journal-followup-review-followups-followups; 2 flaky runs on PR #275's baseline that filed this task) both ran the flaky file(s) either in isolation or on hosts with low-enough availableParallelism()-1 that the default worker count stayed modest -- neither happened to hit the specific combination of a high nominal core count and enough concurrent worker processes to starve a real-timer-driven userEvent interaction past 5000ms, which is why it looked like a rare fluke rather than a reproducible-on-demand contention effect. Explicitly capping workers removes the dependency on host core count entirely, so the fix should hold regardless of which devcontainer/CI host size it runs on next."
+    }
+  ],
   "questions": []
 }

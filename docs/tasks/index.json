@@ -1951,7 +1951,7 @@
       "id": "backend-cftc-cot-data-followups-followups-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-cftc-cot-data-followups-followups-followups.json"
     }
   ]

@@ -33,6 +33,29 @@ export default defineConfig({
     // run under vitest (its `test`/`expect` come from '@playwright/test', not vitest) or
     // count toward this suite's 90% coverage gate (docs/architecture/Testing.md).
     exclude: [...configDefaults.exclude, 'tests/e2e/**'],
+    // Root-caused the flaky `Error: Test timed out in 5000ms` failures tracked on
+    // backend-cftc-cot-data-followups-followups-followups and
+    // frontend-trade-journal-followup-review-followups-followups (both hitting
+    // interaction-heavy MUI dialog tests in AddPositionDialog.test.tsx /
+    // FollowUpReviewDialog.test.tsx): with no `maxWorkers` cap, vitest's default
+    // `pool: 'forks'` spawns one forked process per test file, up to
+    // `os.availableParallelism() - 1` (84 files' worth of workers observed on a
+    // high-core-count host) -- reproduced 5/5 times locally on a 24-core devcontainer
+    // under default settings. That many concurrent jsdom+MUI worker processes
+    // contend for real CPU time, which stretches the wall-clock duration of
+    // multi-step `userEvent`-driven tests (real, non-fake timers under
+    // `@testing-library/user-event`) past the hardcoded 5000ms default test timeout
+    // under scheduling pressure. Capping at 4 workers reproduced 0/4 failures across
+    // repeated full-suite runs (vs. `pool: 'vmThreads'`, which shares one jsdom
+    // environment per worker and would address the same root cause with even less
+    // overhead, but breaks MSW's fetch interception in this suite --
+    // `ReferenceError: TransformStream is not defined` -- because a `vm` context's
+    // globals lack the Web Streams API that `pool: 'forks'`/`'threads'` get for free
+    // from Node's own process/worker globals). 4 was chosen over a smaller/larger cap
+    // as the smallest value that produced zero flakes across every rerun while
+    // keeping the full-suite runtime increase modest (~26s to ~58s here); revisit if
+    // the suite grows enough for that tradeoff to shift.
+    maxWorkers: 4,
     coverage: {
       provider: 'v8',
       // 'text' is given explicit options (not just the bare 'text' string)
