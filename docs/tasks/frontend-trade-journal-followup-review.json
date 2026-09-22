@@ -33,5 +33,11 @@
       "decision": "`FollowUpReviewDialog` closes immediately (calling `onClose`) on a successful `POST .../follow-up-review`, with no intermediate 'success' screen/message — unlike `AddPositionDialog`, which shows an explicit 'Added X' / 'Merged into X' message before the user clicks Done.",
       "rationale": "AddPositionDialog's success message exists because the outcome is ambiguous from the user's own input alone (a duplicate ticker silently merges rather than creating a new position, per API.md's documented merge behavior) — the message is the *only* way the user learns which of two outcomes happened. Recording a follow-up review has exactly one outcome (the note is saved) with no such hidden branching to disclose, and the visible, immediate effect (the trade disappearing from the 'Due for Follow-Up Review' list once the due-query refetches) already confirms success without an extra modal step end users would need to dismiss. An AddPositionDialog-style intermediate success screen with a 'Done' button was considered and rejected as an unnecessary extra click for an action with no ambiguous outcome to disclose."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trade-journal-followup-review",
+    "pr_number": 248,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/248",
+    "pushed_at": "2026-09-22T04:16:16Z"
+  }
 }
