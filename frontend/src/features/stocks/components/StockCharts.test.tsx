@@ -207,4 +207,32 @@ describe('StockCharts', () => {
       expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
     )
   })
+
+  // Follow-up (frontend-position-risk-columns-followups-followups-followups):
+  // PriceChart, OscillatorChart, VolumeIndicatorsChart, and TrendStrengthChart
+  // all call the same useIndicatorHistory(ticker, { range }) hook/query key,
+  // so before this fix a single GET /api/stocks/{ticker}/indicators failure
+  // rendered four identical stacked common/ErrorState alerts -- the same
+  // sibling-duplication shape already fixed on PortfolioPage (PR #258) and
+  // DashboardPage (PR #259). This regression test asserts the page-level
+  // composition specifically, since each chart's own standalone test can't
+  // catch a duplicate that only appears once all four are mounted together.
+  it('shows exactly one alert (not four stacked) when GET /api/stocks/:ticker/indicators fails, with all four charts mounted', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/indicators', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    // PriceChart is the sole error surface for this shared failure --
+    // OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart render
+    // nothing (no own alert, no own loading/empty state) for it.
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('trend-strength-chart-canvas')).not.toBeInTheDocument()
+  })
 })

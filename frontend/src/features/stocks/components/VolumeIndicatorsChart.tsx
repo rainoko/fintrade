@@ -6,7 +6,6 @@ import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
-import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -274,7 +273,18 @@ export default function VolumeIndicatorsChart({
         <LoadingState message={`Loading volume indicator history for ${ticker}...`} />
       )}
 
-      {indicatorsQuery.isError && <ErrorState error={indicatorsQuery.error} />}
+      {/*
+        No own common/ErrorState on indicatorsQuery.isError: this chart
+        shares the exact same useIndicatorHistory hook/query key with
+        PriceChart, OscillatorChart, and TrendStrengthChart (all composed
+        together by StockCharts.tsx), so a single underlying
+        GET /api/stocks/{ticker}/indicators failure would otherwise render
+        four identical stacked alerts -- the same sibling-duplication shape
+        already fixed on PortfolioPage (PR #258) and DashboardPage (PR #259).
+        PriceChart, rendered first by StockCharts.tsx, owns this failure's
+        ErrorState; see this task's decisions entry
+        (frontend-position-risk-columns-followups-followups-followups).
+      */}
 
       {indicatorsQuery.isSuccess && !hasPoints && (
         <EmptyState message={`No volume indicator history available for ${ticker}.`} />
