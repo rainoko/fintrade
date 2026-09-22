@@ -1,0 +1,72 @@
+{
+  "id": "frontend-ibkr-status-indicator",
+  "title": "Surface IBKR gateway connection status in the UI",
+  "area": "frontend/pages",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["backend-ibkr-status-endpoint"],
+  "references": [
+    "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
+  ],
+  "description": "IBKR's gateway connection state (connected/not authenticated/gateway down/disabled) is currently invisible anywhere in the app, even though the backend now exposes it via GET /api/ibkr/status. Surface it somewhere visible.",
+  "checklist": [
+    { "step": "Decide and record where this surfaces in the app (app shell/header, a settings-style page, or the dashboard) -- this app has no existing settings page, so this decision has real placement implications.", "done": true },
+    { "step": "Build a small status indicator component consuming GET /api/ibkr/status via a TanStack Query hook.", "done": true },
+    { "step": "Component tests for each gateway state (disabled, available, gateway_unreachable, not_authenticated).", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The indicator lives in AppShell's AppBar (a persistent, always-visible toolbar chip via a new features/ibkr/components/IbkrStatusIndicator.tsx), not on a new settings page or the dashboard.",
+      "rationale": "The gateway's connection state is a cross-cutting fact relevant regardless of which page is open (any IBKR-backed feature -- hourly bars, the market scanner -- could be attempted from anywhere), and the check is cheap (GET /api/ibkr/status never fails, never triggers a real gateway call beyond a status read). Rejected: a dedicated settings page, which this app doesn't have yet -- building one just to host a single read-only indicator would be a much bigger structural addition than this task calls for, and would hide the indicator behind a navigation click for a fact worth seeing at a glance. Rejected: the dashboard -- that page is composed of portfolio/market-specific widgets (Analyse.md-driven), and IBKR connectivity isn't specific to any one page's content, so burying it in DashboardPage would make it invisible from Portfolio/Watchlist/Stock Detail, defeating the point of a cross-cutting status."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The rendering is split into two components: components/common/IbkrStatusBadge (a pure state -> label/color/icon chip, taking only a state/detail prop, no fetch) and features/ibkr/components/IbkrStatusIndicator (owns the useIbkrStatus() TanStack Query call and its own loading/transport-error presentation, then delegates to IbkrStatusBadge for the four real states). IbkrStatusBadge uses MUI's own semantic Chip colors (success/warning/error/default) rather than a new custom theme.palette.* entry.",
+      "rationale": "Mirrors this codebase's existing common/SignalBadge and common/SeasonBadge precedent exactly (Frontend.md §3's domain-agnostic test: a component that takes a plain enum prop and doesn't fetch belongs in common/, even when the enum values themselves are domain-flavored) -- IbkrStatusBadge is reusable and gets its own Storybook story/test, while the actual data-fetching and error handling (including a genuine network failure) stays in the feature layer, keeping AppShell itself a thin layout composition. Standard MUI semantic colors were used instead of a new custom palette entry because a connectivity indicator (ok/warning/error/off) is exactly the generic case MUI's palette already models -- unlike signal/season/riskBreach, which needed a genuinely new methodology-specific meaning MUI has no equivalent for, and which theme.ts's own extensive ΔE76 comments show requires real per-color verification work against every existing custom entry. Introducing a new custom color here would have added that verification burden for no expressive benefit over color=\"success\"/\"warning\"/\"error\"/\"default\"."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "useIbkrStatus polls every 30 seconds (refetchInterval: 30_000) instead of this app's usual fetch-once/refetch-on-invalidate query pattern.",
+      "rationale": "Every other query hook in this app refetches in response to something the UI itself did (a mutation invalidating it, a new page mounting with fresh params) -- but the IBKR gateway's state can change with no action in this app at all (the gateway process going down, or an interactive browser-login session quietly expiring in the background, per docs/ideas.md's IBKR follow-ups section), and IbkrStatusIndicator mounts once in AppShell for the whole session rather than remounting per page/navigation. Without an explicit poll it would silently go stale forever after the first load. 30 seconds is a judgment call balancing staleness against needless load on a never-changing-in-CI, cheap, local status check; not pinned down by any doc."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "A genuine transport-level failure (this app's own backend unreachable -- ApiError status 0) is rendered as a distinct grey 'IBKR: Unknown' chip in IbkrStatusIndicator, never folded into the gateway_unreachable state IbkrStatusBadge already models.",
+      "rationale": "GET /api/ibkr/status's own documented contract (API.md) is that it never fails for any real gateway state -- the only way this request can reject at all is the frontend's own fetch to its backend failing outright, which is a categorically different fact from 'the IBKR gateway specifically is unreachable.' Reusing the gateway_unreachable label for that case would misleadingly claim to know something about IBKR that this app couldn't actually check. Also removed a dead `|| 'fallback text'` originally written around ApiError.detail once review of api/client.ts confirmed detail is always a non-empty string (including its own network-failure message) -- an unreachable branch that vitest's coverage report caught immediately."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-ibkr-status-indicator",
+    "pr_number": 244,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/244",
+    "pushed_at": "2026-09-22T02:13:18Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T02:26:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/244",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Once useIbkrStatus's initial fetch has succeeded, a later background poll failure (this app's own backend going genuinely unreachable) does not flip the indicator to the 'IBKR: Unknown' chip -- TanStack Query keeps the last successful `data` populated across a failed background refetch, and IbkrStatusIndicator's `if (!statusQuery.data)` check order never re-checks `isError` once data has been seen once. Verified directly with a fake-timers vitest reproduction. Contradicts the letter of this task's 4th decisions entry, though the practical risk is low since every other page already surfaces its own error state in that scenario. Filed as a checklist item on frontend-ibkr-status-indicator-followups rather than blocking, since it's a narrow edge case, not a defect in any of the four real gateway states or the initial-load path.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 32
+      },
+      {
+        "summary": "Neither the loading spinner nor the rendered chip is in an aria-live/role=status region, so a screen-reader user away from the app bar gets no announcement when the gateway's connectivity silently changes during a background poll. Filed as a checklist item on frontend-ibkr-status-indicator-followups.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 24
+      }
+    ],
+    "notes": "Full review: backend suite unaffected (99.95% coverage, 1139 passed -- this PR has no backend changes); frontend suite 721/721 passed, coverage 99.72%/99.19%/99.72%/99.79% overall, 100% on every new/changed file. ruff/mypy/eslint/tsc/check_profit_target_wording.py all clean. code-review skill (high effort) found no correctness bugs. e2e suite (make e2e) 18/18 passed, including the app-shell's new GET /api/ibkr/status request firing on every page. Browser walkthrough via Playwright covered all four gateway states (disabled/available/not_authenticated/gateway_unreachable) plus a simulated transport failure (aborted request) -- each renders a distinct, correctly-colored/labeled chip, confirmed by screenshot; also checked a delayed response mid-navigation for stale-closure/unmount warnings (none) since IbkrStatusIndicator persists across in-app route changes rather than remounting per page. Component placement (IbkrStatusBadge in common/, IbkrStatusIndicator in features/ibkr/) correctly follows Frontend.md §3's domain-agnostic test and matches the SignalBadge/SeasonBadge precedent exactly. All four decisions entries are sound and well-reasoned; the 'genuine transport failure is distinct from gateway_unreachable' claim (decision 4) holds for the initial load and every explicitly-tested path, but not for a post-success background-poll failure -- see review.comments. No API/schema changes in this PR, so backend/openapi.json is correctly untouched. Two non-blocking findings tracked on frontend-ibkr-status-indicator-followups (new task, since none existed for this id)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T02:34:06Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites myself: backend 1139/1139 passed at 99.95% coverage (no backend files touched by this diff, confirmed via `git diff origin/main...HEAD --stat -- backend/` being empty); frontend 721/721 passed with 99.72%/99.19%/99.72%/99.79% coverage and 100% on every new/changed file (IbkrStatusBadge.tsx, IbkrStatusIndicator.tsx, useIbkrStatus.ts, api/ibkr.ts, AppShell.tsx), matching pr-reviewer's reported numbers exactly. eslint and tsc both clean. Skimmed the full diff (AppShell.tsx, IbkrStatusBadge.tsx, IbkrStatusIndicator.tsx, useIbkrStatus.ts, api/ibkr.ts, queryKeys.ts, handlers.ts, and both test files): the common/-vs-feature split holds (IbkrStatusBadge takes only a state/detail prop with no fetch, matching SignalBadge/SeasonBadge; IbkrStatusIndicator owns useIbkrStatus and AppShell composition stays thin), and all four decisions entries check out against the actual code (app-bar placement, common/feature split with standard MUI semantic Chip colors, the 30s refetchInterval, and the distinct transport-failure 'Unknown' chip for the initial-load/tested paths). Confirmed the review's own flagged gap (stale-data masking a later transport failure after a successful poll) is real by reading IbkrStatusIndicator.tsx's `if (!statusQuery.data)` check order myself, and confirmed it's correctly filed as a non-blocking checklist item on frontend-ibkr-status-indicator-followups.json (index.json mirrors it as planned/depends_on this task) rather than dropped. No unaddressed blockers found; accept holds."
+  }
+}
