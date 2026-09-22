@@ -45,14 +45,17 @@ export interface PositionsTableProps {
  * contract too, for a table now doing exactly what RiskPanel already does
  * for its own columns. See this task's `decisions` entry.
  *
- * A genuine `riskQuery.isError` (as opposed to a ticker simply being absent
- * from a *successful* risk response, handled by the per-row `riskByTicker`
- * fallback below) gets the same `ErrorState` block already used for
- * `deletePosition.isError`, above the table -- mirroring RiskPanel's own
- * `ErrorState` for the identical hook/queryKey, so this failure no longer
- * renders indistinguishably from "no stop/target configured" (the '—'
- * fallback still shown per-row) the way it did before
- * `frontend-position-risk-columns-followups`.
+ * A genuine `riskQuery.isError` degrades silently to the same per-row '—'
+ * fallback `riskByTicker` already renders for a ticker simply absent from a
+ * *successful* risk response -- this component does NOT render its own
+ * `ErrorState` for it. RiskPanel (driven by the exact same
+ * usePortfolioRisk() hook/queryKey) already renders a full `ErrorState` for
+ * this identical failure, and both components render together on
+ * PortfolioPage -- a second, identical `ErrorState` here would stack two
+ * duplicate `role="alert"` blocks on the same page for the one underlying
+ * failure. See this task's `decisions` entry (corrected after PR #258's
+ * review) for why an earlier revision of this task added, then removed,
+ * that second block.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
@@ -176,11 +179,6 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   return (
     <Box>
-      {riskQuery.isError && (
-        <Box sx={{ mb: 2 }}>
-          <ErrorState error={riskQuery.error} />
-        </Box>
-      )}
       {deletePosition.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorState error={deletePosition.error} />
