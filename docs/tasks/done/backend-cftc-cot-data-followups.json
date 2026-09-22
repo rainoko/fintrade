@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #270's review (CFTC COT data)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-cftc-cot-data"],
   "references": [
     "docs/tasks/backend-cftc-cot-data.json#review",
@@ -29,5 +29,23 @@
     "pr_number": 274,
     "pr_url": "https://github.com/rainoko/fintrade/pull/274",
     "pushed_at": "2026-09-22T19:50:16Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T19:54:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/274",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed genuinely comment/documentation-only: the diff to backend/app/data/cftc_cot_provider.py only adds/rewords comments above and inside the COT_MARKETS dict (a new block comment, plus two split trailing comments for the oil/bonds entries) -- the dict's keys, values, and code paths are byte-for-byte unchanged. Backend suite: 1194 passed, 100% line/branch coverage (matches PR's own claim). ruff/mypy clean on all changed files. scripts/validate_tasks.py: no violations (index.json state/path mirror correct). No schema/route change, so the PR's claim that backend/openapi.json regeneration isn't needed is correct. No UI surface (backend-only diff, no frontend files touched) -- browser walkthrough and e2e suite explicitly skipped, not silently omitted. code-review skill (medium effort) run separately: zero findings.",
+        "file": "backend/app/data/cftc_cot_provider.py",
+        "line": 61
+      },
+      {
+        "summary": "Reviewed the specific judgment call this task called out: amending the already-done backend-cftc-cot-data task's own decisions entry in place (appending clarifying text to the existing `decision` field) rather than leaving it untouched and only noting the drift elsewhere. task-worker's distinction that CLAUDE.md's stricter 'additive-comment-only' rule targets merged PR *descriptions* specifically, not task decisions entries, is textually correct, and the edit satisfies every condition that rule lists for the analogous PR-description case anyway (narrow additive factual correction, nothing deleted, recoverable via git history, also recorded as a new decisions entry with rationale on this followups task, no code/merge-state touched) -- including the carve-out precedent CLAUDE.md itself cites for PR #227, where an in-place edit was justified because the task/checklist explicitly called out the description itself as the thing to fix (this task's own checklist literally said 'decisions-text update'). Judged sound and non-blocking. Flagging one non-blocking alternative worth recording as a convention going forward: the `decisions` array is structurally an append-only chronological log, so appending a brand-new entry to backend-cftc-cot-data.json (rather than mutating an existing entry's `decision` field text) would have been an equally discoverable, strictly append-only way to achieve the same correction. Tracked as a follow-up task (backend-cftc-cot-data-followups-followups) rather than left only in this PR comment.",
+        "file": "docs/tasks/done/backend-cftc-cot-data.json",
+        "line": 28
+      }
+    ],
+    "notes": "Small-scope review per the dispatch instructions: backend suite (1194 passed, 100% coverage), ruff/mypy clean, scripts/validate_tasks.py clean, manual diff read confirming comment-only change, and the code-review skill (medium effort, background) returned zero findings. area is backend/data, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply; no frontend/API/schema changes, so no openapi regen, browser walkthrough, or e2e run applies (each stated explicitly rather than silently skipped). No checklist item phrased as 'decide X' lacks a decisions entry -- the one checklist item here has a matching, well-reasoned decisions entry. One non-blocking finding (see comments) tracked on backend-cftc-cot-data-followups-followups. Verdict: accepted."
   }
 }
