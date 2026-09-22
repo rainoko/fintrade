@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns review (PR #257)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-position-risk-columns"],
   "references": [
     "docs/tasks/done/frontend-position-risk-columns.json",
@@ -13,15 +13,32 @@
   "checklist": [
     {
       "step": "PositionsTable's new usePortfolioRisk() call never checks riskQuery.isError/isLoading, so a genuine GET /api/portfolio/risk failure (as opposed to a specific ticker simply being absent from the risk response, which is already handled and tested) silently renders '—' in the new Protective Stop/Profit Target columns — indistinguishable from 'no stop/target configured'. RiskPanel, driven by the exact same usePortfolioRisk() hook/queryKey and rendered on the same PortfolioPage, correctly shows a full ErrorState for this case instead. Add the same isError handling PositionsTable already has for deletePosition.isError (an ErrorState block above the table) for riskQuery.isError too.",
-      "done": false
+      "done": true
     },
     {
       "step": "HeldPositionBanner has the identical gap, but it's worse there: a GET /api/portfolio/risk failure while GET /api/portfolio still succeeds leaves the banner silently showing 'Current Stop: —' on the Stock Detail page with no error indication anywhere on that page (RiskPanel's error state is a different page, Portfolio, and per the finding above PositionsTable doesn't surface it either). Decide and record an explicit degrade behavior for this case (e.g. a small inline warning icon/tooltip on the affected field rather than the component returning as if the position has no stop, or continuing to render null/absent-but-documented) rather than silently treating a query failure the same as 'no data yet'.",
-      "done": false
+      "done": true
     },
     {
       "step": "Correct this task's decisions entry #4 (HeldPositionBanner's unconditional-rendering rationale), whose claim 'a genuine usePortfolio/usePortfolioRisk fetch failure here is already surfaced loudly by PositionsTable/RiskPanel on the Portfolio page itself' is factually inaccurate for PositionsTable (no isError handling exists there, per the first finding above) and inapplicable for HeldPositionBanner's own page (StockDetailPage, not PortfolioPage). Add a corrective decisions entry (per CLAUDE.md's decision-memory rule) once the above two items are resolved, rather than leaving the original claim uncorrected.",
-      "done": false
+      "done": true
     }
-  ]
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PositionsTable now shows a common/ErrorState block for riskQuery.isError, positioned above (and stacked with) the existing deletePosition.isError block, rather than hiding the table or replacing its risk columns' '—' fallback with something else. HeldPositionBanner instead shows a small inline warning icon (MUI WarningAmberIcon) wrapped in a Tooltip carrying the backend's error.detail, on both the Current Stop and Profit Target fields specifically, rather than a page-level ErrorState block of its own.",
+      "rationale": "PositionsTable already has the ErrorState-block-above-the-table pattern established for deletePosition.isError, and RiskPanel (same hook/queryKey) already uses a full ErrorState for this exact failure -- reusing that pattern keeps all three surfaces driven by usePortfolioRisk consistent, and the table's own other columns (ticker/quantity/cost basis/etc., all sourced from the already-successful GET /api/portfolio) remain fully usable underneath the banner, so hiding the whole table would throw away real, unaffected information. HeldPositionBanner is different: it is a small supplementary panel embedded within StockDetailPage (which has its own, unrelated useStockAnalysis loading/error handling for the rest of the page), not a page in its own right, so a second full ErrorState block competing for space felt disproportionate to a two-field failure -- an inline warning icon/tooltip (the same icon-plus-tooltip pattern common/IbkrStatusBadge already uses for a degraded connectivity state) scopes the failure indication to exactly the two fields it actually affects (Current Stop, Profit Target), leaving the unaffected Entry Price field (sourced from GET /api/portfolio, not /risk) rendering normally. The rejected alternative -- continuing to render '—' during a genuine fetch failure -- was rejected because it is factually misleading here specifically: '—' already has an established, different meaning on this exact field ('no stop/target configured', e.g. a ticker absent from a *successful* risk response), and collapsing a fetch failure into that same glyph tells the user something false (that their position has no stop) rather than merely incomplete."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrective decisions entry (per CLAUDE.md's decision-memory rule and this task's own checklist item 3): frontend-position-risk-columns' decisions entry #4 claims 'a genuine usePortfolio/usePortfolioRisk fetch failure here is already surfaced loudly by PositionsTable/RiskPanel on the Portfolio page itself' as the rationale for HeldPositionBanner returning null/absent rather than its own error state. That claim was factually inaccurate on both halves at the time it was written: PositionsTable had no riskQuery.isError handling at all (confirmed by reading the pre-fix component -- only deletePosition.isError was checked), and even if it had, RiskPanel/PositionsTable render on PortfolioPage, a different route from StockDetailPage (where HeldPositionBanner actually renders) -- a user viewing a held ticker's Stock Detail page during a GET /api/portfolio/risk outage would see no error indication anywhere on the page they were actually looking at, regardless of what a different page does. This entry does not retract the rest of decision #4 (HeldPositionBanner's unconditional rendering independent of useStockAnalysis, and its null-return for the not-yet-loaded/not-held case) -- both remain correct and unchanged; only the fetch-failure-is-already-handled-elsewhere claim was wrong, and is superseded by this task's own decision above (HeldPositionBanner now handles riskQuery.isError explicitly, with its own inline indication, rather than relying on another page to do so).",
+      "rationale": "CLAUDE.md's Autonomous pipeline section calls for exactly this: a corrective decisions entry rather than an in-place rewrite of the original task's decision text, since frontend-position-risk-columns.json has already merged and its decisions array is that task's own historical record -- adding a new, dated entry here (on the follow-up task the inaccuracy was actually filed against) keeps both the original claim and its correction visible and dated, rather than silently editing history."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-position-risk-columns-followups"
+  }
 }

@@ -1,5 +1,7 @@
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import Box from '@mui/material/Box'
 import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { formatCurrency } from '../../../utils/format'
 import { usePortfolio } from '../hooks/usePortfolio'
@@ -38,9 +40,26 @@ export interface HeldPositionBannerProps {
  * isn't found or `usePortfolio` hasn't resolved yet -- a supplementary
  * context panel silently staying absent until its data is available is
  * preferable to a second loading spinner competing with the page's main
- * one, and a `usePortfolio`/`usePortfolioRisk` fetch failure here is already
- * surfaced loudly by `RiskPanel`/`PositionsTable` on the Portfolio page
- * itself. See this task's `decisions` entry.
+ * one. See this task's `decisions` entry.
+ *
+ * A genuine `riskQuery.isError` (as opposed to a held position simply being
+ * absent from a *successful* risk response) is handled explicitly rather
+ * than falling through to the same '—' used for "no stop/target configured
+ * yet": this page (Stock Detail) has no `RiskPanel`/`PositionsTable`
+ * equivalent of its own to surface the failure elsewhere, so silently
+ * showing '—' here would misrepresent a fetch failure as "this position
+ * has no stop" -- a materially different, worse claim for a page whose
+ * whole point is telling the user their actual stop/target. Both the
+ * Current Stop and Profit Target fields instead show a small inline warning
+ * icon (`WarningAmberIcon` in a `Tooltip`, the same
+ * icon-plus-tooltip-for-a-degraded-state pattern `common/IbkrStatusBadge`
+ * already uses) with the backend's own `error.detail` as the tooltip text,
+ * rather than a second full-page `ErrorState` block competing with
+ * `StockDetailPage`'s own error handling for `useStockAnalysis`. See this
+ * task's `decisions` entry (corrected against
+ * `frontend-position-risk-columns-followups`, which found the previous
+ * version of this comment's "already surfaced loudly ... on the Portfolio
+ * page itself" claim was inaccurate).
  *
  * The Profit Target figure reuses `PositionProfitTargetCell` (RiskPanel's
  * own column, `RiskPosition.profit_target` -- computed for every open
@@ -65,6 +84,23 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
   const riskPosition = riskQuery.data?.positions.find(
     (candidate) => candidate.ticker === ticker,
   )
+
+  // A genuine GET /api/portfolio/risk failure -- rendered as a small inline
+  // warning icon/tooltip on both affected fields below instead of falling
+  // through to their normal '—' ("no stop/target configured") case. See
+  // this component's own doc comment above.
+  const riskDataError = riskQuery.isError ? (
+    <Tooltip
+      title={`Protective stop / profit target unavailable: ${riskQuery.error.detail}`}
+    >
+      <WarningAmberIcon
+        fontSize="small"
+        color="warning"
+        aria-label="Risk data unavailable"
+        data-testid="held-position-risk-error"
+      />
+    </Tooltip>
+  ) : null
 
   return (
     <Box
@@ -96,17 +132,22 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
           <Typography variant="caption" color="text.secondary" component="div">
             Current Stop
           </Typography>
-          <Typography variant="body2">
-            {riskPosition ? formatCurrency(riskPosition.protective_stop) : '—'}
+          <Typography
+            variant="body2"
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+          >
+            {riskDataError ?? (riskPosition ? formatCurrency(riskPosition.protective_stop) : '—')}
           </Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary" component="div">
             Profit Target
           </Typography>
-          <PositionProfitTargetCell
-            profitTarget={riskPosition?.profit_target ?? null}
-          />
+          {riskDataError ?? (
+            <PositionProfitTargetCell
+              profitTarget={riskPosition?.profit_target ?? null}
+            />
+          )}
         </Box>
       </Stack>
     </Box>

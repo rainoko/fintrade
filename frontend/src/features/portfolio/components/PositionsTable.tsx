@@ -44,6 +44,15 @@ export interface PositionsTableProps {
  * shared-prop version would mean changing RiskPanel's own established prop
  * contract too, for a table now doing exactly what RiskPanel already does
  * for its own columns. See this task's `decisions` entry.
+ *
+ * A genuine `riskQuery.isError` (as opposed to a ticker simply being absent
+ * from a *successful* risk response, handled by the per-row `riskByTicker`
+ * fallback below) gets the same `ErrorState` block already used for
+ * `deletePosition.isError`, above the table -- mirroring RiskPanel's own
+ * `ErrorState` for the identical hook/queryKey, so this failure no longer
+ * renders indistinguishably from "no stop/target configured" (the '—'
+ * fallback still shown per-row) the way it did before
+ * `frontend-position-risk-columns-followups`.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
@@ -167,6 +176,11 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   return (
     <Box>
+      {riskQuery.isError && (
+        <Box sx={{ mb: 2 }}>
+          <ErrorState error={riskQuery.error} />
+        </Box>
+      )}
       {deletePosition.isError && (
         <Box sx={{ mb: 2 }}>
           <ErrorState error={deletePosition.error} />

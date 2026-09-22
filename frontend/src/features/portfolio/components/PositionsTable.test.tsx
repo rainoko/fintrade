@@ -202,6 +202,23 @@ describe('PositionsTable', () => {
     )
   })
 
+  it('surfaces a 503 ApiError via common/ErrorState when GET /api/portfolio/risk fails, without hiding the table', async () => {
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 }),
+      ),
+    )
+    renderPositionsTable(positions)
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Market data provider unavailable')).toBeInTheDocument()
+    // The table itself still renders (with the risk columns falling back to
+    // '—', same as a ticker missing from a *successful* risk response) --
+    // this failure is surfaced as a banner above the table, not by hiding it.
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
   it('surfaces a 404 ApiError via common/ErrorState when the position no longer exists', async () => {
     server.use(
       http.delete('/api/portfolio/positions/:id', () =>
