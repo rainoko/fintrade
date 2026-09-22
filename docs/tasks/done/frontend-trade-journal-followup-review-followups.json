@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-trade-journal-followup-review PR #248 review",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-trade-journal-followup-review"],
   "references": [
     "docs/tasks/frontend-trade-journal-followup-review.json",
@@ -34,5 +34,27 @@
     "pr_number": 249,
     "pr_url": "https://github.com/rainoko/fintrade/pull/249",
     "pushed_at": "2026-09-22T04:52:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T05:04:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/249",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "isoDateWeeksAgo in the new frontend/tests/e2e/portfolio.spec.ts is a verbatim duplicate of the same-named helper already in frontend/tests/mocks/handlers.ts (from PR #248). Non-blocking (two different test layers, only two copies so far); tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts",
+        "line": 110
+      },
+      {
+        "summary": "The new due-for-follow-up describe.serial block has no tolerance for a leftover unreviewed TSLA trade from an earlier interrupted run, unlike the sibling add/delete block in the same file which explicitly documents tolerating a stale MSFT position for this reason. A rerun against a still-alive webServer (yarn test:e2e:ui, not the routine make e2e path which always wipes e2e.db) could seed a second due row and turn dueForFollowUpRow into a Playwright strict-mode-violation instead of a clean failure. Non-blocking: doesn't affect the documented make e2e/CI path (verified clean, 21/21), and the failure mode is loud, not silent. Tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts",
+        "line": 128
+      },
+      {
+        "summary": "One flaky timeout task-worker saw in FollowUpReviewDialog.test.tsx on its first vitest run did not reproduce across 16 further runs (13 isolated + 3 full-suite). That file is entirely untouched by this PR's diff, so it can't be something this PR introduced or exacerbated -- classified as a one-off environmental fluke, not a genuine pre-existing flake, but recorded for a paper trail if it recurs. Tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/src/features/portfolio/components/FollowUpReviewDialog.test.tsx"
+      }
+    ],
+    "notes": "Full review: backend pytest 1139 passed, 99.95% coverage; frontend vitest 745 passed, statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79% (all well above the 90% gate, no regression from PR #248's already-clean numbers). Static analysis clean on both sides (ruff, mypy, eslint, tsc, profit-target-wording guard). make e2e: 21/21 specs pass, including all 3 new due-for-follow-up specs. Verified the e2e assertions (table names, dialog heading, field label, button text, validation copy) against the actual TradeFollowUpDuePanel.tsx/FollowUpReviewDialog.tsx source rather than trusting the diff alone. Verified the seeded 9-week exit date sits well inside the backend's actual 8-10-week window (_FOLLOW_UP_DUE_WINDOW_MIN/_MAX in app/api/routers/portfolio.py) and matches the mocked-test suite's own choice, as the decisions entry claims. Verified state isolation: FOLLOW_UP_TICKER=TSLA is distinct from every other spec's fixture ticker (AAPL/MSFT/GOOGL), playwright.config.ts runs workers:1/fullyParallel:false so no cross-file race, and the seeded TSLA position is already closed (no longer an open position) before the due-panel block's first assertion runs, confirmed by the real make e2e run's request log ordering. No UI-facing app code changed by this PR (test/doc/task-JSON only) -- no interactive browser walkthrough applicable per step 9, explicitly noted rather than skipped silently; step 9a's e2e-test skill run substitutes for it here since this PR's own 'UI surface' is entirely e2e-spec coverage. Not applicable: verify-elder-signal (area/skill don't match), architecture-review (no new module/dependency/layer), OpenAPI check (no API/schema change), frontend component-placement check (no component added or changed). Checklist item's underlying judgment calls (spec-file placement, seed strategy, exact seed offset) are all backed by a decisions entry with rationale and alternatives considered, satisfying CLAUDE.md's decision-memory rule. Two non-blocking code-review findings (duplicate helper, describe-block leftover-state edge case) plus the flaky-test investigation result are filed on frontend-trade-journal-followup-review-followups-followups rather than left only in this comment."
   }
 }
