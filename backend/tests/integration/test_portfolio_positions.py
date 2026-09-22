@@ -670,6 +670,122 @@ class TestAddPosition:
         assert second.status_code == 201
         assert second.json()["strategy"] == "Pullback to value"
 
+    def test_create_position_with_empty_string_strategy_normalizes_to_null(
+        self, client: TestClient
+    ) -> None:
+        """Regression test (backend-trade-strategy-tagging-followups, PR #218 review): mirrors
+        entry_notes' own empty-string-normalizes-to-null behavior."""
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "strategy": "",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["strategy"] is None
+
+    def test_create_position_with_whitespace_only_strategy_normalizes_to_null(
+        self, client: TestClient
+    ) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "strategy": "   ",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["strategy"] is None
+
+    def test_create_position_with_padded_strategy_is_stripped(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 195.30,
+                "entry_date": "2026-05-14",
+                "strategy": "  Pullback to value  ",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["strategy"] == "Pullback to value"
+
+    def test_merge_with_whitespace_only_incoming_strategy_leaves_existing_strategy_unchanged(
+        self, client: TestClient
+    ) -> None:
+        """Regression test: a whitespace-only incoming strategy used to be truthy under
+        `if position.strategy:` and would overwrite the existing tag with whitespace. It now
+        normalizes to None at the schema layer before the merge check runs, so it's treated
+        exactly like an omitted strategy -- the existing tag is left as is."""
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "strategy": "   ",
+            },
+        )
+
+        assert second.status_code == 201
+        assert second.json()["strategy"] == "Pullback to value"
+
+    def test_merge_with_differently_cased_strategy_overwrites_rather_than_dedupes(
+        self, client: TestClient
+    ) -> None:
+        """Regression/decision test (backend-trade-strategy-tagging-followups `decisions`):
+        strategy is NOT case-folded on write, so a merge with a tag differing only in case from
+        the existing one is treated as a genuinely different value and overwrites it (the
+        existing overwrite-on-merge rule), rather than being treated as a duplicate of the
+        existing tag and left alone."""
+        client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 100,
+                "avg_cost_basis": 100.0,
+                "entry_date": "2026-05-14",
+                "strategy": "Pullback to value",
+            },
+        )
+
+        second = client.post(
+            "/api/portfolio/positions",
+            json={
+                "ticker": "AAPL",
+                "quantity": 50,
+                "avg_cost_basis": 130.0,
+                "entry_date": "2026-06-01",
+                "strategy": "pullback to value",
+            },
+        )
+
+        assert second.status_code == 201
+        assert second.json()["strategy"] == "pullback to value"
+
     def test_whitespace_padded_ticker_is_stripped_and_merges_with_existing(
         self, client: TestClient
     ) -> None:

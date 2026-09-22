@@ -358,7 +358,11 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     `entry_notes`) so this field stays a single clean tag for future strategy-segmented
     grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
     merge with no incoming `strategy` leaves the existing one untouched -- see the
-    backend-trade-strategy-tagging task's `decisions`.
+    backend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is
+    stripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to
+    null at the schema layer, but -- unlike `entry_notes` -- its casing is preserved as typed
+    rather than case-folded, so two tags differing only in case are stored as distinct values
+    -- see the backend-trade-strategy-tagging-followups task's `decisions`.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -429,12 +433,16 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
                 if existing.entry_notes
                 else position.entry_notes
             )
-        # strategy merges by overwriting rather than appending -- see this task's `decisions`
-        # entry: unlike entry_notes' narrative text, strategy is meant to be grouped/
-        # aggregated on exactly (equity-curves-by-strategy, the future backend-trade-apgar
-        # task), so a merge with an incoming strategy replaces the existing tag outright. A
-        # merge with no incoming strategy leaves the existing one untouched (nothing to
-        # replace it with).
+        # strategy merges by overwriting rather than appending -- see the
+        # backend-trade-strategy-tagging task's `decisions` entry: unlike entry_notes'
+        # narrative text, strategy is meant to be grouped/aggregated on exactly
+        # (equity-curves-by-strategy, the future backend-trade-apgar task), so a merge with an
+        # incoming strategy replaces the existing tag outright. A merge with no incoming
+        # strategy leaves the existing one untouched (nothing to replace it with).
+        # PositionIn's own field_validator already strips whitespace and normalizes a blank/
+        # whitespace-only tag to None before this handler ever runs, so a whitespace-only
+        # incoming tag is falsy here too and never overwrites an existing tag with whitespace
+        # -- see the backend-trade-strategy-tagging-followups task's `decisions`.
         if position.strategy:
             existing.strategy = position.strategy
         row = existing
