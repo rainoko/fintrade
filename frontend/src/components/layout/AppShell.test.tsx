@@ -1,24 +1,27 @@
-import { ThemeProvider } from '@mui/material/styles'
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mockMatchMedia } from '../../../tests/mockMatchMedia'
-import { theme } from '../../theme/theme'
+import { renderWithProviders } from '../../../tests/renderWithProviders'
 import AppShell from './AppShell'
 
+// renderWithProviders (not a bare ThemeProvider wrap) — AppShell now renders
+// IbkrStatusIndicator (frontend-ibkr-status-indicator), which calls
+// useIbkrStatus/useQuery and throws "No QueryClient set" without one. The
+// default GET /api/ibkr/status MSW handler (tests/mocks/handlers.ts) covers
+// every test in this file; none of them assert on the indicator itself
+// (see IbkrStatusIndicator.test.tsx for that).
 function renderShell(initialPath = '/') {
-  return render(
-    <ThemeProvider theme={theme}>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route element={<AppShell />}>
-            <Route path="/" element={<div>Dashboard content</div>} />
-            <Route path="/portfolio" element={<div>Portfolio content</div>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    </ThemeProvider>,
+  return renderWithProviders(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path="/" element={<div>Dashboard content</div>} />
+          <Route path="/portfolio" element={<div>Portfolio content</div>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
   )
 }
 

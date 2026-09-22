@@ -1671,7 +1671,7 @@
       "id": "frontend-ibkr-status-indicator",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-ibkr-status-indicator.json"
     },
     {

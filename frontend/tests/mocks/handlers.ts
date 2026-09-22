@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
+import type { IBKRStatusResponse } from '../../src/api/ibkr'
 import type {
   ClosedTradesResponse,
   PortfolioResponse,
@@ -54,6 +55,15 @@ import type {
 // not present in `mockTickerTideTrends` below counts as `unavailable_count`
 // (Tide couldn't be computed right now), the same convention as
 // mockTickerSignals' own "no entry -> null signal" rule above.
+// GET /api/ibkr/status: defaults to 'disabled' (this app's own real
+// backend default, `Settings.ibkr_enabled = False`) — every test that
+// renders AppShell (frontend-ibkr-status-indicator's IbkrStatusIndicator
+// lives in its app bar) hits this handler whether or not it cares about
+// IBKR specifically, so the default has to be a fixed, deterministic value.
+// A test that does care about a different state (`available`/
+// `gateway_unreachable`/`not_authenticated`, or a transport failure)
+// overrides it directly with `server.use()`, same as every other
+// non-sentinel-driven override in this file (e.g. PriceChart.test.tsx).
 
 const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
@@ -429,7 +439,14 @@ export function resetWatchlistStore(): void {
   watchlistItems = initialWatchlistItems.map((item) => ({ ...item }))
 }
 
+const defaultIbkrStatusResponse: IBKRStatusResponse = {
+  state: 'disabled',
+  detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
+}
+
 export const handlers: HttpHandler[] = [
+  http.get('/api/ibkr/status', () => HttpResponse.json(defaultIbkrStatusResponse)),
+
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
 
   http.get('/api/portfolio/risk', () => HttpResponse.json(riskFixture)),
