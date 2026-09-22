@@ -3,7 +3,7 @@
   "title": "Trade Apgar pre-trade scoring form",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-trade-apgar"
   ],
@@ -54,5 +54,23 @@
     "pr_number": 254,
     "pr_url": "https://github.com/rainoko/fintrade/pull/254",
     "pushed_at": "2026-09-22T00:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:03:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/254",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "TradeApgarDialog's results table Value column renders TradeApgarQuestionOut.value verbatim (raw snake_case strings like 'on_the_verge'/'in_value_zone') instead of humanized/friendly text, inconsistent with both the dialog's own FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS label maps and the app's established humanizeSnakeCase convention elsewhere (ScreensPanel, SignalSummary). Non-blocking (display consistency, not a correctness bug); tracked as frontend-trade-apgar-followups.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 166
+      },
+      {
+        "summary": "The 'reset local state when the subject prop changes' boilerplate (derived prevSubject state + resets + mutation.reset(), during render) is now duplicated verbatim between TradeApgarDialog.tsx and FollowUpReviewDialog.tsx. Non-blocking (an established, working, pre-existing pattern copied consistently, not new risk); worth extracting into a shared hook to avoid future drift. Tracked as frontend-trade-apgar-followups.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 84
+      }
+    ],
+    "notes": "Full review: backend go/no-go rule (>=7 total AND no single zero) verified against app.portfolio.trade_apgar.score_trade_apgar and matches the frontend's callout logic exactly; MSW mock's scoring tables and APGARHIGH sentinel arithmetic verified to mirror the backend's fixed tables. Backend coverage 99.95%, frontend coverage 99.7%+ (both well above the 90% gate), all 1144 backend + frontend tests pass. Backend ruff/mypy clean, frontend eslint/tsc clean, profit-target wording guard clean. Placement check: TradeApgarDialog correctly lives under features/portfolio/components/ (renders TradeApgarQuestionOut/ticker domain concepts directly) -- not a common/ candidate, not a near-duplicate needing consolidation. openapi.json/generated types.ts already in sync (backend endpoint was added in an earlier, already-merged task; regenerating types.ts locally produced no diff). All 3 decisions entries (placement, useMutation vs useQuery, read-only-vs-manual field split) are recorded with rationale and alternatives considered, matching the checklist's 'decide placement' item. Browser walkthrough (real backend in fixture mode + real frontend, Playwright-driven): opened the Trade Apgar dialog from StockDetailPage for AAPL, scored a NO-GO-from-low-total default case, then a NO-GO-from-single-zero-despite-high-total case (total 7/10 blocked by price-vs-value scoring 0) confirming the exact 'no single zero' callout text and the zeroed row's visual highlight; confirmed the button is absent on an unknown/errored ticker page. No console errors beyond the expected 404 for the intentionally-unknown ticker. Ran the persisted e2e suite (make e2e): all 21 specs across dashboard/navigation/portfolio/stock-analysis/watchlist pass -- no regression from this change. A second, independent code-review pass (code-review skill, forked execution) converged on the same two non-blocking findings above with no additional blocking findings."
   }
 }
