@@ -3,7 +3,7 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "waiting_input",
   "depends_on": [
     "backend-market-scanner"
   ],
@@ -111,5 +111,13 @@
       }
     ],
     "notes": "Round 3 review. Both of round 2's blocking findings (fake-concurrency regression test, ErrorState-in-a-TableCell layout break) are correctly fixed and independently verified (isolated-worktree re-run of the pre-fix test, direct read-through of the new compact error component). However the fix to round 2's second finding introduced two new blocking accessibility regressions of its own (focus loss to document.body on a failed add; loss of common/ErrorState's role=\"alert\" live-region announcement), both confirmed with a throwaway RTL test I wrote and ran myself rather than trusting a first pass's claim alone. This mirrors round 2's own shape (a correct fix for the named finding, but a new regression introduced in the same commit) -- I initially posted an 'accepted' PR review comment before a parallel code-review pass surfaced these two issues; that comment is superseded by this needs_work verdict and this task's review section (see the follow-up PR comment noting the correction). Full suite otherwise clean: backend pytest 1139 passed/99.95% coverage/ruff+mypy clean (no backend changes); frontend vitest 742 passed, coverage 99.73%/98.91%/99.73%/99.79%, yarn lint + tsc -b --noEmit clean, profit-target wording guard clean; make e2e all 18 specs pass (no scanner e2e spec yet, already tracked); scripts/validate_tasks.py clean; no API/schema changes so openapi.json correctly untouched. The two non-blocking icon-import/dead-prop nits are unchanged from before and remain filed on frontend-market-scanner-page-followups."
-  }
+  },
+  "questions": [
+    {
+      "timestamp": "2026-09-22T02:20:00Z",
+      "raised_by": "orchestrate-tasks",
+      "question": "PR #243 has now hit 3 needs_work rounds, and each of the last two has shown the same shape: a correct, verified fix for the named finding that introduces a new regression in the same commit (round 2's fix broke row layout; round 3's fix to that broke keyboard focus + screen-reader announcement on a failed add). Per the orchestrator's 3-round retry cap, no further automatic fix round will be dispatched. Two ways forward: (a) authorize one more round with an explicit instruction to fix the focus-loss + lost live-region-announcement pair without introducing a new regression (e.g. keep the same DOM node across the success/pending/error states rather than swapping element types, and add a visually-hidden aria-live region or move focus to the retry control on failure), or (b) have a human review/patch ScannerAddToWatchlistButton directly given the repeated regression-on-fix pattern.",
+      "context": "Unlike the backend-trailing-profit-stop case (a single narrow, mechanical missing-filter bug), this PR's pattern -- two consecutive rounds each fixing what was asked but breaking something else in the same component -- suggests the per-row action-button component (ScannerAddToWatchlistButton) may benefit from being rethought as a whole (e.g. one component that keeps a stable root element across all its states) rather than incrementally patched a fourth time. Flagging for a decision rather than spending a 4th automated round on the same file."
+    }
+  ]
 }
