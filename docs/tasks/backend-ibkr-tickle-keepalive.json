@@ -3,7 +3,7 @@
   "title": "Automate the IBKR gateway /tickle session keep-alive",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -42,5 +42,33 @@
     "pr_number": 267,
     "pr_url": "https://github.com/rainoko/fintrade/pull/267",
     "pushed_at": "2026-09-22T14:21:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T14:34:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/267",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Flaky test: backend/tests/unit/test_main.py::TestLifespanIbkrTickleGate::test_enabled_logs_and_keeps_looping_when_tickle_fails intermittently fails (reproduced twice in ~10 runs of the full suite, with and without --cov): 'assert fake_provider.tickle.call_count >= 2 -- AssertionError: assert 1 >= 2'. The test mocks _IBKR_TICKLE_INTERVAL_SECONDS to 0.0 and busy-waits `await asyncio.sleep(0)` up to 200 times for tickle.call_count >= 2, but each tickle() call goes through asyncio.to_thread (a real thread-pool round trip); under load, 200 cooperative yields aren't reliably enough for two full thread-pool round trips to land before the test gives up. test_enabled_starts_a_task_that_calls_tickle has the same structural risk (only needs one call, so less likely to flake in practice). BLOCKING.",
+        "file": "backend/tests/unit/test_main.py",
+        "line": 83
+      },
+      {
+        "summary": "docs/architecture/Backend.md §8 step 4 still says the /tickle keep-alive is 'not automated by this app today ... itself a currently-open gap' -- this PR is exactly that future task and should have updated that sentence; it's now stale. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "file": "docs/architecture/Backend.md",
+        "line": 138
+      },
+      {
+        "summary": "Shutdown-cancellation edge case: cancelling tickle_task while mid-await asyncio.to_thread(provider.tickle) can't interrupt the already-running worker thread, so lifespan's `await tickle_task` in finally will block until that in-flight call completes or its httpx timeout (~10s) elapses before CancelledError propagates. Bounded (no leak/crash) but untested -- the existing cancellation test only covers cancellation while sleeping. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "file": "backend/app/main.py",
+        "line": 78
+      },
+      {
+        "summary": "Minor robustness nit: _ibkr_tickle_loop only catches IBKRUnavailableError around tickle(); widening to a broader Exception (still logging, still not raising) would protect the keep-alive loop against any future/unexpected exception type silently stopping it. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "file": "backend/app/main.py",
+        "line": 48
+      }
+    ],
+    "notes": "Verified by reading code (not just trusting test descriptions) that: the lifespan wiring is a genuine no-op when Settings.ibkr_enabled is False (backend/.env still has FINTRADE_IBKR_ENABLED=false); the task is cancelled cleanly on shutdown for the tested case; _request's three raise sites all funnel into IBKRUnavailableError so a failed tickle only ever logs and continues; and the tickle()-skips-_require_available() reasoning is sound since the loop never retries early on failure (no tight-loop hammering). All 3 decisions entries are well-reasoned and cover the checklist's 'decide' items. ruff/mypy clean on every file this PR touches; the ruff findings visible on a repo-wide check are pre-existing in unrelated, untouched files. No API/frontend surface touched, so openapi.json correctly untouched and no browser walkthrough/e2e run was needed (explicitly noted rather than skipped silently). Verdict is needs_work solely due to the reproducible test flake above -- everything else passed."
   }
 }

@@ -1538,7 +1538,7 @@
       "id": "backend-ibkr-tickle-keepalive",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-ibkr-tickle-keepalive.json"
     },
     {
@@ -1890,6 +1890,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-ibkr-symbol-resolution-followups.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-tickle-keepalive-followups.json"
     }
   ]
 }
