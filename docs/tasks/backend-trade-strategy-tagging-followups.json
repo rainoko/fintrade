@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-trade-strategy-tagging review (PR #218)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-trade-strategy-tagging"],
   "references": [
     "docs/tasks/done/backend-trade-strategy-tagging.json",
@@ -40,5 +40,23 @@
     "pr_number": 252,
     "pr_url": "https://github.com/rainoko/fintrade/pull/252",
     "pushed_at": "2026-09-22T05:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T06:04:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/252",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the new description text is factually wrong about `entry_notes`. `PositionIn.strategy`'s Field description, `add_position`'s docstring (backend/app/api/routers/portfolio.py), backend/openapi.json, and frontend/src/api/types.ts all now say 'unlike `entry_notes` -- its casing is preserved as typed rather than case-folded', implying `entry_notes` IS case-folded on write. It is not: `_strip_and_normalize_entry_notes` only strips whitespace and normalizes blank-to-null, exactly like the new `_strip_and_normalize_strategy` -- verified directly by instantiating `PositionIn(entry_notes='Pullback To Value')`, which returns 'Pullback To Value' unchanged (no case-folding at all). The real, and only, asymmetry between the two fields is merge semantics (strategy overwrites, entry_notes appends), not case handling. This false claim is now committed into the OpenAPI contract in 4 places, which CLAUDE.md's API documentation standard requires be accurate ('well-explained, not just correctly typed') -- a future reader could reasonably build a dedup/display feature assuming entry_notes values differing only in case are already merged into one canonical casing, which they are not. Needs a reword (e.g. 'unlike `entry_notes`, which is merged by appending rather than overwriting, and is likewise never case-folded') in all 4 locations plus a re-export of openapi.json/types.ts.",
+        "file": "backend/app/api/schemas.py",
+        "line": 411
+      },
+      {
+        "summary": "Non-blocking: `PositionIn._strip_and_normalize_entry_notes` and the new `_strip_and_normalize_strategy` now have byte-for-byte identical bodies (strip; normalize empty string to None). `field_validator` accepts multiple field names in one call (`@field_validator(\"entry_notes\", \"strategy\")`), so these could be consolidated into one validator to avoid the duplication. Tracked as a followup checklist item on backend-trade-strategy-tagging-followups-followups; no correctness impact.",
+        "file": "backend/app/api/schemas.py",
+        "line": 439
+      }
+    ],
+    "notes": "Full review performed. Backend suite: `pytest --cov=app --cov-report=term-missing` -- 1144 passed, 99.89% coverage (gate 90%), no regression. Static analysis clean: ruff, mypy, `yarn lint`, `yarn tsc -b --noEmit`, scripts/check_profit_target_wording.py, scripts/validate_tasks.py all pass with zero findings. Confirmed the regression test genuinely reproduces the fixed bug: temporarily removed `_strip_and_normalize_strategy` and re-ran test_merge_with_whitespace_only_incoming_strategy_leaves_existing_strategy_unchanged -- it failed with `'   ' == 'Pullback to value'` as expected, then restored the validator (checked out the file back to HEAD) and reconfirmed the full suite passes; the whitespace-merge-overwrite bug fix itself is real, not just documented. Independently verified the backend-trade-apgar claim by reading backend/app/portfolio/trade_apgar.py directly: it implements Elder's ch. 58 fixed 5-question set scored identically per ticker with no reference to `strategy` anywhere in the module or its router usage -- the decisions entry's claim that it doesn't group by strategy is accurate. Regenerated backend/openapi.json myself via `python scripts/export_openapi.py` and diffed against the committed snapshot: zero diff, confirming it's current and in sync (no stale-snapshot issue) -- but see the blocking comment above: 'in sync' does not mean 'accurate', and the newly-added description text itself contains a factual error about entry_notes' behavior, caught by re-reading the diff and independently testing PositionIn(entry_notes=...) directly. Both decisions entries (whitespace-normalize; do-not-case-fold) are themselves sound, each with rejected alternatives and rationale, and both trace back to a checklist item asking for exactly that judgment call -- no undecided-but-implemented gap; the blocking issue is in how the code's own comments/description describe an unrelated existing field, not in the decisions or the actual `strategy` behavior. area is backend/portfolio, so verify-elder-signal was run: this change touches only the strategy free-text tag (a journaling field per Analyse.md's ch. 55/56/58/59 references), not Screen 1/2/3, the Impulse gate, confidence scoring, or the portfolio risk overlay -- none of that checklist applies. architecture-review not run: no new module/dependency/layer added. No frontend components touched (types.ts is the generated API client only) and no backend endpoint behavior visible to a user changed in a way that needed exercising through a UI -- explicitly no UI surface, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) were both skipped on that basis rather than silently omitted. Also ran the code-review skill (background), which independently surfaced the same two findings (the entry_notes casing inaccuracy, and the validator duplication) -- corroborating both. One non-blocking reuse/simplification finding filed as a followup task (backend-trade-strategy-tagging-followups-followups); the blocking finding goes back to the task-worker via this needs_work verdict instead. Note: mid-review, an errant `git stash pop` (called without first checking `git stash list`) transiently applied a pre-existing, unrelated stash from a prior incident (dated 2026-09-18, explicitly labeled 'not mine, do not discard') onto this working tree, producing conflicts in Makefile/docs/tasks files unrelated to this PR. Resolved immediately via `git reset --hard HEAD` before any commit was made; the pre-existing stash entries are confirmed still intact and untouched in `git stash list` (stash@{0}, stash@{1}), and this PR's branch was not affected. Flagging for visibility per the shared-working-tree caution in CLAUDE.md, even though no lasting effect occurred."
   }
 }
