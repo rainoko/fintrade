@@ -110,7 +110,7 @@ class TestGetHourlyBars:
         request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
 
         with pytest.raises(IBKRUnavailableError):
-            IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+            IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         request.assert_not_called()
 
@@ -128,7 +128,7 @@ class TestGetHourlyBars:
         }
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert len(bars) == 2
         assert all(isinstance(b, IBKRBar) for b in bars)
@@ -145,7 +145,7 @@ class TestGetHourlyBars:
             return_value={"data": [self._bar_at(hours_ago=1)]},
         )
 
-        IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         _method, path = request.call_args.args
         assert path == "/iserver/marketdata/history"
@@ -167,7 +167,7 @@ class TestGetHourlyBars:
             side_effect=[first_page, second_page],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=60)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=60)
 
         assert request.call_count == 2
         second_call_kwargs = request.call_args_list[1].kwargs
@@ -195,7 +195,7 @@ class TestGetHourlyBars:
             side_effect=[first_page, second_page],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=60)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=60)
 
         assert request.call_count == 2
         second_call_kwargs = request.call_args_list[1].kwargs
@@ -217,7 +217,7 @@ class TestGetHourlyBars:
             side_effect=[page_one, AssertionError("should not fetch a second page")],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=1)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=1)
 
         assert request.call_count == 1
         # Only the bars within the last day survive the cutoff filter, not all 1,000.
@@ -230,7 +230,7 @@ class TestGetHourlyBars:
         )
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"data": []})
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert bars == []
 
@@ -248,7 +248,7 @@ class TestGetHourlyBars:
         }
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert len(bars) == 1
 
@@ -262,7 +262,7 @@ class TestGetHourlyBars:
         )
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=["unexpected"])
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert bars == []
 
@@ -287,7 +287,7 @@ class TestGetHourlyBars:
 
         request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=_full_page)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=100_000)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=100_000)
 
         assert request.call_count == 20  # _MAX_PAGINATION_PAGES
         assert len(bars) == 20_000
