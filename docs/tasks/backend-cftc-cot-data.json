@@ -3,7 +3,7 @@
   "title": "CFTC Commitments of Traders (COT) report data, as futures-market context",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#consensuscommitment-indicators-ch-37--mostly-already-built-or-genuinely-unavailable-cftc-data-is-the-one-real-gap"
@@ -40,5 +40,11 @@
       "decision": "This surfaces as a new, standalone `GET /api/cftc/cot` endpoint (`app/api/routers/cftc.py`) returning all 5 fixed markets' current + recent positioning in one response -- not wired into `app.signals`/`app.portfolio` or any per-stock-ticker analysis endpoint in any way. `CFTCCOTProvider` is injected via a plain per-request `get_cftc_cot_provider` FastAPI dependency (a fresh, stateless instance each call, mirroring `get_data_provider`'s yfinance/Stooq construction) rather than a process-wide singleton like `get_ibkr_provider`'s, and the endpoint always fetches fresh from CFTC on every request with no local DB-backed cache/persistence layer (unlike `CachedDataProvider`'s OHLCV/extended-data caches or `IBKRBreadthSnapshotORM`'s once-per-day snapshot table).",
       "rationale": "The task's own description is explicit that this is 'informational context... not something that plugs into any per-stock-ticker signal', so no route/module in app.signals or app.portfolio references it, matching how IBKR's market-scanner/breadth features are also kept out of the signal engine. No singleton is needed because `CFTCCOTProvider` (unlike `IBKRProvider`) has no per-instance rate-limit/session/cache state to preserve across requests -- constructing it fresh per call costs nothing. No DB cache was added because the task's checklist scopes this to 'a minimal fetch' and the underlying CFTC data only changes weekly regardless of how often this app's own endpoint is called; adding a caching layer (e.g. a new ORM table keyed by market+report_date, mirroring `IBKRBreadthSnapshotORM`) is a reasonable follow-up if this endpoint turns out to be called often enough that repeated CFTC round-trips matter, but was left out here as an unnecessary complication for a first, minimal version."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data",
+    "pr_number": 270,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/270",
+    "pushed_at": "2026-09-22T16:05:58Z"
+  }
 }
