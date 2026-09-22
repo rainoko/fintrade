@@ -3,7 +3,7 @@
   "title": "Parameterize IBKRProvider's hardcoded 1h bar interval",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -35,5 +35,18 @@
     "pr_number": 265,
     "pr_url": "https://github.com/rainoko/fintrade/pull/265",
     "pushed_at": "2026-09-22T13:25:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:35:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/265",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "`_BAR_INTERVAL_STEP['1m']`'s 30-day approximation for IBKR's monthly bar can overshoot the actual bar-to-bar gap in short months (e.g. the Feb->Mar transition in a non-leap year is only a 28-day gap), producing a pagination `startTime` earlier than the actual preceding bar and, per IBKR's documented 'bars at or before startTime' semantics, silently skipping that bar -- the same bug class this PR fixed for finer intervals, reintroduced for the coarsest one. Verified by direct simulation, not just reasoning. Non-blocking: unreachable today since `_MAX_BARS_PER_PAGE` (1000) means a monthly-bar page only triggers a second page after ~83 years of requested lookback, and no caller passes `bar_size='1m'`. Tracked as a followup.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 108
+      }
+    ],
+    "notes": "Full review performed: gh pr checkout 265 (already on the branch). Backend suite: 1161 passed, 99.95% coverage (well above the 90% gate) via `pytest --cov=app --cov-report=term-missing`. Static analysis: backend `ruff check app/` and `mypy` both clean; `scripts/check_profit_target_wording.py` clean; frontend `yarn lint`/`yarn tsc -b --noEmit` clean (unaffected baseline -- this PR touches no frontend files). `code-review` skill (medium effort) run against the diff: no findings. `_VALID_BAR_INTERVALS` cross-checked against IBKR's publicly documented Client Portal Web API `bar` enum for `/iserver/marketdata/history` ({1min,2min,3min,5min,10min,15min,30min,1h,2h,3h,4h,8h,1d,1w,1m}) -- matches. Pagination-cursor-step fix (`_BAR_INTERVAL_STEP[bar_size]` replacing the hardcoded `timedelta(hours=1)`) verified correct for every interval except the `1m` (monthly) approximation noted above, which is a real-but-unreachable latent issue tracked as a non-blocking followup rather than blocking. `FINTRADE_IBKR_ENABLED` confirmed still `false` in `backend/.env` and unchanged by this PR; all new/existing tests mock `_request`, no live network calls. Both `decisions` entries reviewed: both correctly document what's confirmed-vs-assumed per this module's mocked-only testing constraint, with concrete rationale and rejected alternatives -- satisfies CLAUDE.md's decision-memory bar. No API route/schema touched, so no `openapi.json` regeneration was required. `area` is `backend/data`, not `backend/signals`/`backend/portfolio`, and `skill` is `null` (not `verify-elder-signal`), so the Elder-signal-specific review step doesn't apply; this isn't a new module/dependency/layer, so `architecture-review` wasn't separately loaded (the `docs/architecture/Backend.md` doc update was checked directly against the code change and is accurate). No frontend component work, so the placement-review step (7a) doesn't apply. No route/frontend consumer of `get_hourly_bars` exists (grepped `app/` and `frontend/`) -- this change has no UI surface, so the browser walkthrough (step 9) and the persisted e2e suite (step 9a) were both explicitly skipped rather than silently omitted. Filed one non-blocking finding as docs/tasks/backend-ibkr-bar-interval-param-followups.json."
   }
 }
