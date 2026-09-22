@@ -1643,8 +1643,8 @@
       "id": "backend-cftc-cot-data",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-cftc-cot-data.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data.json"
     },
     {
       "id": "backend-trade-apgar",
@@ -1911,6 +1911,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-ibkr-tickle-keepalive-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-cftc-cot-data-followups.json"
     }
   ]
 }
