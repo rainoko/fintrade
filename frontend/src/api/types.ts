@@ -371,9 +371,10 @@ export interface paths {
          *     merge with no incoming `strategy` leaves the existing one untouched -- see the
          *     backend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is
          *     stripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to
-         *     null at the schema layer, but -- unlike `entry_notes` -- its casing is preserved as typed
-         *     rather than case-folded, so two tags differing only in case are stored as distinct values
-         *     -- see the backend-trade-strategy-tagging-followups task's `decisions`.
+         *     null at the schema layer; neither field is case-folded on write, so casing is preserved
+         *     exactly as typed for both -- the real asymmetry between the two is the merge behavior
+         *     above (`strategy` overwrites, `entry_notes` appends), not casing -- see the
+         *     backend-trade-strategy-tagging-followups task's `decisions`.
          *     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
          *     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
          *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
