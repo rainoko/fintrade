@@ -3,7 +3,7 @@
   "title": "Automate the IBKR gateway /tickle session keep-alive",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -50,31 +50,31 @@
     "pushed_at": "2026-09-22T14:21:19Z"
   },
   "review": {
-    "reviewed_at": "2026-09-22T14:34:04Z",
+    "reviewed_at": "2026-09-22T14:58:15Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/267",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Flaky test: backend/tests/unit/test_main.py::TestLifespanIbkrTickleGate::test_enabled_logs_and_keeps_looping_when_tickle_fails intermittently fails (reproduced twice in ~10 runs of the full suite, with and without --cov): 'assert fake_provider.tickle.call_count >= 2 -- AssertionError: assert 1 >= 2'. The test mocks _IBKR_TICKLE_INTERVAL_SECONDS to 0.0 and busy-waits `await asyncio.sleep(0)` up to 200 times for tickle.call_count >= 2, but each tickle() call goes through asyncio.to_thread (a real thread-pool round trip); under load, 200 cooperative yields aren't reliably enough for two full thread-pool round trips to land before the test gives up. test_enabled_starts_a_task_that_calls_tickle has the same structural risk (only needs one call, so less likely to flake in practice). BLOCKING.",
+        "summary": "Round 2: verified the flake fix (_wait_until real-timer poll bounded by asyncio.wait_for) independently rather than trusting the reported counts -- confirmed the helper genuinely raises asyncio.TimeoutError (not a silent pass) when its predicate never becomes true via a standalone repro, then ran backend/tests/unit/test_main.py 30x plain, 25x under --cov=app, and 20x more under --cov=app while the host was under deliberate CPU load (20 parallel `yes` processes on a 24-core box, to stress the exact 'busy host' condition the original flake needed). All 75 runs green.",
         "file": "backend/tests/unit/test_main.py",
-        "line": 83
+        "line": 31
       },
       {
-        "summary": "docs/architecture/Backend.md §8 step 4 still says the /tickle keep-alive is 'not automated by this app today ... itself a currently-open gap' -- this PR is exactly that future task and should have updated that sentence; it's now stale. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
-        "file": "docs/architecture/Backend.md",
-        "line": 138
-      },
-      {
-        "summary": "Shutdown-cancellation edge case: cancelling tickle_task while mid-await asyncio.to_thread(provider.tickle) can't interrupt the already-running worker thread, so lifespan's `await tickle_task` in finally will block until that in-flight call completes or its httpx timeout (~10s) elapses before CancelledError propagates. Bounded (no leak/crash) but untested -- the existing cancellation test only covers cancellation while sleeping. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "summary": "Full backend suite + coverage run myself: 1170 passed, 100% line+branch coverage (gate is 90%). ruff/mypy clean on every file this PR touches; the 7 ruff findings from a repo-wide check are pre-existing in unrelated untouched files (tests/unit/indicators/test_stochastic.py, tests/unit/signals/test_triple_screen.py), confirmed via git diff --name-only against origin/main.",
         "file": "backend/app/main.py",
-        "line": 78
+        "line": 0
       },
       {
-        "summary": "Minor robustness nit (sharpened after an independent code-review pass reproduced it): _ibkr_tickle_loop only catches IBKRUnavailableError around tickle(); if it ever raised anything else, the task finishes with that exception stored, tickle_task.cancel() is then a no-op at shutdown, and `await tickle_task` inside `contextlib.suppress(asyncio.CancelledError)` re-raises it -- propagating out of lifespan()'s own finally block, not just silently pausing the loop. No current code path triggers this (_request's raise sites are exhaustively IBKRUnavailableError today), so it's latent, not live. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "summary": "Ran an independent code-review pass (medium effort) against PR #267's full diff: corroborated the same three non-blocking findings already filed on backend-ibkr-tickle-keepalive-followups (stale Backend.md §8 wording, shutdown-mid-tickle-cancellation edge case, narrow except IBKRUnavailableError latent re-raise risk) and surfaced nothing new. Not duplicated as new followups.",
         "file": "backend/app/main.py",
-        "line": 48
+        "line": 0
+      },
+      {
+        "summary": "No frontend/API surface touched by this PR (no route, no schema, no frontend file) -- backend/openapi.json correctly untouched, and no browser walkthrough / e2e run applies here.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 0
       }
     ],
-    "notes": "Verified by reading code (not just trusting test descriptions) that: the lifespan wiring is a genuine no-op when Settings.ibkr_enabled is False (backend/.env still has FINTRADE_IBKR_ENABLED=false); the task is cancelled cleanly on shutdown for the tested case; _request's three raise sites all funnel into IBKRUnavailableError so a failed tickle only ever logs and continues; and the tickle()-skips-_require_available() reasoning is sound since the loop never retries early on failure (no tight-loop hammering). All 3 decisions entries are well-reasoned and cover the checklist's 'decide' items. ruff/mypy clean on every file this PR touches; the ruff findings visible on a repo-wide check are pre-existing in unrelated, untouched files. No API/frontend surface touched, so openapi.json correctly untouched and no browser walkthrough/e2e run was needed (explicitly noted rather than skipped silently). Verdict is needs_work solely due to the reproducible test flake above -- everything else passed."
+    "notes": "Round 1 (2026-09-22T14:34:04Z) found the flaky test blocking; task-worker's fix (commit 8eeee9d) replaced the fixed-200-iteration bare asyncio.sleep(0) busy-wait with a real-timer _wait_until helper bounded by asyncio.wait_for. Verified the fix genuinely non-flaky via 75 of my own repeated runs across three conditions (plain, --cov, --cov+CPU-load), on top of task-worker's own reported 40+15. Full backend suite (1170 passed, 100% coverage) and static analysis (ruff/mypy) clean on all touched files. Independent code-review pass found no new issues beyond the three already-tracked non-blocking findings on backend-ibkr-tickle-keepalive-followups (still planned, no duplicates added). No pr_decision was present from a prior pass to clear. Accepted; posted as a COMMENTED-type PR review, never merged."
   }
 }
