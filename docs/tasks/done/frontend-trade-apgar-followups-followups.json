@@ -1,0 +1,45 @@
+{
+  "id": "frontend-trade-apgar-followups-followups",
+  "title": "Non-blocking follow-up from frontend-trade-apgar-followups review (PR #255)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-trade-apgar-followups"],
+  "references": [
+    "docs/tasks/frontend-trade-apgar-followups.json",
+    "https://github.com/rainoko/fintrade/pull/255"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #255 (frontend-trade-apgar-followups), recorded here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "useResetOnSubjectChange.ts was placed under features/portfolio/hooks/ (frontend-trade-apgar-followups's own decisions entry explains the reasoning) rather than utils/, but Frontend.md §3's own literal utils/ placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component (no props, no rendering, no Storybook story) -> utils/') is satisfied here: the hook's signature (subjectId: string | null, onReset: () => void) references no domain concept at all (no ticker/position/trade), and it's a plain function, not a component. The doc's separate hooks bullet ('Hooks wrap exactly one API concern each and live under the feature they serve') is framed specifically around API-concern (fetch/query) hooks, which this one isn't -- it does no fetching. This is a genuinely arguable placement call, not a clear-cut violation (both readings have real support in the doc, and the task's decision reasoned through it), so it wasn't blocking. Worth reconsidering if a third caller from a different feature (e.g. features/stocks or features/watchlist) ever needs the same subject-reset pattern -- at that point the cross-feature-sharing case for utils/ becomes unambiguous, per the hook's own decisions entry.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Left `useResetOnSubjectChange.ts` at `frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts` rather than moving it to `utils/`. Re-checked for a third, cross-feature caller (`grep -rn useResetOnSubjectChange frontend/src`): still only two, `TradeApgarDialog.tsx` and `FollowUpReviewDialog.tsx`, both under `features/portfolio/components/`.",
+      "rationale": "The original `frontend-trade-apgar-followups` decision reasoned through this exact tension (Frontend.md §3's literal `utils/` placement test — domain-agnostic + non-component -> `utils/` — versus its 'hooks live under the feature they serve' bullet) and explicitly named the trigger for revisiting it: 'if a third caller from a different feature ... ever needs the same pattern, that's the trigger to promote it to utils/ then, not now.' That trigger hasn't fired — no new caller exists anywhere in the frontend tree since PR #255 merged, and both current consumers still belong to the same `portfolio` feature, so there's still no cross-feature-sharing problem to solve. Moving it now would be exactly the kind of preemptive `utils/` promotion Frontend.md warns against ('only introduce a shared ... utility when a second, unrelated component genuinely needs it — not preemptively'), applied here to a hypothetical third caller that doesn't exist yet. Rejected moving it anyway on the strength of the literal `utils/` test alone: that test is a tiebreaker for genuinely single-owner-ambiguous code, and here there's a clear tiebreaker already established (single-feature ownership, both call sites colocated) that the original decision used and that still holds; re-litigating the same facts to a different conclusion without new information would make the placement rule less predictable, not more. If a third, cross-feature caller does show up later, promoting the hook to `utils/` at that point (updating both existing imports plus the new one) remains the right move, per the original decision."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-apgar-followups-followups",
+    "pr_number": 256,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/256",
+    "pushed_at": "2026-09-22T07:44:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:45:51Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/256",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure task-board bookkeeping, no source changes. Independently re-verified: `git diff main...HEAD --stat` shows only docs/tasks/frontend-trade-apgar-followups-followups.json and docs/tasks/index.json touched. Independently grepped `useResetOnSubjectChange` across frontend/src: still exactly two callers, TradeApgarDialog.tsx and FollowUpReviewDialog.tsx, both under features/portfolio/components/ -- confirms the claim in the PR body and the new decisions entry. Read the hook source itself: signature (subjectId: string | null, onReset: () => void) is genuinely domain-agnostic, so the placement question really is the arguable one described. The new decisions entry reasons from the original decision's own stated trigger (a third, cross-feature caller) rather than re-litigating the facts, and correctly concludes the trigger hasn't fired -- sound reasoning, not a rubber stamp. Skipped the full test/coverage/lint/browser-walkthrough steps as disproportionate to a diff containing zero source-file changes, per the dispatch instructions scoping this to a commensurately quick review; ran `python3 scripts/validate_tasks.py` (clean) and `python3 -m json.tool` on the edited file (valid) as the applicable checks. No pr_decision was present to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T07:51:33Z",
+    "verdict": "merge",
+    "notes": "Re-verified diff scope myself (`git diff origin/main...HEAD --stat`): only this task's JSON (moved to docs/tasks/done/) and docs/tasks/index.json touched, no source files. Independently ran `grep -rn useResetOnSubjectChange frontend/src` and confirmed exactly two callers, TradeApgarDialog.tsx and FollowUpReviewDialog.tsx, both under features/portfolio/components/, matching the decisions entry's claim. Read the hook source and the recorded decisions entry: reasoning correctly applies the original decision's own stated trigger (a third cross-feature caller) and finds it hasn't fired, rather than re-litigating settled facts. `python3 scripts/validate_tasks.py` clean. Given zero source-file changes, did not re-run the backend/frontend test suites."
+  }
+}
