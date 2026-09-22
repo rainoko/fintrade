@@ -1545,8 +1545,8 @@
       "id": "backend-ibkr-symbol-resolution",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-symbol-resolution.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-symbol-resolution.json"
     },
     {
       "id": "backend-ibkr-bar-interval-param",
@@ -1876,6 +1876,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-market-breadth-widget-followups.json"
+    },
+    {
+      "id": "backend-ibkr-symbol-resolution-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-symbol-resolution-followups.json"
     }
   ]
 }

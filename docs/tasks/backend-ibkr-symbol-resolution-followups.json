@@ -1,0 +1,23 @@
+{
+  "id": "backend-ibkr-symbol-resolution-followups",
+  "title": "Non-blocking findings from backend-ibkr-symbol-resolution's review (PR #263)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "backend-ibkr-symbol-resolution"
+  ],
+  "references": [
+    "docs/tasks/backend-ibkr-symbol-resolution.json#review",
+    "https://github.com/rainoko/fintrade/pull/263"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #263 (backend-ibkr-symbol-resolution), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. The PR itself has no blocking findings -- all tests pass (1157 passed, 99.95% coverage), mypy/ruff are clean on the touched files, no live network calls appear anywhere in the new tests, both 'decide X' checklist items have corresponding decisions entries, and the documented /iserver/secdef/search shape is internally consistent with how the rest of ibkr_provider.py already parses similar responses (reuses the existing _int_or_none helper the same way _parse_scanner_results does).",
+  "checklist": [
+    {
+      "step": "IBKRProvider.resolve_conid returns `int | None`, but IBKRProvider.get_hourly_bars takes `conid: str`. Confirmed with a standalone mypy check that `get_hourly_bars(resolve_conid(ticker), ...)` -- the exact composition this task's own description frames resolve_conid as unblocking ('get_hourly_bars/run_scanner both key off IBKR's own numeric conid... this task closes that gap') -- fails static type-checking today (`Argument 1 to \"get_hourly_bars\" ... has incompatible type \"int\"; expected \"str\"`). Not blocking this PR since resolve_conid isn't wired into any consumer yet (nothing exercises the composition), but the very next task that wires ticker-driven get_hourly_bars/run_scanner calls through resolve_conid will hit this immediately. Reconcile the conid type across the class (e.g. make get_hourly_bars accept `int | str`, or standardize on one representation and convert at the call boundary) before or as part of that wiring task.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
