@@ -1664,7 +1664,7 @@
       "id": "frontend-trade-grade-letter-display",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-trade-grade-letter-display.json"
     },
     {

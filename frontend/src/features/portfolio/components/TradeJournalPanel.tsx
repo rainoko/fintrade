@@ -20,10 +20,12 @@ import { buyGradeHelp, sellGradeHelp, tradeGradeHelp } from './metricHelpContent
 
 // Elder's own documented "very good"/"A trade" anchors (docs/Analyse.md §7)
 // -- the only grade thresholds this panel colors by. Buy/Sell Grade share
-// one anchor (>50%); Trade Grade's is different (~30%+ for an "A"). Neither
-// full A-F letter-grade boundary is documented, so this panel deliberately
-// shows the raw percentage (via the grade's own MetricHelp) rather than
-// inventing an unstated B/D/F cutoff -- see this task's `decisions` entry.
+// one anchor (>50%); Trade Grade's is different (~30%+ for an "A"). Only
+// trade_grade_pct also carries an Elder-style A/B/C/D letter grade
+// (backend-trade-grade-letter's `trade_letter_grade`, rendered by GradeCell
+// below) -- buy_grade_pct/sell_grade_pct have no letter-grade scale
+// documented in the book at all (only the single ">50%" anchor each), so
+// they deliberately stay percentage-only.
 const BUY_SELL_GOOD_THRESHOLD_PCT = 50
 const TRADE_GOOD_THRESHOLD_PCT = 30
 
@@ -34,12 +36,19 @@ type GradeHelp = {
   interpretValue: (gradePct: number | null) => string
 }
 
-/** One grade cell: the percentage (or an em dash when unavailable) plus a `MetricHelp` explaining the formula and, when known, this specific value in plain terms -- per this task's checklist item. */
+/**
+ * One grade cell: the percentage (or an em dash when unavailable), plus --
+ * for `trade_grade_pct` only, via `letterGrade` -- Elder's own A/B/C/D
+ * letter grade in parentheses (backend-trade-grade-letter), plus a
+ * `MetricHelp` explaining the formula and, when known, this specific value
+ * in plain terms -- per this task's checklist item.
+ */
 function GradeCell({
   gradePct,
   help,
   goodThresholdPct,
   strictlyAbove = false,
+  letterGrade = null,
 }: {
   gradePct: number | null
   help: GradeHelp
@@ -53,6 +62,13 @@ function GradeCell({
    * inclusive by its own wording, so it keeps the default `>=`.
    */
   strictlyAbove?: boolean
+  /**
+   * Elder's A/B/C/D letter grade for this value (`ClosedTradeOut.trade_letter_grade`),
+   * shown in parentheses right after the percentage -- `null` for a column
+   * with no letter-grade scale at all (buy/sell grade) as well as for a
+   * trade_grade_pct that itself couldn't be computed (frontend-trade-grade-letter-display).
+   */
+  letterGrade?: 'A' | 'B' | 'C' | 'D' | null
 }) {
   const theme = useTheme()
   const isGood =
@@ -65,7 +81,9 @@ function GradeCell({
         component="span"
         style={{ color, fontWeight: isGood ? 700 : 400 }}
       >
-        {gradePct === null ? '—' : `${gradePct.toFixed(1)}%`}
+        {gradePct === null
+          ? '—'
+          : `${gradePct.toFixed(1)}%${letterGrade === null ? '' : ` (${letterGrade})`}`}
       </Typography>
       <MetricHelp
         metricLabel={help.metricLabel}
@@ -183,6 +201,7 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
         gradePct={row.trade_grade_pct ?? null}
         help={tradeGradeHelp}
         goodThresholdPct={TRADE_GOOD_THRESHOLD_PCT}
+        letterGrade={row.trade_letter_grade ?? null}
       />
     ),
   },

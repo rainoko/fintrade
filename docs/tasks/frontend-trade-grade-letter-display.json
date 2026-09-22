@@ -3,7 +3,7 @@
   "title": "Show the letter grade (A/B/C/D) in the Trade Journal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-grade-letter"],
   "references": [
     "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
@@ -11,8 +11,16 @@
   ],
   "description": "TradeJournalPanel.tsx currently only renders raw grade percentages, with its own code comment explaining the letter grade was deliberately left out pending a documented threshold decision. backend-trade-grade-letter now provides that. Show the new letter grade alongside the existing percentage in TradeJournalPanel's grade cells.",
   "checklist": [
-    { "step": "Render the letter grade in GradeCell alongside the existing percentage.", "done": false },
-    { "step": "Update/add component tests for the new letter display, covering each letter grade.", "done": false },
-    { "step": "Remove or update GradeCell's existing code comment that explained why the letter grade was previously left out, now that it's implemented.", "done": false }
+    { "step": "Render the letter grade in GradeCell alongside the existing percentage.", "done": true },
+    { "step": "Update/add component tests for the new letter display, covering each letter grade.", "done": true },
+    { "step": "Remove or update GradeCell's existing code comment that explained why the letter grade was previously left out, now that it's implemented.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Render trade_letter_grade appended to the existing percentage text as `${pct}% (${letter})` (e.g. \"32.1% (A)\"), inside the same Typography span GradeCell already uses for the percentage, rather than a separate Chip/badge element. GradeCell gained a new optional `letterGrade` prop (default null) that only the trade_grade_pct column passes (buy/sell grade columns omit it, since backend-trade-grade-letter deliberately left those percentage-only).",
+      "rationale": "A plain parenthetical suffix keeps the letter tightly bound to the exact percentage it was derived from (readers see both together, with the letter as a plain-language gloss on the number) without adding a second visual element, extra spacing, or a new common/ component for a two-character label that only ever appears in this one column. A Chip (as used for exit_reason) was considered and rejected: exit_reason is a categorical tag with no adjacent numeric value to relate it to, which is exactly what makes a separate visual chip earn its place there, whereas here the letter is redundant restated information already implied by the percentage (a reader who knows the A/B/C/D bands from the percentage alone gains nothing structurally different from a chip vs. inline text) -- Elder's own ch. 55 framing treats the letter as a label *for* the percentage, not an independent tag. Also considered showing the letter only via MetricHelp's tooltip text (no visible change to the base cell) -- rejected because the task's own title/checklist explicitly calls for showing the letter 'alongside the existing percentage' in the cell itself, not tucked away in a help popover a user might never open. Kept the letter out of GradeCell's bold/not-bold color logic (isGood still keys off gradePct alone) since that threshold (30%) already exactly coincides with the A/B boundary for trade_grade_pct, so no new visual signal was needed. Buy/sell grade columns don't pass letterGrade at all (defaulting to null, i.e. no parenthetical) rather than being wired to always pass null explicitly, since backend-trade-grade-letter's own decisions record already settled that those two metrics have no letter-grade scale in the book at all."
+    }
   ]
 }
