@@ -142,29 +142,68 @@ describe('PositionsTable', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
-  it('opens a confirm dialog before deleting, and cancels without deleting', async () => {
+  it('opens the close-position dialog before closing, and cancels without closing', async () => {
     const user = userEvent.setup()
     renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText(/delete aapl \(100 shares\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/close aapl \(100 shares\)/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
-  it('deletes the position on confirm', async () => {
+  it('closes the position on confirm with the default (unspecified) exit reason and no override', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
     const user = userEvent.setup()
     renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(requestedUrl?.searchParams.get('exit_reason')).toBe('unspecified')
+    expect(requestedUrl?.searchParams.get('exit_price')).toBeNull()
+    expect(requestedUrl?.searchParams.get('exit_date')).toBeNull()
+  })
+
+  it('closes the position with a chosen exit reason and a manual exit price/date override', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
+    await user.click(screen.getByRole('combobox', { name: 'Exit reason' }))
+    await user.click(screen.getByRole('option', { name: 'Target hit' }))
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: "Backfill a historical exit price/date instead of today's live price",
+      }),
+    )
+    await user.type(screen.getByLabelText('Exit Price'), '230')
+    await user.type(screen.getByLabelText('Exit Date'), '2026-06-15')
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(requestedUrl?.searchParams.get('exit_reason')).toBe('target_hit')
+    expect(requestedUrl?.searchParams.get('exit_price')).toBe('230')
+    expect(requestedUrl?.searchParams.get('exit_date')).toBe('2026-06-15')
   })
 
   it('disables the row Delete button while its deletion is pending, preventing a double-click race', async () => {
@@ -183,13 +222,24 @@ describe('PositionsTable', () => {
     renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
 
-    // The confirm dialog has closed, but the DELETE is still in flight (deliberately held
-    // open above) -- the row's own Delete icon button must be disabled for exactly this
-    // window, otherwise a fast second click reopens the confirm dialog and fires a second
-    // DELETE for the same position before the first has been reflected in a refetch (the
-    // same false "Not found" race WatchlistTable guards against).
+    // Unlike the old bare ConfirmDialog (which closed synchronously on confirm, regardless of
+    // outcome), ClosePositionDialog only closes on a *successful* close -- so while the DELETE
+    // above is deliberately held pending, the dialog is still open and MUI's own modal behavior
+    // (aria-hidden + a blocking backdrop over the rest of the page) already makes the
+    // underlying row's Delete button unreachable through the UI. The one way the dialog itself
+    // can still be dismissed early while a delete is genuinely in flight is a backdrop click
+    // (its own Cancel button is disabled while pending, but a backdrop click isn't gated on
+    // that, matching every other dialog in this app) -- so that's what actually exercises this
+    // guard now. (Escape would conceptually do the same, but MUI's own Button moves focus off
+    // itself the instant it becomes disabled by `loading`, which stops the keydown from ever
+    // reaching the Modal's own listener in this environment -- a backdrop click has no such
+    // focus dependency.)
+    const backdrop = document.querySelector('.MuiBackdrop-root') as HTMLElement
+    await user.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Delete AAPL' })).toBeDisabled(),
     )
@@ -229,7 +279,7 @@ describe('PositionsTable', () => {
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0)
   })
 
-  it('surfaces a 404 ApiError via common/ErrorState when the position no longer exists', async () => {
+  it('surfaces a 404 ApiError via common/ErrorState inside the still-open dialog when the position no longer exists', async () => {
     server.use(
       http.delete('/api/portfolio/positions/:id', () =>
         HttpResponse.json({ detail: 'Position not found' }, { status: 404 }),
@@ -239,10 +289,34 @@ describe('PositionsTable', () => {
     renderPositionsTable(positions)
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
 
+    // The dialog only closes on a successful close -- an error leaves it open with its own
+    // ErrorState visible, rather than the alert appearing after the dialog has already vanished
+    // (the earlier bare ConfirmDialog's behavior).
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText('Not found')).toBeInTheDocument()
     expect(screen.getByText('Position not found')).toBeInTheDocument()
+  })
+
+  it('clears a previous close-position error when Cancel is clicked, so reopening for another row starts clean', async () => {
+    server.use(
+      http.delete('/api/portfolio/positions/:id', () =>
+        HttpResponse.json({ detail: 'Position not found' }, { status: 404 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Delete ZZZZ' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

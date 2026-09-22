@@ -3,8 +3,10 @@
   "title": "Real Close-Position dialog (exit reason + optional manual exit override)",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
-  "depends_on": ["backend-close-position-manual-exit"],
+  "state": "implementing",
+  "depends_on": [
+    "backend-close-position-manual-exit"
+  ],
   "references": [
     "frontend/src/features/portfolio/components/PositionsTable.tsx",
     "frontend/src/features/portfolio/components/AddPositionDialog.tsx",
@@ -12,10 +14,57 @@
   ],
   "description": "PositionsTable.tsx's close flow is currently a bare ConfirmDialog with zero user-editable fields, wired to useDeletePosition, whose mutation signature is just (id: string). 'Buy' already has a real form (AddPositionDialog); 'sell' has no equivalent. Build a ClosePositionDialog mirroring AddPositionDialog's shape: an exit_reason selector (the backend endpoint already accepts this param, it's just never been surfaced) plus the optional manual exit price/date override once backend-close-position-manual-exit lands.",
   "checklist": [
-    { "step": "Build ClosePositionDialog with an exit_reason <select> (matching the ExitReason taxonomy already defined) replacing PositionsTable's plain ConfirmDialog for closing a position.", "done": false },
-    { "step": "Add the optional manual exit price/date override fields, defaulting to unset (today's live-price behavior unchanged).", "done": false },
-    { "step": "Update useDeletePosition's mutation signature to pass the new parameters (exit_reason, and the optional override fields).", "done": false },
-    { "step": "Component tests covering a default close (no override, just exit_reason) and an override close (manual exit price/date supplied).", "done": false },
-    { "step": "Decide placement (components/common vs. feature-specific) per Frontend.md's placement guidance, and add a Storybook story if it belongs in common/.", "done": false }
+    {
+      "step": "Build ClosePositionDialog with an exit_reason <select> (matching the ExitReason taxonomy already defined) replacing PositionsTable's plain ConfirmDialog for closing a position.",
+      "done": true
+    },
+    {
+      "step": "Add the optional manual exit price/date override fields, defaulting to unset (today's live-price behavior unchanged).",
+      "done": true
+    },
+    {
+      "step": "Update useDeletePosition's mutation signature to pass the new parameters (exit_reason, and the optional override fields).",
+      "done": true
+    },
+    {
+      "step": "Component tests covering a default close (no override, just exit_reason) and an override close (manual exit price/date supplied).",
+      "done": true
+    },
+    {
+      "step": "Decide placement (components/common vs. feature-specific) per Frontend.md's placement guidance, and add a Storybook story if it belongs in common/.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ClosePositionDialog lives under features/portfolio/components/, not components/common/ -- no Storybook story added.",
+      "rationale": "It renders PositionOut/ExitReason directly, both portfolio domain concepts (Frontend.md's placement test: 'anything that references portfolio/stock domain concepts belongs under features/<domain>/components/'), and it is wired to a real mutation (useDeletePosition) rather than taking only generic presentational props. This mirrors the placement AddPositionDialog/FollowUpReviewDialog/TradeApgarDialog already made for themselves -- all four are portfolio-domain form dialogs, none live in common/. Considered treating it as domain-agnostic like common/ConfirmDialog (which it replaces) since its shape -- title, body, Cancel/Confirm -- looks generic at a glance; rejected because unlike ConfirmDialog it owns real form fields tied to ExitReason/PositionOut.entry_date, not just a caller-supplied title/body string, so it can't be reused for an unrelated confirm without dragging portfolio-specific validation along."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "useDeletePosition() stays instantiated in PositionsTable (as before), not inside ClosePositionDialog itself -- isPending/isError/error/onConfirm/onCancel are passed into the dialog as props instead.",
+      "rationale": "PositionsTable's own doc comment documents a pre-existing double-click-race guard: the row's own Delete icon button is disabled while `deletePosition.isPending` for that row's id specifically, so a second click can't reopen the dialog and fire a second DELETE for the same position while the first is still in flight (mirroring WatchlistTable's own Remove-button guard). AddPositionDialog/FollowUpReviewDialog/TradeApgarDialog each own their mutation internally, but none of them have an equivalent 'also disable a sibling trigger button outside the dialog' requirement -- adopting that same self-contained-mutation convention here would mean two independent useDeletePosition() instances (one in the dialog, one implicitly needed for the row button's disabled state), which don't share pending/variables state with each other. Lifting the single mutation instance up to PositionsTable and threading its state down as props was the only way to keep both the dialog's own pending/error UI and the row's pending-disable guard driven by the same underlying mutation. Rejected: giving ClosePositionDialog its own useDeletePosition() call and dropping the row-level guard entirely -- rejected because MUI's Dialog only blocks interaction with the underlying page while it's open (see the next decision for why it can, in practice, still be dismissed early while pending), so the guard is not actually fully redundant. See the next decision for the specific bug this surfaced (reset() called on cancel while still pending) and its fix."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ClosePositionDialog only closes on a successful close (mirroring AddPositionDialog/FollowUpReviewDialog's own convention of staying open with an inline ErrorState on failure), not synchronously on every Confirm click like the old bare common/ConfirmDialog did. PositionsTable's onCancel handler (fired by the dialog's Cancel button, a backdrop click, or Escape) only calls the mutation's own `reset()` when `deletePosition.isPending` is false at that moment.",
+      "rationale": "Staying open on error lets the user see exactly what went wrong and retry/cancel from the same dialog instead of the error appearing after the dialog has already vanished -- better UX, and consistent with every other mutation-backed dialog in this feature. This surfaced a real bug during testing: ClosePositionDialog's own Cancel button is disabled while `isPending` (so it can't be clicked mid-flight), but a backdrop click still fires the Dialog's `onClose` regardless of pending state (matching every other dialog in this app -- none of them gate backdrop-click/Escape dismissal on pending either). The first implementation unconditionally called `deletePosition.reset()` in that handler to clear a stale error from a previous failed close before a different row's dialog reopens; doing that unconditionally also flips `isPending` back to `false` immediately even though the DELETE request is still genuinely running in the background, which defeated the row icon's own double-click-race guard (confirmed by a failing test: after a backdrop-click cancel mid-flight, the row's Delete button was no longer disabled even though the earlier request hadn't resolved yet). The fix -- skip `reset()` while still pending -- keeps `isPending` accurate for the guard's purpose (a real in-flight request is still a real in-flight request even if the dialog itself has been dismissed) while still clearing stale errors for the common case (cancelling once nothing is in flight). Escape was tried first as the more natural way to exercise/describe this path in a test, but MUI's own Button moves focus off itself the instant `loading` disables it, which stops the keydown from reaching the Modal's listener at all in this environment -- backdrop click has no such focus dependency and was used instead, both in the dialog's own behavior and in the regression test."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The manual exit price/date override is a checkbox ('Backfill a historical exit price/date instead of today's live price') that reveals two additional fields (Exit Price, Exit Date) only once checked; unchecked (the default) sends neither field, preserving today's live-price behavior byte-for-byte. Client-side validation (exit price positive/finite, exit date not before the position's own entry_date) only runs while the checkbox is checked, mirroring the backend's own validation for the same two cases.",
+      "rationale": "Matches the checklist's own 'defaulting to unset' requirement literally -- an always-visible pair of optional text fields would invite a half-filled state (e.g. a price with no date) that then has to be silently ignored or specially validated, whereas a single checkbox makes 'am I overriding or not' an explicit, unambiguous choice mirroring the backend's own both-or-neither contract. Considered a bare two-field form with no checkbox, treating both as simply optional the way AddPositionDialog treats its own 'Notes' field; rejected because exit price/date aren't independently optional the way notes are -- they're a mutually-dependent pair (backend 422s on exactly one being supplied), and a checkbox makes that pairing legible in the UI itself rather than only in a validation error message a user has to trigger to discover."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "api/portfolio.ts's deletePosition() forwards a supplied exitPrice/exitDate independently onto the query string (each present iff it was supplied), rather than only including either when both are present together.",
+      "rationale": "ClosePositionDialog's own client-side validation is what actually enforces 'both or neither' before onConfirm/the mutation is ever called, so this api-layer function forwarding a caller's mismatched single value straight through (rather than silently coalescing it into 'as if neither was given') means a caller that does get it wrong anyway -- a bug in some future consumer, or a direct unit test of the api function itself -- sees the backend's own real 422 for exactly that case, not a request that silently looks identical to the ordinary no-override default and masks the mistake. Rejected: requiring both together at this layer too (as the mutation-variables type's own shape doesn't statically prevent one being supplied without the other) -- redundant with ClosePositionDialog's validation and would need its own separate error surface for what's already a well-documented backend 422."
+    }
   ]
 }

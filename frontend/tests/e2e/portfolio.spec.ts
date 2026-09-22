@@ -21,10 +21,10 @@ function positionRow(page: Page) {
 
 /**
  * Portfolio page (pages/PortfolioPage.tsx): view positions, add a position through the
- * dialog, see it reflected in both the positions table and the risk panel, then delete it
- * through the confirm dialog. A single `test.describe.serial` block (add depends on the
- * page state the previous step left behind) rather than one big test, so a failure midway
- * reports exactly which step broke.
+ * dialog, see it reflected in both the positions table and the risk panel, then close it
+ * through ClosePositionDialog (frontend-close-position-dialog). A single
+ * `test.describe.serial` block (add depends on the page state the previous step left
+ * behind) rather than one big test, so a failure midway reports exactly which step broke.
  *
  * Self-cleaning by design (the last step deletes what the first step added) and tolerant of
  * a pre-existing MSFT position from an earlier interrupted run (the add step accepts either
@@ -32,7 +32,7 @@ function positionRow(page: Page) {
  * because playwright.config.ts's webServer only guarantees a clean database at the start of
  * a whole `yarn test:e2e` invocation, not before each individual spec file.
  */
-test.describe.serial('portfolio: view, add, and delete a position', () => {
+test.describe.serial('portfolio: view, add, and close a position', () => {
   test('portfolio page loads with a positions table', async ({ page }) => {
     await page.goto('/portfolio')
     await expect(page.getByRole('heading', { level: 1, name: 'Portfolio' })).toBeVisible()
@@ -82,17 +82,21 @@ test.describe.serial('portfolio: view, add, and delete a position', () => {
     // rather than a real assertion about the UI.
   })
 
-  test('deleting the position removes it from the table', async ({ page }) => {
+  test('closing the position removes it from the table', async ({ page }) => {
     await page.goto('/portfolio')
 
     await positionRow(page)
       .getByRole('button', { name: `Delete ${TICKER}` })
       .click()
 
-    const confirmDialog = page.getByRole('dialog', { name: 'Delete position' })
-    await expect(confirmDialog).toBeVisible()
-    await confirmDialog.getByRole('button', { name: 'Delete' }).click()
-    await expect(confirmDialog).not.toBeVisible()
+    // Not filtered by accessible name: ClosePositionDialog (like AddPositionDialog above)
+    // doesn't wire an explicit aria-labelledby, and only one MUI dialog is ever open at a
+    // time in this app, so plain role scoping is unambiguous.
+    const closeDialog = page.getByRole('dialog')
+    await expect(closeDialog).toBeVisible()
+    await expect(closeDialog.getByRole('heading', { name: `Close Position: ${TICKER}` })).toBeVisible()
+    await closeDialog.getByRole('button', { name: 'Close Position' }).click()
+    await expect(closeDialog).not.toBeVisible()
 
     await expect(positionRow(page)).toHaveCount(0)
   })

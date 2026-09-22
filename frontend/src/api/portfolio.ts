@@ -9,6 +9,7 @@ export type RiskResponse = components['schemas']['RiskResponse']
 export type RiskPosition = components['schemas']['RiskPosition']
 export type PositionIn = components['schemas']['PositionIn']
 export type PositionOut = components['schemas']['PositionOut']
+export type ExitReason = components['schemas']['ExitReason']
 export type ClosedTradeOut = components['schemas']['ClosedTradeOut']
 export type ClosedTradesResponse = components['schemas']['ClosedTradesResponse']
 export type FollowUpReviewIn = components['schemas']['FollowUpReviewIn']
@@ -38,11 +39,53 @@ export function addPosition(payload: PositionIn): Promise<PositionOut> {
   })
 }
 
-/** `DELETE /api/portfolio/positions/{id}` — removes a position entirely. */
-export function deletePosition(id: string): Promise<void> {
-  return request<void>(`/api/portfolio/positions/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  })
+export interface DeletePositionParams {
+  /**
+   * Why this position is being closed (Elder's own exit-reason taxonomy,
+   * `ExitReason`) — omitted entirely (rather than sent as `'unspecified'`)
+   * when the caller doesn't have one, since the backend's own default is
+   * already `'unspecified'` and there's no behavioral difference either way;
+   * omitting it just keeps the query string free of a redundant param.
+   */
+  exitReason?: ExitReason
+  /**
+   * Optional manual exit-price/date override for backfilling a trade that
+   * already happened in the past (backend-close-position-manual-exit) —
+   * should be supplied together with `exitDate` or not at all, exactly like
+   * the backend's own `exit_price`/`exit_date` query params, but this
+   * function forwards each independently rather than silently dropping a
+   * mismatched single one -- ClosePositionDialog's own client-side
+   * validation is what actually enforces "both or neither" before this is
+   * ever called; a caller that gets it wrong anyway should see the
+   * backend's own 422 for it, not a request that silently looks like the
+   * no-override default instead. Omitted entirely when not supplied,
+   * keeping the original default (today's live market close) unchanged.
+   */
+  exitPrice?: number
+  exitDate?: string
+}
+
+/**
+ * `DELETE /api/portfolio/positions/{id}` — removes a position entirely,
+ * recording it as a closed trade priced either at today's live market close
+ * (the default) or at the caller-supplied `exitPrice`/`exitDate` override.
+ */
+export function deletePosition(id: string, params: DeletePositionParams = {}): Promise<void> {
+  const query = new URLSearchParams()
+  if (params.exitReason) {
+    query.set('exit_reason', params.exitReason)
+  }
+  if (params.exitPrice !== undefined) {
+    query.set('exit_price', String(params.exitPrice))
+  }
+  if (params.exitDate !== undefined) {
+    query.set('exit_date', params.exitDate)
+  }
+  const queryString = query.toString()
+  return request<void>(
+    `/api/portfolio/positions/${encodeURIComponent(id)}${queryString ? `?${queryString}` : ''}`,
+    { method: 'DELETE' },
+  )
 }
 
 /**

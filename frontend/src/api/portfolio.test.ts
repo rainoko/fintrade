@@ -1,4 +1,6 @@
+import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { server } from '../../tests/mocks/server'
 import { resetPortfolioStore } from '../../tests/mocks/handlers'
 import {
   addPosition,
@@ -140,6 +142,71 @@ describe('api/portfolio', () => {
 
   it('deletePosition throws a 404 ApiError for an id that does not exist', async () => {
     await expect(deletePosition('does-not-exist')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('deletePosition sends exit_reason as a query param when supplied', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    await deletePosition('pos_123', { exitReason: 'stop_hit' })
+
+    expect(requestedUrl?.searchParams.get('exit_reason')).toBe('stop_hit')
+    expect(requestedUrl?.searchParams.has('exit_price')).toBe(false)
+    expect(requestedUrl?.searchParams.has('exit_date')).toBe(false)
+  })
+
+  it('deletePosition sends no query params at all when none are supplied, preserving the original default request shape', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    await deletePosition('pos_123')
+
+    expect(requestedUrl?.search).toBe('')
+  })
+
+  it('deletePosition sends exit_price/exit_date together for a manual-exit override', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    await deletePosition('pos_123', {
+      exitReason: 'target_hit',
+      exitPrice: 210.5,
+      exitDate: '2026-06-01',
+    })
+
+    expect(requestedUrl?.searchParams.get('exit_reason')).toBe('target_hit')
+    expect(requestedUrl?.searchParams.get('exit_price')).toBe('210.5')
+    expect(requestedUrl?.searchParams.get('exit_date')).toBe('2026-06-01')
+  })
+
+  it('deletePosition forwards a lone exit_price without exit_date rather than silently dropping it, leaving both-or-neither validation to the backend', async () => {
+    let requestedUrl: URL | undefined
+    server.use(
+      http.delete('/api/portfolio/positions/:id', ({ request }) => {
+        requestedUrl = new URL(request.url)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    await deletePosition('pos_123', { exitPrice: 210.5 })
+
+    expect(requestedUrl?.searchParams.get('exit_price')).toBe('210.5')
+    expect(requestedUrl?.searchParams.has('exit_date')).toBe(false)
   })
 
   it('getClosedTrades with no arguments returns every closed trade, unfiltered', async () => {
