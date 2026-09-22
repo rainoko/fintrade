@@ -93,6 +93,28 @@ describe('HeldPositionBanner', () => {
     expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 
+  it('shows a warning icon (not an em dash) on Current Stop and Profit Target when GET /api/portfolio/risk fails', async () => {
+    mockPortfolio(aaplPortfolio)
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 }),
+      ),
+    )
+
+    renderWithProviders(<HeldPositionBanner ticker="AAPL" />)
+
+    const banner = await screen.findByRole('note', { name: 'You hold this position' })
+    // Still shows the (portfolio-sourced, unaffected by the risk failure)
+    // entry price line.
+    expect(within(banner).getByText('$195.30 · 100 sh · 2026-05-14')).toBeInTheDocument()
+
+    const warningIcons = await within(banner).findAllByLabelText('Risk data unavailable')
+    expect(warningIcons).toHaveLength(2)
+    // No misleading '—' ("no stop/target configured") anywhere in the banner
+    // for this genuine fetch-failure case.
+    expect(within(banner).queryByText('—')).not.toBeInTheDocument()
+  })
+
   it('falls back to an em dash for stop/target when the ticker is held but absent from the risk response', async () => {
     mockPortfolio(aaplPortfolio)
     mockRisk({

@@ -1671,8 +1671,15 @@
       "id": "frontend-position-risk-columns-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-position-risk-columns-followups.json"
+      "path": "docs/tasks/frontend-position-risk-columns-followups-followups.json"
     },
     {
       "id": "frontend-trade-grade-letter-display",

@@ -44,6 +44,18 @@ export interface PositionsTableProps {
  * shared-prop version would mean changing RiskPanel's own established prop
  * contract too, for a table now doing exactly what RiskPanel already does
  * for its own columns. See this task's `decisions` entry.
+ *
+ * A genuine `riskQuery.isError` degrades silently to the same per-row '—'
+ * fallback `riskByTicker` already renders for a ticker simply absent from a
+ * *successful* risk response -- this component does NOT render its own
+ * `ErrorState` for it. RiskPanel (driven by the exact same
+ * usePortfolioRisk() hook/queryKey) already renders a full `ErrorState` for
+ * this identical failure, and both components render together on
+ * PortfolioPage -- a second, identical `ErrorState` here would stack two
+ * duplicate `role="alert"` blocks on the same page for the one underlying
+ * failure. See this task's `decisions` entry (corrected after PR #258's
+ * review) for why an earlier revision of this task added, then removed,
+ * that second block.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)

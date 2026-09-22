@@ -202,6 +202,33 @@ describe('PositionsTable', () => {
     )
   })
 
+  it('degrades silently to \'—\' (no own ErrorState) when GET /api/portfolio/risk fails, since RiskPanel already surfaces this failure on the same PortfolioPage', async () => {
+    let riskRequestSettled = false
+    server.use(
+      http.get('/api/portfolio/risk', () => {
+        riskRequestSettled = true
+        return HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 })
+      }),
+    )
+    renderPositionsTable(positions)
+
+    // Wait for the (failing) risk request to actually settle before asserting
+    // on its absence of effect, so this test can't pass merely because the
+    // request hadn't resolved yet.
+    await waitFor(() => expect(riskRequestSettled).toBe(true))
+
+    // The table renders normally, with the risk columns falling back to '—'
+    // -- indistinguishable from a ticker missing from a *successful* risk
+    // response, by design: PositionsTable and RiskPanel both independently
+    // call usePortfolioRisk() and both render on PortfolioPage, so only
+    // RiskPanel owns the page-level ErrorState for this shared failure (see
+    // this component's own doc comment and this task's `decisions` entry).
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const row = screen.getByRole('row', { name: /AAPL/ })
+    expect(within(row).getAllByText('—').length).toBeGreaterThan(0)
+  })
+
   it('surfaces a 404 ApiError via common/ErrorState when the position no longer exists', async () => {
     server.use(
       http.delete('/api/portfolio/positions/:id', () =>
