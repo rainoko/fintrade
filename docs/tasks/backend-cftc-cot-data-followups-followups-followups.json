@@ -27,5 +27,11 @@
       "rationale": "The two prior investigations (13+3 reruns with zero repro on frontend-trade-journal-followup-review-followups-followups; 2 flaky runs on PR #275's baseline that filed this task) both ran the flaky file(s) either in isolation or on hosts with low-enough availableParallelism()-1 that the default worker count stayed modest -- neither happened to hit the specific combination of a high nominal core count and enough concurrent worker processes to starve a real-timer-driven userEvent interaction past 5000ms, which is why it looked like a rare fluke rather than a reproducible-on-demand contention effect. Explicitly capping workers removes the dependency on host core count entirely, so the fix should hold regardless of which devcontainer/CI host size it runs on next."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups-followups-followups",
+    "pr_number": 276,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/276",
+    "pushed_at": "2026-09-22T00:00:00Z"
+  }
 }
