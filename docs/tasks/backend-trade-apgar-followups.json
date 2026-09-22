@@ -24,5 +24,11 @@
       "rationale": "`score_trade_apgar` is already the name of the imported domain function from `app.portfolio.trade_apgar` (`from app.portfolio.trade_apgar import ... score_trade_apgar`), which the router handler calls on its own body (`apgar = score_trade_apgar(...)`). Renaming the handler itself to that exact same name would shadow the module-level import with the router function object, turning the handler's own internal call into unbounded self-recursion (a real bug, not just a style nit) rather than calling the intended domain-layer scorer. `evaluate_trade_apgar` avoids the collision while still matching this file's existing naming precedent for a POST handler that orchestrates several inputs before delegating to a domain-layer scoring/evaluation function (`app.portfolio.exits.evaluate_exit_flags`, `app.signals.impulse.evaluate_impulse`, `app.signals.triple_screen.evaluate_tide`) rather than persisting or reading state, which is what the `get_`/`add_`/`delete_`/`record_` verbs in this file's other handlers denote. Verified no other reference to `get_trade_apgar` existed anywhere in the backend (tests, docs, other call sites) before renaming, and reran the full `-k apgar` test slice plus the full backend suite afterward to confirm no accidental recursion or breakage."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-trade-apgar-followups",
+    "pr_number": 250,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/250",
+    "pushed_at": "2026-09-22T00:00:00Z"
+  }
 }
