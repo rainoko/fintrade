@@ -3,17 +3,31 @@
   "title": "Trade Apgar pre-trade scoring form",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
-  "depends_on": ["backend-trade-apgar"],
+  "state": "testing",
+  "depends_on": [
+    "backend-trade-apgar"
+  ],
   "references": [
     "docs/ideas.md#trade-apgar--pre-trade-go-no-go-scoring-ch-58"
   ],
   "description": "A pre-trade Trade Apgar scoring form for a ticker: shows auto-populated questions (weekly/daily Impulse, price-vs-value-zone) alongside manual inputs (false-breakout status, 'perfection'), with the go/no-go result per the >=7-total/no-single-zero rule.",
   "checklist": [
-    { "step": "Build the Trade Apgar form, pre-filling auto-populated fields from the backend and allowing the user to edit/confirm them.", "done": true },
-    { "step": "Show the go/no-go result clearly (>=7 total AND no single question scored 0).", "done": true },
-    { "step": "Decide placement (ticker detail view vs. a dedicated page/dialog) and record.", "done": true },
-    { "step": "Component tests covering a go outcome, a no-go outcome from a low total, and a no-go outcome from a single zero despite a high total.", "done": true }
+    {
+      "step": "Build the Trade Apgar form, pre-filling auto-populated fields from the backend and allowing the user to edit/confirm them.",
+      "done": true
+    },
+    {
+      "step": "Show the go/no-go result clearly (>=7 total AND no single question scored 0).",
+      "done": true
+    },
+    {
+      "step": "Decide placement (ticker detail view vs. a dedicated page/dialog) and record.",
+      "done": true
+    },
+    {
+      "step": "Component tests covering a go outcome, a no-go outcome from a low total, and a no-go outcome from a single zero despite a high total.",
+      "done": true
+    }
   ],
   "decisions": [
     {
@@ -34,5 +48,11 @@
       "decision": "`TradeApgarDialog` requires one explicit \"Score\" click (pre-filled with the lowest-scoring `false_breakout_status: 'none'`/`perfection: 'neither'` defaults) rather than auto-fetching a score the instant the dialog opens; the three auto-populated questions (`weekly_impulse`/`daily_impulse`/`price_vs_value`) are always read-only, server-computed values echoed back in the response -- the UI never lets the user directly edit them, only the two manual questions.",
       "rationale": "`TradeApgarIn` (backend-trade-apgar) has no fields at all for the three auto questions -- there is no way to submit an override for them, and no separate endpoint to fetch just those three without also supplying the two manual answers up front. Given that, 'pre-filling auto-populated fields... and allowing the user to edit/confirm them' (this task's own checklist wording) can only be honestly implemented as: the two *manual* answers are what the user edits/confirms (defaulted to the lowest-scoring option so an unconsidered first submit doesn't accidentally read as more favorable than intended), and the three auto answers are what gets pre-filled *from the backend* once scored, displayed read-only and clearly labeled `source: 'auto'` in the results table. Rejected auto-fetching on dialog open (via a `useEffect` keyed on the `ticker` prop): every other dialog in this codebase (`AddPositionDialog`, `FollowUpReviewDialog`) is a pure user-triggered submit with no auto-fetch-on-mount side effect, and introducing that pattern here just to save one click doesn't remove any real cost (the two manual answers still need a value before the very first score is meaningful either way)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trade-apgar",
+    "pr_number": 254,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/254",
+    "pushed_at": "2026-09-22T00:10:00Z"
+  }
 }
