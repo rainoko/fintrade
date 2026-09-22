@@ -59,5 +59,10 @@
       }
     ],
     "notes": "Small, well-scoped fix for a task with a single checklist item. Ran the backend suite with coverage (1163 passed, 99.95%, backend-only change so frontend not re-run -- last known state unaffected by this diff), ruff+mypy (clean on changed files), and scripts/validate_tasks.py (clean). No API/schema/OpenAPI change, no frontend/UI surface touched, so no browser walkthrough or e2e run applies (explicitly skipped for that reason). No non-blocking findings to track as a follow-up task. Not a signals/portfolio change so verify-elder-signal doesn't apply; no new module/dependency so architecture-review doesn't apply."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T14:08:33Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite with coverage: 1163 passed, 99.95% coverage, matching pr-reviewer's numbers exactly; ruff+mypy clean on the two changed files; scripts/validate_tasks.py clean. Skimmed the full diff (ibkr_provider.py comment/constant change, two new tests, task JSON, index.json mirror): confirmed 27 < 28 (shortest real Gregorian month, non-leap February), so the cursor step can never overshoot into the next page and skip a bar -- the underestimate-is-safe reasoning holds. Confirmed FINTRADE_IBKR_ENABLED=false in backend/.env and every test in test_ibkr_provider.py mocks _request (27 mocker.patch calls, no live network access). The decisions entry is complete (what changed, why 27 days is safe, explicitly rejects both the 30-day original and a calendar-aware exact step). No human PR comments/reviews requesting changes."
   }
 }
