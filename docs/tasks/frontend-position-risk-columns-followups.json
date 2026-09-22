@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns review (PR #257)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-position-risk-columns"],
   "references": [
     "docs/tasks/done/frontend-position-risk-columns.json",
@@ -39,6 +39,9 @@
     }
   ],
   "git": {
-    "branch": "task/frontend-position-risk-columns-followups"
+    "branch": "task/frontend-position-risk-columns-followups",
+    "pr_number": 258,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/258",
+    "pushed_at": "2026-09-22T08:36:50Z"
   }
 }
