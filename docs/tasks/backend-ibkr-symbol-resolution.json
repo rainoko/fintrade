@@ -29,5 +29,11 @@
       "decision": "resolve_conid filters /iserver/secdef/search's results to entries whose symbol matches the requested ticker exactly (case-insensitive) AND whose sections list includes a \"STK\" entry (excluding pure options/warrants/futures matches and the endpoint's fuzzy partial-symbol matches). If that filtering leaves exactly one DISTINCT conid, it's returned; if it leaves zero or more than one distinct conid, resolve_conid returns None in both cases rather than raising or guessing which candidate was meant (two rows resolving to the same conid, e.g. duplicate entries, are deduplicated first and are NOT treated as ambiguous).",
       "rationale": "The checklist's own phrasing groups 'ambiguous' and 'no results' together as both needing to 'degrade gracefully (not raising)', which reads as an instruction to make both terminal cases produce the same None outcome rather than have resolve_conid pick a 'best guess' first candidate among several real, distinct conids for the same symbol. Considered picking the first result returned by the search endpoint (plausible if IBKR ranks primary listings first) but rejected it: that ranking behavior isn't documented, only observed informally, and silently resolving a genuinely ambiguous ticker to the wrong contract (e.g. the wrong exchange's listing) is a much worse failure mode for a Screen-3-hourly-bars or scanner consumer than surfacing 'could not resolve automatically, needs a manual conid' -- especially since this can't be verified against a live gateway in this session to confirm the ranking assumption holds. A future consumer that wants a 'best effort, pick something' mode can add that as an explicit opt-in parameter later; the safer default is what's implemented here."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-symbol-resolution",
+    "pr_number": 263,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/263",
+    "pushed_at": "2026-09-22T12:42:44Z"
+  }
 }
