@@ -8,6 +8,7 @@ import { Link as RouterLink, useParams } from 'react-router-dom'
 import ErrorState from '../components/common/ErrorState/ErrorState'
 import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
+import HeldPositionBanner from '../features/portfolio/components/HeldPositionBanner'
 import TradeApgarDialog from '../features/portfolio/components/TradeApgarDialog'
 import FundamentalDataPanel from '../features/stocks/components/FundamentalDataPanel'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
@@ -59,6 +60,15 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * task's `decisions` entry for the placement rationale. Only shown once
  * `analysisQuery.data` has loaded, since a genuinely unknown/errored ticker
  * has nothing meaningful to score.
+ *
+ * `HeldPositionBanner` (frontend-position-risk-columns) sits directly below
+ * that same action row, rendered unconditionally (not nested inside the
+ * `analysisQuery.data &&` block below) -- unlike the Trade Apgar button,
+ * whether this ticker is a held position is a portfolio fact independent of
+ * whether `GET /api/stocks/{ticker}/analysis` happens to succeed for it, so
+ * an analysis failure shouldn't also hide "you hold this, here's your
+ * stop/target". It renders nothing itself when the ticker isn't held. See
+ * that task's `decisions` entry.
  */
 export default function StockDetailPage() {
   const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
@@ -101,6 +111,8 @@ export default function StockDetailPage() {
       </Stack>
 
       <TradeApgarDialog ticker={apgarTicker} onClose={() => setApgarTicker(null)} />
+
+      {ticker && <HeldPositionBanner ticker={ticker} />}
 
       {analysisQuery.isLoading && (
         <LoadingState message={`Loading analysis for ${ticker}...`} />

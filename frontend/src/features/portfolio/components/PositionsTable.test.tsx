@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import type { PositionOut } from '../../../api/portfolio'
+import type { PositionOut, RiskResponse } from '../../../api/portfolio'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import PositionsTable, { type PositionsTableProps } from './PositionsTable'
@@ -14,6 +14,10 @@ function renderPositionsTable(positions: PositionsTableProps['positions']) {
       <PositionsTable positions={positions} />
     </MemoryRouter>,
   )
+}
+
+function mockRisk(response: RiskResponse) {
+  server.use(http.get('/api/portfolio/risk', () => HttpResponse.json(response)))
 }
 
 const positions: PositionOut[] = [
@@ -44,7 +48,30 @@ const positions: PositionOut[] = [
 ]
 
 describe('PositionsTable', () => {
-  it('renders a row per position with formatted currency/percentage cells and a signal badge', () => {
+  it('renders a row per position with formatted currency/percentage cells and a signal badge', async () => {
+    mockRisk({
+      total_open_risk_pct: 1.8,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [
+        {
+          id: 'pos_123',
+          ticker: 'AAPL',
+          protective_stop: 210.15,
+          position_risk_pct: 1.8,
+          two_percent_rule_breached: false,
+          exit_flags: [],
+          profit_target: {
+            price: 245.0,
+            source: 'channel',
+            distance_to_stop: 9.3,
+            distance_to_target: 18.6,
+            reward_risk_ratio: 2.0,
+            meets_minimum_reward_risk: true,
+          },
+        },
+      ],
+    })
     renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
@@ -60,9 +87,23 @@ describe('PositionsTable', () => {
     expect(within(rows[0]).getByText('+17.20%')).toBeInTheDocument()
     const aaplBadge = within(rows[0]).getByTestId('signal-badge')
     expect(aaplBadge).toHaveTextContent('BUY')
+
+    // Protective Stop/Profit Target columns (frontend-position-risk-columns)
+    // read from GET /api/portfolio/risk, cross-referenced by ticker.
+    await waitFor(() =>
+      expect(within(rows[0]).getByText('$210.15')).toBeInTheDocument(),
+    )
+    expect(within(rows[0]).getByText('$245.00')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('2.0:1')).toBeInTheDocument()
   })
 
-  it('renders an em dash for null current_price/unrealized_pnl_pct/signal', () => {
+  it('renders an em dash for null current_price/unrealized_pnl_pct/signal, and for a ticker missing from the risk response', async () => {
+    mockRisk({
+      total_open_risk_pct: 0,
+      realized_losses_this_month_pct: 0,
+      six_percent_rule_breached: false,
+      positions: [],
+    })
     renderPositionsTable(positions)
 
     const table = screen.getByRole('table')
@@ -73,6 +114,11 @@ describe('PositionsTable', () => {
     const cells = within(zzzzRow).getAllByRole('cell')
     expect(cells.map((cell) => cell.textContent)).toContain('—')
     expect(within(zzzzRow).queryByTestId('signal-badge')).not.toBeInTheDocument()
+
+    // ZZZZ is absent from the (mocked, empty) risk response above -- both
+    // new columns fall back to '—' rather than crashing on a missing entry,
+    // matching RiskPanel's own graceful-degrade convention for the same case.
+    await waitFor(() => expect(within(zzzzRow).getAllByText('—').length).toBeGreaterThan(0))
   })
 
   it('sorts by current_price, with the null value sorting last', async () => {

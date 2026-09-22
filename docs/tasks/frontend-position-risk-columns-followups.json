@@ -1,0 +1,27 @@
+{
+  "id": "frontend-position-risk-columns-followups",
+  "title": "Non-blocking follow-ups from frontend-position-risk-columns review (PR #257)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-position-risk-columns"],
+  "references": [
+    "docs/tasks/done/frontend-position-risk-columns.json",
+    "https://github.com/rainoko/fintrade/pull/257"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #257 (frontend-position-risk-columns), recorded here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PositionsTable's new usePortfolioRisk() call never checks riskQuery.isError/isLoading, so a genuine GET /api/portfolio/risk failure (as opposed to a specific ticker simply being absent from the risk response, which is already handled and tested) silently renders '—' in the new Protective Stop/Profit Target columns — indistinguishable from 'no stop/target configured'. RiskPanel, driven by the exact same usePortfolioRisk() hook/queryKey and rendered on the same PortfolioPage, correctly shows a full ErrorState for this case instead. Add the same isError handling PositionsTable already has for deletePosition.isError (an ErrorState block above the table) for riskQuery.isError too.",
+      "done": false
+    },
+    {
+      "step": "HeldPositionBanner has the identical gap, but it's worse there: a GET /api/portfolio/risk failure while GET /api/portfolio still succeeds leaves the banner silently showing 'Current Stop: —' on the Stock Detail page with no error indication anywhere on that page (RiskPanel's error state is a different page, Portfolio, and per the finding above PositionsTable doesn't surface it either). Decide and record an explicit degrade behavior for this case (e.g. a small inline warning icon/tooltip on the affected field rather than the component returning as if the position has no stop, or continuing to render null/absent-but-documented) rather than silently treating a query failure the same as 'no data yet'.",
+      "done": false
+    },
+    {
+      "step": "Correct this task's decisions entry #4 (HeldPositionBanner's unconditional-rendering rationale), whose claim 'a genuine usePortfolio/usePortfolioRisk fetch failure here is already surfaced loudly by PositionsTable/RiskPanel on the Portfolio page itself' is factually inaccurate for PositionsTable (no isError handling exists there, per the first finding above) and inapplicable for HeldPositionBanner's own page (StockDetailPage, not PortfolioPage). Add a corrective decisions entry (per CLAUDE.md's decision-memory rule) once the above two items are resolved, rather than leaving the original claim uncorrected.",
+      "done": false
+    }
+  ]
+}

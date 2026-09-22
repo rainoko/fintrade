@@ -2,7 +2,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import { useState } from 'react'
-import type { PositionOut } from '../../../api/portfolio'
+import type { PositionOut, RiskPosition } from '../../../api/portfolio'
 import ConfirmDialog from '../../../components/common/ConfirmDialog/ConfirmDialog'
 import DataTable, {
   type DataTableColumn,
@@ -13,6 +13,8 @@ import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
+import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+import PositionProfitTargetCell from './PositionProfitTargetCell'
 
 export interface PositionsTableProps {
   positions: PositionOut[]
@@ -28,10 +30,32 @@ export interface PositionsTableProps {
  * `deletePosition` is pending *for that row's id specifically* (`variables
  * === row.id`, not just `isPending`) — same double-click-race guard
  * WatchlistTable's own Remove button uses (frontend-watchlist-page-followups).
+ *
+ * Protective Stop and Profit Target columns (frontend-position-risk-columns)
+ * read from GET /api/portfolio/risk via this component's own
+ * usePortfolioRisk call, cross-referenced against each row by ticker the
+ * same way RiskPanel's own Signal column cross-references `positions` by
+ * ticker in the other direction -- PositionOut itself carries neither
+ * field. This duplicates RiskPanel's usePortfolioRisk() call rather than
+ * PortfolioPage fetching it once and passing risk data down to both: every
+ * other data dependency here (useDeletePosition) is already
+ * component-owned rather than prop-drilled, TanStack Query dedupes the
+ * identical queryKey into a single network request regardless, and a
+ * shared-prop version would mean changing RiskPanel's own established prop
+ * contract too, for a table now doing exactly what RiskPanel already does
+ * for its own columns. See this task's `decisions` entry.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
   const deletePosition = useDeletePosition()
+  const riskQuery = usePortfolioRisk()
+
+  const riskByTicker = new Map<string, RiskPosition>(
+    (riskQuery.data?.positions ?? []).map((riskPosition) => [
+      riskPosition.ticker,
+      riskPosition,
+    ]),
+  )
 
   const columns: DataTableColumn<PositionOut>[] = [
     {
@@ -71,6 +95,33 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         ) : (
           <PercentChange value={row.unrealized_pnl_pct} />
         ),
+    },
+    {
+      // Synthetic column: `RiskPosition.protective_stop` isn't a field of
+      // `PositionOut`, so `key` can't be `'protective_stop'` --
+      // `DataTableColumn<T>.key` is typed `keyof T` and is only ever used
+      // as this column's own React key/non-sortable header, not a lookup
+      // into the row -- reuses one of `PositionOut`'s own otherwise-
+      // column-unused fields purely for that typing, same convention
+      // RiskPanel's own synthetic Signal/Profit Target columns use.
+      key: 'confidence',
+      header: 'Protective Stop',
+      align: 'right',
+      render: (row) => {
+        const risk = riskByTicker.get(row.ticker)
+        return risk ? formatCurrency(risk.protective_stop) : '—'
+      },
+    },
+    {
+      // Synthetic column, same convention as Protective Stop above.
+      key: 'confidence_band',
+      header: 'Profit Target',
+      align: 'right',
+      render: (row) => (
+        <PositionProfitTargetCell
+          profitTarget={riskByTicker.get(row.ticker)?.profit_target ?? null}
+        />
+      ),
     },
     {
       key: 'signal',
