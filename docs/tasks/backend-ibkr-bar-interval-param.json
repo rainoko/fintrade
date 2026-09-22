@@ -29,5 +29,11 @@
       "decision": "Changed the pagination cursor step (previously a hardcoded `timedelta(hours=1)` subtracted from the earliest bar's timestamp to compute the next page's `startTime`) to look up a per-`bar_size` step from a new `_BAR_INTERVAL_STEP` mapping.",
       "rationale": "The original hardcoded 1-hour step was correct only because the method only ever requested `bar=1h` bars; generalizing the `bar` parameter without also generalizing this step would silently skip up to ~59 minutes of bars between (earliest - one bar) and (earliest - 1h) whenever a finer interval (e.g. `5min`) was requested and multi-page pagination was needed -- a real correctness bug, not just a missed generalization, so fixing it was judged in-scope for 'parameterizing the existing hardcoded interval' rather than scope creep. `_MAX_PAGINATION_PAGES`'s 20-page safety bound was deliberately left unchanged (still sized against `1h` bars, ~833 days) -- a finer bar_size simply covers proportionally less history before hitting that same page cap, an acceptable, documented limitation rather than something worth redesigning here; a future day-trader-mode feature that genuinely needs deep finer-grained history would need to revisit that bound as part of its own larger design pass."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-bar-interval-param",
+    "pr_number": 265,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/265",
+    "pushed_at": "2026-09-22T13:25:29Z"
+  }
 }
