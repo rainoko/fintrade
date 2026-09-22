@@ -34,5 +34,11 @@
       "rationale": "This is the same underlying pattern PR #258's review found blocking on PortfolioPage (PositionsTable + RiskPanel both independently rendering ErrorState for one usePortfolioRisk failure), but the fix that worked there (revert PositionsTable to a silent per-row '—' fallback) doesn't transplant directly: PositionsTable had other, risk-independent columns (ticker/quantity/cost basis from GET /api/portfolio) that remained useful under a silent fallback, whereas SellFlaggedPositionsCard's entire body (a table of exit_flags) is wholly derived from the same failed risk query and has no unaffected content to fall back to -- there's nothing meaningful to show silently. Between the two general strategies this task's checklist itself named (\"hoist the risk-error banner to the page level once\" vs. \"have only one sibling per page own the error block\"), the latter was chosen: hoisting would mean DashboardPage taking on a data dependency of its children's shared query just to render one error block, working against Frontend.md §3's thin-page-composition guidance that both RiskSummaryCard's and SellFlaggedPositionsCard's own doc comments already cite for why each owns its own usePortfolioRisk call; letting RiskSummaryCard (the existing, unmodified first sibling) remain the sole owner of the ErrorState is the smaller, more surgical change, mirroring PR #258's own preference for the smallest fix over restructuring page composition. SellFlaggedPositionsCard returning null (rather than a degraded placeholder of its own) was chosen because RiskSummaryCard's ErrorState, rendered immediately above it on the page, already fully communicates the failure -- a second, different-looking degraded state for the exact same failure would be more confusing, not less, than no second element at all."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-position-risk-columns-followups-followups",
+    "pr_number": 259,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/259",
+    "pushed_at": "2026-09-22T09:22:25Z"
+  }
 }
