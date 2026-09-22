@@ -3,7 +3,7 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-market-scanner"
   ],
@@ -60,5 +60,23 @@
     "pr_number": 243,
     "pr_url": "https://github.com/rainoko/fintrade/pull/243",
     "pushed_at": "2026-09-22T00:58:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T01:12:36Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/243",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: ScannerResultsTable shares a single useAddWatchlistItem() mutation instance across every row's 'Add to watchlist' button. TanStack Query's MutationObserver.mutate() detaches the observer from whatever mutation it was previously watching before attaching to the new one, so clicking a second row's Add button before the first row's request settles means the first row's onSuccess (and isError/ErrorState) never fires once its request does complete -- its button stays stuck on 'Add to watchlist' even though the ticker really was added server-side. Independently reproduced with an instrumented test (two staggered POST /api/watchlist calls, both resolve successfully, only 1 of 2 rows ever flips to 'Added'). Root cause: one useAddWatchlistItem() call shared by the whole table instead of one per row (or reconciling addedTickers against a source of truth independent of the shared mutation's own variables/onSuccess).",
+        "file": "frontend/src/features/scanner/components/ScannerResultsTable.tsx",
+        "line": 48
+      },
+      {
+        "summary": "Non-blocking: no Playwright e2e spec was added for the new /scanner page under frontend/tests/e2e/ -- the existing 18 specs (all still pass, no regression) don't exercise the scanner golden path (category -> run -> results -> add-to-watchlist) or its disabled state at the persisted-regression layer, which the e2e-test skill's own docs call out as expected companion work for a new UI flow. Tracked as a follow-up.",
+        "file": "frontend/tests/e2e",
+        "line": 0
+      }
+    ],
+    "notes": "Full review: backend unaffected (pytest 1139 passed, 99.95% coverage; ruff/mypy clean); frontend vitest 741 passed, 99.7%+ coverage across all four metrics; yarn lint/tsc/build/build-storybook all clean; own Playwright walkthrough against the real dev server covered the disabled state, golden path (category picker -> run -> results incl. the no-symbol #<conid> fallback -> add to watchlist -> Added), and the 429/Retry-After edge case, all rendering correctly with no console errors; make e2e's 18 existing specs all pass (no scanner-specific spec exists, see non-blocking finding); component placement (common/UnavailableState vs features/scanner/* ) correctly follows Frontend.md Sec.3, and all four recorded decisions are sound with real rejected alternatives. The one blocking finding is the shared-mutation bug in ScannerResultsTable (see comments) -- a real, easily user-reachable race (clicking Add on two different scan results before the first completes), not an edge case. An earlier PR comment from this same review pass called this cosmetic and posted 'accepted' before the code-review skill's parallel pass (independently reproduced here) surfaced the fuller, blocking version of the same root cause -- that earlier comment is superseded by this verdict."
   }
 }
