@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-ibkr-status-indicator PR #244 review",
   "area": "frontend/pages",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-ibkr-status-indicator"],
   "references": [
     "docs/tasks/frontend-ibkr-status-indicator.json",
@@ -38,5 +38,11 @@
       "rejected": "A `common/`-level wrapper component was considered and rejected as over-engineering a single-line addition used in exactly one place; per-state distinct live regions were rejected in favor of one region around whichever content renders, since the region needs to announce every transition (loading -> real state -> transport failure -> back to a real state), not just transitions between the four real gateway states."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-status-indicator-followups",
+    "pr_number": 245,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/245",
+    "pushed_at": "2026-09-22T02:45:55Z"
+  }
 }
