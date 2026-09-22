@@ -3,7 +3,7 @@
   "title": "Automate the IBKR gateway /tickle session keep-alive",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -35,6 +35,12 @@
       "recorded_by": "task-worker",
       "decision": "The lifespan task's IBKRProvider instance is obtained via next(get_ibkr_provider()) (app.api.dependencies) rather than duplicating the Settings.ibkr_enabled check and constructing a fresh IBKRProvider directly in app.main.",
       "rationale": "Reuses that dependency's existing gate and process-wide singleton (same HTTP client, so the tickle loop's calls share connection/cookie state with every other IBKR call the app makes) as a single source of truth instead of a second, independently-maintained enabled check. get_ibkr_provider has no cleanup logic after its single yield in either branch, so calling next() once without ever closing the generator loses nothing."
+    },
+    {
+      "timestamp": "2026-09-22T15:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the reproducible flake in TestLifespanIbkrTickleGate::test_enabled_logs_and_keeps_looping_when_tickle_fails (and the same structural risk in test_enabled_starts_a_task_that_calls_tickle) by replacing the fixed-200-iteration `await asyncio.sleep(0)` busy-wait with a real-timer poll: a new module-level `_wait_until(predicate, timeout=5.0, interval=0.01)` helper that awaits `asyncio.sleep(interval)` in a loop wrapped in `asyncio.wait_for(..., timeout=timeout)`.",
+      "rationale": "The reviewer's root cause was correct: `_ibkr_tickle_loop` calls `provider.tickle()` via `asyncio.to_thread`, a real thread-pool round trip, so 200 bare `sleep(0)` cooperative yields (no real wall-clock time) aren't guaranteed to let two such round trips land under load (coverage instrumentation, a busy CI host). Rejected an asyncio.Event set from inside the mock's side_effect -- that side_effect runs in the to_thread worker thread, and asyncio.Event isn't safe to .set() from a thread other than the loop's own (would need call_soon_threadsafe, adding complexity for no real benefit over a small real sleep). Rejected just raising the iteration count (e.g. 2000) -- still a fixed-count guess rather than a real condition wait, and either flakes again under enough load or wastes time in the common case. The chosen fix gives the worker thread genuine wall-clock time between checks while still bounding the wait so a real regression (loop never calling tickle()) fails promptly instead of hanging; verified with 40 repeated runs of tests/unit/test_main.py (plain) and 15 repeated runs with --cov=app (matching the reviewer's exact repro conditions) with zero failures, plus one full backend suite run (1170 passed, 100% coverage)."
     }
   ],
   "git": {

@@ -28,6 +28,27 @@ def _skip_db_bootstrap(mocker):
     mocker.patch("app.main.Base.metadata.create_all")
 
 
+async def _wait_until(predicate, *, timeout: float = 5.0, interval: float = 0.01) -> None:
+    """Poll `predicate()` on a real timer until it's true, instead of a fixed count of
+    `asyncio.sleep(0)` cooperative yields.
+
+    `_ibkr_tickle_loop` calls `IBKRProvider.tickle()` via `asyncio.to_thread` -- a real
+    thread-pool round trip -- so a fixed iteration count of bare cooperative yields isn't
+    guaranteed to let it complete even once (let alone twice) before the test gives up;
+    under load (coverage instrumentation, a concurrent test run) that round trip can take
+    longer than 200 `sleep(0)`s do. Sleeping a real, if tiny, `interval` between checks
+    gives the worker thread actual wall-clock time to run, and `asyncio.wait_for` still
+    bounds the wait so a genuine regression (the loop never calling `tickle()` at all)
+    fails promptly instead of hanging.
+    """
+
+    async def _poll() -> None:
+        while not predicate():
+            await asyncio.sleep(interval)
+
+    await asyncio.wait_for(_poll(), timeout=timeout)
+
+
 class TestLifespanIbkrTickleGate:
     def test_disabled_never_starts_a_task_or_touches_the_gateway(self, mocker) -> None:
         """`get_ibkr_provider` yielding `None` (the default -- `Settings.ibkr_enabled`
@@ -52,10 +73,7 @@ class TestLifespanIbkrTickleGate:
 
         async def _run() -> None:
             async with lifespan(app):
-                for _ in range(200):
-                    if fake_provider.tickle.called:
-                        break
-                    await asyncio.sleep(0)
+                await _wait_until(lambda: fake_provider.tickle.called)
 
         asyncio.run(_run())
 
@@ -92,10 +110,7 @@ class TestLifespanIbkrTickleGate:
         async def _run() -> None:
             with caplog.at_level("WARNING", logger="app.main"):
                 async with lifespan(app):
-                    for _ in range(200):
-                        if fake_provider.tickle.call_count >= 2:
-                            break
-                        await asyncio.sleep(0)
+                    await _wait_until(lambda: fake_provider.tickle.call_count >= 2)
 
         asyncio.run(_run())
 
