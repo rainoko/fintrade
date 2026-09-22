@@ -496,6 +496,15 @@ export const handlers: HttpHandler[] = [
       existing.avg_cost_basis = blendedCostBasis
       existing.entry_date =
         existing.entry_date < body.entry_date ? existing.entry_date : body.entry_date
+      // Mirrors the real backend's merge behavior (see the
+      // backend-trade-journal-entry-notes task's `decisions`): an incoming
+      // note is appended to the existing one rather than overwriting it; no
+      // incoming note leaves the existing one untouched.
+      if (body.entry_notes) {
+        existing.entry_notes = existing.entry_notes
+          ? `${existing.entry_notes}\n\n${body.entry_notes}`
+          : body.entry_notes
+      }
       stored = existing
     } else {
       stored = {
@@ -504,6 +513,7 @@ export const handlers: HttpHandler[] = [
         quantity: body.quantity,
         avg_cost_basis: body.avg_cost_basis,
         entry_date: body.entry_date,
+        entry_notes: body.entry_notes ?? null,
       }
       positions.push(stored)
     }

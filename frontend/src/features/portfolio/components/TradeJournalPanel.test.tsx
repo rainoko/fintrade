@@ -249,7 +249,9 @@ describe('TradeJournalPanel', () => {
     await waitFor(() => expect(screen.getByText('TSLA')).toBeInTheDocument())
 
     const row = screen.getByText('TSLA').closest('tr') as HTMLElement
-    expect(within(row).getAllByText('—')).toHaveLength(3)
+    // 3 null grade cells plus the Notes column's own em dash (no entry_notes
+    // on this fixture row).
+    expect(within(row).getAllByText('—')).toHaveLength(4)
 
     const loss = within(row).getByText('-$75.00')
     expect(loss).toHaveStyle({ color: theme.palette.error.main })
@@ -263,6 +265,70 @@ describe('TradeJournalPanel', () => {
     await user.keyboard('{Escape}')
     await user.click(within(row).getByRole('button', { name: 'Trade Grade help' }))
     expect(screen.getByText(/warm-up window/)).toBeInTheDocument()
+  })
+
+  it('shows an em dash with no notes trigger when entry_notes is absent', async () => {
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_no_notes',
+          ticker: 'NFLX',
+          quantity: 1,
+          entry_price: 100,
+          entry_date: '2026-01-01',
+          exit_price: 110,
+          exit_date: '2026-01-05',
+          realized_pnl: 10,
+          exit_reason: 'target_hit',
+          buy_grade_pct: null,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+          entry_notes: null,
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('NFLX')).toBeInTheDocument())
+
+    const row = screen.getByText('NFLX').closest('tr') as HTMLElement
+    expect(
+      within(row).queryByRole('button', { name: 'View entry notes' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens an InfoBalloon with the full entry note when one is present', async () => {
+    const user = userEvent.setup()
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_with_notes',
+          ticker: 'GOOG',
+          quantity: 1,
+          entry_price: 100,
+          entry_date: '2026-01-01',
+          exit_price: 110,
+          exit_date: '2026-01-05',
+          realized_pnl: 10,
+          exit_reason: 'target_hit',
+          buy_grade_pct: null,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+          entry_notes: 'Breakout above resistance, strong earnings beat.',
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('GOOG')).toBeInTheDocument())
+
+    const row = screen.getByText('GOOG').closest('tr') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: 'View entry notes' }))
+
+    expect(screen.getByText('Entry Notes')).toBeInTheDocument()
+    expect(
+      screen.getByText('Breakout above resistance, strong earnings beat.'),
+    ).toBeInTheDocument()
   })
 
   it('falls back to a humanized label for an exit reason not in the known label map', async () => {

@@ -1,3 +1,4 @@
+import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined'
 import Chip from '@mui/material/Chip'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
@@ -7,6 +8,7 @@ import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import InfoBalloon from '../../../components/common/InfoBalloon/InfoBalloon'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import SignedCurrency from '../../../components/common/SignedCurrency/SignedCurrency'
@@ -72,6 +74,35 @@ function GradeCell({
         valueInterpretation={help.interpretValue(gradePct)}
       />
     </Stack>
+  )
+}
+
+/**
+ * One "Notes" cell: an em dash when the trade has no `entry_notes` (the
+ * common case, since the field is optional), or a small icon that opens an
+ * `InfoBalloon` with the full note text when it does -- an expandable
+ * detail rather than a dedicated full-width column, since most trades won't
+ * have one and the note itself can be long free text (this task's
+ * checklist; see this task's `decisions` entry for why `InfoBalloon` was
+ * reused here rather than a new common component).
+ */
+function NotesCell({ entryNotes }: { entryNotes: string | null | undefined }) {
+  if (!entryNotes) {
+    return <Typography component="span">—</Typography>
+  }
+
+  return (
+    <InfoBalloon
+      triggerAriaLabel="View entry notes"
+      title="Entry Notes"
+      content={
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+          {entryNotes}
+        </Typography>
+      }
+    >
+      <StickyNote2OutlinedIcon fontSize="small" color="action" />
+    </InfoBalloon>
   )
 }
 
@@ -155,6 +186,11 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
       />
     ),
   },
+  {
+    key: 'entry_notes',
+    header: 'Notes',
+    render: (row) => <NotesCell entryNotes={row.entry_notes} />,
+  },
 ]
 
 /**
@@ -175,6 +211,12 @@ const columns: DataTableColumn<ClosedTradeOut>[] = [
  * cell carries its own `MetricHelp` explaining the formula and this
  * specific value in plain terms (e.g. "you sold at 35.5% up the day's
  * range"), not just the bare percentage, per this task's checklist.
+ *
+ * The Notes column surfaces `entry_notes` (Elder ch. 59 Trade Journal
+ * Section A, "why did I take this trade") when the position had one --
+ * an expandable detail via `NotesCell`/`InfoBalloon` rather than a raw
+ * text column, since most trades won't have a note and the ones that do
+ * can be long free text (frontend-trade-journal-entry-notes).
  */
 export default function TradeJournalPanel() {
   const closedTradesQuery = useClosedTrades()
