@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups-followups review (PR #259)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-position-risk-columns-followups-followups"],
   "references": [
     "docs/tasks/frontend-position-risk-columns-followups-followups.json",
@@ -40,5 +40,38 @@
     "pr_number": 260,
     "pr_url": "https://github.com/rainoko/fintrade/pull/260",
     "pushed_at": "2026-09-22T09:58:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T10:10:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/260",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "SellFlaggedPositionsCard's new errorSurfacedBySibling prop fails safe: default false, so a standalone/future mount with no prop passed shows the real ErrorState instead of silently rendering nothing. Verified via diff read, the updated SellFlaggedPositionsCard.test.tsx (both the default-shows-error and errorSurfacedBySibling=true-suppresses-error cases), and a live browser walkthrough of DashboardPage with GET /api/portfolio/risk mocked to fail (exactly one alert rendered, from RiskSummaryCard; SellFlaggedPositionsCard's whole section absent as intended).",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 79
+      },
+      {
+        "summary": "StockCharts.test.tsx's new regression test genuinely would have failed pre-fix: reproduced by checking out the pre-fix commit (7f8714e) in a scratch worktree, copying the new test file in, and running it against the old OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart -- it failed with 3 alerts instead of 1, confirming the test is a real regression guard and not a tautology.",
+        "file": "frontend/src/features/stocks/components/StockCharts.test.tsx",
+        "line": 220
+      },
+      {
+        "summary": "Live browser walkthrough of StockDetailPage with GET /api/stocks/AAPL/indicators mocked to fail confirmed exactly one 'Something went wrong' ErrorState (owned by PriceChart, rendered first in StockCharts.tsx) and the Oscillators/Volume Indicators/Trend Strength sections rendering only their section headers with nothing beneath (no duplicate alert, no stray loading/empty state). Confirmed via grep that only StockCharts.tsx currently imports these three chart components, so today's hard-coded 'PriceChart owns this failure' assumption holds in practice, even though it's not enforced the same order-independent way SellFlaggedPositionsCard's fix is (see non-blocking finding below, tracked as a followup per this task's own decisions entry expecting exactly this kind of finding).",
+        "file": "frontend/src/features/stocks/components/StockCharts.tsx",
+        "line": 55
+      },
+      {
+        "summary": "Non-blocking (tracked as frontend-position-risk-columns-followups-followups-followups-followups): PriceChart's own indicatorsQuery.isError ErrorState is gated behind showOverlaySection (historyQuery.isSuccess && hasBars && overlayEnabled), a pre-existing condition unrelated to error ownership. If historyQuery itself fails or returns zero usable bars while indicatorsQuery also fails, none of the four StockCharts components now surface the indicators failure specifically (previously the three suppressed siblings would have shown their own independent ErrorState in that compound-failure scenario) -- a real, if narrow, regression introduced by this PR's unconditional suppression. Independently corroborated by a parallel code-review pass run during this review.",
+        "file": "frontend/src/features/stocks/components/PriceChart.tsx",
+        "line": 2051
+      },
+      {
+        "summary": "Non-blocking (tracked as frontend-position-risk-columns-followups-followups-followups-followups): OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart's suppression of their own ErrorState is a hard-coded, unconditional assumption that PriceChart is always mounted as a sibling and owns this failure, not an opt-in/order-independent contract the way SellFlaggedPositionsCard's errorSurfacedBySibling prop is. This is a deliberate, documented scope decision (this task's own decisions entry explicitly limited the more-robust treatment to checklist item 1 per the checklist item's own wording), and only StockCharts.tsx currently uses these three components, so there's no live bug today -- but the same coupling-fragility class this PR fixed once (for SellFlaggedPositionsCard) is knowingly left in place a second time.",
+        "file": "frontend/src/features/stocks/components/OscillatorChart.tsx",
+        "line": 609
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app (1144 passed, 99.95% coverage, unaffected by this PR) and frontend vitest run --coverage (767 passed, 99.74%/99.23%/99.75%/99.8% statements/branches/functions/lines, well above the 90% gate) both green. Backend ruff/mypy and frontend eslint/tsc all clean; scripts/check_profit_target_wording.py clean. code-review skill run in parallel corroborated both non-blocking findings below independently. Live browser walkthrough (Playwright via a scratch Node script, since chromium-cli wasn't available in this environment) covered the golden path (Dashboard and StockDetailPage(AAPL) normal loads) and both PR's edge cases (GET /api/portfolio/risk failing, GET /api/stocks/{ticker}/indicators failing) -- no console errors beyond the intentionally-mocked 500s, no unexpected network failures. e2e-test skill (make e2e) run separately: all 21 specs across 4 files (dashboard, navigation, portfolio, stock-analysis, watchlist) passed. Both decisions entries are well-reasoned and each closes its checklist item; no checklist item was phrased as 'decide X' without a corresponding decision. Two non-blocking findings (both on the StockCharts side of the fix, none on SellFlaggedPositionsCard) filed as a followup task rather than only left as PR comments, per CLAUDE.md's tracked-followup rule."
   }
 }

@@ -1853,8 +1853,15 @@
       "id": "frontend-position-risk-columns-followups-followups-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-position-risk-columns-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups-followups-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-position-risk-columns-followups-followups-followups-followups.json"
     }
   ]
 }
