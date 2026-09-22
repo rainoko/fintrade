@@ -3,7 +3,7 @@
   "title": "Surface trades due for their two-months-later follow-up review",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-journal-followup-review"],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
@@ -39,5 +39,18 @@
     "pr_number": 248,
     "pr_url": "https://github.com/rainoko/fintrade/pull/248",
     "pushed_at": "2026-09-22T04:16:16Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T04:30:55Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/248",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "No Playwright e2e spec exercises the new 'Due for Follow-Up Review' panel/FollowUpReviewDialog flow end to end -- portfolio.spec.ts wasn't extended and no new spec was added, even though this adds a new API round trip and query filter the running e2e-suite backend now serves live. Non-blocking (thorough component tests plus a live headless-Chromium walkthrough both confirm the flow works); tracked as a checklist item on frontend-trade-journal-followup-review-followups so it isn't lost once this PR merges.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full review. Backend pytest --cov: 1139 passed, 99.95% coverage (unchanged -- no backend files touched by this PR; confirmed backend/openapi.json and the generated frontend/src/api/types.ts already carry FollowUpReviewIn/due_for_follow_up from the already-merged backend-trade-journal-followup-review PR #221, so no regeneration was needed here). Frontend vitest run --coverage: 745 passed/76 files, statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79% (all new files -- TradeFollowUpDuePanel.tsx, FollowUpReviewDialog.tsx, useRecordFollowUpReview.ts -- at 100%). static-verify: ruff, mypy, eslint, tsc -b, and the profit-target stale-wording guard all clean. Read app/api/routers/portfolio.py's get_closed_trades/record_follow_up_review and app/api/schemas.py's FollowUpReviewIn directly: the due_for_follow_up query param, the 8-10-week inclusive window, the POST body shape, and the 404 case all match what frontend/src/api/portfolio.ts sends/expects exactly. Traced the new mutable MSW closed-trades store (handlers.ts) for state leakage: resetPortfolioStore() (called in every consuming test's beforeEach) cascades into resetClosedTradesStore(), and the relative-dated fixture row (isoDateWeeksAgo(9), recomputed fresh each read via Date.now()) sits comfortably 1 full week inside both edges of the 8-10-week due window, so it isn't a boundary-flake risk. code-review skill (medium effort) launched against the diff; independent manual line-by-line read of every changed file found no correctness bugs and confirmed strong reuse (DataTable/TickerLink/SignedCurrency/ErrorState/LoadingState all reused as-is, no near-duplicate of an existing common/ component introduced). Placement check (Frontend.md Sec.3): both new components reference ClosedTradeOut/trade-id domain concepts directly, correctly placed under features/portfolio/components/, not components/common/ -- no placement finding. e2e-test skill: yarn playwright install chromium confirmed present, ports 8000/5173 freed first, make e2e ran all 18 specs green (dashboard/navigation/methodology/portfolio/stock-analysis/watchlist), including the app's new closed-trades?due_for_follow_up=true call firing cleanly on every portfolio-page visit. Live browser walkthrough (real headless Chromium via the installed playwright package, backend on FINTRADE_DATA_PROVIDER_MODE=fixture + a scratch sqlite db, frontend on the real Vite dev server, closed-trade rows seeded via the real add-position/delete-position endpoints then backdated 9 weeks via direct DB edit to land in the due window): the due panel renders the seeded trade (ticker link, exit date, realized P/L, Record Review button); clicking it opens FollowUpReviewDialog pre-titled with the ticker; typing notes and clicking Save Review closes the dialog immediately with no intermediate confirmation screen (matching the 3rd decisions entry) and the trade visibly drops off the due list, confirmed still gone after a full page reload; console messages and network responses were clean throughout (no errors, no 4xx/5xx outside the deliberate 404 test). Edge case: submitting blank notes, then whitespace-only notes, both correctly show the 'Follow-up notes are required.' validation error, leave the dialog open, and fire no network request -- verified live in the browser, not just in the mocked unit test. All three decisions entries (dedicated panel vs. folding into TradeJournalPanel; separate nested query key vs. one parameterized hook; immediate close on success vs. an AddPositionDialog-style success screen) are present, each with a concrete rationale including the alternative considered and rejected -- no undecided judgment call, and no checklist item phrased as 'decide X' was left without a matching decisions entry. scripts/validate_tasks.py clean both before and after this review's own task-board edits. One non-blocking finding (missing e2e spec for the new flow) filed as a checklist item on the new frontend-trade-journal-followup-review-followups task rather than left only in this comment."
   }
 }
