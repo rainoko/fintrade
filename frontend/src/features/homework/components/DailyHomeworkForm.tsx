@@ -199,9 +199,19 @@ function HomeworkQuestionsForm({
  * `useYesterdayTradingSuggestion` (see this task's `decisions` entry,
  * frontend-daily-homework-page-followups): the suggestion feeds exactly one
  * optional default (`yesterday_trading_score`'s pre-fill when there's no
- * already-recorded entry for today) and is skipped entirely once an
- * existing entry makes it moot, so it's never worth delaying the other four
- * questions' render on. If the suggestion hasn't settled yet by the time
+ * already-recorded entry for today), so it's never worth delaying the other
+ * four questions' render on. The suggestion query is also `enabled`-gated on
+ * there being no existing entry (same `enabled:`-gating pattern as
+ * `useIndicatorHistory`/`useStockHistory`/`useStockAnalysis`) -- on a cold
+ * load it still starts fetching concurrently with `useDailyHomeworkToday`
+ * while that outcome is still unknown (preserving the prefill's "usually
+ * already resolved by the time `HomeworkQuestionsForm` mounts" timing
+ * below), but on a *warm* remount where `useDailyHomeworkToday`'s data is
+ * already cached, `existingEntry` is known synchronously on the very first
+ * render, so the fetch is skipped entirely rather than dispatched and left
+ * unused -- see `DailyHomeworkForm`'s own inline comment on this for the
+ * (deliberate) limit of what `enabled:`-gating alone can guarantee. If the
+ * suggestion hasn't settled yet by the time
  * `HomeworkQuestionsForm` mounts, that one field simply starts at the
  * neutral default and -- consistent with "no seed-after-mount effect" above
  * -- is *not* silently swapped in later if the suggestion arrives after the
@@ -226,7 +236,23 @@ function HomeworkQuestionsForm({
  */
 export default function DailyHomeworkForm() {
   const todayQuery = useDailyHomeworkToday()
-  const suggestionQuery = useYesterdayTradingSuggestion()
+  const existingEntry = todayQuery.data?.entry ?? null
+  // Gated on `!existingEntry`, which is `null` (falsy) for as long as
+  // `todayQuery` hasn't settled yet -- so on a cold load this still starts
+  // fetching concurrently with `todayQuery` while its outcome is unknown
+  // (preserving the prefill's existing "usually already resolved by the
+  // time HomeworkQuestionsForm mounts" timing), and only turns `false` once
+  // `todayQuery` settles and reveals an existing entry. That's enough to
+  // skip the fetch entirely on a *warm* remount where `todayQuery`'s
+  // already-cached data makes `existingEntry` known synchronously on first
+  // render (e.g. revisiting this page in the same session right after
+  // submitting today's entry) -- the common case this fixes -- though (like
+  // every other `enabled:`-gated query in this codebase) it doesn't reach
+  // back and cancel a fetch a cold load already had in flight before
+  // `existingEntry` became known.
+  const suggestionQuery = useYesterdayTradingSuggestion({
+    enabled: !existingEntry,
+  })
   const recordHomework = useRecordDailyHomework()
 
   if (todayQuery.isLoading) {
@@ -236,7 +262,6 @@ export default function DailyHomeworkForm() {
     return <ErrorState error={todayQuery.error} />
   }
 
-  const existingEntry = todayQuery.data?.entry ?? null
   // Only consulted when there's no existing entry to prefill from instead
   // -- deliberately not read at all in the `existingEntry` branch below, so
   // a still-loading/failed suggestion request never affects that case.

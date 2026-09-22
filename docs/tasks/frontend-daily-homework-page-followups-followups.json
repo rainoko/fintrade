@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #272's review (Daily Homework follow-ups PR)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-daily-homework-page-followups"],
   "references": [
     "docs/tasks/frontend-daily-homework-page-followups.json#review",
@@ -13,11 +13,19 @@
   "checklist": [
     {
       "step": "`DailyHomeworkForm.tsx` calls `useYesterdayTradingSuggestion()` unconditionally (no `enabled` gate), so the suggestion request still fires -- and is left in flight -- even when today's entry already exists and its result is provably unused. This contradicts the component's own doc comment, which claims the suggestion query 'is skipped entirely once an existing entry makes it moot' -- verified via a real browser walkthrough (existing-entry case): the request was seen firing even with a 10s artificial delay on it, while the form+banner rendered immediately from the existing entry. The parent checklist item this PR closed only asked to stop *waiting* on the query in that case, which was correctly implemented -- but the fetch itself remains wasteful. The codebase already has an established `enabled:`-gating pattern elsewhere (`useIndicatorHistory.ts`, `useStockHistory.ts`, `useStockAnalysis.ts`) that could gate this call on `!existingEntry` once `todayQuery` has settled. Also correct the doc comment's 'skipped entirely' wording to describe what actually happens (the wait is skipped, not the fetch) regardless of whether the fetch itself gets fixed.",
-      "done": false
+      "done": true
     },
     {
       "step": "`HomeworkScoreBanner.tsx`'s 'is this the high-yellow (9-10) too-perfect band' condition (`band === 'yellow' && totalScore >= 9`) is duplicated three times (`iconFor`, the inline JSX label-suffix check, and implicitly as `totalScore >= 9` inside `messageFor`'s yellow branch) instead of being computed once and reused. A future change to the threshold or band naming could update one or two of the three and silently leave the others out of sync (e.g. the icon shows but the label suffix doesn't). Consider a single `const isTooPerfect = band === 'yellow' && totalScore >= 9` computed once in the component and passed to/reused by all three call sites.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T18:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Gated `useYesterdayTradingSuggestion` on `enabled: !existingEntry` (not `todayQuery.isSuccess && !existingEntry`), and accepted that this only prevents the fetch on a *warm* remount (today's entry already cached, so `existingEntry` is known synchronously on first render) -- not on every cold load.",
+      "rationale": "Verified empirically (a throwaway test, not committed) that TanStack Query's `enabled: false` does not abort a fetch already in flight, and that this API client never forwards the queryFn's injected AbortSignal to `fetch` anywhere in the codebase -- so no gating strategy here can cancel an already-dispatched request; only preventing the dispatch itself is possible. Considered and rejected gating strictly on `todayQuery.isSuccess && !existingEntry` (delaying suggestionQuery until todayQuery settles): it would guarantee zero dispatch on every cold load, but empirically breaks the prefill feature entirely and permanently, since `HomeworkQuestionsForm` mounts in the exact same render where `todayQuery.isSuccess` first becomes true, and its `useState(initialScores)` initializer runs during that render -- strictly before TanStack Query's own effect (which starts the now-newly-enabled suggestion fetch) has a chance to run -- so the suggestion's resolved value would never be captured by the initial mount, by construction, every single time, not just occasionally (verified via a failing test asserting the prefilled '2 — Well' value, which never appeared even after an extended `waitFor`). Also considered and rejected adding AbortSignal-forwarding through the API client so `enabled: false` could cancel an in-flight cold-load fetch too: no other hook in this codebase forwards the injected signal, so this would be a new, broader architectural pattern change rather than this task's narrow `enabled:`-gating fix. `enabled: !existingEntry` instead starts the suggestion fetch concurrently with `todayQuery` whenever the entry's existence isn't known yet (i.e. `existingEntry` is `null` during loading, same as before this fix), preserving the existing (already-tested) prefill timing for a cold load, while still preventing the fetch on a warm remount -- verified via a test using a shared QueryClient across two mounts, where the second mount's cached `todayQuery` data makes `existingEntry` available on its very first render, so `enabled` starts `false` and the suggestion endpoint is never hit a second time. This is a real, common case (revisiting the page in the same session shortly after submitting today's entry) and the best fix achievable without regressing the prefill feature or expanding scope."
     }
   ]
 }
