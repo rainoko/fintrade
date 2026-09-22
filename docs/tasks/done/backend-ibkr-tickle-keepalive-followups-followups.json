@@ -48,5 +48,10 @@
       }
     ],
     "notes": "Comment-only, no-behavior-change PR. Full backend suite: 1172 passed, 100% line/branch coverage. ruff/mypy clean. scripts/check_profit_target_wording.py and scripts/validate_tasks.py clean. No frontend/UI surface, no API/schema change, no new module/dependency, not signals/portfolio code -- browser walkthrough, e2e, openapi check, architecture-review, and verify-elder-signal are all correctly out of scope and were skipped explicitly rather than silently omitted. Posted as a COMMENTED-type gh pr review (no approve/merge)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T15:48:14Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 1172 passed, 100% line/branch coverage, matching pr-reviewer's numbers exactly. Diffed origin/main...HEAD for backend/app/main.py: confirmed the only change is the lifespan() finally-block comment wording (now references task backend-ibkr-tickle-keepalive-followups by id + index.json resolution instead of a literal path); no other lines touched, so no behavior change. Verified the referenced task's actual current location via index.json (state: done, path: docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json), confirming the new comment's guidance is accurate. decisions entry has a concrete decision + rationale."
   }
 }
