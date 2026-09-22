@@ -47,5 +47,11 @@
       "decision": "HeldPositionBanner's Profit Target figure reuses PositionProfitTargetCell (RiskPanel's own component, driven by RiskPosition.profit_target) rather than features/stocks/components/ProfitTargetDisplay.tsx (the existing stock-detail-page profit-target component, driven by AnalysisResponse.profit_target).",
       "rationale": "ProfitTargetDisplay takes a `signal` prop and interprets a null target as 'not a fresh BUY signal' -- the correct explanation for AnalysisResponse.profit_target's BUY-only gate, but the wrong one for an already-open position, whose RiskPosition.profit_target is computed regardless of the ticker's current live signal (per backend-profit-target-open-position). PositionProfitTargetCell already carries the right null-cause semantics for this exact case and is the same component PositionsTable's own new Profit Target column now uses, keeping all three surfaces (RiskPanel, PositionsTable, HeldPositionBanner) visually consistent for the same underlying field."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-position-risk-columns",
+    "pr_number": 257,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/257",
+    "pushed_at": "2026-09-22T08:07:50Z"
+  }
 }
