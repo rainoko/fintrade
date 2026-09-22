@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-market-scanner-followups-followups review (PR #239)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-market-scanner-followups-followups"],
   "references": [
     "docs/tasks/done/backend-market-scanner-followups-followups.json",
@@ -43,5 +43,12 @@
     "pr_number": 241,
     "pr_url": "https://github.com/rainoko/fintrade/pull/241",
     "pushed_at": "2026-09-21T23:56:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T00:01:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/241",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (1135 passed, 99.95% coverage), frontend vitest (707 passed, 99.72%/99.19%/99.72%/99.78% stmt/branch/func/line coverage) -- both well above the 90% gate and no regression. ruff/mypy/eslint/tsc all clean; check_profit_target_wording.py clean. Regenerated backend/openapi.json and frontend/src/api/types.ts from scratch and confirmed zero diff against the committed snapshot -- genuinely in sync, not just claimed. Both recorded decisions are sound: the ApiError.retryAfterSeconds field is the narrower backward-compatible choice over threading headers through request()'s return type, and the _RETRY_AFTER_429_RESPONSE constant name accurately reflects that the whole 429 entry (not just the headers sub-dict the checklist's suggested name implied) was duplicated. Verified _rate_limited_http_exception unconditionally sets Retry-After as a digits-only integer string on both call sites, so required: true and the frontend regex parse are both honest. Verified (via FastAPI's own get_openapi_path source) that sharing one _RETRY_AFTER_429_RESPONSE dict object across two routes' responses={} is safe -- FastAPI deepcopies each entry before mutating, so no aliasing hazard. No UI surface touched (only api/client.ts and api/types.ts; the new field is deliberately unreachable from any UI code yet per the task's own decision) -- browser walkthrough and e2e suite both explicitly skipped as not applicable. area is backend/api (not signals/portfolio) and skill is null, so verify-elder-signal skipped; no new module/dependency/layer, so architecture-review skipped; no frontend component touched, so the 7a placement check doesn't apply. Independent code-review skill pass (medium effort) found zero correctness/reuse/simplification/efficiency issues, independently corroborating the FastAPI deepcopy finding. No blocking or non-blocking findings -- no follow-up task filed this round."
   }
 }
