@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-trade-apgar-followups review (PR #255)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-trade-apgar-followups"],
   "references": [
     "docs/tasks/frontend-trade-apgar-followups.json",
@@ -29,5 +29,12 @@
     "pr_number": 256,
     "pr_url": "https://github.com/rainoko/fintrade/pull/256",
     "pushed_at": "2026-09-22T07:44:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:45:51Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/256",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure task-board bookkeeping, no source changes. Independently re-verified: `git diff main...HEAD --stat` shows only docs/tasks/frontend-trade-apgar-followups-followups.json and docs/tasks/index.json touched. Independently grepped `useResetOnSubjectChange` across frontend/src: still exactly two callers, TradeApgarDialog.tsx and FollowUpReviewDialog.tsx, both under features/portfolio/components/ -- confirms the claim in the PR body and the new decisions entry. Read the hook source itself: signature (subjectId: string | null, onReset: () => void) is genuinely domain-agnostic, so the placement question really is the arguable one described. The new decisions entry reasons from the original decision's own stated trigger (a third, cross-feature caller) rather than re-litigating the facts, and correctly concludes the trigger hasn't fired -- sound reasoning, not a rubber stamp. Skipped the full test/coverage/lint/browser-walkthrough steps as disproportionate to a diff containing zero source-file changes, per the dispatch instructions scoping this to a commensurately quick review; ran `python3 scripts/validate_tasks.py` (clean) and `python3 -m json.tool` on the edited file (valid) as the applicable checks. No pr_decision was present to clear."
   }
 }
