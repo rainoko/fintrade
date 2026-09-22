@@ -16,6 +16,14 @@
     {
       "step": "Add a Playwright e2e spec under frontend/tests/e2e/ for the /scanner page (frontend-market-scanner-page): at minimum the golden path (category picker -> run scan -> results table -> add to watchlist) plus the disabled/unavailable state, matching the pattern of the existing dashboard/portfolio/watchlist specs. The persisted e2e suite currently has no coverage of the Scanner page at all -- only pr-reviewer's own one-off Playwright walkthrough exercised it.",
       "done": false
+    },
+    {
+      "step": "Round 3 review nit: ScannerResultsTable.tsx's `ErrorOutlineIcon` is imported from `@mui/icons-material/ErrorOutlined`, not `ErrorOutline`/`ErrorOutlineOutlined`. `ErrorOutlined` is the 'Outlined theme' variant of MUI's `Error` icon (its SVG path is byte-identical to `Error.js`'s) -- a filled solid-circle error icon, not the lighter hollow-circle `ErrorOutline` family the variable name implies. Purely cosmetic (still clearly reads as an error) -- swap the import to `ErrorOutlineOutlined` (or rename the local alias to match `Error` if the solid icon was actually intended) so the name and the rendered icon agree.",
+      "done": false
+    },
+    {
+      "step": "Round 3 review nit: ScannerResultsTable.tsx's retry `IconButton` sets `disabled={addWatchlistItem.isPending}` inside the `if (addWatchlistItem.isError)` branch, but this is dead code -- TanStack Query's mutation reducer resets `error`/`isError` to `null`/`false` in the same synchronous dispatch that sets `isPending: true` (`@tanstack/query-core`'s `mutation.ts`, the `'pending'` case), so `isError` and `isPending` can never both be true and this branch is never actually rendered with `disabled` true. Harmless (clicking retry while a previous retry is still in flight just calls `mutate()` again, which TanStack Query already handles safely), but remove the dead prop or, if the intent was genuinely to disable the icon while a retry is in flight, use a separate local 'retrying' flag instead of relying on `isPending` inside the `isError` branch.",
+      "done": false
     }
   ]
 }
