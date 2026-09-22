@@ -1643,8 +1643,8 @@
       "id": "backend-trade-apgar-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-trade-apgar-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-apgar-followups.json"
     },
     {
       "id": "frontend-close-position-dialog",
