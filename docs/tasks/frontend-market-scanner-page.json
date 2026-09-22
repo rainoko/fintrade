@@ -3,7 +3,7 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-market-scanner"
   ],
@@ -59,6 +59,18 @@
       "recorded_by": "task-worker",
       "decision": "Fixed the review's blocking finding by extracting a new `ScannerAddToWatchlistButton({ ticker })` component that calls `useAddWatchlistItem()` and owns its own `added` boolean state, and having ScannerResultsTable's action-column `render` return that component per row instead of a shared `useAddWatchlistItem()`/`addedTickers` Set at the table level. Added a regression test staggering two rows' POST /api/watchlist responses (MSFT resolving before AAPL despite AAPL being clicked first) proving both rows independently flip to 'Added'.",
       "rationale": "The bug was structural, not a state-tracking bug: TanStack Query's MutationObserver.mutate() detaches from whatever mutation it was previously observing as soon as a different mutate() call reattaches the same observer, so one useAddWatchlistItem() instance shared across rows could only ever track the most recently clicked row's onSuccess/isError. Reconciling addedTickers against some other source of truth (e.g. polling the watchlist query) was considered and rejected -- it would still leave a shared mutation's isPending/isError wired to only the latest click, and would add a second, redundant success-detection path instead of fixing the actual observer-sharing root cause. Giving each row its own hook call (one observer per row, matching how DataTable's render(row) already produces one React element per row) is the same pattern this codebase already uses for other per-row state and requires no changes to useAddWatchlistItem itself."
+    },
+    {
+      "timestamp": "2026-09-22T02:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed round 2's first blocking finding by rewriting the regression test's two clicks to use synchronous `fireEvent.click()` (no `await` in between) instead of two sequential `await user.click()` calls. Verified the fix is real by checking out the pre-fix commit (61e9377) into a separate git worktree, copying the rewritten test file over unmodified, and running it there: the concurrency test now correctly fails against the old shared-mutation code (only 1 of 2 rows reaches 'Added') and passes against this branch's fix.",
+      "rationale": "The reviewer proved `await user.click(a); await user.click(b)` never exercises genuine concurrency -- userEvent's returned promise doesn't resolve until React has flushed that click's own state updates, which given the mocked POST's short delay meant the first click's onSuccess had already fired before the second click was even dispatched. `Promise.all([user.click(a), user.click(b)])` was considered (also genuinely concurrent, since neither individual click promise is awaited before the second fires) but `fireEvent.click()` was chosen instead because it's what the reviewer's own comment named as the more direct fix, dispatches synchronously with no promise semantics to reason about at all, and needed no `userEvent.setup()` in this particular test now that no other user-event-only behavior (hover, typing) is exercised by it."
+    },
+    {
+      "timestamp": "2026-09-22T02:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed round 2's second blocking finding by replacing ScannerAddToWatchlistButton's failed-add rendering of the full common/ErrorState block with a compact Tooltip-wrapped error IconButton (aria-label and Tooltip title both carry the failure's ApiError.detail; clicking it retries the same mutate() call). No existing 'compact inline error state for a table cell' component or convention was found anywhere in the codebase (grepped for Tooltip usage and every other per-row-mutation-error case -- PositionsTable.tsx, WatchlistTable.tsx -- both render ErrorState as a sibling above their whole table, never per-row/per-cell), so this is a new, narrowly-scoped pattern rather than a reuse of an existing one.",
+      "rationale": "A full ErrorState block (icon + heading + body, meant to occupy a page/section) inside a <TableCell> makes that cell the tallest in its row and stretches every other cell in the same row to match, per the reviewer's finding. An icon-sized affordance keeps the row's height unchanged regardless of error state. A Tooltip (rather than inline Typography text, which would still add vertical space, just less of it) was chosen so the failure detail is available on demand (hover/focus) without permanently growing the cell at all; wrapping the retry action in the same control (rather than a separate icon plus a separate retry button) avoids adding a second interactive element to an already-narrow action column. Promoting this to a components/common/ component was considered and rejected for now -- with exactly one caller, extracting a common component ahead of a second real use case would be speculative generalization; if a second per-row-mutation-error case appears (e.g. frontend-position-risk-columns or a future per-row table action), that is the point to lift this into common/, not before."
     }
   ],
   "git": {

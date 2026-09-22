@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
@@ -67,10 +67,21 @@ describe('ScannerResultsTable', () => {
 
   it('resolves two concurrent adds on different rows independently (regression, PR #243)', async () => {
     // Each row must own its own mutation instance: staggering the two rows'
-    // responses (MSFT resolves before AAPL, even though AAPL was clicked
+    // responses (MSFT resolves before AAPL, even though AAPL is clicked
     // first) reproduces the shared-mutation bug from the review, where the
     // second row's mutate() detached the first row's observer and its
     // onSuccess never fired once its own request completed.
+    //
+    // The two clicks must be genuinely concurrent to exercise that race —
+    // `await user.click(...)` doesn't return until React has flushed that
+    // click's own state updates, which (before this fix existed) meant the
+    // first click's mocked response, and its onSuccess, had already resolved
+    // before this test even dispatched the second click. That made the
+    // original version of this test pass against both the buggy pre-fix code
+    // and the fix, proving nothing. `fireEvent.click` fires the DOM event
+    // synchronously and returns immediately (no promise to await), so both
+    // clicks are dispatched — and both POSTs in flight — before either
+    // mocked response resolves.
     server.use(
       http.post('/api/watchlist', async ({ request }) => {
         const body = (await request.json()) as { ticker: string }
@@ -81,12 +92,11 @@ describe('ScannerResultsTable', () => {
         )
       }),
     )
-    const user = userEvent.setup()
     renderResultsTable(results)
 
     const addButtons = screen.getAllByRole('button', { name: 'Add to watchlist' })
-    await user.click(addButtons[0])
-    await user.click(addButtons[1])
+    fireEvent.click(addButtons[0])
+    fireEvent.click(addButtons[1])
 
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(2),
@@ -94,7 +104,7 @@ describe('ScannerResultsTable', () => {
     expect(screen.queryByRole('button', { name: 'Add to watchlist' })).not.toBeInTheDocument()
   })
 
-  it('surfaces an add-to-watchlist failure via common/ErrorState', async () => {
+  it('surfaces an add-to-watchlist failure as a compact inline retry icon, not full-block ErrorState', async () => {
     server.use(
       http.post('/api/watchlist', () =>
         HttpResponse.json({ detail: 'Something went wrong.' }, { status: 422 }),
@@ -105,7 +115,30 @@ describe('ScannerResultsTable', () => {
 
     await user.click(screen.getAllByRole('button', { name: 'Add to watchlist' })[0])
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
-    expect(screen.getByText('Something went wrong.')).toBeInTheDocument()
+    const retryButton = await screen.findByRole('button', {
+      name: 'Retry adding AAPL to watchlist',
+    })
+    // Not the full ErrorState block: no alert-role landmark, and the second
+    // row's own button is untouched.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to watchlist' })).toBeInTheDocument()
+
+    await user.hover(retryButton)
+    expect(await screen.findByText('Something went wrong. Click to retry.')).toBeInTheDocument()
+
+    // Clicking the icon retries the same add.
+    server.use(
+      http.post('/api/watchlist', () =>
+        HttpResponse.json(
+          { ticker: 'AAPL', added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          { status: 201 },
+        ),
+      ),
+    )
+    await user.click(retryButton)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Added' })).toBeInTheDocument(),
+    )
   })
 })

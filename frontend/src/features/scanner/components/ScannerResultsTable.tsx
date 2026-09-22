@@ -1,10 +1,12 @@
 import AddIcon from '@mui/icons-material/Add'
 import CheckIcon from '@mui/icons-material/Check'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined'
 import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import { useState } from 'react'
 import type { IBKRScannerResultOut } from '../../../api/ibkr'
 import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
-import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { useAddWatchlistItem } from '../../watchlist/hooks/useAddWatchlistItem'
 
@@ -24,24 +26,55 @@ export interface ScannerResultsTableProps {
  * server-side add succeeded (see this task's `review.comments`, PR #243).
  * Giving each row its own hook call gives each row its own observer, so
  * concurrent adds on different rows resolve independently.
+ *
+ * A failed add renders a compact `Tooltip`-wrapped error icon button, not
+ * `common/ErrorState` — ErrorState is a full page/section-scale icon+heading
+ * +body block (see its own doc comment) meant to sit as a sibling above a
+ * whole table (PositionsTable.tsx, WatchlistTable.tsx both do exactly that
+ * for their own table-wide mutation errors), not inside one of that table's
+ * cells — an HTML table row expands every cell to the tallest one, so
+ * embedding ErrorState's block here broke this row's height relative to
+ * every other row on a failed add (round 2 regression, PR #243). The icon
+ * button doubles as a retry affordance (clicking it re-fires the same
+ * `mutate()` call) and carries the failure detail as both its Tooltip title
+ * and its `aria-label`, so it's discoverable without adding any visible
+ * vertical space to the row.
  */
 function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
   const addWatchlistItem = useAddWatchlistItem()
   const [added, setAdded] = useState(false)
 
+  const handleAdd = () =>
+    addWatchlistItem.mutate({ ticker }, { onSuccess: () => setAdded(true) })
+
+  if (addWatchlistItem.isError) {
+    return (
+      <Tooltip title={`${addWatchlistItem.error.detail} Click to retry.`}>
+        <span>
+          <IconButton
+            aria-label={`Retry adding ${ticker} to watchlist`}
+            size="small"
+            color="error"
+            disabled={addWatchlistItem.isPending}
+            onClick={handleAdd}
+          >
+            <ErrorOutlineIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+    )
+  }
+
   return (
-    <>
-      {addWatchlistItem.isError && <ErrorState error={addWatchlistItem.error} />}
-      <Button
-        size="small"
-        startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
-        disabled={added}
-        loading={addWatchlistItem.isPending}
-        onClick={() => addWatchlistItem.mutate({ ticker }, { onSuccess: () => setAdded(true) })}
-      >
-        {added ? 'Added' : 'Add to watchlist'}
-      </Button>
-    </>
+    <Button
+      size="small"
+      startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
+      disabled={added}
+      loading={addWatchlistItem.isPending}
+      onClick={handleAdd}
+    >
+      {added ? 'Added' : 'Add to watchlist'}
+    </Button>
   )
 }
 
