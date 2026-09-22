@@ -3,15 +3,35 @@
   "title": "Surface entry_notes in the add-position form and Trade Journal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-journal-entry-notes"],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
   ],
   "description": "Surface the new entry_notes field: an optional input on AddPositionDialog when opening a position, and displayed in TradeJournalPanel once that trade closes.",
   "checklist": [
-    { "step": "Add an optional notes field to AddPositionDialog.", "done": false },
-    { "step": "Display entry_notes in TradeJournalPanel's closed-trade rows (e.g. an expandable detail, not necessarily a full extra column).", "done": false },
-    { "step": "Component tests for both surfaces, including the no-notes case.", "done": false }
+    { "step": "Add an optional notes field to AddPositionDialog.", "done": true },
+    { "step": "Display entry_notes in TradeJournalPanel's closed-trade rows (e.g. an expandable detail, not necessarily a full extra column).", "done": true },
+    { "step": "Component tests for both surfaces, including the no-notes case.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T03:08:50Z",
+      "recorded_by": "task-worker",
+      "decision": "TradeJournalPanel surfaces `entry_notes` as an expandable detail: a new non-sortable 'Notes' column whose cell is either an em dash (no note) or a small icon (`StickyNote2Outlined`) that opens `common/InfoBalloon` with the full note text, wired up via a feature-local `NotesCell` helper in TradeJournalPanel.tsx rather than a new common component.",
+      "rationale": "The checklist explicitly suggests 'an expandable detail, not necessarily a full extra column' -- a plain always-visible text column would either truncate long free-text notes or blow out row height for the common case (most trades have no note). `InfoBalloon` already exists precisely for 'click a trigger, get a popover explanation' (built for MetricHelp) and is domain-agnostic, so reusing it directly avoids inventing a second popover mechanism. The thin `NotesCell` wrapper stays feature-local (like `GradeCell` in this same file) since deciding *when* to show the trigger vs. an em dash is domain-specific to a closed trade's `entry_notes`, mirroring the GradeCell/MetricHelp split already established in this file -- promoting it to `components/common/` was rejected since nothing else currently needs an em-dash-or-note-icon cell specifically."
+    },
+    {
+      "timestamp": "2026-09-22T03:08:50Z",
+      "recorded_by": "task-worker",
+      "decision": "AddPositionDialog's new 'Notes (optional)' field is a plain multiline MUI `TextField` with no client-side validation (the field is entirely optional, matching `PositionIn.entry_notes`'s own nullable/optional schema), and the client omits the `entry_notes` key from the POST body entirely when the trimmed value is empty rather than sending an explicit empty string.",
+      "rationale": "The backend already strips and normalizes an empty/whitespace-only `entry_notes` to null (backend-trade-journal-entry-notes-followups), so sending `''` would work correctly either way, but omitting the key when there's nothing to say keeps the request payload's shape matching 'no notes were given' rather than 'notes were given and happened to be empty' -- consistent with how the rest of this form only includes fields the user actually filled in conceptually, even though the other fields are all required so this distinction didn't previously arise here."
+    },
+    {
+      "timestamp": "2026-09-22T03:08:50Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended `frontend/tests/mocks/handlers.ts`'s `POST /api/portfolio/positions` mock handler to actually store and echo `entry_notes` on create, and to append (blank-line separated) on a same-ticker merge -- mirroring the real backend's merge-append behavior recorded in the `backend-trade-journal-entry-notes` task's own `decisions` -- rather than leaving the shared mock oblivious to the field.",
+      "rationale": "Without this, any test asserting the mock portfolio actually persists/echoes `entry_notes` (including a future GET /api/portfolio round-trip test) would silently fail against a mock that drops the field, which would misrepresent the real API's contract that this task's frontend UI now depends on. This is test infrastructure shared beyond just this task's two component tests, but keeping it accurate is a small, low-risk addition that avoids the mock diverging from the real backend it stands in for."
+    }
   ]
 }

@@ -27,6 +27,7 @@ interface FormState {
   quantity: string
   avgCostBasis: string
   entryDate: string
+  notes: string
 }
 
 interface FormErrors {
@@ -36,7 +37,13 @@ interface FormErrors {
   entryDate?: string
 }
 
-const emptyForm: FormState = { ticker: '', quantity: '', avgCostBasis: '', entryDate: '' }
+const emptyForm: FormState = {
+  ticker: '',
+  quantity: '',
+  avgCostBasis: '',
+  entryDate: '',
+  notes: '',
+}
 
 function isPositiveFinite(value: number): boolean {
   return Number.isFinite(value) && value > 0
@@ -118,12 +125,19 @@ export default function AddPositionDialog({
     const normalizedTicker = form.ticker.trim().toUpperCase()
     const merging = existingTickers.includes(normalizedTicker)
 
+    const trimmedNotes = form.notes.trim()
+
     addPosition.mutate(
       {
         ticker: normalizedTicker,
         quantity: Number(form.quantity),
         avg_cost_basis: Number(form.avgCostBasis),
         entry_date: form.entryDate,
+        // Omitted entirely (rather than sent as an empty string) when blank
+        // -- the backend already normalizes "" / whitespace-only to null
+        // (PositionIn.entry_notes), but not sending the key at all keeps the
+        // request body itself free of a pointless empty value.
+        ...(trimmedNotes ? { entry_notes: trimmedNotes } : {}),
       },
       {
         onSuccess: () => {
@@ -197,6 +211,15 @@ export default function AddPositionDialog({
                 helperText={errors.entryDate}
                 slotProps={{ inputLabel: { shrink: true } }}
                 fullWidth
+              />
+              <TextField
+                label="Notes (optional)"
+                value={form.notes}
+                onChange={handleChange('notes')}
+                multiline
+                minRows={2}
+                fullWidth
+                helperText="Why did you take this trade? (Elder ch. 59 Trade Journal Section A)"
               />
             </Stack>
           </DialogContent>
