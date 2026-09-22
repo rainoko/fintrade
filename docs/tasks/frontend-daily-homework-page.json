@@ -3,17 +3,43 @@
   "title": "'Am I ready to trade?' daily self-test form",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-daily-homework-self-test"],
   "references": [
     "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
   ],
   "description": "A small daily form for the ch. 57 psychological readiness self-test, showing the color-coded (red/yellow/green) summary score, backed by backend-daily-homework-self-test.",
   "checklist": [
-    { "step": "Build a form for the 5 questions with the book's own 0/1/2 answer options (feeling physically, yesterday's trading result, planning done, mood, schedule busyness).", "done": false },
-    { "step": "Show the summed score with the book's own color-banding (<=4 red, 5-6 yellow, 7-8 green, 9-10 yellow).", "done": false },
-    { "step": "Wire to the backend endpoint via a TanStack Query hook.", "done": false },
-    { "step": "Decide page placement (a new standalone route vs. part of an existing page/dashboard) and record.", "done": false },
-    { "step": "Component tests covering each color band.", "done": false }
+    { "step": "Build a form for the 5 questions with the book's own 0/1/2 answer options (feeling physically, yesterday's trading result, planning done, mood, schedule busyness).", "done": true },
+    { "step": "Show the summed score with the book's own color-banding (<=4 red, 5-6 yellow, 7-8 green, 9-10 yellow).", "done": true },
+    { "step": "Wire to the backend endpoint via a TanStack Query hook.", "done": true },
+    { "step": "Decide page placement (a new standalone route vs. part of an existing page/dashboard) and record.", "done": true },
+    { "step": "Component tests covering each color band.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Placement: a new standalone route (`/homework`, `DailyHomeworkPage`) with its own top-level `NavDrawer` entry ('Daily Homework'), not folded into `DashboardPage` as an embedded card.",
+      "rationale": "Every existing card DashboardPage composes (RiskSummaryCard, SellFlaggedPositionsCard, PositionsGlanceTable) is derived from the exact same `usePortfolio`/`usePortfolioRisk` data the Portfolio page already fetches -- DashboardPage.tsx's own doc comment is explicit that it's 'an at-a-glance summary composed entirely from data/hooks the Portfolio page and its risk panel already wired... no new API calls'. The daily homework self-test is a genuinely separate concern with its own backend resource (`daily_homework_entries`, three new endpoints) and no portfolio/ticker data of its own, the same shape of 'standalone destination with no ticker/position to drill in from' that justified `/methodology` getting its own nav entry despite also being a small, self-contained page (frontend-methodology-explainer's own precedent). Rejected embedding it as a Dashboard widget: it would mix an unrelated new data-fetch into a page explicitly scoped to reusing existing portfolio hooks, and a 5-question form (five selects + a submit button) doesn't fit the compact 'at a glance' card format the rest of that page uses -- it would either dominate the page or need to be collapsed/hidden, adding its own placement complexity for no benefit over a one-click nav destination. A standalone page also leaves room for this feature to grow (a history/trend view over `GET /api/daily-homework`, not built in this task) without further crowding the Dashboard."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`DailyHomeworkForm`'s initial answers come from two blocking queries resolved before the interactive form ever mounts (`useDailyHomeworkToday`, `useYesterdayTradingSuggestion`), not from a `useEffect` that seeds local state after the component mounts.",
+      "rationale": "An effect-based 're-seed local state from a query result once it arrives' pattern is exactly the case React's own guidance (and this repo's `eslint-plugin-react-hooks` `react-hooks/set-state-in-effect` rule, which failed the build on the first draft of this component) calls out as unnecessary: the seed value is already computable during render once both queries have settled, so the child `HomeworkQuestionsForm` component simply mounts with that value as its initial `useState`, never re-synced afterward. Waiting for both queries (both fast, local-only endpoints) before rendering the interactive fields was chosen over rendering immediately with a neutral default and letting a later-arriving suggestion silently overwrite an in-progress answer -- the latter would need the same forbidden effect-based approach to implement correctly (or a manual 'has the user touched this field yet' flag purely to work around the timing race), for a one-time, sub-second wait that's imperceptible in practice. A failed `useYesterdayTradingSuggestion` fetch is treated as 'no suggestion available' (silently falls back to the neutral default) rather than blocking the form or showing an error, since it's a pure optional enhancement over Elder's fully-manual version of that one question -- only `useDailyHomeworkToday`'s failure blocks (showing `common/ErrorState`), since not knowing whether today's entry already exists could otherwise produce an incorrect Save/Update experience."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Every question defaults to the neutral middle answer (1) when there's no already-recorded entry for today, except `yesterday_trading_score`, which instead defaults to `GET /api/daily-homework/yesterday-trading-suggestion`'s `suggested_score` whenever one is available.",
+      "rationale": "Defaulting every question to 0 would render the form already showing a 'red'/'don't trade' band before the user has answered anything, which misrepresents an unanswered form as the worst possible score; defaulting to 2 is the opposite, overly optimistic bias. 1 (neutral/middle) is the only value that doesn't bias the initial band in either direction. `yesterday_trading_score` is the one exception because the backend already computes a genuine, data-derived suggestion for it specifically so 'most days require zero extra typing' for that one question (per `backend-daily-homework-self-test`'s own `decisions` entry) -- using the neutral default there instead would silently discard that suggestion endpoint's entire purpose. An already-recorded entry for today always takes priority over both the neutral default and the suggestion, since it's the user's own previously-submitted true answer, never silently replaced."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`HomeworkScoreBanner` (the red/yellow/green summary banner) lives under `features/homework/components/`, not `components/common/`, despite taking only a plain `{ totalScore, band }` prop with no fetch of its own.",
+      "rationale": "Unlike `components/common/SignalBadge` (a pure color-by-string-union chip with no interpretive text), this banner bakes in wording specific to this self-test's own meaning of 'red'/'yellow'/'green' -- notably that the *same* 'yellow' band means two different things depending on `totalScore` (5-6 'trade cautiously' vs. 9-10 Elder's own 'with everything so perfect, any change is bound to be for the worse' caution), which only makes sense in the context of this specific 0-10 homework score. No other domain in this app currently has red/yellow/green bands with this meaning (the closest analog, `confidence_band`, uses a completely different Low/Medium/High scale via `common/ConfidenceGauge`), so there's no real current reuse case to justify hoisting it to `common/`; if a second red/yellow/green-with-interpretive-copy use case appears later, consolidating at that point (per the skill's own near-duplicate guidance) is preferable to speculatively generalizing now."
+    }
   ]
 }
