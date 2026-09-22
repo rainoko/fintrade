@@ -3,7 +3,7 @@
   "title": "CFTC Commitments of Traders (COT) report data, as futures-market context",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#consensuscommitment-indicators-ch-37--mostly-already-built-or-genuinely-unavailable-cftc-data-is-the-one-real-gap"
@@ -39,6 +39,12 @@
       "recorded_by": "task-worker",
       "decision": "This surfaces as a new, standalone `GET /api/cftc/cot` endpoint (`app/api/routers/cftc.py`) returning all 5 fixed markets' current + recent positioning in one response -- not wired into `app.signals`/`app.portfolio` or any per-stock-ticker analysis endpoint in any way. `CFTCCOTProvider` is injected via a plain per-request `get_cftc_cot_provider` FastAPI dependency (a fresh, stateless instance each call, mirroring `get_data_provider`'s yfinance/Stooq construction) rather than a process-wide singleton like `get_ibkr_provider`'s, and the endpoint always fetches fresh from CFTC on every request with no local DB-backed cache/persistence layer (unlike `CachedDataProvider`'s OHLCV/extended-data caches or `IBKRBreadthSnapshotORM`'s once-per-day snapshot table).",
       "rationale": "The task's own description is explicit that this is 'informational context... not something that plugs into any per-stock-ticker signal', so no route/module in app.signals or app.portfolio references it, matching how IBKR's market-scanner/breadth features are also kept out of the signal engine. No singleton is needed because `CFTCCOTProvider` (unlike `IBKRProvider`) has no per-instance rate-limit/session/cache state to preserve across requests -- constructing it fresh per call costs nothing. No DB cache was added because the task's checklist scopes this to 'a minimal fetch' and the underlying CFTC data only changes weekly regardless of how often this app's own endpoint is called; adding a caching layer (e.g. a new ORM table keyed by market+report_date, mirroring `IBKRBreadthSnapshotORM`) is a reasonable follow-up if this endpoint turns out to be called often enough that repeated CFTC round-trips matter, but was left out here as an unnecessary complication for a first, minimal version."
+    },
+    {
+      "timestamp": "2026-09-22T17:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the pr-reviewer needs_work blocking finding (PR #270 review): `CFTCCOTProvider.get_all_recent()`'s row-grouping step now wraps `row['cftc_contract_market_code']` in a try/except (`KeyError`, `TypeError`) that raises `DataProviderUnavailableError`, matching `_to_report()`'s own established convention a few lines below, instead of letting a bare `KeyError` escape past the router's `except DataProviderUnavailableError` handler as an unhandled 500. Added a unit regression test (`TestGetAllRecent.test_row_missing_contract_code_raises_data_provider_unavailable`) and an integration-level regression test reproducing the reviewer's exact repro (`test_malformed_cftc_row_returns_503_not_500`: real `CFTCCOTProvider` with `_request` patched to return a row missing the key, hit `GET /api/cftc/cot`, assert 503) since the existing integration tests all stub `get_all_recent()` itself and so couldn't have caught this. Did not touch the non-blocking oil/bonds display-name documentation finding from the same review -- that's tracked separately as the `backend-cftc-cot-data-followups` task per the review comment.",
+      "rationale": "TypeError (not just KeyError) is also caught because a malformed CFTC response could plausibly return a non-dict row (e.g. a bare string or list entry) in the same slot, which would raise TypeError rather than KeyError on subscript access -- consistent with `_to_report`'s own broader except clause a few lines below in the same file, and cheap to include defensively rather than leaving a second, narrower bare-exception gap right next to the one just fixed."
     }
   ],
   "git": {

@@ -131,6 +131,18 @@ class TestGetAllRecent:
         assert [r.report_date.isoformat() for r in result["eur"]] == ["2026-09-15", "2026-09-08"]
         assert len(result["jpy"]) == 1
 
+    def test_row_missing_contract_code_raises_data_provider_unavailable(self, mocker) -> None:
+        """Regression test for the pr-reviewer needs_work finding on PR #270: a row
+        without a `cftc_contract_market_code` key (e.g. an unexpected/renamed CFTC
+        response field) must degrade to the documented `DataProviderUnavailableError` ->
+        503 contract, not escape as a bare `KeyError` from the grouping step in
+        `get_all_recent` (before `_to_report`'s own try/except ever runs)."""
+        bad_row = {"market_and_exchange_names": "GOLD - COMMODITY EXCHANGE INC."}
+        mocker.patch("app.data.cftc_cot_provider.CFTCCOTProvider._request", return_value=[bad_row])
+
+        with pytest.raises(DataProviderUnavailableError):
+            CFTCCOTProvider().get_all_recent()
+
     def test_missing_market_in_response_raises_data_provider_unavailable(self, mocker) -> None:
         rows = [
             _row(code=code, name=f"NAME-{key}", report_date="2026-09-15")

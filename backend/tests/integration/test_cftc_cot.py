@@ -116,6 +116,24 @@ def test_provider_unavailable_raises_503(client: TestClient) -> None:
     assert "boom" in response.json()["detail"]
 
 
+def test_malformed_cftc_row_returns_503_not_500(client: TestClient, mocker) -> None:
+    """Regression test for the pr-reviewer needs_work finding on PR #270 (reproduced
+    there by patching `CFTCCOTProvider._request` to return a row without a
+    `cftc_contract_market_code` key and hitting this exact endpoint -> 500, not the
+    documented 503). Uses the real `CFTCCOTProvider` (not `_StubCFTCCOTProvider`, which
+    bypasses `get_all_recent`'s own grouping logic entirely) so the router's real
+    `except DataProviderUnavailableError` handling is what's actually exercised."""
+    mocker.patch(
+        "app.data.cftc_cot_provider.CFTCCOTProvider._request",
+        return_value=[{"market_and_exchange_names": "X"}],
+    )
+    app.dependency_overrides[get_cftc_cot_provider] = lambda: CFTCCOTProvider()
+
+    response = client.get("/api/cftc/cot")
+
+    assert response.status_code == 503
+
+
 def test_real_provider_is_wired_by_default() -> None:
     """`get_cftc_cot_provider` (no override) yields a real `CFTCCOTProvider` -- confirms
     the dependency is actually wired into the app, distinct from every other test in this

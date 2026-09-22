@@ -129,7 +129,13 @@ class CFTCCOTProvider:
 
         reports_by_code: dict[str, list[dict]] = {code: [] for code in codes}
         for row in rows:
-            reports_by_code.setdefault(row["cftc_contract_market_code"], []).append(row)
+            try:
+                row_code = row["cftc_contract_market_code"]
+            except (KeyError, TypeError) as exc:
+                raise DataProviderUnavailableError(
+                    f"CFTC COT row missing 'cftc_contract_market_code': {exc}"
+                ) from exc
+            reports_by_code.setdefault(row_code, []).append(row)
 
         result: dict[str, list[COTWeeklyReport]] = {}
         for market_key, code in COT_MARKETS.items():
