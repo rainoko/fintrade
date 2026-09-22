@@ -300,6 +300,82 @@ describe('PositionsTable', () => {
     expect(screen.getByText('Position not found')).toBeInTheDocument()
   })
 
+  it('surfaces a delayed close-position failure as a page-level banner attributed to the right position, not misattributed to a later-opened dialog for a different one', async () => {
+    let resolveDelete: (status: number) => void = () => {}
+    server.use(
+      http.delete('/api/portfolio/positions/:id', async () => {
+        const status = await new Promise<number>((resolve) => {
+          resolveDelete = resolve
+        })
+        return HttpResponse.json({ detail: 'Position not found' }, { status })
+      }),
+    )
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    // Confirm closing AAPL, then dismiss the dialog via a backdrop click
+    // while the DELETE is still deliberately held pending -- the one way
+    // this dialog can be dismissed early mid-flight (see the double-click
+    // race test above for why a backdrop click, not Escape, exercises this).
+    await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
+    const backdrop = document.querySelector('.MuiBackdrop-root') as HTMLElement
+    await user.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // Nothing has failed yet -- no banner, no dialog.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // Let AAPL's held DELETE resolve as a 404 in the background, with no
+    // dialog open for anyone at all.
+    resolveDelete(404)
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByText(/failed to close aapl/i)).toBeInTheDocument()
+    expect(screen.getByText('Position not found')).toBeInTheDocument()
+
+    // Opening a *different* position's close dialog must not show AAPL's
+    // stale error misattributed to ZZZZ -- the page-level banner (correctly
+    // attributed to AAPL) stays up instead.
+    await user.click(screen.getByRole('button', { name: 'Delete ZZZZ' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText(/failed to close aapl/i)).toBeInTheDocument()
+  })
+
+  it('falls back to a generic "a position" label on the stray-failure banner when the failed position is no longer in the list', async () => {
+    let resolveDelete: (status: number) => void = () => {}
+    server.use(
+      http.delete('/api/portfolio/positions/:id', async () => {
+        const status = await new Promise<number>((resolve) => {
+          resolveDelete = resolve
+        })
+        return HttpResponse.json({ detail: 'Position not found' }, { status })
+      }),
+    )
+    const user = userEvent.setup()
+    const { rerender } = renderPositionsTable(positions)
+
+    await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
+    const backdrop = document.querySelector('.MuiBackdrop-root') as HTMLElement
+    await user.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // Simulate AAPL having since disappeared from the positions list (e.g. an
+    // unrelated refetch) before its own held-pending DELETE finally settles
+    // -- the banner can no longer look its ticker up, so it falls back to a
+    // generic label instead of rendering nothing or crashing.
+    rerender(
+      <MemoryRouter>
+        <PositionsTable positions={[positions[1]]} />
+      </MemoryRouter>,
+    )
+
+    resolveDelete(404)
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByText(/failed to close a position:/i)).toBeInTheDocument()
+  })
+
   it('clears a previous close-position error when Cancel is clicked, so reopening for another row starts clean', async () => {
     server.use(
       http.delete('/api/portfolio/positions/:id', () =>

@@ -1,11 +1,13 @@
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
 import { useState } from 'react'
 import type { PositionOut, RiskPosition } from '../../../api/portfolio'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
+import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import PercentChange from '../../../components/common/PercentChange/PercentChange'
 import SignalBadge from '../../../components/common/SignalBadge/SignalBadge'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
@@ -64,11 +66,43 @@ export interface PositionsTableProps {
  * failure. See this task's `decisions` entry (corrected after PR #258's
  * review) for why an earlier revision of this task added, then removed,
  * that second block.
+ *
+ * A close-position failure's `ErrorState` is scoped to whichever position it
+ * actually belongs to (`deletePosition.variables?.id`), not just "the
+ * currently open dialog": while ClosePositionDialog is open *for that same
+ * position*, the error renders inside it (as `handleConfirmClose`'s own doc
+ * comment describes); once the dialog has been dismissed for that position
+ * (or was never reopened, or is now open for a *different* position — a
+ * backdrop click can dismiss it while a DELETE is still in flight, see
+ * `handleCancelClose`), the same error instead renders as a page-level
+ * banner below, explicitly naming the position it belongs to. This is what
+ * makes a background failure both (a) never invisible -- it's always shown
+ * somewhere once it settles, dialog or banner -- and (b) never misattributed
+ * to an unrelated, later-opened dialog for a different position. See this
+ * task's `decisions` entry (PR #261 review) for the bug this fixes: the
+ * dialog previously received `deletePosition.error` unconditionally, so a
+ * stale error from a dismissed-while-pending close could render inside a
+ * different position's dialog once reopened, or vanish entirely if none was
+ * reopened.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
   const deletePosition = useDeletePosition()
   const riskQuery = usePortfolioRisk()
+
+  // `deletePosition.error`/`.variables` describe whichever close attempt
+  // last failed, which isn't necessarily the position the dialog is
+  // currently open for (see this component's own doc comment above) --
+  // `belongsToOpenDialog` is what decides whether that error renders inside
+  // ClosePositionDialog itself or as the page-level banner below instead.
+  const belongsToOpenDialog =
+    pendingDelete !== null && deletePosition.variables?.id === pendingDelete.id
+  const dialogCloseError = belongsToOpenDialog ? deletePosition.error : null
+  const strayCloseError =
+    !belongsToOpenDialog && deletePosition.isError ? deletePosition.error : null
+  const strayCloseTicker = strayCloseError
+    ? positions.find((position) => position.id === deletePosition.variables?.id)?.ticker
+    : undefined
 
   const riskByTicker = new Map<string, RiskPosition>(
     (riskQuery.data?.positions ?? []).map((riskPosition) => [
@@ -212,6 +246,14 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   return (
     <Box>
+      {strayCloseError && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Failed to close {strayCloseTicker ?? 'a position'}:
+          </Typography>
+          <ErrorState error={strayCloseError} />
+        </Box>
+      )}
       <DataTable
         columns={columns}
         rows={positions}
@@ -222,7 +264,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
       <ClosePositionDialog
         position={pendingDelete}
         isPending={deletePosition.isPending}
-        error={deletePosition.error}
+        error={dialogCloseError}
         onConfirm={handleConfirmClose}
         onCancel={handleCancelClose}
       />
