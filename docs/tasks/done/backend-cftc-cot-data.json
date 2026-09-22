@@ -70,5 +70,10 @@
       }
     ],
     "notes": "Round 2 re-review of task-worker's fix for round 1's blocking finding. Backend suite: 1194 passed (1192 + 2 new regression tests), 100% line/branch coverage (well above the 90% gate). Static analysis: ruff clean on every file this PR touches (pre-existing ruff findings elsewhere in the repo, in unrelated indicator/triple_screen test files this PR doesn't modify, are unchanged); mypy clean. backend/openapi.json regenerated via `python scripts/export_openapi.py` and diffed clean -- still genuinely in sync; this fix changed no schema/route signature. No UI surface: only the generated frontend/src/api/types.ts changed, no component/page touched by either the original PR or the fix, so no browser walkthrough or e2e run applies (explicitly noting per review process steps 9/9a rather than silently skipping). All prior round-1-verified decisions entries stand unchanged. Verdict: accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T16:27:51Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite myself: 1194 passed, 100% line/branch coverage, matching pr-reviewer's numbers exactly. Reproduced the round-1 bug directly in a scratch git worktree at pre-fix commit b7dfabb -- dropping in the new integration test there raises a bare unhandled KeyError (500), while the same test passes with a 503 on current HEAD, confirming the fix is genuine and not merely test-shaped. Re-ran `scripts/export_openapi.py` and diffed clean (openapi.json still in sync). Ruff/mypy clean on all changed files. Hand-verified cot_index(10000, [10000, 5000]) == 100.0 and the three cot_index() unit-test cases (0/50/100) by hand; math checks out. Skimmed the full diff (provider, router, schemas, dependencies, docs, tests) -- no undersold findings; the one non-blocking display-name nit is correctly tracked on backend-cftc-cot-data-followups (still planned) and does not affect functionality since display_name is always populated live, never hardcoded."
   }
 }
