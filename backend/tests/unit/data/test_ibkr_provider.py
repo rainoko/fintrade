@@ -152,6 +152,73 @@ class TestGetHourlyBars:
         assert request.call_args.kwargs["params"]["conid"] == "265598"
         assert request.call_args.kwargs["params"]["bar"] == "1h"
 
+    def test_bar_size_defaults_to_1h_so_existing_callers_are_unaffected(self, mocker) -> None:
+        """No `bar_size` argument at all -- the pre-`backend-ibkr-bar-interval-param`
+        call shape -- must still request `bar=1h`."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": [self._bar_at(hours_ago=1)]},
+        )
+
+        IBKRProvider().get_hourly_bars(265598)
+
+        assert request.call_args.kwargs["params"]["bar"] == "1h"
+
+    def test_explicit_bar_size_is_passed_through(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": [self._bar_at(hours_ago=1)]},
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=5, bar_size="5min")
+
+        assert request.call_args.kwargs["params"]["bar"] == "5min"
+
+    def test_invalid_bar_size_raises_value_error_without_a_request(self, mocker) -> None:
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(ValueError, match="Unsupported IBKR bar interval"):
+            IBKRProvider().get_hourly_bars(265598, bar_size="39min")
+
+        request.assert_not_called()
+
+    def test_pagination_cursor_steps_by_the_requested_bar_size_not_a_hardcoded_hour(
+        self, mocker
+    ) -> None:
+        """A finer `bar_size` than the `1h` this pagination logic was originally written
+        against must step the `startTime` cursor back by one bar's worth of time, not a
+        hardcoded hour -- otherwise bars between (earliest - one bar) and
+        (earliest - 1h) would be silently skipped."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        first_page = {"data": [self._bar_at(hours_ago=i / 60) for i in range(1000)]}
+        second_page = {"data": [self._bar_at(hours_ago=1000 / 60 + 1)]}
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[first_page, second_page],
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=60, bar_size="1min")
+
+        earliest_first_page = min(
+            datetime.fromtimestamp(row["t"] / 1000, tz=UTC) for row in first_page["data"]
+        )
+        expected_start_time = (earliest_first_page - timedelta(minutes=1)).strftime(
+            "%Y%m%d-%H:%M:%S"
+        )
+        second_call_params = request.call_args_list[1].kwargs["params"]
+        assert second_call_params["startTime"] == expected_start_time
+
     def test_paginates_backward_when_first_page_is_full(self, mocker) -> None:
         """A full 1,000-bar first page (spanning ~41.6 days back, less than the 60-day
         lookback requested) must trigger a second call with a `startTime` cursor --

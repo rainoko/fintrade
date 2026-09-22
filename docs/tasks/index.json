@@ -1552,7 +1552,7 @@
       "id": "backend-ibkr-bar-interval-param",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-bar-interval-param.json"
     },
     {
