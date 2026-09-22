@@ -16,17 +16,26 @@ const SEVERITY_BY_BAND: Record<HomeworkBand, AlertColor> = {
 
 // `band` alone doesn't distinguish the book's two very different "yellow"
 // readings -- 5-6 ("trade cautiously") vs. 9-10 ("everything is so perfect,
-// any change is bound to be for the worse") -- so this reads `totalScore`
-// too, matching docs/ideas.md's ch. 57 entry / API.md's own band-threshold
-// wording exactly rather than collapsing both into one generic caption.
-function messageFor(totalScore: number, band: HomeworkBand): string {
+// any change is bound to be for the worse") -- so the component below
+// computes this once per render (matching docs/ideas.md's ch. 57 entry /
+// API.md's own band-threshold wording exactly) and passes the result to
+// `messageFor`/`iconFor`/the inline JSX label suffix, rather than each of
+// those three call sites re-deriving the same `band === 'yellow' &&
+// totalScore >= 9` condition independently -- which risked one getting out
+// of sync with the others on a future threshold/band-naming change -- see
+// this task's `decisions` entry (frontend-daily-homework-page-followups-followups).
+function isTooPerfectBand(totalScore: number, band: HomeworkBand): boolean {
+  return band === 'yellow' && totalScore >= 9
+}
+
+function messageFor(band: HomeworkBand, isTooPerfect: boolean): string {
   if (band === 'red') {
     return "Don't trade today."
   }
   if (band === 'green') {
     return 'Good to trade.'
   }
-  if (totalScore >= 9) {
+  if (isTooPerfect) {
     return (
       'With everything so perfect, any change is bound to be for the worse -- stay disciplined ' +
       'and don\'t let a great score talk you into taking on more risk than usual.'
@@ -45,8 +54,8 @@ function messageFor(totalScore: number, band: HomeworkBand): string {
 // treats an over-perfect score as its own caution, not a lesser one) for the
 // high-yellow case gives a fast-glance visual cue without changing the
 // amber/warning color semantics -- see this task's `decisions` entry.
-function iconFor(totalScore: number, band: HomeworkBand) {
-  if (band === 'yellow' && totalScore >= 9) {
+function iconFor(isTooPerfect: boolean) {
+  if (isTooPerfect) {
     return <SelfImprovementIcon fontSize="inherit" />
   }
   return undefined
@@ -62,17 +71,19 @@ function iconFor(totalScore: number, band: HomeworkBand) {
  * its own -- see this task's `decisions` entry.
  */
 export default function HomeworkScoreBanner({ totalScore, band }: HomeworkScoreBannerProps) {
+  const isTooPerfect = isTooPerfectBand(totalScore, band)
+
   return (
     <Alert
       severity={SEVERITY_BY_BAND[band]}
-      icon={iconFor(totalScore, band)}
+      icon={iconFor(isTooPerfect)}
       data-testid="homework-score-banner"
     >
       <Typography sx={{ fontWeight: 700 }}>
         {totalScore}/10 -- {band.toUpperCase()}
-        {band === 'yellow' && totalScore >= 9 ? ' (too perfect)' : ''}
+        {isTooPerfect ? ' (too perfect)' : ''}
       </Typography>
-      <Typography variant="body2">{messageFor(totalScore, band)}</Typography>
+      <Typography variant="body2">{messageFor(band, isTooPerfect)}</Typography>
     </Alert>
   )
 }
