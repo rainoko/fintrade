@@ -27,14 +27,16 @@ of matching contracts, never a genuine full-market count or percentage) and
 docs/Analyse.md's "IBKR-scanner breadth approximation" section for the full caveat.
 """
 
+import logging
 import math
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
 from app.api.schemas import (
+    ROLLING_WINDOW_DAYS,
     ErrorDetail,
     IBKRBreadthSnapshotRequest,
     IBKRBreadthSnapshotResponse,
@@ -56,14 +58,9 @@ from app.db.session import get_db
 from app.time_utils import today, utcnow
 
 router = APIRouter(prefix="/api/ibkr", tags=["ibkr"])
+logger = logging.getLogger(__name__)
 
 _DISABLED_DETAIL = "IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set)."
-
-# ch. 34's own two rolling windows over the daily figure: "weekly NH-NL" (a 5-trading-day
-# moving total) and "20-day NH-NL" (a rolling monthly look-back) -- see this task's
-# `decisions` entry for why no other window is added.
-_ROLLING_WINDOW_DAYS = (5, 20)
-_MAX_ROLLING_WINDOW_DAYS = max(_ROLLING_WINDOW_DAYS)
 
 # Shared 429 `responses={}` entry for `run_ibkr_scanner` and
 # `record_ibkr_breadth_snapshot` -- both eventually call `IBKRProvider.run_scanner`, the
@@ -334,23 +331,55 @@ def record_ibkr_breadth_snapshot(
             recorded_at=utcnow(),
         )
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+        except (IntegrityError, OperationalError) as exc:
+            # Two concurrent first-of-the-day requests for the same (series_key,
+            # snapshot_date) can both see `row is None` above and both attempt to insert
+            # it, so the loser's commit hits the composite primary key (IntegrityError) --
+            # or, under SQLite's default file-level locking (no WAL mode/busy_timeout
+            # configured, app/db/session.py), OperationalError ("database is locked").
+            # Same category of race already caught this way for OHLCVCacheORM's
+            # `_upsert`/`_upsert_extended` (app/data/cache.py) -- but unlike that cache
+            # (which can safely discard the loser's write and still return the frame it
+            # fetched, independent of the DB), this route's response fields are read from
+            # the persisted row itself, so the loser must roll back its own failed insert
+            # and fall back to reading the winner's already-committed row instead of just
+            # swallowing the error. See this task's `decisions` entry.
+            db.rollback()
+            logger.warning(
+                "Concurrent breadth-snapshot population for series_key=%r date=%s raced "
+                "this insert; falling back to the concurrently-committed row. (%s: %s)",
+                body.series_key,
+                snapshot_date,
+                type(exc).__name__,
+                exc,
+            )
+            winner = db.get(IBKRBreadthSnapshotORM, (body.series_key, snapshot_date))
+            assert winner is not None, (
+                "an IntegrityError/OperationalError on this composite PK implies a "
+                "concurrent committer won the race, so its row must now be visible"
+            )
+            row = winner
+        else:
+            db.refresh(row)
 
-    days_recorded = (
-        db.query(func.count(IBKRBreadthSnapshotORM.snapshot_date))
-        .filter(IBKRBreadthSnapshotORM.series_key == body.series_key)
-        .scalar()
-        or 0
-    )
-    recent_counts = [
+    # Single query (not `func.count()` plus a separately `LIMIT`-ed query) for both
+    # `days_recorded` and the rolling sums below: all of this series' recorded `count`
+    # values, most recent first. Fetches this series' full history rather than bounding it
+    # to `max(ROLLING_WINDOW_DAYS)` rows -- a deliberate trade-off (one round trip instead
+    # of two, at the cost of loading more rows than the rolling sums themselves need) that's
+    # cheap here since this route persists at most one row per series per calendar day. See
+    # this task's `decisions` entry.
+    recorded_counts = [
         c
         for (c,) in db.query(IBKRBreadthSnapshotORM.count)
         .filter(IBKRBreadthSnapshotORM.series_key == body.series_key)
         .order_by(IBKRBreadthSnapshotORM.snapshot_date.desc())
-        .limit(_MAX_ROLLING_WINDOW_DAYS)
         .all()
     ]
+    days_recorded = len(recorded_counts)
+    window_5d, window_20d = ROLLING_WINDOW_DAYS
 
     return IBKRBreadthSnapshotResponse(
         state="available",
@@ -359,6 +388,6 @@ def record_ibkr_breadth_snapshot(
         snapshot_date=snapshot_date,
         count=row.count,
         days_recorded=days_recorded,
-        rolling_5d=sum(recent_counts[:5]) if days_recorded >= 5 else None,
-        rolling_20d=sum(recent_counts[:20]) if days_recorded >= 20 else None,
+        rolling_5d=sum(recorded_counts[:window_5d]) if days_recorded >= window_5d else None,
+        rolling_20d=sum(recorded_counts[:window_20d]) if days_recorded >= window_20d else None,
     )

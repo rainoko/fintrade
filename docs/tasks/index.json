@@ -1748,7 +1748,7 @@
       "id": "backend-market-breadth-indicators-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-market-breadth-indicators-followups.json"
     },
     {

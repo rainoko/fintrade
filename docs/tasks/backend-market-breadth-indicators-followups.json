@@ -3,8 +3,10 @@
   "title": "IBKR-scanner breadth snapshot endpoint — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
-  "depends_on": ["backend-market-breadth-indicators"],
+  "state": "testing",
+  "depends_on": [
+    "backend-market-breadth-indicators"
+  ],
   "references": [
     "docs/tasks/backend-market-breadth-indicators.json#review",
     "https://github.com/rainoko/fintrade/pull/217"
@@ -13,19 +15,45 @@
   "checklist": [
     {
       "step": "record_ibkr_breadth_snapshot's cache-miss path (db.get(...) is None -> db.add(row); db.commit()) has no handling for a concurrent second request for the same (series_key, snapshot_date) racing in between the get() and the commit() -- the composite primary key means the second commit() would raise an uncaught IntegrityError instead of falling back to the now-existing row. Same category of gap already flagged and fixed for OHLCVCacheORM in docs/tasks/done/data-cache-followups.json's third checklist item; not exercised by any test here either. Low real-world likelihood (this is a manually-triggered, low-frequency endpoint) but worth the same treatment for consistency.",
-      "done": false
+      "done": true
     },
     {
       "step": "record_ibkr_breadth_snapshot issues two separate queries after a cache hit/miss is resolved -- a func.count() for days_recorded and a separate ORDER BY ... LIMIT query for the rolling-window counts -- that could be combined into a single query (e.g. fetch all rows once, ordered, and derive both days_recorded and the rolling sums from the same result set) to save a round trip. Purely an efficiency nit; correctness is unaffected either way.",
-      "done": false
+      "done": true
     },
     {
       "step": "test_invalid_series_key_rejected only exercises a series_key with spaces/uppercase against the `^[a-z0-9_-]{1,40}$` pattern; no test exercises the length boundary itself (a 41-character key, or an empty string) to confirm the 1-40 bound is actually enforced as documented.",
-      "done": false
+      "done": true
     },
     {
       "step": "_ROLLING_WINDOW_DAYS = (5, 20) reads like the single source of truth for the rolling windows, but it's only actually consulted via max() to compute the query LIMIT (_MAX_ROLLING_WINDOW_DAYS) -- the literal 5/20 values are separately hardcoded in the rolling_5d/rolling_20d/days_recorded>=5/20 expressions in record_ibkr_breadth_snapshot's return statement (and again in the schema field descriptions). Changing the tuple alone (e.g. to add a third window) wouldn't change behavior, which is misleading. Derive the response fields from the tuple itself (or drop the tuple and just hardcode the two literals with a comment, removing the false impression of a single config point).",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 1 (concurrent-insert race): fixed by wrapping `record_ibkr_breadth_snapshot`'s `db.commit()` in `try/except (IntegrityError, OperationalError)`. On conflict, roll back the loser's own uncommitted row, log a warning, then re-`db.get(...)` the same composite PK to read the concurrently-committed winner's row and use it as `row` for the rest of the response -- rather than discarding the write and returning the loser's own (now-uncommitted) data, which is what `app.data.cache.CachedDataProvider`'s `_upsert`/`_upsert_extended` do for the exact same race shape.",
+      "rationale": "`CachedDataProvider`'s precedent (docs/tasks/done/data-cache-followups.json item 3) can safely swallow the loser's write and still return correct data, because its return value (an OHLCV `frame`) is independent of whether the DB write lands -- the frame was already fetched from the source provider before the write was even attempted. This route's response fields (`count`/`days_recorded`/`rolling_5d`/`rolling_20d`) are read from the persisted row itself, so silently discarding the loser's write the same way would return the loser's own uncommitted/never-persisted `count` as if it were the recorded value, and a same-day re-request would then read back the winner's different, actually-persisted `count` -- a real inconsistency, not just a wasted write. Re-fetching the winner's row instead keeps this route's response always reflecting what's actually persisted for that (series_key, snapshot_date), matching what a same-day repeat call would see. Both `IntegrityError` and `OperationalError` are caught (not just `IntegrityError`), matching `_upsert`'s own reasoning: SQLite's default file-level locking (no WAL mode/`busy_timeout` configured, app/db/session.py) makes a genuinely concurrent commit at least as likely to raise `OperationalError` ('database is locked') depending on timing. Verified with a new integration test (`test_concurrent_first_population_falls_back_to_winners_row`) that forces `db.commit()` to raise `IntegrityError` once (after committing a competing 'winner' row for the same PK, simulating the actual race) and asserts the response reflects the winner's `count`, not the loser's own scan result, with exactly one row persisted. Rejected a locking mechanism (e.g. `BEGIN IMMEDIATE`, an application-level per-series mutex) as disproportionate for a rare race on a manually-triggered, low-frequency endpoint, consistent with `data-cache-followups`' own proportionality reasoning for the identical race shape."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 2 (two separate queries for days_recorded/rolling sums): combined into one query -- all of a series' recorded `count` values, ordered most-recent-first, with no LIMIT -- deriving `days_recorded` as `len(...)` of that result and both rolling sums as slices of the same list, exactly as the checklist item's own suggested example describes.",
+      "rationale": "Removing the previous query's `LIMIT max(ROLLING_WINDOW_DAYS)` means this now fetches a series' full history rather than just the rows the rolling windows need -- a deliberate trade-off (one round trip instead of two, at the cost of loading more rows than strictly necessary for the sums) rather than a pure win, but a cheap one: this route persists at most one row per series per calendar day, so even years of history is a few hundred to a couple thousand rows, trivial for SQLite and this single-user MVP (docs/Architecture.md's documented persistence model). Rejected keeping the LIMIT and doing a second, separate unbounded `func.count()` for `days_recorded` alongside it (no query-count improvement over the original two-query shape, so it wouldn't actually address the finding) and rejected a SQL-level combined aggregate (e.g. a single query computing `COUNT(*)` and windowed `SUM()`s via a subquery/window function) as unnecessary complexity for a table this small, when a single unbounded ORDER BY already gives Python everything needed in one round trip."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 3 (series_key length-boundary test gap): closed by adding three tests -- a 40-char key (the pattern's `{1,40}` upper bound) accepted, a 41-char key rejected, and an empty string rejected (the `{1,40}` lower bound).",
+      "rationale": "All three boundary cases the pattern `^[a-z0-9_-]{1,40}$` actually encodes (max-length accepted, over-max rejected, empty rejected) are now exercised, not just the existing spaces/uppercase-against-the-character-class case `test_invalid_series_key_rejected` already covered. Added the max-length-accepted case too (not just the two rejection cases the checklist item named) since a boundary test that only ever asserts rejection either side of a bound doesn't actually prove the bound is `{1,40}` rather than, say, `{1,39}` or `{2,40}` -- confirming the valid edge is accepted is needed to pin down the boundary precisely, not just that *some* length is rejected on each side."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 4 (_ROLLING_WINDOW_DAYS not a genuine single source of truth): fixed by moving the tuple from app/api/routers/ibkr.py to app/api/schemas.py (renamed `ROLLING_WINDOW_DAYS`, public/unprefixed since it's now imported across modules), and deriving both the router's `rolling_5d`/`rolling_20d`/`days_recorded>=N` computation and the schema's own field-description text from it via unpacking (`window_5d, window_20d = ROLLING_WINDOW_DAYS`) and f-strings, respectively -- chosen over the checklist item's other offered option (drop the tuple, hardcode the two literals with a comment) since deriving from a real single source of truth is strictly better when it's this cheap to do, and it directly fixes the finding's actual complaint (changing the tuple's values now does change behavior) rather than just relabeling the same hardcoding as intentional.",
+      "rationale": "Placed in schemas.py rather than kept in ibkr.py (with schemas.py importing back from it) because this app's dependency direction is routers-import-from-schemas, never the reverse (verified: schemas.py has no router imports anywhere in the codebase) -- putting it in schemas.py alongside this same module's existing `_SERIES_KEY_PATTERN` shared-validation-constant precedent avoids introducing a new circular-import risk. `_MAX_ROLLING_WINDOW_DAYS` (the tuple's only previous consumer, a query LIMIT) was removed entirely rather than kept, since item 2's fix above dropped that LIMIT. The response schema still has two fixed, separately-named fields (`rolling_5d`/`rolling_20d`) rather than a generic N-window list, so a hypothetical third window still couldn't be added by editing the tuple alone (destructuring `window_5d, window_20d = ROLLING_WINDOW_DAYS` would raise `ValueError` on a 3-tuple, immediately, rather than silently no-op) -- redesigning the response shape to be genuinely open-ended for an arbitrary number of windows is out of scope for this non-blocking nit and not something ch. 34-36 asks for (only two windows are ever named). This is judged sufficient because the finding's actual complaint was 'changing the tuple alone wouldn't change behavior, which is misleading' for the two windows the tuple does hold -- that's now fixed; a `ValueError` on a third element is an honest, loud failure mode, not the silent misleading one being reported."
     }
   ]
 }
