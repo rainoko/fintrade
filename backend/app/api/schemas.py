@@ -1080,6 +1080,77 @@ class YesterdayTradingSuggestionOut(BaseModel):
     )
 
 
+# --- /api/cftc/cot ----------------------------------------------------------
+
+# Stable, short labels for `app.data.cftc_cot_provider.COT_MARKETS`' fixed futures list
+# (docs/ideas.md's ch. 37 CFTC COT entry; ch. 57 daily-homework's own Euro/Yen/Oil/Gold/
+# Bonds list) -- kept here (rather than only in the provider module) so this schema's own
+# `market_key` field can document the exact closed set a caller will see, matching how
+# `Impulse`/`Season` etc. are defined at this module's top.
+CFTCMarketKey = Literal["eur", "jpy", "oil", "gold", "bonds"]
+
+
+class CFTCCOTMarketOut(BaseModel):
+    market_key: CFTCMarketKey = Field(
+        description="Which of this app's fixed 5 futures markets this entry is for."
+    )
+    display_name: str = Field(
+        description="The CFTC's own `market_and_exchange_names` string for this contract "
+        "(e.g. \"GOLD - COMMODITY EXCHANGE INC.\")."
+    )
+    report_date: date = Field(
+        description="The CFTC report's as-of date (always a Tuesday) -- reports are "
+        "published the following Friday, so this lags 'today' by several days even when "
+        "freshly fetched."
+    )
+    open_interest: int = Field(description="Total open interest (all contract-month combined).")
+    commercial_long: int = Field(description="Commercial ('follow this group', per Elder ch. 37) long positions.")
+    commercial_short: int = Field(description="Commercial short positions.")
+    commercial_net: int = Field(
+        description="`commercial_long - commercial_short`. Positive = commercials net long."
+    )
+    large_speculator_long: int = Field(
+        description="CFTC 'Non-Commercial' long positions -- Elder's large speculators."
+    )
+    large_speculator_short: int = Field(description="CFTC 'Non-Commercial' short positions.")
+    large_speculator_net: int = Field(description="`large_speculator_long - large_speculator_short`.")
+    small_speculator_long: int = Field(
+        description="CFTC 'Non-Reportable' long positions -- Elder's small speculators "
+        "('fade this group', per ch. 37)."
+    )
+    small_speculator_short: int = Field(description="CFTC 'Non-Reportable' short positions.")
+    small_speculator_net: int = Field(description="`small_speculator_long - small_speculator_short`.")
+    weeks_of_history: int = Field(
+        description="How many weekly reports (including this one) this entry's "
+        "`commercial_cot_index_52w`/etc. fields below are computed over -- less than "
+        "`app.data.cftc_cot_provider.WEEKS_OF_HISTORY` only if the CFTC's own published "
+        "history for this contract doesn't go back that far."
+    )
+    commercial_cot_index_52w: float | None = Field(
+        default=None,
+        description="The classic Williams 'COT Index': where `commercial_net` sits within "
+        "its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest "
+        "net reading) to 100 (at/above its highest) -- Elder's 'read current positioning "
+        "against historical norms' framing operationalized, since a raw net-position count "
+        "isn't comparable across time as overall open interest grows/shrinks. Null if "
+        "`weeks_of_history` < 2 or every value in the window is identical (an undefined, "
+        "zero-width range) -- see `app.data.cftc_cot_provider.cot_index`.",
+    )
+    large_speculator_cot_index_52w: float | None = Field(
+        default=None, description="Same computation as `commercial_cot_index_52w`, over `large_speculator_net`."
+    )
+    small_speculator_cot_index_52w: float | None = Field(
+        default=None, description="Same computation as `commercial_cot_index_52w`, over `small_speculator_net`."
+    )
+
+
+class CFTCCOTResponse(BaseModel):
+    markets: list[CFTCCOTMarketOut] = Field(
+        description="One entry per `app.data.cftc_cot_provider.COT_MARKETS` key, in that "
+        "dict's own fixed order (eur, jpy, oil, gold, bonds)."
+    )
+
+
 # --- shared error shape (FastAPI default, documented for clarity) ---------
 
 

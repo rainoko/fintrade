@@ -630,6 +630,42 @@ None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day
 
 'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like `POST /api/ibkr/scanner/run` — a normal `200` response, never an HTTP error, with every other field `null`. Being rate-limited or a transient scanner-call failure against an otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like `POST /api/ibkr/scanner/run` — both only reachable on a cache miss (today's first request for this `series_key`).
 
+### `GET /api/cftc/cot`
+
+Elder ch. 37's Commitments of Traders (COT) framing (docs/ideas.md's ch. 37 entry) — follow commercials (historically the successful group), fade small speculators (historically the unsuccessful group), read current positioning against historical norms rather than an absolute level — for a small, fixed set of major futures markets: Euro, Yen, Oil, Gold, Bonds (matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.COT_MARKETS`). This is a genuinely separate, informational surface — futures-market context, not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do — see this task's `decisions` entry.
+
+Sourced from the CFTC's own public Socrata Open Data JSON API (`https://publicreporting.cftc.gov/resource/6dca-aqww.json`, the "Legacy"/"Futures Only" report — the classic Commercial/Non-Commercial/Non-Reportable three-way breakdown Elder describes), fetched fresh on every request — no local caching in this minimal scope, since the underlying data changes at most weekly. See this task's `decisions` entry for the full research writeup and the specific contract code chosen for each of the 5 markets.
+
+```json
+{
+  "markets": [
+    {
+      "market_key": "gold",
+      "display_name": "GOLD - COMMODITY EXCHANGE INC.",
+      "report_date": "2026-09-15",
+      "open_interest": 409899,
+      "commercial_long": 56417,
+      "commercial_short": 318138,
+      "commercial_net": -261721,
+      "large_speculator_long": 258059,
+      "large_speculator_short": 27721,
+      "large_speculator_net": 230338,
+      "small_speculator_long": 47460,
+      "small_speculator_short": 16077,
+      "small_speculator_net": 31383,
+      "weeks_of_history": 52,
+      "commercial_cot_index_52w": 87.5,
+      "large_speculator_cot_index_52w": 12.0,
+      "small_speculator_cot_index_52w": 40.3
+    }
+  ]
+}
+```
+
+`markets` always has exactly 5 entries, one per `market_key` (`eur | jpy | oil | gold | bonds`), in that fixed order. `commercial_net`/`large_speculator_net`/`small_speculator_net` are each group's long minus short. `*_cot_index_52w` is the classic Williams "COT Index": where that group's current net position sits within its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest reading) to 100 (at/above its highest) — the standard way to operationalize "against historical norms", since a raw net-position count isn't comparable across time as overall open interest grows/shrinks. Null if `weeks_of_history` < 2 or the window's range is zero-width (undefined, not a misleading 50/neutral default).
+
+Raises `503` if the CFTC's request itself fails, or unexpectedly returns no rows at all for one of the 5 fixed contract codes — there is no per-market "not found" case the way there is for an arbitrary user-supplied stock ticker, since these are all long-established, actively-traded futures contracts.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
@@ -648,6 +684,7 @@ None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day
 - The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).
 - IBKR disabled/gateway unreachable/not authenticated on `POST /api/ibkr/breadth/snapshot` → a normal `200` with the corresponding `state`, every other field `null`, never a failed request; same `429`/`503` treatment as `POST /api/ibkr/scanner/run` for rate-limiting/a transient scan-call failure, both only reachable on a cache miss (see `POST /api/ibkr/breadth/snapshot` above).
 - An invalid `series_key` (not `^[a-z0-9_-]{1,40}$`) on `POST /api/ibkr/breadth/snapshot` → `422` (standard per-field validation error shape).
+- `GET /api/cftc/cot`'s upstream CFTC request fails, or comes back missing rows for one of the fixed 5 markets → `503` (see `GET /api/cftc/cot` above).
 
 ## Contract Snapshot & Parallel Development
 

@@ -20,6 +20,7 @@ backend/
       cache.py         # SQLite-backed OHLCV + extended-data cache
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
       ibkr_provider.py # optional IBKR Client Portal Web API provider (hourly bars + scanner) -- not a DataProvider, see §8
+      cftc_cot_provider.py # CFTC Commitments of Traders (futures positioning) -- not a DataProvider, see §9
     indicators/    # pure functions, one indicator per module
       ema.py
       macd.py
@@ -185,6 +186,41 @@ has one. The actual response shapes returned by a live gateway, the interactive 
 flow itself, and any undocumented quirks are therefore not verified end-to-end here;
 this is deferred to manual testing by a user with a real running, authenticated
 gateway. See this task's `decisions` entry.
+
+## 9. CFTC Commitments of Traders (COT) Provider
+
+`app/data/cftc_cot_provider.py`'s `CFTCCOTProvider` (docs/tasks/backend-cftc-cot-data.json,
+docs/ideas.md's ch. 37 entry) is a small, standalone provider for Elder ch. 37's Commitments
+of Traders framing — follow commercials, fade small speculators, read current positioning
+against historical norms. Like `IBKRProvider` (§8), it deliberately does **not** implement
+the `DataProvider` protocol (§2): its data is futures-market positioning for a fixed set of 5
+major contracts, not per-stock-ticker OHLCV, and it's never wired into `app.signals`/
+`app.portfolio` — it only backs `GET /api/cftc/cot` (docs/architecture/API.md), a genuinely
+separate, informational surface.
+
+Sourced from the CFTC's own public Socrata Open Data (SODA) JSON API
+(`https://publicreporting.cftc.gov/resource/6dca-aqww.json`), confirmed live during this
+task's research — the "Legacy"/"Futures Only" report, the classic Commercial/
+Non-Commercial/Non-Reportable three-way breakdown Elder describes (the newer "Disaggregated"/
+"Traders in Financial Futures" reports split those groups further, e.g. producer/merchant vs.
+swap dealer, which this app doesn't need). No API key is required for this app's low request
+volume. `COT_MARKETS` fixes the 5-market set (Euro, Yen, Oil, Gold, Bonds — matching the ch.
+57 daily-homework idea's own list) to a specific `cftc_contract_market_code` per market,
+confirmed against the live endpoint rather than assumed from the contract name alone (several
+of these commodities have multiple CFTC-tracked contracts across different exchanges — e.g.
+NYMEX WTI vs. ICE Brent for oil). See this task's `decisions` entry for the full research
+writeup and the specific code chosen for each market.
+
+`get_all_recent()` fetches every fixed market's trailing `WEEKS_OF_HISTORY` (52) weeks of
+history in a single HTTP request (one compound `cftc_contract_market_code IN (...)` filter),
+grouped client-side by market — not five separate per-market requests. `cot_index()` computes
+the classic Williams "COT Index" (0-100, where the current net position sits within its own
+trailing window's high/low range) as this provider's operationalization of "against
+historical norms" — chosen over a bespoke percentile-rank scheme since it's the standard,
+well-known form for exactly this data. No local caching/persistence layer (unlike
+`CachedDataProvider`'s OHLCV/extended-data caches, §7): `GET /api/cftc/cot` fetches fresh on
+every request, since the underlying data changes at most weekly and this is explicitly scoped
+as a minimal, informational surface — see this task's `decisions` entry.
 
 ## Testing Notes
 

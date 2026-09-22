@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/api/cftc/cot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current + recent CFTC Commitments of Traders positioning for a fixed set of major futures markets
+         * @description Elder ch. 37's Commitments of Traders framing -- follow commercials (historically the
+         *     successful group), fade small speculators (historically the unsuccessful group), and
+         *     read current positioning against historical norms rather than an absolute level --
+         *     applied to a small, fixed set of major futures markets (Euro, Yen, Oil, Gold, Bonds,
+         *     matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.
+         *     COT_MARKETS`).
+         *
+         *     Always fetches fresh from the CFTC's own public Socrata endpoint (no local caching in
+         *     this minimal scope -- see this task's `decisions` entry): the underlying data changes at
+         *     most weekly, so this app doesn't add its own staleness logic on top of the CFTC's.
+         *
+         *     Raises `503` if the CFTC request itself fails, or unexpectedly returns no rows for one
+         *     of this app's fixed contract codes -- there is no per-market "not found" case the way
+         *     there is for an arbitrary user-supplied stock ticker, since these are all long-
+         *     established, actively-traded futures contracts.
+         */
+        get: operations["get_cftc_cot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/daily-homework": {
         parameters: {
             query?: never;
@@ -940,6 +974,104 @@ export interface components {
              * @description Tracked tickers whose Tide trend couldn't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) -- excluded from bullish_count/bearish_count/neutral_count and from the percentages below, rather than guessed at, mirroring GET /api/watchlist's own null-signal-on-failure convention.
              */
             unavailable_count: number;
+        };
+        /** CFTCCOTMarketOut */
+        CFTCCOTMarketOut: {
+            /**
+             * Commercial Cot Index 52W
+             * @description The classic Williams 'COT Index': where `commercial_net` sits within its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest net reading) to 100 (at/above its highest) -- Elder's 'read current positioning against historical norms' framing operationalized, since a raw net-position count isn't comparable across time as overall open interest grows/shrinks. Null if `weeks_of_history` < 2 or every value in the window is identical (an undefined, zero-width range) -- see `app.data.cftc_cot_provider.cot_index`.
+             */
+            commercial_cot_index_52w?: number | null;
+            /**
+             * Commercial Long
+             * @description Commercial ('follow this group', per Elder ch. 37) long positions.
+             */
+            commercial_long: number;
+            /**
+             * Commercial Net
+             * @description `commercial_long - commercial_short`. Positive = commercials net long.
+             */
+            commercial_net: number;
+            /**
+             * Commercial Short
+             * @description Commercial short positions.
+             */
+            commercial_short: number;
+            /**
+             * Display Name
+             * @description The CFTC's own `market_and_exchange_names` string for this contract (e.g. "GOLD - COMMODITY EXCHANGE INC.").
+             */
+            display_name: string;
+            /**
+             * Large Speculator Cot Index 52W
+             * @description Same computation as `commercial_cot_index_52w`, over `large_speculator_net`.
+             */
+            large_speculator_cot_index_52w?: number | null;
+            /**
+             * Large Speculator Long
+             * @description CFTC 'Non-Commercial' long positions -- Elder's large speculators.
+             */
+            large_speculator_long: number;
+            /**
+             * Large Speculator Net
+             * @description `large_speculator_long - large_speculator_short`.
+             */
+            large_speculator_net: number;
+            /**
+             * Large Speculator Short
+             * @description CFTC 'Non-Commercial' short positions.
+             */
+            large_speculator_short: number;
+            /**
+             * Market Key
+             * @description Which of this app's fixed 5 futures markets this entry is for.
+             * @enum {string}
+             */
+            market_key: "eur" | "jpy" | "oil" | "gold" | "bonds";
+            /**
+             * Open Interest
+             * @description Total open interest (all contract-month combined).
+             */
+            open_interest: number;
+            /**
+             * Report Date
+             * Format: date
+             * @description The CFTC report's as-of date (always a Tuesday) -- reports are published the following Friday, so this lags 'today' by several days even when freshly fetched.
+             */
+            report_date: string;
+            /**
+             * Small Speculator Cot Index 52W
+             * @description Same computation as `commercial_cot_index_52w`, over `small_speculator_net`.
+             */
+            small_speculator_cot_index_52w?: number | null;
+            /**
+             * Small Speculator Long
+             * @description CFTC 'Non-Reportable' long positions -- Elder's small speculators ('fade this group', per ch. 37).
+             */
+            small_speculator_long: number;
+            /**
+             * Small Speculator Net
+             * @description `small_speculator_long - small_speculator_short`.
+             */
+            small_speculator_net: number;
+            /**
+             * Small Speculator Short
+             * @description CFTC 'Non-Reportable' short positions.
+             */
+            small_speculator_short: number;
+            /**
+             * Weeks Of History
+             * @description How many weekly reports (including this one) this entry's `commercial_cot_index_52w`/etc. fields below are computed over -- less than `app.data.cftc_cot_provider.WEEKS_OF_HISTORY` only if the CFTC's own published history for this contract doesn't go back that far.
+             */
+            weeks_of_history: number;
+        };
+        /** CFTCCOTResponse */
+        CFTCCOTResponse: {
+            /**
+             * Markets
+             * @description One entry per `app.data.cftc_cot_provider.COT_MARKETS` key, in that dict's own fixed order (eur, jpy, oil, gold, bonds).
+             */
+            markets: components["schemas"]["CFTCCOTMarketOut"][];
         };
         /** ClosedTradeOut */
         ClosedTradeOut: {
@@ -2280,6 +2412,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_cftc_cot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CFTCCOTResponse"];
+                };
+            };
+            /** @description The CFTC's public Socrata data endpoint itself failed (network error, unexpected/malformed response) or returned no data for one of this app's fixed markets. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
     list_daily_homework: {
         parameters: {
             query?: never;
