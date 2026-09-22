@@ -136,9 +136,11 @@ while scoping this task:**
    must be done by a human, once per session (the session expires after a period of
    inactivity and needs re-authenticating the same way).
 4. Keep the session alive with a periodic `GET /tickle` call roughly once a minute
-   while the gateway needs to stay authenticated (not automated by this app today — a
-   future task consuming this provider from a long-running process would need to add
-   that, itself a currently-open gap, not something this task's checklist covers).
+   while the gateway needs to stay authenticated. This is automated by the app itself
+   (`docs/tasks/done/backend-ibkr-tickle-keepalive.json`): `app.main._ibkr_tickle_loop`
+   runs as a FastAPI `lifespan` background task, started only when `Settings.ibkr_enabled`
+   is `True`, calling `IBKRProvider.tickle()` every 45s and cleanly cancelled on app
+   shutdown — nothing further to do here beyond the interactive login in step 3.
 5. Set `FINTRADE_IBKR_ENABLED=true` (and `FINTRADE_IBKR_BASE_URL` if the gateway isn't
    at the default `https://localhost:5000/v1/api`) in the backend's environment.
 

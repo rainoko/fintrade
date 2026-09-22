@@ -1895,7 +1895,7 @@
       "id": "backend-ibkr-tickle-keepalive-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-ibkr-tickle-keepalive-followups.json"
     }
   ]
