@@ -1734,8 +1734,8 @@
       "id": "frontend-market-scanner-page",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "done",
-      "path": "docs/tasks/done/frontend-market-scanner-page.json"
+      "state": "implementing",
+      "path": "docs/tasks/frontend-market-scanner-page.json"
     },
     {
       "id": "frontend-market-scanner-page-followups",
