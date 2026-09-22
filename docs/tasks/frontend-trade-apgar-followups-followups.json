@@ -1,0 +1,20 @@
+{
+  "id": "frontend-trade-apgar-followups-followups",
+  "title": "Non-blocking follow-up from frontend-trade-apgar-followups review (PR #255)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-trade-apgar-followups"],
+  "references": [
+    "docs/tasks/frontend-trade-apgar-followups.json",
+    "https://github.com/rainoko/fintrade/pull/255"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #255 (frontend-trade-apgar-followups), recorded here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "useResetOnSubjectChange.ts was placed under features/portfolio/hooks/ (frontend-trade-apgar-followups's own decisions entry explains the reasoning) rather than utils/, but Frontend.md §3's own literal utils/ placement test ('domain-agnostic (doesn't reference a feature's domain concepts) and not a component (no props, no rendering, no Storybook story) -> utils/') is satisfied here: the hook's signature (subjectId: string | null, onReset: () => void) references no domain concept at all (no ticker/position/trade), and it's a plain function, not a component. The doc's separate hooks bullet ('Hooks wrap exactly one API concern each and live under the feature they serve') is framed specifically around API-concern (fetch/query) hooks, which this one isn't -- it does no fetching. This is a genuinely arguable placement call, not a clear-cut violation (both readings have real support in the doc, and the task's decision reasoned through it), so it wasn't blocking. Worth reconsidering if a third caller from a different feature (e.g. features/stocks or features/watchlist) ever needs the same subject-reset pattern -- at that point the cross-feature-sharing case for utils/ becomes unambiguous, per the hook's own decisions entry.",
+      "done": false
+    }
+  ],
+  "decisions": []
+}

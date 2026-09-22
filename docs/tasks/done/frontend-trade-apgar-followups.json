@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-trade-apgar review (PR #254)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-trade-apgar"],
   "references": [
     "docs/tasks/done/frontend-trade-apgar.json",
@@ -45,5 +45,28 @@
     "pr_number": 255,
     "pr_url": "https://github.com/rainoko/fintrade/pull/255",
     "pushed_at": "2026-09-22T00:20:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:30:35Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/255",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified: TradeApgarDialog's Value column now humanizes both manual-question values (via VALUE_LABELS, sourced from FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS) and the three auto values (via humanizeSnakeCase's generic fallback). Confirmed live in a browser walkthrough (AAPL/MSFT) -- 'Green', 'Above value', 'On the verge', 'Both timeframes look ideal' all render correctly, no raw snake_case/uppercase leaks through, and TradeApgarDialog.test.tsx's new assertions match.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 66
+      },
+      {
+        "summary": "Verified: the extracted useResetOnSubjectChange(subjectId, onReset) hook is behaviorally identical to both dialogs' prior inline prevTicker/prevTradeId comparison -- same during-render reset timing, same one-call-per-subject-change guarantee. Confirmed via a browser walkthrough (switching TradeApgarDialog from AAPL to MSFT correctly resets both Select fields to their defaults and clears the stale result table) and via the existing dialog test suites' 'resets ... when switching' / 'closes when ... transitions to null' cases, both still passing at 100% coverage.",
+        "file": "frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts",
+        "line": 244
+      },
+      {
+        "summary": "Hook placement (features/portfolio/hooks/ vs utils/) is a genuinely arguable call given Frontend.md's own literal utils/ placement test (domain-agnostic + non-component -> utils/) vs. its separate API-concern-hooks-live-in-features bullet; not blocking, since the task's decisions entry reasons through the tension explicitly. Tracked as a non-blocking follow-up for reconsideration if a third, cross-feature caller ever needs the same pattern.",
+        "file": "frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts",
+        "line": 1
+      }
+    ],
+    "notes": "Full review: frontend vitest suite 756/756 passing, 99.74%/99.22% stmt/branch coverage (gate 90%); backend pytest 1144/1144 passing, 99.95% coverage (unaffected, no backend changes in this PR); ruff/mypy/eslint/tsc/profit-target-wording guard all clean; code-review skill (medium effort) found zero issues after tracing VALUE_LABELS against backend echo semantics and confirming no key collisions; browser walkthrough (Playwright script driving a live make-dev stack) confirmed humanized labels for both manual and auto question types plus correct reset-on-ticker-switch behavior, zero console errors; make e2e ran all 21 specs across 5 spec files (dashboard/navigation/portfolio/stock-analysis/watchlist), all passing, no regressions. All three decisions entries checked and hold up: VALUE_LABELS has no key collisions between FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS; the no-dedicated-hook-test-file decision is consistent with this codebase's actual convention (grepped features/*/hooks/*.test.* -- zero matches anywhere); the features/portfolio/hooks/ placement decision is reasonable but arguable (tracked as non-blocking follow-up above, per frontend-trade-apgar-followups-followups). No API/schema changes in this PR, so no OpenAPI snapshot regeneration was needed. Filed docs/tasks/frontend-trade-apgar-followups-followups.json for the one non-blocking finding."
   }
 }
