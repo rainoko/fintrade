@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-ibkr-status-indicator PR #244 review",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["frontend-ibkr-status-indicator"],
   "references": [
     "docs/tasks/frontend-ibkr-status-indicator.json",
@@ -15,13 +15,28 @@
   "checklist": [
     {
       "step": "Once `useIbkrStatus`'s initial fetch has succeeded at least once, a *later* background poll failure (the app's own backend genuinely going unreachable, not the IBKR gateway itself) does not flip `IbkrStatusIndicator` to the 'IBKR: Unknown' chip -- it keeps rendering the last successful state indefinitely. Root cause: TanStack Query keeps the previous `data` populated across a failed background refetch (its own default/documented behavior), and `IbkrStatusIndicator`'s check order (`if (!statusQuery.data) { if (statusQuery.isError) ... }`) only ever reaches the transport-failure branch when `data` is absent, so a stale-but-present `data` value short-circuits past `isError` becoming true. Verified directly with a vitest reproduction (fake timers: seed a successful 'available' response, let it render, then flip the MSW handler to `HttpResponse.error()` and advance 31s past the 30s `refetchInterval`) -- the badge kept reading 'IBKR: Connected' the whole time, with no 'ibkr-status-indicator-unknown' test id ever appearing. This contradicts this task's own 4th `decisions` entry, which claims a genuine transport failure is 'never folded into' one of the real gateway states -- in practice it can be silently masked by whatever state was last successfully fetched. Judged non-blocking rather than a review-blocker because the scenario requires this app's own backend to have died completely after at least one successful IBKR-status read, at which point every other page (Dashboard/Portfolio/Watchlist) already surfaces its own loud 'Something went wrong' error state from its own failed query -- so the practical user-facing risk of a stale IBKR chip specifically is low, but the gap is real and worth closing (e.g. render the transport-failure chip whenever `statusQuery.isError` is true regardless of stale `data`, or explicitly document this as an accepted limitation in the decision record instead of an unqualified claim).",
-      "done": false
+      "done": true
     },
     {
       "step": "Neither `IbkrStatusIndicator`'s loading spinner nor its rendered chip (via `IbkrStatusBadge` or the transport-failure 'Unknown' chip) is wrapped in an `aria-live`/`role=\"status\"` region. Because this indicator is mounted once in `AppShell`'s app bar for the whole session and polls in the background every 30s with no user action, a screen-reader user who isn't currently focused on/near the app bar gets no announcement at all when the gateway's connectivity silently changes (e.g. it goes from 'Connected' to 'Gateway down' between polls) -- they'd have to re-visit the app bar to discover the change. `RiskPanel.tsx`'s `role=\"status\"` box (for its own 'no risk data available for X' banner) is the closest existing precedent in this codebase for a similar case, though that one is triggered by a page-scoped data condition rather than a background poll. Worth adding a live region (or accepting and recording this as a deliberate scope cut, since no other status indicator in this codebase currently polls silently in the background either).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T02:45:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the stale-data masking bug by reordering `IbkrStatusIndicator`'s branch check to test `statusQuery.isError` first, before `!statusQuery.data` -- so a background poll's transport failure always renders the 'IBKR: Unknown' chip regardless of whatever `data` TanStack Query is still holding onto from the last successful fetch, rather than only doing so when `data` happens to be entirely absent (the pre-existing initial-load-only path).",
+      "rationale": "This is exactly the fix the PR #244 review comment itself suggested. TanStack Query's own discriminated `UseQueryResult` union has a dedicated 'refetch error' member (`isError: true`, `data: TData` still populated, distinct from the 'loading error' member where `data: undefined`) precisely for this case, so checking `isError` first is not just a runtime fix but the type-correct branch order -- `statusQuery.error` is non-null under either `isError: true` member, so no cast or non-null assertion was needed. Rejected: documenting the masking as an accepted limitation instead of fixing it -- the review comment already judged the underlying gap 'real and worth closing', and the fix is a small, low-risk reorder with a passing regression test (fake-timers repro: seed a successful `available` response, flip the MSW handler to `HttpResponse.error()`, advance 31s past the 30s `refetchInterval`, assert the 'IBKR: Unknown' chip appears and 'IBKR: Connected' no longer does), not a redesign.",
+      "supersedes": "The 4th decisions entry on frontend-ibkr-status-indicator.json ('a genuine transport-level failure ... is rendered as a distinct grey IBKR: Unknown chip ... never folded into the gateway_unreachable state') is now accurate for every case, including a later background-poll failure -- previously it only held for the initial load and the four explicitly-tested gateway-state paths, per PR #244's review."
+    },
+    {
+      "timestamp": "2026-09-22T02:50:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a live region by wrapping `IbkrStatusIndicator`'s rendered content (spinner, real gateway-state chip, or the transport-failure 'Unknown' chip) in a single `<Box role=\"status\">` -- an ordinary block-level `Box`, not `sx={{ display: 'contents' }}`.",
+      "rationale": "`role=\"status\"` carries an implicit `aria-live=\"polite\"`, matching `RiskPanel.tsx`'s existing precedent for a similarly unprompted state change (the closest thing this codebase already had, per this task's own 2nd checklist item). A plain `Box` (rather than `display: 'contents'`, which would keep the wrapper from generating any box of its own) was chosen because several browsers have historically also stripped the element's accessible node -- and with it, the live-region role itself -- when `display: contents` is used, which would silently defeat the point of adding the region at all; and because it's unnecessary for layout here anyway; since `IbkrStatusIndicator` is `AppShell`'s Toolbar's last direct child, MUI's `Toolbar` flex layout already blockifies any direct child regardless of its own `display` value, so wrapping the existing `Chip`/`CircularProgress` in one extra block-level `Box` sizes identically to before. Verified with a new vitest test asserting the rendered chip is a descendant of `screen.getByRole('status')`, plus the existing four-gateway-state and transport-failure tests (which assert on the chip's own text/testid, not the wrapper) still passing unchanged, confirming the wrapper introduces no other regression.",
+      "rejected": "A `common/`-level wrapper component was considered and rejected as over-engineering a single-line addition used in exactly one place; per-state distinct live regions were rejected in favor of one region around whichever content renders, since the region needs to announce every transition (loading -> real state -> transport failure -> back to a real state), not just transitions between the four real gateway states."
+    }
+  ],
   "questions": []
 }

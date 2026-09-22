@@ -1678,7 +1678,7 @@
       "id": "frontend-ibkr-status-indicator-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/frontend-ibkr-status-indicator-followups.json"
     },
     {
