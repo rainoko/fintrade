@@ -23,5 +23,11 @@
       "rationale": "Verified with a real-timing repro (both a standalone script and the new `test_shutdown_does_not_block_on_an_in_flight_tickle_call` test in tests/unit/test_main.py, run 10x plus 8x under --cov=app with zero flakes) on Python 3.12.14: `asyncio.to_thread` awaits a plain `asyncio.Future` produced by `loop.run_in_executor` wrapping the executor's `concurrent.futures.Future` via `asyncio.futures._chain_future`. A plain `asyncio.Future.cancel()` (unlike `asyncio.Task.cancel()`) unconditionally marks itself CANCELLED and schedules its callbacks the moment it's called, regardless of whether the underlying thread-pool work is actually interruptible -- it does not wait for `concurrent.futures.Future.cancel()` (which fails silently on an already-running work item) to succeed. So `Task.cancel()` on `tickle_task`, finding it suspended on that wrapped Future, cancels the Future synchronously and `CancelledError` is delivered into the coroutine on the very next event-loop iteration -- not once the thread's blocking call actually returns. The original checklist wording (from a prior 'background code-review pass' finding on PR #267, itself not independently re-verified before being recorded) got this backwards. Documented the corrected behavior inline in app.main.lifespan's finally block and in the new test's docstring rather than silently fixing the checklist wording, per CLAUDE.md's decision-memory rule. This doesn't change the third checklist item's (broadened exception handling) validity -- that finding is unrelated and was independently re-verified as accurate. The second checklist item is still marked done because the actual required work -- 'document/test the shutdown-cancellation edge case' -- was completed correctly against verified behavior, not against the (incorrect) premise as originally phrased."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-tickle-keepalive-followups",
+    "pr_number": 268,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/268",
+    "pushed_at": "2026-09-22T15:22:16Z"
+  }
 }
