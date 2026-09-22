@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { HttpResponse, http } from 'msw'
+import { HttpResponse, delay, http } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import { resetDailyHomeworkStore } from '../../../../tests/mocks/handlers'
@@ -84,7 +84,7 @@ describe('DailyHomeworkForm', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(screen.getByTestId('homework-score-banner')).toBeInTheDocument())
-    expect(screen.getByText('10/10 -- YELLOW')).toBeInTheDocument()
+    expect(screen.getByText('10/10 -- YELLOW (too perfect)')).toBeInTheDocument()
     expect(
       screen.getByText(/any change is bound to be for the worse/i),
     ).toBeInTheDocument()
@@ -144,6 +144,68 @@ describe('DailyHomeworkForm', () => {
       '1 — Neutral',
     )
     expect(screen.getByRole('button', { name: 'Update' })).toBeInTheDocument()
+  })
+
+  it('renders the form as soon as today\'s entry settles, without waiting on a slow suggestion request (frontend-daily-homework-page-followups)', async () => {
+    server.use(
+      http.get('/api/daily-homework/yesterday-trading-suggestion', async () => {
+        await delay('infinite')
+        return HttpResponse.json({
+          as_of_date: '2026-09-20',
+          net_realized_pnl: 150.0,
+          suggested_score: 2,
+        })
+      }),
+    )
+
+    renderWithProviders(<DailyHomeworkForm />)
+
+    // The other four questions render immediately once today's entry query
+    // settles, even though the suggestion request never resolves.
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: /How do I feel physically/ })).toBeInTheDocument(),
+    )
+    // The one field the (still-pending) suggestion would have prefilled
+    // falls back to the neutral default rather than blocking on it.
+    expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toHaveTextContent(
+      '1 — Neutral / no trades',
+    )
+  })
+
+  it('does not wait on the suggestion request at all when today\'s entry already exists (frontend-daily-homework-page-followups)', async () => {
+    server.use(
+      http.get('/api/daily-homework/today', () =>
+        HttpResponse.json({
+          entry: {
+            date: '2026-09-22',
+            physical_state_score: 2,
+            yesterday_trading_score: 1,
+            trade_planning_score: 2,
+            mood_score: 2,
+            schedule_score: 1,
+            total_score: 8,
+            band: 'green',
+            recorded_at: '2026-09-22T13:00:00Z',
+          },
+        }),
+      ),
+      http.get('/api/daily-homework/yesterday-trading-suggestion', async () => {
+        await delay('infinite')
+        return HttpResponse.json({
+          as_of_date: '2026-09-20',
+          net_realized_pnl: 150.0,
+          suggested_score: 2,
+        })
+      }),
+    )
+
+    renderWithProviders(<DailyHomeworkForm />)
+
+    await waitFor(() => expect(screen.getByTestId('homework-score-banner')).toBeInTheDocument())
+    expect(screen.getByText('8/10 -- GREEN')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toHaveTextContent(
+      '1 — Neutral',
+    )
   })
 
   it('shows an ApiError via common/ErrorState when loading today\'s entry fails', async () => {

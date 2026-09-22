@@ -186,39 +186,50 @@ function HomeworkQuestionsForm({
  * an already-recorded day) shows the summed score's color-coded band via
  * `HomeworkScoreBanner`.
  *
- * This component only loads/error-handles the two queries feeding the
- * form's *initial* state (`useDailyHomeworkToday`, `useYesterdayTradingSuggestion`)
- * and hands a plain, already-resolved `initialScores` to the child
+ * This component only loads/error-handles the query feeding the form's
+ * *initial* state that's actually essential (`useDailyHomeworkToday`) and
+ * hands a plain, already-resolved `initialScores` to the child
  * `HomeworkQuestionsForm`, which owns the rest of the form's interactive
  * state locally -- deliberately not a `useEffect` that re-seeds local state
  * from the query results after mount (React's own guidance against using
  * an Effect to adjust state from data that's already available during
- * render -- see this task's `decisions` entry). Waiting for both queries
- * before rendering the interactive form is a small, one-time load (both are
- * fast, local-only endpoints) traded for a form whose initial values are
- * always correct on the very first render, with no seed-after-mount effect
- * or its associated re-render.
+ * render -- see this task's `decisions` entry).
+ *
+ * The form's render gate only waits on `useDailyHomeworkToday`, *not* on
+ * `useYesterdayTradingSuggestion` (see this task's `decisions` entry,
+ * frontend-daily-homework-page-followups): the suggestion feeds exactly one
+ * optional default (`yesterday_trading_score`'s pre-fill when there's no
+ * already-recorded entry for today) and is skipped entirely once an
+ * existing entry makes it moot, so it's never worth delaying the other four
+ * questions' render on. If the suggestion hasn't settled yet by the time
+ * `HomeworkQuestionsForm` mounts, that one field simply starts at the
+ * neutral default and -- consistent with "no seed-after-mount effect" above
+ * -- is *not* silently swapped in later if the suggestion arrives after the
+ * fact; this is the same bounded, already-accepted tradeoff the parent
+ * task's own decision makes for the general case, just narrowed to no
+ * longer gate the whole form on it.
  *
  * Pre-fill behavior (see this task's `decisions` entry): if today's entry
  * is already recorded, the form loads with those exact answers
  * (re-submitting overwrites, per the endpoint's own upsert semantics).
  * Otherwise every question defaults to the neutral middle answer
  * (`NEUTRAL_SCORES`) -- except `yesterday_trading_score`, which defaults
- * instead to `useYesterdayTradingSuggestion`'s suggested value when one is
- * available, since that endpoint exists specifically so most days require
- * no manual recall for that one question. A failure loading the suggestion
- * is treated as "no suggestion available" (falls back to the neutral
- * default) rather than blocking the form -- it's a pure UX enhancement, not
- * essential data, unlike today's own entry (whose load failure does block,
- * since submitting without knowing whether today already has a recorded
- * entry could silently produce a wrong "Save"/"Update" experience).
+ * instead to `useYesterdayTradingSuggestion`'s suggested value once it has
+ * settled successfully with one, since that endpoint exists specifically so
+ * most days require no manual recall for that one question. A failure (or
+ * a still-pending, or a null-result) suggestion is treated as "no
+ * suggestion available" (falls back to the neutral default) rather than
+ * blocking the form -- it's a pure UX enhancement, not essential data,
+ * unlike today's own entry (whose load failure does block, since submitting
+ * without knowing whether today already has a recorded entry could
+ * silently produce a wrong "Save"/"Update" experience).
  */
 export default function DailyHomeworkForm() {
   const todayQuery = useDailyHomeworkToday()
   const suggestionQuery = useYesterdayTradingSuggestion()
   const recordHomework = useRecordDailyHomework()
 
-  if (todayQuery.isLoading || suggestionQuery.isLoading) {
+  if (todayQuery.isLoading) {
     return <LoadingState message="Loading today's self-test..." />
   }
   if (todayQuery.isError) {
@@ -226,7 +237,12 @@ export default function DailyHomeworkForm() {
   }
 
   const existingEntry = todayQuery.data?.entry ?? null
-  const suggestedScore = suggestionQuery.data?.suggested_score ?? null
+  // Only consulted when there's no existing entry to prefill from instead
+  // -- deliberately not read at all in the `existingEntry` branch below, so
+  // a still-loading/failed suggestion request never affects that case.
+  const suggestedScore = suggestionQuery.isSuccess
+    ? (suggestionQuery.data.suggested_score ?? null)
+    : null
   const initialScores: Scores = existingEntry
     ? scoresFromEntry(existingEntry)
     : {

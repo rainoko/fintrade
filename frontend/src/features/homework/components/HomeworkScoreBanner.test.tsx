@@ -21,6 +21,13 @@ describe('HomeworkScoreBanner', () => {
 
     expect(screen.getByTestId('homework-score-banner')).toHaveClass('MuiAlert-colorWarning')
     expect(screen.getByText('Trade cautiously.')).toBeInTheDocument()
+    expect(screen.getByText('5/10 -- YELLOW')).toBeInTheDocument()
+    // Low-yellow keeps MUI's default warning icon (no override) -- only the
+    // high-yellow "too perfect" band gets the distinct icon below.
+    expect(screen.getByTestId('homework-score-banner').querySelector('svg')).not.toHaveAttribute(
+      'data-testid',
+      'SelfImprovementIcon',
+    )
   })
 
   it('renders yellow ("trade cautiously") at the top of the low-yellow band (score 6)', () => {
@@ -28,6 +35,7 @@ describe('HomeworkScoreBanner', () => {
 
     expect(screen.getByTestId('homework-score-banner')).toHaveClass('MuiAlert-colorWarning')
     expect(screen.getByText('Trade cautiously.')).toBeInTheDocument()
+    expect(screen.getByText('6/10 -- YELLOW')).toBeInTheDocument()
   })
 
   it('renders green at the bottom of the green band (score 7)', () => {
@@ -51,6 +59,13 @@ describe('HomeworkScoreBanner', () => {
     expect(
       screen.getByText(/any change is bound to be for the worse/i),
     ).toBeInTheDocument()
+    // Distinct label suffix + icon from the low-yellow band, even though both
+    // share the same "warning"/amber severity -- see this task's `decisions`
+    // entry (frontend-daily-homework-page-followups).
+    expect(screen.getByText('9/10 -- YELLOW (too perfect)')).toBeInTheDocument()
+    expect(
+      screen.getByTestId('homework-score-banner').querySelector('[data-testid="SelfImprovementIcon"]'),
+    ).toBeInTheDocument()
   })
 
   it('renders yellow again with the "too perfect" caution at the top of the high-yellow band (score 10)', () => {
@@ -60,6 +75,9 @@ describe('HomeworkScoreBanner', () => {
     expect(
       screen.getByText(/any change is bound to be for the worse/i),
     ).toBeInTheDocument()
-    expect(screen.getByText('10/10 -- YELLOW')).toBeInTheDocument()
+    expect(screen.getByText('10/10 -- YELLOW (too perfect)')).toBeInTheDocument()
+    expect(
+      screen.getByTestId('homework-score-banner').querySelector('[data-testid="SelfImprovementIcon"]'),
+    ).toBeInTheDocument()
   })
 })
