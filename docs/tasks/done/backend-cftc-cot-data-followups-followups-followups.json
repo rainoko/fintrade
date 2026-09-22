@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #275's review (frontend vitest flaky timeouts under parallel execution)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-cftc-cot-data-followups-followups"],
   "references": [
     "docs/tasks/done/backend-cftc-cot-data-followups-followups.json#review",
@@ -33,5 +33,33 @@
     "pr_number": 276,
     "pr_url": "https://github.com/rainoko/fintrade/pull/276",
     "pushed_at": "2026-09-22T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T21:09:30Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/276",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently reproduced the whole investigation: `--maxWorkers=23` (mimicking the old uncapped default on this review's 24-core host) reproduces `Error: Test timed out in 5000ms` in AddPositionDialog.test.tsx; the committed `maxWorkers: 4` passes clean (825/825, 84 files) and stays clean even under `taskset -c 0,1` (2-core-restricted, 3/3 clean runs, just much slower wall-clock: ~147s vs ~57s) -- confirms the cap is a genuine bound independent of host core count, not merely a higher threshold that a future higher-core-count host could still exceed. Independently reproduced the `pool: 'vmThreads'` rejection too: `ReferenceError: TransformStream is not defined` from MSW's fetch interceptor, exactly as described.",
+        "file": "frontend/vite.config.ts",
+        "line": 58
+      },
+      {
+        "summary": "Non-blocking: the decision record's evidence trail is internally inconsistent about post-fix rerun count -- this task's own `decisions` entry says '0/7 across repeated full-suite runs' while the `frontend/vite.config.ts` comment for the same investigation says '0/4'. Tracked as a followup rather than blocking, since it's a documentation/evidence-consistency nit, not a functional defect (also caught independently by a code-review pass run during this review).",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups.json",
+        "line": 26
+      },
+      {
+        "summary": "Non-blocking: `maxWorkers: 4` may be more conservative than necessary. During this review, `--maxWorkers=8` passed cleanly across 8 runs on the same host that reproduces the flake at higher counts, while running the full suite in ~33s vs ~57s at maxWorkers=4 (~42% faster) -- no evidence in the decision record that intermediate values were tried before settling on 4. Tracked as a followup for a proper tuning pass rather than blocking this fix, since 4 is safe, just possibly leaving CI wall-clock time on the table.",
+        "file": "frontend/vite.config.ts",
+        "line": 58
+      },
+      {
+        "summary": "Independently confirmed the cross-referenced closure on frontend-trade-journal-followup-review-followups-followups is sound: its diff only flips the matching FollowUpReviewDialog.test.tsx flake item to done and adds a decisions entry explaining the shared root cause; the task's other two checklist items (isoDateWeeksAgo duplication, test.describe.serial due-trade-seeding edge case) are untouched and are genuinely unrelated findings from a different PR (#249) review.",
+        "file": "docs/tasks/frontend-trade-journal-followup-review-followups-followups.json",
+        "line": null
+      }
+    ],
+    "notes": "Full review of PR #276. Tests/coverage: backend `pytest --cov=app --cov-fail-under=90` -- 100.00% coverage, 1194 passed. Frontend `vitest run --coverage` -- 99.76%/99.31%/99.78%/99.82% (statements/branches/functions/lines), 825 passed, 84 files -- both well above the 90% gate, no regression. Static analysis: backend ruff + mypy clean; frontend eslint + tsc clean; `scripts/check_profit_target_wording.py` clean. `scripts/validate_tasks.py` clean across all 278 (now 279) task files. Ran a code-review pass on the diff (small: one config value + comment in frontend/vite.config.ts, plus task-board JSON) -- its one finding (the 0/7-vs-0/4 rerun-count mismatch) matches the same finding I'd independently spotted and is tracked below as non-blocking. No API/schema touched, so no openapi.json regeneration is applicable. No frontend component added/changed (only test infra config), so the components-placement check (step 7a) doesn't apply. This PR has no UI surface of its own -- only `frontend/vite.config.ts`'s `test` config and task-board JSON changed -- so the browser walkthrough (step 9) and persisted e2e suite (step 9a) were explicitly skipped rather than silently omitted. Not backend/signals or backend/portfolio and no new module/dependency/layer, so verify-elder-signal and architecture-review don't apply. The checklist's 'investigate' item has a corresponding decisions entry with rationale (root cause, rejected alternatives, and the cross-reference to the sibling task), satisfying CLAUDE.md's decision-memory requirement. Two non-blocking findings filed as a new followup task (backend-cftc-cot-data-followups-followups-followups-followups) per CLAUDE.md's tracked-followup convention. Shared working tree note: found exactly one pre-existing git stash entry ('On task/indicator-elder-ray: pr-reviewer/pr-decision approve-call hardening') at the start of this review and confirmed it was still present, untouched, at the end -- never ran or dispatched anything that stashes."
   }
 }
