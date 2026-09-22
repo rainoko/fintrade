@@ -1,0 +1,27 @@
+{
+  "id": "frontend-close-position-dialog-followups",
+  "title": "Non-blocking findings from frontend-close-position-dialog's review (PR #261)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "frontend-close-position-dialog"
+  ],
+  "references": [
+    "docs/tasks/frontend-close-position-dialog.json#review",
+    "https://github.com/rainoko/fintrade/pull/261"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #261 (frontend-close-position-dialog), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. Both are minor reuse/style items in ClosePositionDialog.tsx and its test, distinct from the review's blocking finding (a stale/invisible close-position error after a backdrop-cancel-while-pending), which was returned to the task itself for a real fix rather than tracked here.",
+  "checklist": [
+    {
+      "step": "`isPositiveFinite` in `frontend/src/features/portfolio/components/ClosePositionDialog.tsx` (around line 79) is a verbatim copy of the identical helper already defined in `frontend/src/features/portfolio/components/AddPositionDialog.tsx` (around line 48) -- extract it to a shared location (e.g. a small validation utility module) so a future change to the rule (e.g. allowing zero, or adding a max) doesn't have to be made in two places and risk drifting out of sync.",
+      "done": false
+    },
+    {
+      "step": "Minor indentation inconsistency in `frontend/src/features/portfolio/components/ClosePositionDialog.test.tsx`: the `error={null}` prop is over-indented by 2 extra spaces relative to its sibling props on both occurrences (around lines 44 and 196). Cosmetic only (eslint/prettier didn't flag it), but worth a quick fix for consistency.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

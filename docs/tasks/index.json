@@ -1657,7 +1657,7 @@
       "id": "frontend-close-position-dialog",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/frontend-close-position-dialog.json"
     },
     {
@@ -1862,6 +1862,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-position-risk-columns-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-close-position-dialog-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-close-position-dialog-followups.json"
     }
   ]
 }

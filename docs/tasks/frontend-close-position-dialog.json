@@ -3,7 +3,7 @@
   "title": "Real Close-Position dialog (exit reason + optional manual exit override)",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-close-position-manual-exit"
   ],
@@ -72,5 +72,38 @@
     "pr_number": 261,
     "pr_url": "https://github.com/rainoko/fintrade/pull/261",
     "pushed_at": "2026-09-22T10:53:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T11:12:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/261",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: a close-position failure can become invisible or misattributed to the wrong position once ClosePositionDialog is dismissed (backdrop click) while the DELETE is still in flight. handleCancelClose unconditionally calls setPendingDelete(null) (only reset() is guarded on isPending), so the dialog closes even mid-flight. If the request later rejects: (a) if no close dialog is reopened afterward, the failure is never shown anywhere (PositionsTable no longer has the old always-rendered ErrorState banner this diff removed); (b) if a different position's close dialog is opened afterward, the stale deletePosition.error (never cleared, since reset() was skipped) renders inside that new dialog, misattributed to a position that was never actually attempted. Reproduced directly in a vitest test (cancel AAPL via backdrop while pending -> let the delayed DELETE resolve as 404 in the background -> open ZZZZ's close dialog -> role=\"alert\" shows 'Position not found' for ZZZZ) and independently flagged by a `code-review` skill pass run during this review.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.tsx",
+        "line": 195
+      },
+      {
+        "summary": "Verified: the double-click-race guard fix itself is genuinely correct, not just test-asserted. Reverted handleCancelClose's conditional reset() back to the original unconditional call and reran the 'double-click race' test -- it fails exactly as expected. Also drove a real Chromium browser through confirm-close -> backdrop-cancel-while-pending -> second click on the same row: the row's Delete button was still genuinely disabled (button.disabled, not just the a11y tree), no second dialog opened, and only one DELETE request was ever sent.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.tsx",
+        "line": 208
+      },
+      {
+        "summary": "Verified the backend's 'both or neither' exit_price/exit_date contract (DELETE /api/portfolio/positions/{id} in backend/app/api/routers/portfolio.py) matches ClosePositionDialog's client-side validation and ExitReason's value set exactly. No backend files changed in this PR, so no openapi.json regeneration was needed.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 561
+      },
+      {
+        "summary": "Non-blocking: isPositiveFinite in ClosePositionDialog.tsx is a verbatim copy of the identical helper already in AddPositionDialog.tsx -- worth extracting to a shared location. Tracked in frontend-close-position-dialog-followups.",
+        "file": "frontend/src/features/portfolio/components/ClosePositionDialog.tsx",
+        "line": 79
+      },
+      {
+        "summary": "Non-blocking: minor indentation inconsistency in ClosePositionDialog.test.tsx (error={null} over-indented by 2 spaces on two occurrences). Tracked in frontend-close-position-dialog-followups.",
+        "file": "frontend/src/features/portfolio/components/ClosePositionDialog.test.tsx",
+        "line": 44
+      }
+    ],
+    "notes": "Full suite run: backend 99.95% coverage (1144 passed), frontend 99.75%/99.25%/99.76%/99.81% coverage (786 passed; one AddPositionDialog.test.tsx flake inside a full coverage run, not reproducible in isolation or on a clean rerun, unrelated to this PR's files). Static analysis (ruff, mypy, eslint, tsc -b --noEmit, profit-target wording guard) all clean. make e2e: 21/21 specs pass including the updated portfolio.spec.ts. Placement decision (features/portfolio/components/, not common/) and all five decisions entries are sound and well-reasoned. Sending back to implementing for the blocking finding to be fixed; non-blocking findings filed as frontend-close-position-dialog-followups."
   }
 }
