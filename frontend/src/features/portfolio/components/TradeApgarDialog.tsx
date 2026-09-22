@@ -16,6 +16,8 @@ import { useState, type FormEvent } from 'react'
 import type { TradeApgarIn, TradeApgarQuestionOut } from '../../../api/portfolio'
 import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import { humanizeSnakeCase } from '../../../utils/format'
+import { useResetOnSubjectChange } from '../hooks/useResetOnSubjectChange'
 import { useScoreTradeApgar } from '../hooks/useScoreTradeApgar'
 
 type FalseBreakoutStatus = TradeApgarIn['false_breakout_status']
@@ -45,9 +47,23 @@ const PERFECTION_OPTIONS: Array<{ value: Perfection; label: string }> = [
   { value: 'both', label: 'Both timeframes look ideal' },
 ]
 
+// TradeApgarQuestionOut.value is a raw API value: FalseBreakoutStatusIn/
+// PerfectionIn's own snake_case literals for the two manual questions (echoed
+// straight back from what the caller submitted), or Impulse's own
+// 'GREEN'/'RED'/'BLUE'/`'above_value'/'in_value_zone'/'below_value'` for the
+// three auto questions. Reuse this dialog's own FALSE_BREAKOUT_OPTIONS/
+// PERFECTION_OPTIONS label maps for the manual values (bespoke wording
+// matching their own <Select> options) and fall back to humanizeSnakeCase's
+// generic underscores-to-spaces/capitalize for the auto ones, the same
+// convention ScreensPanel/SignalSummary already use elsewhere for a
+// snake_case-ish domain value (frontend-trade-apgar-followups).
+const VALUE_LABELS: Record<string, string> = Object.fromEntries(
+  [...FALSE_BREAKOUT_OPTIONS, ...PERFECTION_OPTIONS].map((option) => [option.value, option.label]),
+)
+
 const columns: DataTableColumn<TradeApgarQuestionOut>[] = [
   { key: 'label', header: 'Question' },
-  { key: 'value', header: 'Value' },
+  { key: 'value', header: 'Value', render: (row) => humanizeSnakeCase(row.value, VALUE_LABELS) },
   { key: 'score', header: 'Score', align: 'right' },
 ]
 
@@ -79,15 +95,13 @@ export default function TradeApgarDialog({ ticker, onClose }: TradeApgarDialogPr
 
   // Reset local state whenever the dialog switches to a different ticker (or
   // closes), so scoring a second ticker doesn't start pre-filled with the
-  // first ticker's manual answers or a stale result/error, same pattern as
-  // FollowUpReviewDialog's own `prevTradeId` comparison.
-  const [prevTicker, setPrevTicker] = useState<string | null>(ticker)
-  if (ticker !== prevTicker) {
-    setPrevTicker(ticker)
+  // first ticker's manual answers or a stale result/error, same shared
+  // pattern FollowUpReviewDialog uses for its own `trade` prop.
+  useResetOnSubjectChange(ticker, () => {
     setFalseBreakoutStatus('none')
     setPerfection('neither')
     scoreTradeApgar.reset()
-  }
+  })
 
   const handleClose = () => {
     onClose()

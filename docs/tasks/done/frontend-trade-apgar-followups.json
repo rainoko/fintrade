@@ -1,0 +1,77 @@
+{
+  "id": "frontend-trade-apgar-followups",
+  "title": "Non-blocking follow-ups from frontend-trade-apgar review (PR #254)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-trade-apgar"],
+  "references": [
+    "docs/tasks/done/frontend-trade-apgar.json",
+    "https://github.com/rainoko/fintrade/pull/254"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #254 (frontend-trade-apgar), recorded here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "TradeApgarDialog's results table Value column renders TradeApgarQuestionOut.value verbatim (raw snake_case strings like 'on_the_verge'/'in_value_zone'/'already_happened') instead of humanized/friendly text, inconsistent with both the dialog's own FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS label maps and the rest of the app's convention of running snake_case enum-ish values through utils/format.ts's humanizeSnakeCase before display (see ScreensPanel's Tide trend/Wave state/Trigger reference, SignalSummary's confidence_breakdown component). Reuse the existing label maps (or humanizeSnakeCase) for the Value column instead of the raw API value.",
+      "done": true
+    },
+    {
+      "step": "The 'reset local state when the subject prop changes' boilerplate (a derived prevSubject useState comparison + field resets + mutation.reset(), all performed during render) is now duplicated verbatim between TradeApgarDialog.tsx (prevTicker) and FollowUpReviewDialog.tsx (prevTradeId). Extract a small shared hook (e.g. `useResetOnSubjectChange(subjectId, resetters)`) so a future fix to this pattern doesn't need to be applied in both places by hand.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "TradeApgarDialog's Value column now renders `humanizeSnakeCase(row.value, VALUE_LABELS)`, where `VALUE_LABELS` is built by merging the dialog's own `FALSE_BREAKOUT_OPTIONS`/`PERFECTION_OPTIONS` arrays into a `Record<string, string>` (so the two manual questions get the exact same bespoke wording as their own `<Select>` options), and every other raw value (Impulse's `'GREEN'/'RED'/'BLUE'`, `price_vs_value`'s `'above_value'/'in_value_zone'/'below_value'`) falls through to `humanizeSnakeCase`'s generic underscores-to-spaces/capitalize fallback.",
+      "rationale": "This matches the exact convention the review comment pointed at (ScreensPanel's Tide trend/Wave state/Trigger reference, SignalSummary's confidence_breakdown component) and reuses wording the dialog already has rather than inventing a second, possibly-inconsistent label set for the same values. Rejected building a bespoke label map for the three auto values too (e.g. explicit 'Green'/'Red'/'Blue'/'Above value' entries): humanizeSnakeCase's generic fallback already produces the same readable text for these values with no bespoke wording needed (unlike 'on_the_verge' -> 'On the verge', which reads worse without the dialog's own more specific label), so a bespoke map would just be duplicate data with no wording benefit."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted `useResetOnSubjectChange(subjectId: string | null, onReset: () => void)` into `frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts` (a `features/portfolio` hook, not `utils/` or `components/common/`), and had both `TradeApgarDialog` (keyed on `ticker`) and `FollowUpReviewDialog` (keyed on `trade?.id ?? null`) call it with an inline closure doing their own field resets + `mutation.reset()`.",
+      "rationale": "Both current call sites already live under `features/portfolio/components/`, so keeping the hook in that same feature's `hooks/` folder needs no cross-feature import and matches Frontend.md's 'hooks live under the feature they serve' rule closely enough, even though this hook isn't an API-fetching hook like its siblings there -- it's UI-behavior logic (no rendering, no props, no fetch), which is exactly what Frontend.md's `utils/` placement test asks for instead. Chose `features/portfolio/hooks/` over `utils/` anyway because `utils/`'s own documented exception (`utils/profitTargetHelpText.ts`) is reserved for content genuinely shared *across* two different top-level features with neither owning it; here both consumers already belong to the same `portfolio` feature, so there's no cross-feature ownership problem to solve, and moving it to `utils/` preemptively would go against Frontend.md's guidance ('only introduce a shared Context/utility when a second, unrelated component genuinely needs it -- not preemptively') applied by analogy. If a third caller from a different feature (e.g. `features/stocks` or `features/watchlist`) ever needs the same pattern, that's the trigger to promote it to `utils/` then, not now. Took a single `onReset: () => void` callback parameter (as the task's own suggested `useResetOnSubjectChange(subjectId, resetters)` signature implied) rather than an array of individual resetter functions: a single closure lets each caller order its own resets/mutation.reset() call exactly as before with no array-of-functions indirection, and both call sites only ever need one reset step anyway."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "No separate `useResetOnSubjectChange.test.ts` unit test file was added for the new hook; its behavior (initial mount, transition between two non-null subjects, and transition to/from `null`) continues to be exercised only indirectly, through `TradeApgarDialog.test.tsx`'s and `FollowUpReviewDialog.test.tsx`'s existing 'resets ... when switching to a different ticker/trade' and 'closes when the ... prop transitions to null' tests (both already passing, both hooks/components at 100% coverage after the refactor).",
+      "rationale": "No hook in this codebase (`features/*/hooks/*.ts`) has its own standalone `renderHook`-based test file today -- every hook is covered exclusively through the component(s) that use it, per this codebase's established (if unwritten) convention, and introducing the first one here for a small, already-covered helper would be inconsistent with every sibling hook around it. Rejected adding one anyway for extra direct documentation value: the two existing dialog tests already exercise every branch this hook has (same-subject no-op, subject change, non-null-to-null and null-to-non-null transitions), so a dedicated test would be redundant coverage rather than closing an actual gap."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-apgar-followups",
+    "pr_number": 255,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/255",
+    "pushed_at": "2026-09-22T00:20:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:30:35Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/255",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified: TradeApgarDialog's Value column now humanizes both manual-question values (via VALUE_LABELS, sourced from FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS) and the three auto values (via humanizeSnakeCase's generic fallback). Confirmed live in a browser walkthrough (AAPL/MSFT) -- 'Green', 'Above value', 'On the verge', 'Both timeframes look ideal' all render correctly, no raw snake_case/uppercase leaks through, and TradeApgarDialog.test.tsx's new assertions match.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 66
+      },
+      {
+        "summary": "Verified: the extracted useResetOnSubjectChange(subjectId, onReset) hook is behaviorally identical to both dialogs' prior inline prevTicker/prevTradeId comparison -- same during-render reset timing, same one-call-per-subject-change guarantee. Confirmed via a browser walkthrough (switching TradeApgarDialog from AAPL to MSFT correctly resets both Select fields to their defaults and clears the stale result table) and via the existing dialog test suites' 'resets ... when switching' / 'closes when ... transitions to null' cases, both still passing at 100% coverage.",
+        "file": "frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts",
+        "line": 244
+      },
+      {
+        "summary": "Hook placement (features/portfolio/hooks/ vs utils/) is a genuinely arguable call given Frontend.md's own literal utils/ placement test (domain-agnostic + non-component -> utils/) vs. its separate API-concern-hooks-live-in-features bullet; not blocking, since the task's decisions entry reasons through the tension explicitly. Tracked as a non-blocking follow-up for reconsideration if a third, cross-feature caller ever needs the same pattern.",
+        "file": "frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts",
+        "line": 1
+      }
+    ],
+    "notes": "Full review: frontend vitest suite 756/756 passing, 99.74%/99.22% stmt/branch coverage (gate 90%); backend pytest 1144/1144 passing, 99.95% coverage (unaffected, no backend changes in this PR); ruff/mypy/eslint/tsc/profit-target-wording guard all clean; code-review skill (medium effort) found zero issues after tracing VALUE_LABELS against backend echo semantics and confirming no key collisions; browser walkthrough (Playwright script driving a live make-dev stack) confirmed humanized labels for both manual and auto question types plus correct reset-on-ticker-switch behavior, zero console errors; make e2e ran all 21 specs across 5 spec files (dashboard/navigation/portfolio/stock-analysis/watchlist), all passing, no regressions. All three decisions entries checked and hold up: VALUE_LABELS has no key collisions between FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS; the no-dedicated-hook-test-file decision is consistent with this codebase's actual convention (grepped features/*/hooks/*.test.* -- zero matches anywhere); the features/portfolio/hooks/ placement decision is reasonable but arguable (tracked as non-blocking follow-up above, per frontend-trade-apgar-followups-followups). No API/schema changes in this PR, so no OpenAPI snapshot regeneration was needed. Filed docs/tasks/frontend-trade-apgar-followups-followups.json for the one non-blocking finding."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T07:37:09Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran frontend vitest suite myself: 756/756 passing, 99.74%/99.22% stmt/branch coverage, matching pr-reviewer's numbers exactly; backend pytest 1144/1144 passing at 99.95% coverage (unaffected, no backend files touched). Skimmed the full diff (TradeApgarDialog.tsx, FollowUpReviewDialog.tsx, useResetOnSubjectChange.ts, TradeApgarDialog.test.tsx, task/index.json): confirmed the Value column humanization is real (new test assertions plus source), verified VALUE_LABELS has no key collisions between FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS values by reading them directly, and confirmed the extracted useResetOnSubjectChange hook's during-render prevSubjectId comparison is line-for-line equivalent to both dialogs' prior inline prevTicker/prevTradeId logic (same initial state, same comparison, same single onReset call per change). Re-ran frontend eslint/tsc myself (clean). Checked the hook-placement non-blocking finding against Frontend.md §3 directly and agree it's a genuinely arguable tension, correctly filed as a non-blocking follow-up rather than a blocker. No open human PR comments on #255."
+  }
+}

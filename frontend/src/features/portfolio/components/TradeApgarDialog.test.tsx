@@ -45,6 +45,17 @@ describe('TradeApgarDialog', () => {
     const table = screen.getByRole('table', { name: 'Trade Apgar questions' })
     expect(within(table).getByText('Weekly Impulse')).toBeInTheDocument()
     expect(within(table).getByText('"Perfection" (both timeframes look ideal)')).toBeInTheDocument()
+    // Value column renders humanized/friendly text, not the raw API value --
+    // the two auto Impulse questions ('GREEN') fall back to
+    // humanizeSnakeCase's generic capitalization, 'in_value_zone' likewise,
+    // and the two manual questions ('on_the_verge'/'both') reuse this
+    // dialog's own FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS label maps
+    // (frontend-trade-apgar-followups).
+    expect(within(table).getAllByText('Green')).toHaveLength(2)
+    expect(within(table).queryByText('GREEN')).not.toBeInTheDocument()
+    expect(within(table).getByText('In value zone')).toBeInTheDocument()
+    expect(within(table).getByText('On the verge')).toBeInTheDocument()
+    expect(within(table).getByText('Both timeframes look ideal')).toBeInTheDocument()
   })
 
   it('scores a NO-GO outcome from a low total (no single zero)', async () => {
@@ -77,6 +88,11 @@ describe('TradeApgarDialog', () => {
     expect(
       screen.getByText(/Elder's "no single zero" rule still blocks this trade/),
     ).toBeInTheDocument()
+    // APGARHIGH's auto questions are BLUE/BLUE/below_value -- humanized via
+    // the same VALUE_LABELS fallback as the GO test's GREEN/in_value_zone.
+    const table = screen.getByRole('table', { name: 'Trade Apgar questions' })
+    expect(within(table).getAllByText('Blue')).toHaveLength(2)
+    expect(within(table).getByText('Below value')).toBeInTheDocument()
   })
 
   it('shows an ApiError via common/ErrorState for an unknown ticker', async () => {

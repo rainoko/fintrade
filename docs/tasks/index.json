@@ -1720,8 +1720,15 @@
       "id": "frontend-trade-apgar-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-apgar-followups.json"
+    },
+    {
+      "id": "frontend-trade-apgar-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-trade-apgar-followups.json"
+      "path": "docs/tasks/frontend-trade-apgar-followups-followups.json"
     },
     {
       "id": "backend-market-scanner",
