@@ -3,7 +3,7 @@
   "title": "Resolve a ticker symbol to an IBKR conid",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -12,8 +12,22 @@
   ],
   "description": "get_hourly_bars/run_scanner both key off IBKR's own numeric conid, not a ticker symbol -- there's no /iserver/secdef/search (or /trsrv/stocks) wrapper anywhere, and backend-ibkr-data-provider's own decisions entry explicitly deferred researching it ('/iserver/secdef/search wasn't researched as part of that task'). Any real consumer taking a ticker like this app's other endpoints do needs this solved first.",
   "checklist": [
-    { "step": "Research /iserver/secdef/search's actual documented request/response shape (mocked in tests, per this module's existing no-live-gateway-in-CI testing constraint) and record findings as a decisions entry.", "done": false },
-    { "step": "Implement IBKRProvider.resolve_conid(ticker) -> int | None, degrading gracefully (not raising) on ambiguous or no results -- decide and record how ambiguous matches (multiple conids for one symbol, e.g. across exchanges) are resolved.", "done": false },
-    { "step": "Unit tests mocking the endpoint for found, ambiguous, and not-found cases.", "done": false }
+    { "step": "Research /iserver/secdef/search's actual documented request/response shape (mocked in tests, per this module's existing no-live-gateway-in-CI testing constraint) and record findings as a decisions entry.", "done": true },
+    { "step": "Implement IBKRProvider.resolve_conid(ticker) -> int | None, degrading gracefully (not raising) on ambiguous or no results -- decide and record how ambiguous matches (multiple conids for one symbol, e.g. across exchanges) are resolved.", "done": true },
+    { "step": "Unit tests mocking the endpoint for found, ambiguous, and not-found cases.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Implemented IBKRProvider.resolve_conid(ticker) against /iserver/secdef/search's documented shape (IBKR's Client Portal Web API reference): GET /iserver/secdef/search?symbol=<ticker> returns a JSON array, one entry per candidate contract, each shaped roughly `{\"conid\": \"265598\", \"companyHeader\": \"APPLE INC - NASDAQ\", \"companyName\": \"APPLE INC\", \"symbol\": \"AAPL\", \"sections\": [{\"secType\": \"STK\"}, {\"secType\": \"OPT\", ...}, ...]}` -- conid is returned as a numeric string, symbol matching can be fuzzy/partial (the endpoint is designed for a type-ahead search box, not an exact lookup), and a single top-level entry's `sections` list enumerates every asset class tradeable on that underlying (the stock itself plus any options/warrants/futures), not one entry per asset class.",
+      "rationale": "This matches this module's existing no-live-gateway constraint (backend-ibkr-data-provider's own decisions entry: implemented directly against IBKR's documented Web API shapes, every test mocks the _request boundary, live-gateway behavior deferred to manual verification by the user with a real running gateway per FINTRADE_IBKR_ENABLED staying false throughout this task). Not independently re-verified against a live gateway in this session -- same accepted limitation as the rest of this module, recorded rather than silently assumed away."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "resolve_conid filters /iserver/secdef/search's results to entries whose symbol matches the requested ticker exactly (case-insensitive) AND whose sections list includes a \"STK\" entry (excluding pure options/warrants/futures matches and the endpoint's fuzzy partial-symbol matches). If that filtering leaves exactly one DISTINCT conid, it's returned; if it leaves zero or more than one distinct conid, resolve_conid returns None in both cases rather than raising or guessing which candidate was meant (two rows resolving to the same conid, e.g. duplicate entries, are deduplicated first and are NOT treated as ambiguous).",
+      "rationale": "The checklist's own phrasing groups 'ambiguous' and 'no results' together as both needing to 'degrade gracefully (not raising)', which reads as an instruction to make both terminal cases produce the same None outcome rather than have resolve_conid pick a 'best guess' first candidate among several real, distinct conids for the same symbol. Considered picking the first result returned by the search endpoint (plausible if IBKR ranks primary listings first) but rejected it: that ranking behavior isn't documented, only observed informally, and silently resolving a genuinely ambiguous ticker to the wrong contract (e.g. the wrong exchange's listing) is a much worse failure mode for a Screen-3-hourly-bars or scanner consumer than surfacing 'could not resolve automatically, needs a manual conid' -- especially since this can't be verified against a live gateway in this session to confirm the ranking assumption holds. A future consumer that wants a 'best effort, pick something' mode can add that as an explicit opt-in parameter later; the safer default is what's implemented here."
+    }
   ]
 }

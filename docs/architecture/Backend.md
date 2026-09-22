@@ -161,6 +161,16 @@ while scoping this task:**
   rate-limited by IBKR to 1 request/second; `run_scanner` self-enforces that limit
   client-side (`IBKRRateLimitedError` if called again too soon) rather than always
   spending a real HTTP round-trip only to have the gateway reject it.
+- `GET /iserver/secdef/search` (`?symbol=...`) — resolves a plain ticker symbol to
+  IBKR's own numeric conid (docs/tasks/backend-ibkr-symbol-resolution.json), the id
+  `get_hourly_bars`/`run_scanner` actually key off of. `resolve_conid` keeps only exact
+  (case-insensitive) symbol matches that include a `"STK"` section (filtering out
+  options/warrants/futures on the same underlying and fuzzy partial-symbol matches the
+  endpoint can also return), and returns `None` -- never raises -- for both no match and
+  a genuinely ambiguous one (more than one distinct conid for that symbol, e.g. dual
+  listings on different exchanges) rather than guessing which contract was meant. See
+  that task's `decisions` entry for the documented response shape this was implemented
+  against.
 
 **Known, accepted limitation — unverified against a live gateway.** Every one of the
 above was implemented directly against IBKR's own documented Web API request/response
