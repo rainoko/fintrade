@@ -3,7 +3,7 @@
   "title": "Surface IBKR gateway connection status in the UI",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
@@ -45,5 +45,23 @@
     "pr_number": 244,
     "pr_url": "https://github.com/rainoko/fintrade/pull/244",
     "pushed_at": "2026-09-22T02:13:18Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T02:26:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/244",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Once useIbkrStatus's initial fetch has succeeded, a later background poll failure (this app's own backend going genuinely unreachable) does not flip the indicator to the 'IBKR: Unknown' chip -- TanStack Query keeps the last successful `data` populated across a failed background refetch, and IbkrStatusIndicator's `if (!statusQuery.data)` check order never re-checks `isError` once data has been seen once. Verified directly with a fake-timers vitest reproduction. Contradicts the letter of this task's 4th decisions entry, though the practical risk is low since every other page already surfaces its own error state in that scenario. Filed as a checklist item on frontend-ibkr-status-indicator-followups rather than blocking, since it's a narrow edge case, not a defect in any of the four real gateway states or the initial-load path.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 32
+      },
+      {
+        "summary": "Neither the loading spinner nor the rendered chip is in an aria-live/role=status region, so a screen-reader user away from the app bar gets no announcement when the gateway's connectivity silently changes during a background poll. Filed as a checklist item on frontend-ibkr-status-indicator-followups.",
+        "file": "frontend/src/features/ibkr/components/IbkrStatusIndicator.tsx",
+        "line": 24
+      }
+    ],
+    "notes": "Full review: backend suite unaffected (99.95% coverage, 1139 passed -- this PR has no backend changes); frontend suite 721/721 passed, coverage 99.72%/99.19%/99.72%/99.79% overall, 100% on every new/changed file. ruff/mypy/eslint/tsc/check_profit_target_wording.py all clean. code-review skill (high effort) found no correctness bugs. e2e suite (make e2e) 18/18 passed, including the app-shell's new GET /api/ibkr/status request firing on every page. Browser walkthrough via Playwright covered all four gateway states (disabled/available/not_authenticated/gateway_unreachable) plus a simulated transport failure (aborted request) -- each renders a distinct, correctly-colored/labeled chip, confirmed by screenshot; also checked a delayed response mid-navigation for stale-closure/unmount warnings (none) since IbkrStatusIndicator persists across in-app route changes rather than remounting per page. Component placement (IbkrStatusBadge in common/, IbkrStatusIndicator in features/ibkr/) correctly follows Frontend.md §3's domain-agnostic test and matches the SignalBadge/SeasonBadge precedent exactly. All four decisions entries are sound and well-reasoned; the 'genuine transport failure is distinct from gateway_unreachable' claim (decision 4) holds for the initial load and every explicitly-tested path, but not for a post-success background-poll failure -- see review.comments. No API/schema changes in this PR, so backend/openapi.json is correctly untouched. Two non-blocking findings tracked on frontend-ibkr-status-indicator-followups (new task, since none existed for this id)."
   }
 }
