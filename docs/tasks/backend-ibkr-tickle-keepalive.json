@@ -3,7 +3,7 @@
   "title": "Automate the IBKR gateway /tickle session keep-alive",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "backend/app/data/ibkr_provider.py",
@@ -36,5 +36,11 @@
       "decision": "The lifespan task's IBKRProvider instance is obtained via next(get_ibkr_provider()) (app.api.dependencies) rather than duplicating the Settings.ibkr_enabled check and constructing a fresh IBKRProvider directly in app.main.",
       "rationale": "Reuses that dependency's existing gate and process-wide singleton (same HTTP client, so the tickle loop's calls share connection/cookie state with every other IBKR call the app makes) as a single source of truth instead of a second, independently-maintained enabled check. get_ibkr_provider has no cleanup logic after its single yield in either branch, so calling next() once without ever closing the generator loses nothing."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-tickle-keepalive",
+    "pr_number": 267,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/267",
+    "pushed_at": "2026-09-22T14:21:19Z"
+  }
 }
