@@ -3,7 +3,7 @@
   "title": "Real market-breadth widget, alongside the existing personal-breadth proxy",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-market-breadth-indicators"],
   "references": [
     "frontend/src/features/watchlist/components",
@@ -36,5 +36,11 @@
       "rationale": "Placement: every field this widget renders and the endpoint it calls are IBKR-scanner domain concepts, not watchlist ones -- WatchlistPage imports it directly the same way AppShell already imports features/ibkr's IbkrStatusIndicator from outside that feature folder, so a cross-feature import here isn't a new pattern. useQuery over useMutation: this is an auto-fetch-on-mount, per-calendar-day-cacheable read (the backend itself caches by day), the same shape useWatchlistBreadth/usePortfolioRisk already have -- unlike useScoreTradeApgar's useMutation, which is explicitly a user-triggered on-demand computation (see that hook's own doc comment), nothing here is triggered by a user action."
     }
   ],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget",
+    "pr_number": 262,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/262",
+    "pushed_at": "2026-09-22T12:07:00Z"
+  },
   "questions": []
 }
