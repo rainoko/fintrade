@@ -88,16 +88,34 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
   // A genuine GET /api/portfolio/risk failure -- rendered as a small inline
   // warning icon/tooltip on both affected fields below instead of falling
   // through to their normal '—' ("no stop/target configured") case. See
-  // this component's own doc comment above.
-  const riskDataError = riskQuery.isError ? (
+  // this component's own doc comment above. Current Stop and Profit Target
+  // get distinct, field-specific `aria-label`s (rather than sharing one
+  // "Risk data unavailable" label) so a screen reader user encountering
+  // either icon on its own -- e.g. navigating by landmark/label rather than
+  // reading the whole banner in document order -- can tell which field
+  // failed without relying on surrounding visual/DOM context.
+  const stopDataError = riskQuery.isError ? (
     <Tooltip
-      title={`Protective stop / profit target unavailable: ${riskQuery.error.detail}`}
+      title={`Protective stop unavailable: ${riskQuery.error.detail}`}
     >
       <WarningAmberIcon
         fontSize="small"
         color="warning"
-        aria-label="Risk data unavailable"
-        data-testid="held-position-risk-error"
+        aria-label="Current Stop unavailable"
+        data-testid="held-position-stop-error"
+      />
+    </Tooltip>
+  ) : null
+
+  const profitTargetDataError = riskQuery.isError ? (
+    <Tooltip
+      title={`Profit target unavailable: ${riskQuery.error.detail}`}
+    >
+      <WarningAmberIcon
+        fontSize="small"
+        color="warning"
+        aria-label="Profit target unavailable"
+        data-testid="held-position-profit-target-error"
       />
     </Tooltip>
   ) : null
@@ -136,14 +154,14 @@ export default function HeldPositionBanner({ ticker }: HeldPositionBannerProps) 
             variant="body2"
             sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
           >
-            {riskDataError ?? (riskPosition ? formatCurrency(riskPosition.protective_stop) : '—')}
+            {stopDataError ?? (riskPosition ? formatCurrency(riskPosition.protective_stop) : '—')}
           </Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary" component="div">
             Profit Target
           </Typography>
-          {riskDataError ?? (
+          {profitTargetDataError ?? (
             <PositionProfitTargetCell
               profitTarget={riskPosition?.profit_target ?? null}
             />

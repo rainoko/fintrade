@@ -93,7 +93,7 @@ describe('HeldPositionBanner', () => {
     expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 
-  it('shows a warning icon (not an em dash) on Current Stop and Profit Target when GET /api/portfolio/risk fails', async () => {
+  it('shows field-specific warning icons (not an em dash) on Current Stop and Profit Target when GET /api/portfolio/risk fails', async () => {
     mockPortfolio(aaplPortfolio)
     server.use(
       http.get('/api/portfolio/risk', () =>
@@ -108,8 +108,10 @@ describe('HeldPositionBanner', () => {
     // entry price line.
     expect(within(banner).getByText('$195.30 · 100 sh · 2026-05-14')).toBeInTheDocument()
 
-    const warningIcons = await within(banner).findAllByLabelText('Risk data unavailable')
-    expect(warningIcons).toHaveLength(2)
+    // Field-specific aria-labels (not a shared "Risk data unavailable") so a
+    // screen reader user can tell which field failed from the label alone.
+    expect(await within(banner).findByLabelText('Current Stop unavailable')).toBeInTheDocument()
+    expect(within(banner).getByLabelText('Profit target unavailable')).toBeInTheDocument()
     // No misleading '—' ("no stop/target configured") anywhere in the banner
     // for this genuine fetch-failure case.
     expect(within(banner).queryByText('—')).not.toBeInTheDocument()

@@ -1,0 +1,77 @@
+{
+  "id": "frontend-position-risk-columns-followups-followups",
+  "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups review (PR #258)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-position-risk-columns-followups"],
+  "references": [
+    "docs/tasks/frontend-position-risk-columns-followups.json",
+    "https://github.com/rainoko/fintrade/pull/258"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #258 (frontend-position-risk-columns-followups), recorded here so they aren't lost once the PR merges. The blocking finding from that review (PositionsTable and RiskPanel both independently rendering a full common/ErrorState for the same GET /api/portfolio/risk failure on PortfolioPage, producing two identical stacked alerts) is tracked on frontend-position-risk-columns-followups itself as review.verdict: needs_work, not here.",
+  "checklist": [
+    {
+      "step": "HeldPositionBanner's two warning icons (Current Stop, Profit Target) share the identical aria-label \"Risk data unavailable\" with no field-specific accessible name. Confirmed via browser walkthrough: both icons render with the exact same aria-label, and HeldPositionBanner.test.tsx's own new test asserts toHaveLength(2) for this identical label rather than treating the duplication as a gap. Split into field-specific labels (e.g. \"Current Stop unavailable\" / \"Profit target unavailable\") so a screen reader user can distinguish which field failed without relying on surrounding visual/DOM context alone.",
+      "done": true
+    },
+    {
+      "step": "Spot-check DashboardPage for the same duplicate-ErrorState shape found blocking on PortfolioPage: RiskSummaryCard and SellFlaggedPositionsCard both independently call usePortfolioRisk() and both render their own full common/ErrorState on isError, pre-existing code not touched by PR #258. If a genuine GET /api/portfolio/risk failure produces two stacked identical alerts on the Dashboard the same way it did on Portfolio, fix all instances of this sibling-duplication pattern consistently (e.g. hoist the risk-error banner to the page level once, or have only one sibling per page own the error block) rather than patching just the Portfolio page.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T09:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "HeldPositionBanner's single shared `riskDataError` element (rendered identically on both the Current Stop and Profit Target fields, with aria-label \"Risk data unavailable\" and data-testid \"held-position-risk-error\") was split into two independent elements -- `stopDataError` (aria-label \"Current Stop unavailable\", data-testid \"held-position-stop-error\", tooltip \"Protective stop unavailable: ...\") and `profitTargetDataError` (aria-label \"Profit target unavailable\", data-testid \"held-position-profit-target-error\", tooltip \"Profit target unavailable: ...\") -- each rendered only on its own field.",
+      "rationale": "The task's own checklist wording (\"Current Stop unavailable\" / \"Profit target unavailable\") was adopted verbatim as the two labels rather than inventing different wording, since it already reads unambiguously per field and matches the visible field captions (\"Current Stop\", \"Profit Target\") immediately above each icon. Rejected alternative: keep one shared element but vary only the aria-label via a prop -- rejected because the tooltip text and data-testid needed to differ too (a screen reader user gets the aria-label, but a sighted user hovering gets the tooltip, and both needed to be field-specific for the fix to be complete), so two fully separate elements was simpler than parameterizing one."
+    },
+    {
+      "timestamp": "2026-09-22T09:20:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Confirmed the same sibling-duplication shape exists on DashboardPage: RiskSummaryCard and SellFlaggedPositionsCard both call usePortfolioRisk() (same query key, so a single shared cache entry/network request) and both independently rendered a full common/ErrorState on isError, producing two identical stacked role=\"alert\" blocks for one underlying GET /api/portfolio/risk failure -- verified by reading both components' pre-fix source and reproducing it in a DashboardPage.test.tsx regression test (mounting both cards together via the real DashboardPage composition) that fails with 2 alerts against the pre-fix code and passes with 1 against the fix (verified in both directions by temporarily restoring the pre-fix SellFlaggedPositionsCard.tsx and re-running the new test). Fixed by making SellFlaggedPositionsCard return null on riskQuery.isError instead of rendering its own ErrorState, leaving RiskSummaryCard (which renders first in DashboardPage's Stack and already fully gates its entire body on this exact failure) as the page's sole error surface for the shared query.",
+      "rationale": "This is the same underlying pattern PR #258's review found blocking on PortfolioPage (PositionsTable + RiskPanel both independently rendering ErrorState for one usePortfolioRisk failure), but the fix that worked there (revert PositionsTable to a silent per-row '—' fallback) doesn't transplant directly: PositionsTable had other, risk-independent columns (ticker/quantity/cost basis from GET /api/portfolio) that remained useful under a silent fallback, whereas SellFlaggedPositionsCard's entire body (a table of exit_flags) is wholly derived from the same failed risk query and has no unaffected content to fall back to -- there's nothing meaningful to show silently. Between the two general strategies this task's checklist itself named (\"hoist the risk-error banner to the page level once\" vs. \"have only one sibling per page own the error block\"), the latter was chosen: hoisting would mean DashboardPage taking on a data dependency of its children's shared query just to render one error block, working against Frontend.md §3's thin-page-composition guidance that both RiskSummaryCard's and SellFlaggedPositionsCard's own doc comments already cite for why each owns its own usePortfolioRisk call; letting RiskSummaryCard (the existing, unmodified first sibling) remain the sole owner of the ErrorState is the smaller, more surgical change, mirroring PR #258's own preference for the smallest fix over restructuring page composition. SellFlaggedPositionsCard returning null (rather than a degraded placeholder of its own) was chosen because RiskSummaryCard's ErrorState, rendered immediately above it on the page, already fully communicates the failure -- a second, different-looking degraded state for the exact same failure would be more confusing, not less, than no second element at all."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-position-risk-columns-followups-followups",
+    "pr_number": 259,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/259",
+    "pushed_at": "2026-09-22T09:22:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T09:37:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/259",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified both fixes hold up under independent re-verification rather than trusting the worker's own claims: (1) checked out commit 5f6626d (the pre-fix state) in a separate worktree, copied the new DashboardPage.test.tsx regression test onto it unmodified, and confirmed it genuinely fails there (2 alerts) and passes on the fix commit (1 alert) -- the worker's claimed pre/post verification is real, not asserted. (2) Confirmed SellFlaggedPositionsCard has no non-error content to lose by returning null: its entire body (title + exit-flags table) is wholly derived from the same failed usePortfolioRisk query, and RiskSummaryCard (which renders first in DashboardPage's Stack and fully gates its own body on the identical failure) remains the page's sole error surface -- verified live in a real Chromium browser (not just jsdom/MSW): exactly one 'Something went wrong' alert renders and 'Positions Flagged to Sell' is correctly absent when GET /api/portfolio/risk is made to return 500. (3) Confirmed HeldPositionBanner's two field-specific aria-labels/tooltips ('Current Stop unavailable' / 'Profit target unavailable') render correctly and independently in a real browser, screenshot attached to the review notes.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Full backend+frontend test/coverage suites pass: backend 99.95% (1144 passed), frontend 99.74% statements / 99.23% branches (765 vitest tests passed), both well above the 90% gate. Static analysis clean on both sides: ruff, mypy, eslint, tsc -b, and the profit-target stale-wording guard all pass with zero findings. The persisted Playwright e2e suite (make e2e) passes all 21 specs across dashboard/navigation/portfolio/stock-analysis.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (code-review skill, effort high): SellFlaggedPositionsCard.tsx's null-on-error return relies entirely on RiskSummaryCard being mounted first and owning the error surface for the shared usePortfolioRisk query -- an implicit, unenforced ordering coupling that would silently swallow a genuine failure with zero visible error if the component were ever reused/reordered elsewhere. Tracked as a followup, not blocking here since it's a documented, deliberate tradeoff (this task's own decisions entry) and today's actual composition is correct.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 60
+      },
+      {
+        "summary": "Non-blocking broader-sweep finding (explicitly requested by the review dispatch, given this is now the second occurrence of the sibling-duplicate-ErrorState pattern): the same bug also exists, unfixed, on StockDetailPage. PriceChart, OscillatorChart, VolumeIndicatorsChart, and TrendStrengthChart (composed via StockCharts) all share the exact same useIndicatorHistory(ticker, { range }) query key and each independently renders its own full common/ErrorState on indicatorsQuery.isError. Reproduced with a throwaway (not committed) vitest run forcing GET /api/stocks/:ticker/indicators to fail: 4 stacked identical alerts render. This is the third occurrence of this pattern in the codebase (after PortfolioPage/PR #258 and DashboardPage/this PR) and is out of scope for this specific PR, but should be fixed the same way. Tracked as a followup.",
+        "file": "frontend/src/features/stocks/components/StockCharts.tsx",
+        "line": null
+      }
+    ],
+    "notes": "Both recorded decisions checked against the actual diff and hold up: the aria-label/tooltip/data-testid split on HeldPositionBanner matches the decision text exactly, and the DashboardPage fix's chosen strategy (SellFlaggedPositionsCard returns null rather than hoisting the error to page level) is well-reasoned and verified correct in a real browser, not just unit tests. No checklist item was phrased as 'decide X' without a corresponding decisions entry. No new module/dependency/layer added (architecture-review not applicable); area is frontend/pages/portfolio, not backend/signals or backend/portfolio (verify-elder-signal not applicable). No new/substantially-changed frontend component -- both HeldPositionBanner and SellFlaggedPositionsCard are existing, already-domain-scoped feature components under features/portfolio/components/ receiving surgical modifications, so no placement finding. No API route/schema touched, so no OpenAPI snapshot check applies. Two non-blocking findings filed as docs/tasks/frontend-position-risk-columns-followups-followups-followups.json (a new followup-of-followup task, since none existed yet for this task id)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T09:44:47Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran both suites on the PR branch: backend 1144 passed/99.95% coverage, frontend 765 passed/99.74% stmts/99.23% branches -- matches pr-reviewer's reported numbers exactly. Reproduced the DashboardPage regression test's pre-fix failure myself in a separate worktree at commit 5f6626d (copied the new test onto it unmodified): 2 stacked alerts, AssertionError expected length 1 got 2, confirming it is a genuine regression test and not asserted-but-untested. Read SellFlaggedPositionsCard.tsx end to end: its entire render body (title + exit_flags DataTable) is derived solely from riskQuery.data with no risk-independent content, so returning null on isError loses nothing useful, and confirmed RiskSummaryCard renders first in DashboardPage.tsx and fully gates its own body on the identical usePortfolioRisk() isError, remaining the page's sole error surface. Both decisions entries (HeldPositionBanner aria-label/tooltip/testid split; DashboardPage null-return fix) checked against the actual diff and match verbatim. Static analysis reconfirmed scoped per static-verify (ruff check app/, eslint ., tsc -b, profit-target wording guard) all clean; a broader unscoped `ruff check .` surfaces 7 pre-existing findings in backend/tests/ files untouched by this PR (predates this branch, present on origin/main itself, out of static-verify's app/-scoped command) -- not a new issue introduced here. No human PR comments beyond the shared automation account."
+  }
+}

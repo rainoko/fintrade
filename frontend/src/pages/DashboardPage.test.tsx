@@ -136,4 +136,33 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Connection error')).toBeInTheDocument()
   })
+
+  it('shows exactly one alert (not two stacked) when GET /api/portfolio/risk fails, with RiskSummaryCard and SellFlaggedPositionsCard both mounted', async () => {
+    // RiskSummaryCard and SellFlaggedPositionsCard both call
+    // usePortfolioRisk() and, before this fix, both independently rendered a
+    // full common/ErrorState for the same failure -- the exact
+    // sibling-duplication shape pr-reviewer found blocking on PortfolioPage's
+    // PositionsTable/RiskPanel (PR #258). This regression test asserts the
+    // page-level composition specifically, since each card's own standalone
+    // test can't catch a duplicate that only appears once both are mounted
+    // together, same lesson PortfolioPage.test.tsx's equivalent regression
+    // test (PR #258) already applied there.
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+
+    renderDashboard()
+
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toHaveTextContent('Something went wrong')
+    // SellFlaggedPositionsCard renders nothing (not a second alert, not its
+    // own loading/empty state) for this failure.
+    expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('No positions currently flagged to sell.'),
+    ).not.toBeInTheDocument()
+  })
 })

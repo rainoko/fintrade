@@ -1,0 +1,25 @@
+{
+  "id": "frontend-position-risk-columns-followups-followups-followups",
+  "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups-followups review (PR #259)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-position-risk-columns-followups-followups"],
+  "references": [
+    "docs/tasks/frontend-position-risk-columns-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/259"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #259 (frontend-position-risk-columns-followups-followups), recorded here so they aren't lost once the PR merges. PR #259 itself was accepted (tests/coverage/lint/type-check all clean, both regression tests independently verified against pre-fix code, browser walkthrough of both fixes confirmed in a real Chromium session).",
+  "checklist": [
+    {
+      "step": "code-review finding: SellFlaggedPositionsCard.tsx (frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx:60) returns null on riskQuery.isError, relying entirely on its sibling RiskSummaryCard (rendered first on DashboardPage, already fully gating its own body on the same failure) to be the page's sole error surface for the shared usePortfolioRisk query. This coupling (SellFlaggedPositionsCard must always be mounted after a component that itself surfaces this exact error) is implicit and unenforced -- nothing stops a future page from mounting SellFlaggedPositionsCard alone or before RiskSummaryCard, in which case a genuine risk-fetch failure would render nothing at all, with no visible error and no console warning. The only regression test (DashboardPage.test.tsx) exercises exactly today's two-siblings-together composition, so it wouldn't catch that regression either. Worth a code comment making the ordering dependency explicit plus a lint/test guard, or a small shared-error-registration helper, if this component is ever reused standalone or reordered.",
+      "done": false
+    },
+    {
+      "step": "Broader sweep finding (this review's step 6/PR-level pattern check): the same sibling-duplicate-ErrorState pattern found blocking on PortfolioPage (PR #258, PositionsTable/RiskPanel) and fixed on DashboardPage (this PR, RiskSummaryCard/SellFlaggedPositionsCard) also exists, unfixed, on StockDetailPage: PriceChart, OscillatorChart, VolumeIndicatorsChart, and TrendStrengthChart (all composed together via StockCharts) each call the same useIndicatorHistory(ticker, { range }) hook/query key and each independently renders its own full common/ErrorState on indicatorsQuery.isError. Reproduced with a throwaway test forcing GET /api/stocks/{ticker}/indicators to fail: 4 stacked identical 'Something went wrong' alerts render on the page (confirmed via a one-off vitest run against StockDetailPage, not committed). This is the third occurrence of this exact pattern in the codebase and should be fixed the same way the prior two were -- e.g. only one of the four chart components (most likely PriceChart, which renders first) owns the ErrorState for this specific query's failure, with the other three returning null for it (PriceChart's own separate historyQuery error path is unaffected and should keep rendering as today).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

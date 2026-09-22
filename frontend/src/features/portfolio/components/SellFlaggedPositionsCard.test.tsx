@@ -4,15 +4,22 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { RiskResponse } from '../../../api/portfolio'
 import { server } from '../../../../tests/mocks/server'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../../../tests/renderWithProviders'
+import { portfolioKeys } from '../hooks/queryKeys'
 import SellFlaggedPositionsCard from './SellFlaggedPositionsCard'
 
 function renderCard() {
-  return renderWithProviders(
+  const queryClient = createTestQueryClient()
+  renderWithProviders(
     <MemoryRouter>
       <SellFlaggedPositionsCard />
     </MemoryRouter>,
+    { queryClient },
   )
+  return queryClient
 }
 
 function mockRisk(response: RiskResponse) {
@@ -113,16 +120,19 @@ describe('SellFlaggedPositionsCard', () => {
     expect(await screen.findByText('Some future flag')).toBeInTheDocument()
   })
 
-  it('shows an ApiError via common/ErrorState on failure', async () => {
+  it('renders nothing on failure, leaving RiskSummaryCard as the sole error surface for the shared query', async () => {
     server.use(
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({ detail: 'boom' }, { status: 500 }),
       ),
     )
+    const queryClient = renderCard()
 
-    renderCard()
-
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
   })
 })
