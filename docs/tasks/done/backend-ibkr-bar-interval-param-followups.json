@@ -3,7 +3,7 @@
   "title": "Follow-ups from backend-ibkr-bar-interval-param PR review (#265)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-bar-interval-param"],
   "references": [
     "docs/tasks/backend-ibkr-bar-interval-param.json",
@@ -31,5 +31,33 @@
     "pr_number": 266,
     "pr_url": "https://github.com/rainoko/fintrade/pull/266",
     "pushed_at": "2026-09-22T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:54:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/266",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified independently that 27 days is a genuinely safe underestimate: the shortest real Gregorian calendar month is a non-leap February at 28 days, so 27 < every real month length (28-31 days) and the pagination cursor (`earliest - step`) can never land after the true preceding bar's timestamp -- no skip is possible. No edge case (DST shift, leap seconds, historical calendar reform) brings a real elapsed month below 28 days for market-data timestamps, so no further margin is needed.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 116
+      },
+      {
+        "summary": "New tests are meaningful, not just coverage padding: one asserts the pagination cursor for bar_size='1m' now steps by exactly 27 days (behavioral), and a second is a standalone invariant test asserting the constant never exceeds 28 days -- both pass, and the full backend suite (1163 tests, 99.95% coverage) and static analysis (ruff/mypy/eslint-n-a) are clean.",
+        "file": "backend/tests/unit/data/test_ibkr_provider.py",
+        "line": 222
+      },
+      {
+        "summary": "Confirmed FINTRADE_IBKR_ENABLED=false in backend/.env and every IBKR test mocks _request -- no live network calls.",
+        "file": "backend/.env",
+        "line": 0
+      },
+      {
+        "summary": "decisions entry is complete: records what was changed, why 27 days is safe, and explicitly rejects both the original 30-day value and a calendar-aware exact step (deferred until a real 1m caller exists), per CLAUDE.md's decision-memory standard.",
+        "file": "docs/tasks/backend-ibkr-bar-interval-param-followups.json",
+        "line": 20
+      }
+    ],
+    "notes": "Small, well-scoped fix for a task with a single checklist item. Ran the backend suite with coverage (1163 passed, 99.95%, backend-only change so frontend not re-run -- last known state unaffected by this diff), ruff+mypy (clean on changed files), and scripts/validate_tasks.py (clean). No API/schema/OpenAPI change, no frontend/UI surface touched, so no browser walkthrough or e2e run applies (explicitly skipped for that reason). No non-blocking findings to track as a follow-up task. Not a signals/portfolio change so verify-elder-signal doesn't apply; no new module/dependency so architecture-review doesn't apply."
   }
 }

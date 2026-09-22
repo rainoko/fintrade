@@ -1559,8 +1559,8 @@
       "id": "backend-ibkr-bar-interval-param-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-ibkr-bar-interval-param-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-bar-interval-param-followups.json"
     },
     {
       "id": "backend-trade-grade-letter",
