@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-ibkr-tickle-keepalive's PR #267 review",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-tickle-keepalive"],
   "references": [
     "docs/tasks/backend-ibkr-tickle-keepalive.json",
@@ -29,5 +29,28 @@
     "pr_number": 268,
     "pr_url": "https://github.com/rainoko/fintrade/pull/268",
     "pushed_at": "2026-09-22T15:22:16Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T15:29:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/268",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently reproduced and confirmed the PR's central asyncio claim: cancelling a task suspended mid-`await asyncio.to_thread(...)` returns almost immediately rather than blocking on the in-flight thread-pool work, because `asyncio.to_thread` awaits a plain `asyncio.Future` (via `loop.run_in_executor`/`_chain_future`) whose `.cancel()` marks itself cancelled unconditionally, unlike `concurrent.futures.Future.cancel()` on an already-running work item. Verified with a standalone repro (0.1s sleep-then-cancel against a 1.0s worker-thread sleep returned control at ~0.1s, with the worker thread continuing to completion in the background afterward) on the same Python 3.12.14 the repo targets. The task-worker's correction of the original checklist item's (backwards) premise is accurate.",
+        "file": "backend/app/main.py",
+        "line": null
+      },
+      {
+        "summary": "Broadening `_ibkr_tickle_loop`'s catch from `IBKRUnavailableError` to `Exception` (still letting `asyncio.CancelledError`, a `BaseException`, propagate) is a real fix for the latent done-with-exception/no-op-cancel/re-raise-on-shutdown bug described in the PR, and matches an established repo-wide convention for this exact tradeoff (`app/data/stooq_provider.py`, `app/data/yfinance_provider.py` both already use `except Exception as exc:  # noqa: BLE001` with an adjacent justification comment for provider-boundary calls). Unlike the narrower `except DataProviderError`/`except X` used in request-handling code (`app/api/routers/watchlist.py`, `app/api/routers/portfolio.py`) where a loud 500 in tests/CI is the point, this is a background daemon loop whose only job is to keep pinging and not corrupt `lifespan()`'s own shutdown -- the broader catch is the correct choice here, not a downside.",
+        "file": "backend/app/main.py",
+        "line": 50
+      },
+      {
+        "summary": "Non-blocking nit (filed as a follow-up task, not blocking this accept): the new comment in `lifespan()`'s `finally` block references the task file at the literal path `docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json`, but at the time this was committed the task's actual state was `testing` (location `docs/tasks/backend-ibkr-tickle-keepalive-followups.json` per `index.json`) -- the comment assumed a not-yet-true `done/` location. It becomes accurate now that this review moves the task to `done/`, but the pattern of hardcoding an assumed future path in a source comment is fragile.",
+        "file": "backend/app/main.py",
+        "line": 104
+      }
+    ],
+    "notes": "Full backend suite: 1172 passed, 100% line/branch coverage (`pytest --cov=app --cov-report=term-missing`). ruff (`ruff check app/`) and mypy (full `mypy`) both clean; `scripts/check_profit_target_wording.py` and `scripts/validate_tasks.py` both clean. No frontend/API/schema changes in this PR (backend asyncio fix + one architecture-doc sentence only), so backend/openapi.json staleness and frontend static analysis don't apply -- confirmed no diff under frontend/ or backend/app/api/. No UI surface (no route, schema, or frontend change) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both skipped as genuinely inapplicable, not omitted for convenience. `FINTRADE_IBKR_ENABLED=false` confirmed in backend/.env; every new test mocks IBKRProvider via a fake with a Python-level side_effect, no live gateway/network call anywhere. All three checklist items are marked done and each has a corresponding decisions entry (the one 'corrected premise' judgment call is well-documented per CLAUDE.md's decision-memory rule) -- no undecided 'decide X' items outstanding. area is backend/data, not backend/signals or backend/portfolio, and skill is null, so verify-elder-signal doesn't apply; no new module/dependency/layer added, so architecture-review doesn't apply beyond the Backend.md wording fix itself, which was spot-checked against the actual _ibkr_tickle_loop implementation and found accurate. code-review skill (high effort) ran independently and found the same single non-blocking nit above, no other issues."
   }
 }
