@@ -3,7 +3,7 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-market-scanner"
   ],
@@ -53,6 +53,12 @@
       "recorded_by": "task-worker",
       "decision": "common/ErrorState gained a fourth documented status case (429, alongside 404/422/503/0): a distinct 'Too many requests' heading/icon, plus a new `Try again in {retryAfterSeconds}s.` line rendered when `ApiError.retryAfterSeconds` is non-null. Previously 429 fell through to the generic 'Something went wrong' default case, since no earlier frontend feature had ever called a rate-limited backend route (POST /api/ibkr/scanner/run is the first).",
       "rationale": "API.md documents 429 as a real, expected outcome of POST /api/ibkr/scanner/run (IBKRProvider's 1-request/second client-side throttle) and api/client.ts already parses the response's Retry-After header into `ApiError.retryAfterSeconds` specifically so a caller doesn't have to -- leaving ErrorState's generic fallback in place for this endpoint's very first UI consumer would both mislabel a normal, actionable, retry-shortly outcome as 'Something went wrong' and leave that already-parsed retry delay unused. Rendering the retry delay as its own Typography line (not appended into `detail`'s string) was chosen so a future backend wording change to `detail` can never accidentally duplicate or contradict this app-owned line."
+    },
+    {
+      "timestamp": "2026-09-22T01:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the review's blocking finding by extracting a new `ScannerAddToWatchlistButton({ ticker })` component that calls `useAddWatchlistItem()` and owns its own `added` boolean state, and having ScannerResultsTable's action-column `render` return that component per row instead of a shared `useAddWatchlistItem()`/`addedTickers` Set at the table level. Added a regression test staggering two rows' POST /api/watchlist responses (MSFT resolving before AAPL despite AAPL being clicked first) proving both rows independently flip to 'Added'.",
+      "rationale": "The bug was structural, not a state-tracking bug: TanStack Query's MutationObserver.mutate() detaches from whatever mutation it was previously observing as soon as a different mutate() call reattaches the same observer, so one useAddWatchlistItem() instance shared across rows could only ever track the most recently clicked row's onSuccess/isError. Reconciling addedTickers against some other source of truth (e.g. polling the watchlist query) was considered and rejected -- it would still leave a shared mutation's isPending/isError wired to only the latest click, and would add a second, redundant success-detection path instead of fixing the actual observer-sharing root cause. Giving each row its own hook call (one observer per row, matching how DataTable's render(row) already produces one React element per row) is the same pattern this codebase already uses for other per-row state and requires no changes to useAddWatchlistItem itself."
     }
   ],
   "git": {

@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { IBKRScannerResultOut } from '../../../api/ibkr'
@@ -63,6 +63,35 @@ describe('ScannerResultsTable', () => {
       expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(1),
     )
     expect(screen.getAllByRole('button', { name: 'Add to watchlist' })).toHaveLength(1)
+  })
+
+  it('resolves two concurrent adds on different rows independently (regression, PR #243)', async () => {
+    // Each row must own its own mutation instance: staggering the two rows'
+    // responses (MSFT resolves before AAPL, even though AAPL was clicked
+    // first) reproduces the shared-mutation bug from the review, where the
+    // second row's mutate() detached the first row's observer and its
+    // onSuccess never fired once its own request completed.
+    server.use(
+      http.post('/api/watchlist', async ({ request }) => {
+        const body = (await request.json()) as { ticker: string }
+        await delay(body.ticker === 'AAPL' ? 40 : 10)
+        return HttpResponse.json(
+          { ticker: body.ticker, added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          { status: 201 },
+        )
+      }),
+    )
+    const user = userEvent.setup()
+    renderResultsTable(results)
+
+    const addButtons = screen.getAllByRole('button', { name: 'Add to watchlist' })
+    await user.click(addButtons[0])
+    await user.click(addButtons[1])
+
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(2),
+    )
+    expect(screen.queryByRole('button', { name: 'Add to watchlist' })).not.toBeInTheDocument()
   })
 
   it('surfaces an add-to-watchlist failure via common/ErrorState', async () => {

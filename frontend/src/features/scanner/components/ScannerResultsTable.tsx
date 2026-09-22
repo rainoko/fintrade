@@ -13,6 +13,39 @@ export interface ScannerResultsTableProps {
 }
 
 /**
+ * Per-row "Add to watchlist" action. Calls `useAddWatchlistItem()` itself
+ * (one `useMutation` instance per row) rather than sharing a single instance
+ * across the whole table — a shared instance's `MutationObserver.mutate()`
+ * detaches from whatever mutation it was previously watching as soon as a
+ * *different* row's `mutate()` call reattaches it, so clicking "Add to
+ * watchlist" on row A then row B before A's request resolves meant A's
+ * `onSuccess` (and `isError`) never fired once A's own request did complete
+ * — its button stayed stuck on "Add to watchlist" forever even though the
+ * server-side add succeeded (see this task's `review.comments`, PR #243).
+ * Giving each row its own hook call gives each row its own observer, so
+ * concurrent adds on different rows resolve independently.
+ */
+function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
+  const addWatchlistItem = useAddWatchlistItem()
+  const [added, setAdded] = useState(false)
+
+  return (
+    <>
+      {addWatchlistItem.isError && <ErrorState error={addWatchlistItem.error} />}
+      <Button
+        size="small"
+        startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
+        disabled={added}
+        loading={addWatchlistItem.isPending}
+        onClick={() => addWatchlistItem.mutate({ ticker }, { onSuccess: () => setAdded(true) })}
+      >
+        {added ? 'Added' : 'Add to watchlist'}
+      </Button>
+    </>
+  )
+}
+
+/**
  * A completed scan's candidate list: symbol (linking to the existing ticker
  * detail view via the shared `common/TickerLink`, per this task's
  * description — "each hit's drill-down is the existing ticker detail view"),
@@ -45,9 +78,6 @@ export interface ScannerResultsTableProps {
  * distinct states).
  */
 export default function ScannerResultsTable({ results }: ScannerResultsTableProps) {
-  const addWatchlistItem = useAddWatchlistItem()
-  const [addedTickers, setAddedTickers] = useState<Set<string>>(new Set())
-
   const columns: DataTableColumn<IBKRScannerResultOut>[] = [
     {
       key: 'symbol',
@@ -74,42 +104,17 @@ export default function ScannerResultsTable({ results }: ScannerResultsTableProp
       key: 'conid',
       header: '',
       align: 'right',
-      render: (row) => {
-        if (!row.symbol) {
-          return null
-        }
-        const ticker = row.symbol
-        const added = addedTickers.has(ticker)
-        return (
-          <Button
-            size="small"
-            startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
-            disabled={added}
-            loading={addWatchlistItem.isPending && addWatchlistItem.variables?.ticker === ticker}
-            onClick={() =>
-              addWatchlistItem.mutate(
-                { ticker },
-                { onSuccess: () => setAddedTickers((prev) => new Set(prev).add(ticker)) },
-              )
-            }
-          >
-            {added ? 'Added' : 'Add to watchlist'}
-          </Button>
-        )
-      },
+      render: (row) => (row.symbol ? <ScannerAddToWatchlistButton ticker={row.symbol} /> : null),
     },
   ]
 
   return (
-    <>
-      {addWatchlistItem.isError && <ErrorState error={addWatchlistItem.error} />}
-      <DataTable
-        columns={columns}
-        rows={results}
-        getRowKey={(row) => row.conid}
-        emptyMessage="No matches for this scan."
-        ariaLabel="Scanner results"
-      />
-    </>
+    <DataTable
+      columns={columns}
+      rows={results}
+      getRowKey={(row) => row.conid}
+      emptyMessage="No matches for this scan."
+      ariaLabel="Scanner results"
+    />
   )
 }
