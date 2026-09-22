@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #271's review (Daily Homework self-test page)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-daily-homework-page"],
   "references": [
     "docs/tasks/frontend-daily-homework-page.json#review",
@@ -41,5 +41,11 @@
       "decision": "DailyHomeworkForm's render gate now waits only on `todayQuery.isLoading`, not `suggestionQuery.isLoading`. `suggestedScore` is read only from `suggestionQuery` once it has settled successfully (`suggestionQuery.isSuccess`), and is never consulted at all in the `existingEntry` (today already recorded) branch. A suggestion that is still pending, has failed, or resolves to `null` all fall back to the neutral default for `yesterday_trading_score` exactly as a failed suggestion already did before this change.",
       "rationale": "This directly implements the two loading-gate follow-up findings: (1) the whole 5-question form no longer waits on the optional suggestion query -- only the one field it feeds can be affected, and only when there's no existing entry to make it moot; (2) when today's entry already exists, `suggestionQuery`'s result is genuinely unused, so the component no longer waits on it at all, confirmed by a new test that never lets that request resolve (`delay('infinite')`) and asserts the banner still renders immediately. Accepted tradeoff, matching the parent task's own established 'no seed-after-mount effect, initial `useState` only' design (see frontend-daily-homework-page's decisions): if the suggestion is still in flight when `HomeworkQuestionsForm` first mounts, `yesterday_trading_score` starts at the neutral default and is *not* retroactively swapped in if the suggestion arrives moments later, since doing so would require exactly the re-seed-after-mount effect that design already rejected (or introduce a remount-via-`key` that could just as easily discard an in-progress edit). This narrows an already-accepted, bounded, non-data-affecting race rather than introducing a new one -- verified with a component test asserting the neutral default renders and is not blocked on when the suggestion endpoint never resolves. Rejected alternatives: keeping the block only for the no-existing-entry case (still needlessly delays the common case of a merely-slow suggestion, contradicting the follow-up's explicit ask); resyncing via a `key` prop tied to the suggestion's settle time (would remount `HomeworkQuestionsForm` and could discard in-progress edits, functionally the same re-seed-after-mount pattern this component's own design already rejects)."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-page-followups",
+    "pr_number": 272,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/272",
+    "pushed_at": "2026-09-22T17:39:21Z"
+  }
 }
