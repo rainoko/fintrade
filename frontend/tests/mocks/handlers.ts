@@ -19,6 +19,11 @@ import type {
   WatchlistItemOut,
   WatchlistResponse,
 } from '../../src/api/watchlist'
+import type {
+  IBKRScannerParamsResponse,
+  IBKRScannerResultOut,
+  IBKRScannerRunResponse,
+} from '../../src/api/ibkr'
 
 // Handlers mirroring docs/architecture/API.md, including every error case
 // listed in API.md's "Error Cases to Cover in Tests" section (see
@@ -706,5 +711,35 @@ export const handlers: HttpHandler[] = [
     }
     watchlistItems.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
+  }),
+
+  // GET /api/ibkr/scanner/params, POST /api/ibkr/scanner/run
+  // (frontend-market-scanner-page): default to an 'available' gateway with
+  // a small fixed set of scan categories/results, since these are the first
+  // frontend consumers of either route (no earlier task built one). A test
+  // overrides either handler via server.use() for the
+  // disabled/gateway_unreachable/not_authenticated/429/503 cases, the same
+  // convention PersonalBreadthCard.test.tsx already established for a
+  // whole-response-shape endpoint with no natural per-ticker sentinel.
+  http.get('/api/ibkr/scanner/params', () => {
+    const response: IBKRScannerParamsResponse = {
+      state: 'available',
+      detail: null,
+      categories: [
+        { code: 'TOP_PERC_GAIN', display_name: 'Top % Gainers' },
+        { code: 'TOP_PERC_LOSE', display_name: 'Top % Losers' },
+        { code: 'HOT_BY_VOLUME', display_name: 'Hot by Volume' },
+      ],
+    }
+    return HttpResponse.json(response)
+  }),
+
+  http.post('/api/ibkr/scanner/run', () => {
+    const results: IBKRScannerResultOut[] = [
+      { conid: 1001, symbol: 'AAPL', company_name: 'Apple Inc.', rank: 1 },
+      { conid: 1002, symbol: 'MSFT', company_name: 'Microsoft Corp.', rank: 2 },
+    ]
+    const response: IBKRScannerRunResponse = { state: 'available', detail: null, results }
+    return HttpResponse.json(response)
   }),
 ]

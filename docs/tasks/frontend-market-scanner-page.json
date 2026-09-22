@@ -3,16 +3,56 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "planned",
-  "depends_on": ["backend-market-scanner"],
+  "state": "implementing",
+  "depends_on": [
+    "backend-market-scanner"
+  ],
   "references": [
     "docs/ideas.md#market-scanning-ch-56-is-a-new-feature-not-part-of-the-watchlist-or-ticker-detail-view"
   ],
   "description": "A new page, not a section of the watchlist or ticker detail view (per docs/ideas.md's own scoping): pick a scan category, run it, review the resulting candidate list, and add any worth tracking to the watchlist (POST /api/watchlist, already built) -- each hit's drill-down is the existing ticker detail view. Must clearly show a disabled/unavailable state (not an error) when IBKR isn't connected, consistent with the backend's own degrade-gracefully contract.",
   "checklist": [
-    { "step": "Build a new Scanner page: category picker, a 'run scan' action, and a results list with each hit linking to the ticker detail view (TickerLink) and an 'add to watchlist' action per row.", "done": false },
-    { "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.", "done": false },
-    { "step": "Add the page to app navigation.", "done": false },
-    { "step": "Component tests covering: available with results, available with zero results, and the disabled/unavailable state.", "done": false }
+    {
+      "step": "Build a new Scanner page: category picker, a 'run scan' action, and a results list with each hit linking to the ticker detail view (TickerLink) and an 'add to watchlist' action per row.",
+      "done": true
+    },
+    {
+      "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.",
+      "done": true
+    },
+    {
+      "step": "Add the page to app navigation.",
+      "done": true
+    },
+    {
+      "step": "Component tests covering: available with results, available with zero results, and the disabled/unavailable state.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "New common/UnavailableState component (with its own Storybook stories + test) renders the 'the feature is disabled/not reachable right now, nothing is actually broken' case -- distinct from both common/ErrorState (genuine ApiError, red/alert styling, role=\"alert\") and common/EmptyState (real data, just zero of it). ScannerPage renders it whenever GET /api/ibkr/scanner/params's state !== 'available'; ScannerPanel renders it again for the same non-'available' outcome from POST /api/ibkr/scanner/run (reachable if IBKR drops between the params check and the run). This is the first frontend feature that needs to distinguish this three-way split (broken / disabled-but-fine / empty-but-fine) since this is the first UI built against any of the /api/ibkr/* routes.",
+      "rationale": "Reusing EmptyState for the disabled state was rejected: this task's own checklist explicitly calls out 'available with zero results' and 'the disabled/unavailable state' as two scenarios a reviewer needs to be able to tell apart at a glance, and EmptyState's framing ('no data to show you') is a poor fit for 'this data source can't even be reached right now' -- conflating them under one component/message would blur exactly the distinction the checklist calls out. Reusing ErrorState (e.g. by synthesizing a fake ApiError for a 200 response) was also rejected: `disabled`/`gateway_unreachable`/`not_authenticated` are deliberately not ApiErrors at all (API.md, backend-market-scanner's own decisions) precisely so the frontend doesn't have to render them as failures -- forcing them through ErrorState's alert-role/red-icon treatment would fight that contract and require inventing a synthetic error object for something that isn't one. A new, small, genuinely reusable common component (no domain knowledge, just heading+optional message) was the cleaner fit and will likely be reused once frontend-ibkr-status-indicator (still planned) needs the same treatment."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The category picker only exposes IBKR's own scan-type `code`/`display_name` (GET /api/ibkr/scanner/params's `categories`, normalized via features/scanner/scannerCategories.ts's `toScannerCategories`). `scan_config`'s `instrument`/`location` fields are hardcoded to `'STK'`/`'STK.US.MAJOR'` (the exact defaults `IBKRScannerRunRequest.scan_config`'s own schema `examples` document) rather than exposed as further pickers.",
+      "rationale": "GET /api/ibkr/scanner/params's backend handler only ever forwards IBKR's `scan_type_list` -- it deliberately discards `instrument_list`/`location_tree` entirely (see backend-market-scanner's own decisions entry: 'passing through the raw scan_type_list... rather than hand-curating'), so there is no server-exposed option list this frontend could build an instrument/location picker from without inventing one client-side from scratch (duplicating gateway-versioned option data the backend explicitly chose not to model, for the same staleness-risk reason that task gave). Building a full instrument/location/filter-builder UI is also out of scope for this task's own 'pick a scan category, run it' framing (task description) -- that is a materially larger feature (a generic scan-config form) than what was asked for here. STK/STK.US.MAJOR was chosen over any other fixed pair specifically because it's the literal example the backend schema itself documents, not a value invented for this task."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "ScannerResultsTable imports and reuses features/watchlist/hooks/useAddWatchlistItem.ts directly for its per-row 'Add to watchlist' action, rather than writing a second POST /api/watchlist mutation hook under features/scanner/hooks/. This is the first cross-feature hook import in the codebase (every prior feature's hooks are only ever consumed from within that same feature's own components/pages).",
+      "rationale": "useAddWatchlistItem already encapsulates the correct behavior end to end (idempotent no-op on a duplicate add per API.md, invalidates watchlist queries on success) -- duplicating it under features/scanner/hooks/ would risk the two implementations silently drifting (e.g. one gaining a bug fix or an invalidation the other doesn't). Frontend.md \u00a73's placement rules explicitly restrict *component* placement (`components/common/` vs `features/<domain>/components/`, checked by pr-reviewer) but say nothing about restricting a mutation hook -- a thin wrapper over one `useMutation` call with no feature-specific rendering -- to only being called from within its own feature. Considered lifting `useAddWatchlistItem` (or the underlying `addWatchlistItem` API call) into a shared, feature-agnostic location instead; rejected since it already lives exactly where Frontend.md's hook-placement rule says a watchlist-domain hook belongs ('features/portfolio/hooks/usePortfolio.ts... lives under the feature it serves'), and moving it would only be justified if a third consumer made the watchlist feature itself feel like the wrong owner -- not yet the case here."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "common/ErrorState gained a fourth documented status case (429, alongside 404/422/503/0): a distinct 'Too many requests' heading/icon, plus a new `Try again in {retryAfterSeconds}s.` line rendered when `ApiError.retryAfterSeconds` is non-null. Previously 429 fell through to the generic 'Something went wrong' default case, since no earlier frontend feature had ever called a rate-limited backend route (POST /api/ibkr/scanner/run is the first).",
+      "rationale": "API.md documents 429 as a real, expected outcome of POST /api/ibkr/scanner/run (IBKRProvider's 1-request/second client-side throttle) and api/client.ts already parses the response's Retry-After header into `ApiError.retryAfterSeconds` specifically so a caller doesn't have to -- leaving ErrorState's generic fallback in place for this endpoint's very first UI consumer would both mislabel a normal, actionable, retry-shortly outcome as 'Something went wrong' and leave that already-parsed retry delay unused. Rendering the retry delay as its own Typography line (not appended into `detail`'s string) was chosen so a future backend wording change to `detail` can never accidentally duplicate or contradict this app-owned line."
+    }
   ]
 }
