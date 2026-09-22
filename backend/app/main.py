@@ -100,9 +100,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # blocking on the in-flight call. The worker thread itself is not
             # interrupted -- it keeps running `provider.tickle()` to completion in the
             # background, orphaned and discarded, which is harmless here (no result is
-            # ever read back from it). Verified with a real-timing repro (see
-            # `docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json`'s
-            # `decisions`) rather than assumed.
+            # ever read back from it). Verified with a real-timing repro (see the
+            # `decisions` on task `backend-ibkr-tickle-keepalive-followups` -- resolve
+            # its current file location via docs/tasks/index.json rather than assuming
+            # a literal path, since it moves once the task is done) rather than assumed.
             with contextlib.suppress(asyncio.CancelledError):
                 await tickle_task
 
