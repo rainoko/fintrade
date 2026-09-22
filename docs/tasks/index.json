@@ -1538,8 +1538,8 @@
       "id": "backend-ibkr-tickle-keepalive",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-tickle-keepalive.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-tickle-keepalive.json"
     },
     {
       "id": "backend-ibkr-symbol-resolution",
@@ -1890,6 +1890,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-ibkr-symbol-resolution-followups.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-ibkr-tickle-keepalive-followups.json"
     }
   ]
 }

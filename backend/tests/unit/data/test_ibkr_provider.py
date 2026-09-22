@@ -90,6 +90,42 @@ class TestGetGatewayStatus:
         IBKRProvider().get_gateway_status()
 
 
+class TestTickle:
+    """`IBKRProvider.tickle()` (`backend-ibkr-tickle-keepalive`) -- mocks `_request`
+    itself, matching every other data-fetching method's test class above, since
+    `TestRequest` already separately covers `_request`'s own boundary behavior."""
+
+    def test_calls_request_against_tickle_endpoint(self, mocker) -> None:
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request", return_value={"session": "abc"}
+        )
+
+        IBKRProvider().tickle()
+
+        request.assert_called_once_with("GET", "/tickle")
+
+    def test_does_not_check_availability_first(self, mocker) -> None:
+        """Unlike `get_hourly_bars`/`get_scanner_params`/`run_scanner`/`resolve_conid`,
+        `tickle()` must not call `get_gateway_status`/`_require_available` first -- see
+        its own docstring for why (doubling the request volume against the gateway for
+        no benefit)."""
+        status = mocker.patch("app.data.ibkr_provider.IBKRProvider.get_gateway_status")
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={})
+
+        IBKRProvider().tickle()
+
+        status.assert_not_called()
+
+    def test_propagates_ibkr_unavailable_error(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=IBKRUnavailableError("gateway down"),
+        )
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().tickle()
+
+
 class TestGetHourlyBars:
     @staticmethod
     def _bar_at(hours_ago: float, price: float = 100.0) -> dict:
