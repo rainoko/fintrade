@@ -1664,7 +1664,7 @@
       "id": "frontend-position-risk-columns",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-position-risk-columns.json"
     },
     {

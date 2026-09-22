@@ -3,7 +3,7 @@
   "title": "Surface protective_stop/profit_target on the positions table and stock detail page",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "frontend/src/features/portfolio/components/PositionsTable.tsx",
@@ -12,8 +12,40 @@
   ],
   "description": "The backend already computes protective_stop and profit_target, but they're not visible where a user would naturally look: PositionsTable.tsx (the primary 'what do I own' view) has no stop/target columns at all -- both only exist in the separate RiskPanel further down the page. StockDetailPage.tsx has zero position-awareness -- viewing a ticker you actually hold shows the same generic analysis as any other ticker, with no 'you're in this at $X, your stop is $Y' context.",
   "checklist": [
-    { "step": "Add protective_stop and profit_target columns to PositionsTable.", "done": false },
-    { "step": "Add a 'you hold this position' context panel/banner to the stock detail page when the viewed ticker is in the user's portfolio, showing entry price, current stop, and target.", "done": false },
-    { "step": "Component tests for both surfaces, including the no-position case on the stock detail page (banner correctly absent).", "done": false }
+    { "step": "Add protective_stop and profit_target columns to PositionsTable.", "done": true },
+    { "step": "Add a 'you hold this position' context panel/banner to the stock detail page when the viewed ticker is in the user's portfolio, showing entry price, current stop, and target.", "done": true },
+    { "step": "Component tests for both surfaces, including the no-position case on the stock detail page (banner correctly absent).", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "PositionsTable calls usePortfolioRisk() itself (a second independent hook call, alongside RiskPanel's own) to source protective_stop/profit_target, rather than PortfolioPage fetching risk data once and passing it down as a new prop to both components.",
+      "rationale": "PositionOut (GET /api/portfolio) carries neither field -- both live only on RiskPosition (GET /api/portfolio/risk). Every other data dependency PositionsTable has is already component-owned (useDeletePosition) rather than prop-drilled from PortfolioPage, and TanStack Query dedupes the identical ['portfolio', 'risk'] queryKey into a single network request regardless of how many components call the hook, so there's no real network cost to the duplication. The rejected alternative (a shared prop) would mean changing RiskPanel's own established `positions`-prop contract too, for a table now doing exactly what RiskPanel already does for its own Signal/Profit Target columns -- more coupling for no behavioral gain."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The two new PositionsTable columns (Protective Stop, Profit Target) use synthetic `key`s reusing PositionOut's own otherwise-column-unused `confidence`/`confidence_band` fields, purely for DataTableColumn<T>'s `key: keyof T` typing -- neither column reads those fields, both render from the cross-referenced RiskPosition instead, and neither is sortable.",
+      "rationale": "Matches RiskPanel's own established convention for its synthetic Signal/Profit Target columns (reusing RiskPosition's unused `id`/`two_percent_rule_breached` fields the same way) rather than inventing a new pattern. Not sortable: DataTable's built-in sort compares `row[sortKey]` directly against the raw row field, bypassing a column's custom `render` -- since the actual displayed value lives on a separately-fetched RiskPosition, not on the PositionOut row DataTable sorts, a 'sortable' flag here would silently sort by the wrong (unrelated) field."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The new HeldPositionBanner component lives under features/portfolio/components/ (not features/stocks/components/), despite being rendered from pages/StockDetailPage.tsx.",
+      "rationale": "Every field it renders (a position's entry price/quantity/date, RiskPosition.protective_stop/profit_target) is a portfolio-domain concept, fetched via usePortfolio/usePortfolioRisk -- the stock-analysis endpoints know nothing about it. This mirrors the exact cross-feature placement StockDetailPage already established for TradeApgarDialog (also a features/portfolio/ component, imported and rendered from the stock detail page) rather than inventing a new precedent."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "HeldPositionBanner is rendered unconditionally on StockDetailPage (not nested inside the `analysisQuery.data &&` block, unlike the Trade Apgar button), and fetches its own data independently of useStockAnalysis rather than being gated on it.",
+      "rationale": "Whether a ticker is a held position is a portfolio-domain fact, entirely independent of whether GET /api/stocks/{ticker}/analysis happens to succeed for that same ticker on a given request. Hiding 'you hold this, here's your stop/target' behind a transient or permanent analysis failure (503/422, or even a genuinely delisted/unknown ticker the user still holds a stale position in) would suppress useful, unrelated information for no benefit. The component returns null itself (no loading/error state of its own) when the position isn't found or usePortfolio/usePortfolioRisk haven't resolved yet -- a silently-absent-until-ready supplementary panel was preferred over a second loading spinner competing with the page's main one; a genuine usePortfolio/usePortfolioRisk fetch failure is already surfaced loudly by PositionsTable/RiskPanel on the Portfolio page itself, so this panel doesn't need to duplicate that."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "HeldPositionBanner's Profit Target figure reuses PositionProfitTargetCell (RiskPanel's own component, driven by RiskPosition.profit_target) rather than features/stocks/components/ProfitTargetDisplay.tsx (the existing stock-detail-page profit-target component, driven by AnalysisResponse.profit_target).",
+      "rationale": "ProfitTargetDisplay takes a `signal` prop and interprets a null target as 'not a fresh BUY signal' -- the correct explanation for AnalysisResponse.profit_target's BUY-only gate, but the wrong one for an already-open position, whose RiskPosition.profit_target is computed regardless of the ticker's current live signal (per backend-profit-target-open-position). PositionProfitTargetCell already carries the right null-cause semantics for this exact case and is the same component PositionsTable's own new Profit Target column now uses, keeping all three surfaces (RiskPanel, PositionsTable, HeldPositionBanner) visually consistent for the same underlying field."
+    }
   ]
 }
