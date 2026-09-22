@@ -1643,7 +1643,7 @@
       "id": "backend-cftc-cot-data",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-cftc-cot-data.json"
     },
     {
@@ -1911,6 +1911,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-ibkr-tickle-keepalive-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-cftc-cot-data-followups.json"
     }
   ]
 }

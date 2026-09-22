@@ -1,0 +1,19 @@
+{
+  "id": "backend-cftc-cot-data-followups",
+  "title": "Non-blocking findings from PR #270's review (CFTC COT data)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-cftc-cot-data"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-data.json#review",
+    "https://github.com/rainoko/fintrade/pull/270"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #270 (backend-cftc-cot-data), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. This review's blocking finding (a KeyError that can escape get_all_recent() as an unhandled 500 instead of the documented 503) is recorded separately in that task's own review.comments and requires a code fix before merge -- only genuinely non-blocking items are tracked here.",
+  "checklist": [
+    {
+      "step": "The task's `decisions` entry for the 5 fixed cftc_contract_market_code values, and the matching inline code comments in app/data/cftc_cot_provider.py (COT_MARKETS dict), record `market_and_exchange_names` display text for the oil (067651) and bonds (020601) contracts that no longer matches what the live CFTC Socrata endpoint actually returns today: oil was recorded as \"CRUDE OIL, LIGHT SWEET (WTI) - NEW YORK MERCANTILE EXCHANGE\" but the live endpoint now returns \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\" for that same code; bonds was recorded as \"U.S. TREASURY BONDS - CHICAGO BOARD OF TRADE\" but the live endpoint now returns \"UST BOND - CHICAGO BOARD OF TRADE\". Confirmed (via a historical lookback query on the same contract code) that CFTC renamed both contracts at some point after the names in the decisions entry were presumably valid -- the contract codes themselves are still correct/live and unaffected, and the endpoint's own `display_name` response field is always populated live from the API response rather than hardcoded, so this is a documentation-accuracy issue only, not a functional bug. Worth a small comment/decisions-text update next time this file is touched, so a future reader cross-checking the decision against a live query isn't confused by the mismatch.",
+      "done": false
+    }
+  ]
+}
