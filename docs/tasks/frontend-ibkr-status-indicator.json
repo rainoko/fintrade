@@ -3,7 +3,7 @@
   "title": "Surface IBKR gateway connection status in the UI",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-ibkr-status-endpoint"],
   "references": [
     "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
@@ -39,5 +39,11 @@
       "decision": "A genuine transport-level failure (this app's own backend unreachable -- ApiError status 0) is rendered as a distinct grey 'IBKR: Unknown' chip in IbkrStatusIndicator, never folded into the gateway_unreachable state IbkrStatusBadge already models.",
       "rationale": "GET /api/ibkr/status's own documented contract (API.md) is that it never fails for any real gateway state -- the only way this request can reject at all is the frontend's own fetch to its backend failing outright, which is a categorically different fact from 'the IBKR gateway specifically is unreachable.' Reusing the gateway_unreachable label for that case would misleadingly claim to know something about IBKR that this app couldn't actually check. Also removed a dead `|| 'fallback text'` originally written around ApiError.detail once review of api/client.ts confirmed detail is always a non-empty string (including its own network-failure message) -- an unreachable branch that vitest's coverage report caught immediately."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-ibkr-status-indicator",
+    "pr_number": 244,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/244",
+    "pushed_at": "2026-09-22T02:13:18Z"
+  }
 }
