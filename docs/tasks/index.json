@@ -1664,8 +1664,15 @@
       "id": "frontend-position-risk-columns",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-position-risk-columns.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-position-risk-columns-followups.json"
     },
     {
       "id": "frontend-trade-grade-letter-display",
