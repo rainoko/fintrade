@@ -13,6 +13,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
@@ -275,3 +276,81 @@ class TestRecordBreadthSnapshot:
         )
 
         assert response.status_code == 422
+
+    def test_series_key_at_max_length_accepted(self, client: TestClient, db_session: Session) -> None:
+        """The pattern's upper bound (`{1,40}`) is a boundary no existing test exercised --
+        confirms a 40-char key (the longest still-valid length) is genuinely accepted, not
+        just spaces/uppercase rejected."""
+        max_length_key = "a" * 40
+        _override(_StubIBKRProvider(run_scanner_result=[]))
+
+        response = client.post(
+            "/api/ibkr/breadth/snapshot", json={"series_key": max_length_key, "scan_config": _SCAN_CONFIG}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["series_key"] == max_length_key
+
+    def test_series_key_over_max_length_rejected(self, client: TestClient) -> None:
+        """One character past the documented 1-40 bound must still be rejected -- confirms
+        the bound is actually enforced, not just spaces/uppercase against the character
+        class."""
+        too_long_key = "a" * 41
+
+        response = client.post(
+            "/api/ibkr/breadth/snapshot", json={"series_key": too_long_key, "scan_config": _SCAN_CONFIG}
+        )
+
+        assert response.status_code == 422
+
+    def test_empty_series_key_rejected(self, client: TestClient) -> None:
+        """The lower bound (`{1,40}`, i.e. at least 1 character) must reject an empty
+        string, the same way the upper bound rejects a too-long one."""
+        response = client.post(
+            "/api/ibkr/breadth/snapshot", json={"series_key": "", "scan_config": _SCAN_CONFIG}
+        )
+
+        assert response.status_code == 422
+
+    def test_concurrent_first_population_falls_back_to_winners_row(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulates the race this task's checklist flags: two concurrent first-of-the-day
+        requests for the same (series_key, snapshot_date) both see `row is None` and both
+        try to insert it, so the loser's `db.commit()` raises `IntegrityError` on the
+        composite primary key. Unlike `CachedDataProvider`'s OHLCV cache (which can safely
+        discard the loser's write), this route's response is read from the persisted row
+        itself -- so it must fall back to the concurrently-committed winner's row rather
+        than raising an uncaught 500 or using its own now-uncommitted `row`.
+        """
+        original_commit = db_session.commit
+
+        def _commit_raises_once_then_a_winner_appears() -> None:
+            monkeypatch.setattr(db_session, "commit", original_commit)
+            # The loser's own attempted insert is discarded...
+            db_session.rollback()
+            # ...and a concurrent request "wins" the race, committing its own row for the
+            # exact same (series_key, snapshot_date) first.
+            db_session.add(
+                IBKRBreadthSnapshotORM(
+                    series_key="nh", snapshot_date=today(), count=99, recorded_at=utcnow()
+                )
+            )
+            db_session.commit()
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_once_then_a_winner_appears)
+        _override(_StubIBKRProvider(run_scanner_result=[ScannerResult(conid=1, symbol=None, company_name=None, rank=None)]))
+
+        response = client.post(
+            "/api/ibkr/breadth/snapshot", json={"series_key": "nh", "scan_config": _SCAN_CONFIG}
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "available"
+        # The loser's own scan (a 1-result run) never landed -- the response reflects the
+        # concurrently-committed winner's row instead.
+        assert body["count"] == 99
+        assert body["days_recorded"] == 1
+        assert db_session.query(IBKRBreadthSnapshotORM).filter_by(series_key="nh").count() == 1

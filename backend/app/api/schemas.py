@@ -859,6 +859,19 @@ class IBKRScannerRunResponse(BaseModel):
 
 _SERIES_KEY_PATTERN = r"^[a-z0-9_-]{1,40}$"
 
+# ch. 34's own two rolling windows over the daily breadth figure -- "weekly NH-NL" (a
+# 5-trading-day moving total) and "20-day NH-NL" (a rolling monthly look-back). Defined here
+# (alongside `_SERIES_KEY_PATTERN` above, this module's other shared-validation-constant
+# precedent) rather than in app/api/routers/ibkr.py, and imported from there, so it's a
+# genuine single source of truth for both the router's rolling-sum computation and this
+# schema's own field descriptions below -- previously the router had its own
+# `_ROLLING_WINDOW_DAYS` tuple that was only ever consulted via `max()` for a query LIMIT,
+# while the literal `5`/`20` values driving actual response-field behavior (and these
+# descriptions) were separately hardcoded, so editing that tuple alone wouldn't have changed
+# behavior. See docs/tasks/backend-market-breadth-indicators-followups.json's `decisions`
+# entry.
+ROLLING_WINDOW_DAYS = (5, 20)
+
 
 class IBKRBreadthSnapshotRequest(BaseModel):
     series_key: str = Field(
@@ -918,17 +931,19 @@ class IBKRBreadthSnapshotResponse(BaseModel):
     )
     rolling_5d: int | None = Field(
         default=None,
-        description="Sum of `count` over the most recent 5 recorded days for this "
-        "`series_key` (ending today), matching ch. 34's 'weekly NH-NL' 5-day moving total -- "
-        "null until at least 5 days are recorded (`days_recorded >= 5`), rather than a "
-        "misleadingly partial sum. A caller composing two series (e.g. `nh` minus `nl`) "
-        "should subtract the two series' `rolling_5d` values, not re-derive a rolling sum "
-        "from `count` alone.",
+        description=f"Sum of `count` over the most recent {ROLLING_WINDOW_DAYS[0]} recorded "
+        "days for this `series_key` (ending today), matching ch. 34's 'weekly NH-NL' "
+        f"{ROLLING_WINDOW_DAYS[0]}-day moving total -- null until at least "
+        f"{ROLLING_WINDOW_DAYS[0]} days are recorded (`days_recorded >= {ROLLING_WINDOW_DAYS[0]}`), "
+        "rather than a misleadingly partial sum. A caller composing two series (e.g. `nh` "
+        "minus `nl`) should subtract the two series' `rolling_5d` values, not re-derive a "
+        "rolling sum from `count` alone.",
     )
     rolling_20d: int | None = Field(
         default=None,
-        description="Same as `rolling_5d`, over the most recent 20 recorded days -- matching "
-        "ch. 34's '20-day NH-NL' monthly look-back. Null until `days_recorded >= 20`.",
+        description=f"Same as `rolling_5d`, over the most recent {ROLLING_WINDOW_DAYS[1]} "
+        "recorded days -- matching ch. 34's '20-day NH-NL' monthly look-back. Null until "
+        f"`days_recorded >= {ROLLING_WINDOW_DAYS[1]}`.",
     )
 
 
