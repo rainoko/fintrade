@@ -284,6 +284,32 @@ class IBKRProvider:
             return GatewayStatus(state="not_authenticated", detail=detail)
         return GatewayStatus(state="available")
 
+    def tickle(self) -> None:
+        """Keep the gateway session alive via `GET /tickle`
+        (docs/architecture/Backend.md §8: "keep the session alive with a periodic GET
+        /tickle call roughly once a minute" -- `backend-ibkr-tickle-keepalive`). Goes
+        through `_request` like every other method on this class, so a transport
+        error/non-200/unparseable body surfaces as the same `IBKRUnavailableError`; the
+        response body itself carries nothing this method's callers need (IBKR's own docs
+        don't document a meaningful payload beyond confirming the ping succeeded), so it's
+        discarded rather than returned.
+
+        Deliberately does **not** call `_require_available()` first, unlike
+        `get_hourly_bars`/`get_scanner_params`/`run_scanner`/`resolve_conid` -- those
+        methods gate on availability because a data-fetching call against an
+        unauthenticated gateway is pointless and would fail anyway, but `/tickle`'s whole
+        purpose *is* refreshing a session that's expected to still be authenticated.
+        Gating it behind `_require_available()` would call `GET /iserver/auth/status`
+        immediately before every single `/tickle`, doubling the request volume against
+        the gateway for no benefit -- if the session has actually expired, `/tickle`
+        itself will simply fail the same way `_require_available()`'s own status check
+        would have. See this task's `decisions` entry.
+
+        Raises:
+            IBKRUnavailableError: the gateway is unreachable, or the request fails.
+        """
+        self._request("GET", "/tickle")
+
     def get_hourly_bars(
         self, conid: int, *, lookback_days: int = 30, bar_size: str = _BAR_INTERVAL
     ) -> list[IBKRBar]:
