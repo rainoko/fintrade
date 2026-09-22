@@ -3,7 +3,7 @@
   "title": "Real Close-Position dialog (exit reason + optional manual exit override)",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-close-position-manual-exit"
   ],
@@ -66,5 +66,11 @@
       "decision": "api/portfolio.ts's deletePosition() forwards a supplied exitPrice/exitDate independently onto the query string (each present iff it was supplied), rather than only including either when both are present together.",
       "rationale": "ClosePositionDialog's own client-side validation is what actually enforces 'both or neither' before onConfirm/the mutation is ever called, so this api-layer function forwarding a caller's mismatched single value straight through (rather than silently coalescing it into 'as if neither was given') means a caller that does get it wrong anyway -- a bug in some future consumer, or a direct unit test of the api function itself -- sees the backend's own real 422 for exactly that case, not a request that silently looks identical to the ordinary no-override default and masks the mistake. Rejected: requiring both together at this layer too (as the mutation-variables type's own shape doesn't statically prevent one being supplied without the other) -- redundant with ClosePositionDialog's validation and would need its own separate error surface for what's already a well-documented backend 422."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-close-position-dialog",
+    "pr_number": 261,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/261",
+    "pushed_at": "2026-09-22T10:53:31Z"
+  }
 }
