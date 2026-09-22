@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups-followups review (PR #259)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-position-risk-columns-followups-followups"],
   "references": [
     "docs/tasks/frontend-position-risk-columns-followups-followups.json",
@@ -13,13 +13,26 @@
   "checklist": [
     {
       "step": "code-review finding: SellFlaggedPositionsCard.tsx (frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx:60) returns null on riskQuery.isError, relying entirely on its sibling RiskSummaryCard (rendered first on DashboardPage, already fully gating its own body on the same failure) to be the page's sole error surface for the shared usePortfolioRisk query. This coupling (SellFlaggedPositionsCard must always be mounted after a component that itself surfaces this exact error) is implicit and unenforced -- nothing stops a future page from mounting SellFlaggedPositionsCard alone or before RiskSummaryCard, in which case a genuine risk-fetch failure would render nothing at all, with no visible error and no console warning. The only regression test (DashboardPage.test.tsx) exercises exactly today's two-siblings-together composition, so it wouldn't catch that regression either. Worth a code comment making the ordering dependency explicit plus a lint/test guard, or a small shared-error-registration helper, if this component is ever reused standalone or reordered.",
-      "done": false
+      "done": true
     },
     {
       "step": "Broader sweep finding (this review's step 6/PR-level pattern check): the same sibling-duplicate-ErrorState pattern found blocking on PortfolioPage (PR #258, PositionsTable/RiskPanel) and fixed on DashboardPage (this PR, RiskSummaryCard/SellFlaggedPositionsCard) also exists, unfixed, on StockDetailPage: PriceChart, OscillatorChart, VolumeIndicatorsChart, and TrendStrengthChart (all composed together via StockCharts) each call the same useIndicatorHistory(ticker, { range }) hook/query key and each independently renders its own full common/ErrorState on indicatorsQuery.isError. Reproduced with a throwaway test forcing GET /api/stocks/{ticker}/indicators to fail: 4 stacked identical 'Something went wrong' alerts render on the page (confirmed via a one-off vitest run against StockDetailPage, not committed). This is the third occurrence of this exact pattern in the codebase and should be fixed the same way the prior two were -- e.g. only one of the four chart components (most likely PriceChart, which renders first) owns the ErrorState for this specific query's failure, with the other three returning null for it (PriceChart's own separate historyQuery error path is unaffected and should keep rendering as today).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T09:56:08Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed SellFlaggedPositionsCard's implicit sibling-ordering coupling with an explicit, caller-supplied `errorSurfacedBySibling` prop (default false) rather than a documented-but-still-implicit ordering invariant (comment + regression test only) or a shared cross-component error-registration helper. On `riskQuery.isError`, the component now renders its own `common/ErrorState` unless the caller explicitly passes `errorSurfacedBySibling`, which `DashboardPage` does (with an inline comment pointing at RiskSummaryCard as the reason). This makes the previous 'nothing stops a future page from mounting this card alone or before RiskSummaryCard' failure mode structurally impossible: a standalone mount (no prop passed) now shows the real error instead of silently rendering nothing, and the suppression only ever happens when a caller has explicitly declared it safe to do so -- independent of render order, so reordering DashboardPage's siblings can no longer break this silently either. Rejected alternatives: (1) a code comment plus a test asserting the current DashboardPage composition, which the task itself flagged as the weaker of the two named options -- it documents the invariant without preventing a future violation of it, and the existing DashboardPage.test.tsx regression test already covers exactly today's composition and would keep passing right through a future ordering break; (2) a shared cross-component error-registration/context helper, which would work but is meaningfully more machinery (a new shared primitive, its own tests, and every future consumer of usePortfolioRisk having to learn it) for a problem an explicit boolean prop already solves cleanly given there are only ever two components sharing this specific query today.",
+      "rationale": "Directly closes the task's checklist item 1, which explicitly asked for 'a more robust fix' beyond the ordering-comment approach PR #259 used, giving two example directions (an explicit documented invariant, or an approach that doesn't rely on render order at all) -- the explicit prop satisfies both: it's a literal, type-checked contract at the call site (not just a comment) and it has zero dependency on which sibling actually renders first."
+    },
+    {
+      "timestamp": "2026-09-22T09:56:08Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the third confirmed sibling-duplicate-ErrorState occurrence (StockCharts' PriceChart/OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart, all sharing useIndicatorHistory) by following the same order-dependent pattern already applied twice (PR #258's PositionsTable/RiskPanel, PR #259's RiskSummaryCard/SellFlaggedPositionsCard), per this checklist item's explicit instruction to do so -- not the explicit-prop approach used for checklist item 1 above. PriceChart (rendered first by StockCharts.tsx) keeps its own `indicatorsQuery.isError` ErrorState unchanged; OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart now render nothing for that same failure, each with an inline comment naming PriceChart as the shared failure's sole owner. PriceChart's own separate `historyQuery` error path is untouched. Updated each of the three suppressed components' own standalone-error tests (404/503/422 cases previously asserting an alert) to assert the new silent-degrade behavior instead, and added a StockCharts.test.tsx page-level regression test asserting exactly one alert renders when all four charts are mounted together and GET /api/stocks/{ticker}/indicators fails -- the same page-level-regression-test pattern PortfolioPage.test.tsx/DashboardPage.test.tsx already established for the first two occurrences, since a standalone per-component test can't catch a duplicate that only appears once all four are mounted together.",
+      "rationale": "The checklist item's own wording ('follow the same fix pattern already applied twice before... check those diffs for precedent') is a direct instruction to replicate the existing order-dependent pattern here, not to re-litigate its robustness -- that concern was deliberately scoped to checklist item 1's SellFlaggedPositionsCard fix only. Not applying the same explicit-prop treatment to these three chart components here also keeps this PR's diff focused and consistent with precedent; if the render-order coupling on StockCharts is later judged to need the same robustness treatment as SellFlaggedPositionsCard, that is exactly the kind of finding a future PR review of this task's PR would surface as its own follow-up task, the same way this task itself originated as a followup of PR #259's review."
+    }
+  ],
   "questions": []
 }

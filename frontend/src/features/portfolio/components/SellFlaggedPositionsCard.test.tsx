@@ -11,11 +11,11 @@ import {
 import { portfolioKeys } from '../hooks/queryKeys'
 import SellFlaggedPositionsCard from './SellFlaggedPositionsCard'
 
-function renderCard() {
+function renderCard(props: { errorSurfacedBySibling?: boolean } = {}) {
   const queryClient = createTestQueryClient()
   renderWithProviders(
     <MemoryRouter>
-      <SellFlaggedPositionsCard />
+      <SellFlaggedPositionsCard {...props} />
     </MemoryRouter>,
     { queryClient },
   )
@@ -120,13 +120,29 @@ describe('SellFlaggedPositionsCard', () => {
     expect(await screen.findByText('Some future flag')).toBeInTheDocument()
   })
 
-  it('renders nothing on failure, leaving RiskSummaryCard as the sole error surface for the shared query', async () => {
+  it('shows its own ErrorState on failure by default, when no sibling has claimed the error', async () => {
     server.use(
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({ detail: 'boom' }, { status: 500 }),
       ),
     )
     const queryClient = renderCard()
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
+    )
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing on failure when errorSurfacedBySibling is set, leaving the sibling as the sole error surface', async () => {
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+    const queryClient = renderCard({ errorSurfacedBySibling: true })
 
     await waitFor(() =>
       expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),

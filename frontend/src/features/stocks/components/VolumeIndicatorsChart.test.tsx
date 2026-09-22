@@ -172,11 +172,23 @@ describe('VolumeIndicatorsChart', () => {
     expect(createChartMock).not.toHaveBeenCalled()
   })
 
-  it('shows a 404 error via common/ErrorState for an unknown ticker', async () => {
+  // This chart shares the exact same useIndicatorHistory hook/query key with
+  // PriceChart, OscillatorChart, and TrendStrengthChart (all composed
+  // together by StockCharts.tsx), so it no longer renders its own
+  // common/ErrorState for indicatorsQuery.isError -- PriceChart, rendered
+  // first, is the sole error surface for this shared failure (see this
+  // component's own doc comment and the frontend-position-risk-columns-
+  // followups-followups-followups task's decisions entry).
+  it('renders nothing (no own ErrorState) on a 404 for an unknown ticker, since PriceChart owns this shared failure', async () => {
     renderWithProviders(<VolumeIndicatorsChart ticker="UNKNOWN" range="1y" />)
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
-    expect(screen.getByText('Not found')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Loading volume indicator history for UNKNOWN...'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
   })
 
   it('does not fetch or render when disabled (weekly interval upstream), showing an explanatory message instead', async () => {
