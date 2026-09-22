@@ -65,6 +65,30 @@ _DISABLED_DETAIL = "IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not s
 _ROLLING_WINDOW_DAYS = (5, 20)
 _MAX_ROLLING_WINDOW_DAYS = max(_ROLLING_WINDOW_DAYS)
 
+# Shared 429 `responses={}` entry for `run_ibkr_scanner` and
+# `record_ibkr_breadth_snapshot` -- both eventually call `IBKRProvider.run_scanner`, the
+# only method the client-side rate limit in `_rate_limited_http_exception` applies to, so
+# both routes' 429s carry the exact same header contract. Previously duplicated verbatim
+# between the two routes' `responses={}` dicts, which let them silently drift out of sync
+# (see this task's `decisions` entry); factored out here so there's exactly one place to
+# change. `headers["Retry-After"]["required"]` is `True` because
+# `_rate_limited_http_exception` unconditionally sets this header on every 429 it builds --
+# there's no code path where a caller gets a 429 from these routes without it -- so the
+# generated frontend type is `"Retry-After": number`, not the misleadingly optional
+# `"Retry-After"?: number`.
+_RETRY_AFTER_429_RESPONSE: dict[str, object] = {
+    "model": ErrorDetail,
+    "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
+    "number of seconds in the `Retry-After` response header",
+    "headers": {
+        "Retry-After": {
+            "description": "Number of seconds to wait before retrying the scanner run",
+            "required": True,
+            "schema": {"type": "integer"},
+        },
+    },
+}
+
 
 @router.get(
     "/status",
@@ -188,17 +212,7 @@ def get_ibkr_scanner_params(
     operation_id="run_ibkr_scanner",
     summary="Run an IBKR market scan, or report why the scanner is unavailable",
     responses={
-        429: {
-            "model": ErrorDetail,
-            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
-            "number of seconds in the `Retry-After` response header",
-            "headers": {
-                "Retry-After": {
-                    "description": "Number of seconds to wait before retrying the scanner run",
-                    "schema": {"type": "integer"},
-                },
-            },
-        },
+        429: _RETRY_AFTER_429_RESPONSE,
         503: {
             "model": ErrorDetail,
             "description": "The scanner-run call itself failed transiently (not a gateway/session "
@@ -261,17 +275,7 @@ def _unavailable_breadth_response(
     operation_id="record_ibkr_breadth_snapshot",
     summary="Record (or fetch) today's IBKR-scanner-based breadth count for one series, with rolling sums",
     responses={
-        429: {
-            "model": ErrorDetail,
-            "description": "Scanner run rate limit (1 request/second) exceeded -- retry after the "
-            "number of seconds in the `Retry-After` response header",
-            "headers": {
-                "Retry-After": {
-                    "description": "Number of seconds to wait before retrying the scanner run",
-                    "schema": {"type": "integer"},
-                },
-            },
-        },
+        429: _RETRY_AFTER_429_RESPONSE,
         503: {
             "model": ErrorDetail,
             "description": "The scanner-run call itself failed transiently (not a gateway/session "
