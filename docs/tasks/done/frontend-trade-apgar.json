@@ -1,0 +1,81 @@
+{
+  "id": "frontend-trade-apgar",
+  "title": "Trade Apgar pre-trade scoring form",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": [
+    "backend-trade-apgar"
+  ],
+  "references": [
+    "docs/ideas.md#trade-apgar--pre-trade-go-no-go-scoring-ch-58"
+  ],
+  "description": "A pre-trade Trade Apgar scoring form for a ticker: shows auto-populated questions (weekly/daily Impulse, price-vs-value-zone) alongside manual inputs (false-breakout status, 'perfection'), with the go/no-go result per the >=7-total/no-single-zero rule.",
+  "checklist": [
+    {
+      "step": "Build the Trade Apgar form, pre-filling auto-populated fields from the backend and allowing the user to edit/confirm them.",
+      "done": true
+    },
+    {
+      "step": "Show the go/no-go result clearly (>=7 total AND no single question scored 0).",
+      "done": true
+    },
+    {
+      "step": "Decide placement (ticker detail view vs. a dedicated page/dialog) and record.",
+      "done": true
+    },
+    {
+      "step": "Component tests covering a go outcome, a no-go outcome from a low total, and a no-go outcome from a single zero despite a high total.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Placement: a `TradeApgarDialog` (features/portfolio/components) opened from a \"Trade Apgar\" button on `StockDetailPage` (the ticker detail view), scoped to the ticker currently being viewed -- not a dedicated `/trade-apgar` page/route, and not an always-visible embedded panel alongside SignalSummary/ScreensPanel/IndicatorsPanel.",
+      "rationale": "Elder frames the Trade Apgar as a checklist run right before entering a specific trade, not a standing display -- StockDetailPage is already the page a user is looking at one ticker's Triple Screen analysis on, the exact moment this check is useful, so no new route/navigation is needed to reach it (unlike a dedicated page, which would require the user to re-type or otherwise pass along the ticker they were just looking at). A dialog (not an always-rendered panel) matches this task's own `POST /api/portfolio/trade-apgar` being stateless/on-demand rather than data to keep permanently in view, and mirrors this codebase's existing `FollowUpReviewDialog`/`AddPositionDialog` pattern for a scoped, user-triggered action form. Rejected a dedicated page: no other consumer needs to deep-link into a Trade Apgar for a specific ticker (unlike e.g. `/stocks/:ticker` itself), so a new route would add navigation surface with no corresponding benefit over a dialog reachable from the one page a user is already on."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`useScoreTradeApgar` wraps `POST /api/portfolio/trade-apgar` in a `useMutation`, not a `useQuery`, even though the endpoint is idempotent and side-effect-free (nothing is persisted server-side per `backend-trade-apgar`'s own `decisions`).",
+      "rationale": "This is a user-triggered, on-demand computation (\"score this ticker with these manual answers right now\"), the same shape as this feature's existing `useAddPosition`/`useRecordFollowUpReview` mutations, not data that benefits from `useQuery`'s cache/staleness/background-refetch semantics -- there's no other consumer that would ever read this result from the query cache, and the manual inputs change on every re-score anyway so caching by ticker alone would be actively wrong (it would return a stale score for new manual answers). Rejected `useQuery` keyed on `[ticker, falseBreakoutStatus, perfection]`: technically workable, but introduces cache entries that are never reused (every keystroke-driven combination is a one-off) purely to force an unfamiliar-to-this-codebase 'POST as a read' pattern with no established precedent here (unlike e.g. `POST /api/ibkr/scanner/run`, which also has no frontend consumer yet either)."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "`TradeApgarDialog` requires one explicit \"Score\" click (pre-filled with the lowest-scoring `false_breakout_status: 'none'`/`perfection: 'neither'` defaults) rather than auto-fetching a score the instant the dialog opens; the three auto-populated questions (`weekly_impulse`/`daily_impulse`/`price_vs_value`) are always read-only, server-computed values echoed back in the response -- the UI never lets the user directly edit them, only the two manual questions.",
+      "rationale": "`TradeApgarIn` (backend-trade-apgar) has no fields at all for the three auto questions -- there is no way to submit an override for them, and no separate endpoint to fetch just those three without also supplying the two manual answers up front. Given that, 'pre-filling auto-populated fields... and allowing the user to edit/confirm them' (this task's own checklist wording) can only be honestly implemented as: the two *manual* answers are what the user edits/confirms (defaulted to the lowest-scoring option so an unconsidered first submit doesn't accidentally read as more favorable than intended), and the three auto answers are what gets pre-filled *from the backend* once scored, displayed read-only and clearly labeled `source: 'auto'` in the results table. Rejected auto-fetching on dialog open (via a `useEffect` keyed on the `ticker` prop): every other dialog in this codebase (`AddPositionDialog`, `FollowUpReviewDialog`) is a pure user-triggered submit with no auto-fetch-on-mount side effect, and introducing that pattern here just to save one click doesn't remove any real cost (the two manual answers still need a value before the very first score is meaningful either way)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-apgar",
+    "pr_number": 254,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/254",
+    "pushed_at": "2026-09-22T00:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T07:03:18Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/254",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "TradeApgarDialog's results table Value column renders TradeApgarQuestionOut.value verbatim (raw snake_case strings like 'on_the_verge'/'in_value_zone') instead of humanized/friendly text, inconsistent with both the dialog's own FALSE_BREAKOUT_OPTIONS/PERFECTION_OPTIONS label maps and the app's established humanizeSnakeCase convention elsewhere (ScreensPanel, SignalSummary). Non-blocking (display consistency, not a correctness bug); tracked as frontend-trade-apgar-followups.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 166
+      },
+      {
+        "summary": "The 'reset local state when the subject prop changes' boilerplate (derived prevSubject state + resets + mutation.reset(), during render) is now duplicated verbatim between TradeApgarDialog.tsx and FollowUpReviewDialog.tsx. Non-blocking (an established, working, pre-existing pattern copied consistently, not new risk); worth extracting into a shared hook to avoid future drift. Tracked as frontend-trade-apgar-followups.",
+        "file": "frontend/src/features/portfolio/components/TradeApgarDialog.tsx",
+        "line": 84
+      }
+    ],
+    "notes": "Full review: backend go/no-go rule (>=7 total AND no single zero) verified against app.portfolio.trade_apgar.score_trade_apgar and matches the frontend's callout logic exactly; MSW mock's scoring tables and APGARHIGH sentinel arithmetic verified to mirror the backend's fixed tables. Backend coverage 99.95%, frontend coverage 99.7%+ (both well above the 90% gate), all 1144 backend + frontend tests pass. Backend ruff/mypy clean, frontend eslint/tsc clean, profit-target wording guard clean. Placement check: TradeApgarDialog correctly lives under features/portfolio/components/ (renders TradeApgarQuestionOut/ticker domain concepts directly) -- not a common/ candidate, not a near-duplicate needing consolidation. openapi.json/generated types.ts already in sync (backend endpoint was added in an earlier, already-merged task; regenerating types.ts locally produced no diff). All 3 decisions entries (placement, useMutation vs useQuery, read-only-vs-manual field split) are recorded with rationale and alternatives considered, matching the checklist's 'decide placement' item. Browser walkthrough (real backend in fixture mode + real frontend, Playwright-driven): opened the Trade Apgar dialog from StockDetailPage for AAPL, scored a NO-GO-from-low-total default case, then a NO-GO-from-single-zero-despite-high-total case (total 7/10 blocked by price-vs-value scoring 0) confirming the exact 'no single zero' callout text and the zeroed row's visual highlight; confirmed the button is absent on an unknown/errored ticker page. No console errors beyond the expected 404 for the intentionally-unknown ticker. Ran the persisted e2e suite (make e2e): all 21 specs across dashboard/navigation/portfolio/stock-analysis/watchlist pass -- no regression from this change. A second, independent code-review pass (code-review skill, forked execution) converged on the same two non-blocking findings above with no additional blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T07:09:59Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend pytest --cov (1144 passed, 99.95% coverage) and frontend vitest run --coverage (756 passed, 99.74%/99.22%/99.75%/99.8% stmt/branch/func/line) myself -- both match pr-reviewer's reported numbers. Re-ran backend ruff/mypy and frontend eslint/tsc on the changed files: clean. Skimmed the full diff (TradeApgarDialog.tsx, useScoreTradeApgar.ts, api/portfolio.ts, StockDetailPage.tsx, MSW handlers.ts, TradeApgarDialog.test.tsx) and independently hand-verified the GO/NO-GO test cases against app.portfolio.trade_apgar.score_trade_apgar's actual scoring tables (RED=0/GREEN=1/BLUE=2, price_vs_value/false_breakout/perfection each 0/1/2, go = total>=7 AND all scores>0): the GO test (7/10 from auto GREEN/GREEN/in_value_zone=1+1+1 plus on_the_verge=2 + both=2) and the single-zero-at-high-total test (APGARHIGH auto BLUE/BLUE/below_value=2+2+2 plus on_the_verge=2 + neither=0, total 8/10, NO-GO) both check out exactly against the backend module. MSW mock's scoring tables mirror the backend's fixed dicts verbatim. Confirmed openapi.json has no diff after regenerating. All 3 decisions entries have real rationale and rejected alternatives. Confirmed the PR comment is a plain pr-reviewer comment (no formal review), no human comments overriding it, and index.json/follow-up task (frontend-trade-apgar-followups) are correctly mirrored."
+  }
+}

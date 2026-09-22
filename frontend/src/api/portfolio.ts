@@ -12,6 +12,9 @@ export type PositionOut = components['schemas']['PositionOut']
 export type ClosedTradeOut = components['schemas']['ClosedTradeOut']
 export type ClosedTradesResponse = components['schemas']['ClosedTradesResponse']
 export type FollowUpReviewIn = components['schemas']['FollowUpReviewIn']
+export type TradeApgarIn = components['schemas']['TradeApgarIn']
+export type TradeApgarOut = components['schemas']['TradeApgarOut']
+export type TradeApgarQuestionOut = components['schemas']['TradeApgarQuestionOut']
 
 /** `GET /api/portfolio` — current positions plus account equity. */
 export function getPortfolio(): Promise<PortfolioResponse> {
@@ -80,4 +83,19 @@ export function recordFollowUpReview(
     `/api/portfolio/closed-trades/${encodeURIComponent(tradeId)}/follow-up-review`,
     { method: 'POST', body: payload },
   )
+}
+
+/**
+ * `POST /api/portfolio/trade-apgar` — scores Elder ch. 58's pre-trade "Trade
+ * Apgar" go/no-go check for `payload.ticker` (Analyse.md §7, `docs/ideas.md`
+ * ch. 58). Stateless: nothing is persisted, this just scores whatever ticker
+ * and manual answers (`false_breakout_status`/`perfection`) the request
+ * supplies at the time of the call, and can be called again with different
+ * manual answers to re-score the same ticker.
+ */
+export function scoreTradeApgar(payload: TradeApgarIn): Promise<TradeApgarOut> {
+  return request<TradeApgarOut>('/api/portfolio/trade-apgar', {
+    method: 'POST',
+    body: payload,
+  })
 }

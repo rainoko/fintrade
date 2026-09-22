@@ -1,11 +1,14 @@
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
+import { useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import ErrorState from '../components/common/ErrorState/ErrorState'
 import LoadingState from '../components/common/LoadingState/LoadingState'
 import PageHeader from '../components/common/PageHeader/PageHeader'
+import TradeApgarDialog from '../features/portfolio/components/TradeApgarDialog'
 import FundamentalDataPanel from '../features/stocks/components/FundamentalDataPanel'
 import IndicatorsPanel from '../features/stocks/components/IndicatorsPanel'
 import ScreensPanel from '../features/stocks/components/ScreensPanel'
@@ -48,6 +51,14 @@ import { useStockAnalysis } from '../features/stocks/hooks/useStockAnalysis'
  * visible regardless of loading/error/data state — this is the page a user
  * is most likely to want the full Elder-methodology explainer from, since
  * every screen/indicator shown below is exactly what that page catalogs.
+ *
+ * A "Trade Apgar" button sits next to that link, opening `TradeApgarDialog`
+ * (`frontend-trade-apgar`, ch. 58's pre-trade go/no-go check) for the
+ * currently-viewed ticker. Placed here (ticker detail view) rather than a
+ * dedicated page/route or an always-visible embedded panel — see this
+ * task's `decisions` entry for the placement rationale. Only shown once
+ * `analysisQuery.data` has loaded, since a genuinely unknown/errored ticker
+ * has nothing meaningful to score.
  */
 export default function StockDetailPage() {
   const { ticker: rawTicker = '' } = useParams<{ ticker: string }>()
@@ -61,20 +72,35 @@ export default function StockDetailPage() {
   const ticker = rawTicker.trim().toUpperCase()
   const analysisQuery = useStockAnalysis(ticker)
   const displayTicker = analysisQuery.data?.ticker ?? ticker
+  const [apgarTicker, setApgarTicker] = useState<string | null>(null)
 
   return (
     <>
       <PageHeader title={displayTicker || 'Stock Detail'} action={<TickerSearchBox />} />
 
-      <Link
-        component={RouterLink}
-        to="/methodology"
-        underline="hover"
-        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mb: 3 }}
-      >
-        <MenuBookIcon fontSize="small" />
-        Methodology reference
-      </Link>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 3 }}>
+        <Link
+          component={RouterLink}
+          to="/methodology"
+          underline="hover"
+          sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+        >
+          <MenuBookIcon fontSize="small" />
+          Methodology reference
+        </Link>
+
+        {analysisQuery.data && (
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => setApgarTicker(displayTicker)}
+          >
+            Trade Apgar
+          </Button>
+        )}
+      </Stack>
+
+      <TradeApgarDialog ticker={apgarTicker} onClose={() => setApgarTicker(null)} />
 
       {analysisQuery.isLoading && (
         <LoadingState message={`Loading analysis for ${ticker}...`} />

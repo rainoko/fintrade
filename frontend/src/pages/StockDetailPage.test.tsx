@@ -1,4 +1,5 @@
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -540,6 +541,35 @@ describe('StockDetailPage', () => {
       expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
     )
     expect(requestCount).toBe(1)
+  })
+
+  it('shows a Trade Apgar button once analysis loads, opening TradeApgarDialog for that ticker', async () => {
+    const user = userEvent.setup()
+    renderStockDetail('AAPL')
+
+    // Not shown while loading/erroring -- there's no valid ticker to score yet.
+    expect(screen.queryByRole('button', { name: 'Trade Apgar' })).not.toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Trade Apgar' }))
+
+    expect(screen.getByText('Trade Apgar: AAPL')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Trade Apgar: AAPL')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('does not show a Trade Apgar button for an unknown/errored ticker', async () => {
+    renderStockDetail('UNKNOWN')
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Trade Apgar' })).not.toBeInTheDocument()
   })
 
   it("falls back to a 'Stock Detail' header and skips the query when the route has no ticker param", () => {

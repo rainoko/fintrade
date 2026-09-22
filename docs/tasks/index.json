@@ -1713,8 +1713,15 @@
       "id": "frontend-trade-apgar",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-apgar.json"
+    },
+    {
+      "id": "frontend-trade-apgar-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-trade-apgar.json"
+      "path": "docs/tasks/frontend-trade-apgar-followups.json"
     },
     {
       "id": "backend-market-scanner",
