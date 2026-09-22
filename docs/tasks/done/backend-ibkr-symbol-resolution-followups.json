@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from backend-ibkr-symbol-resolution's review (PR #263)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-ibkr-symbol-resolution"
   ],
@@ -32,5 +32,12 @@
     "pr_number": 264,
     "pr_url": "https://github.com/rainoko/fintrade/pull/264",
     "pushed_at": "2026-09-22T13:01:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:05:55Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/264",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Small, self-contained fix (11 lines in ibkr_provider.py + call-site updates in test_ibkr_provider.py). Full backend suite: 1157 passed, 99.95% coverage (no regression from 99.95% baseline). ruff check app/ and mypy both clean. code-review skill (medium effort) over the diff: zero findings -- mechanical str->int conid type-correction applied consistently, no dead code, no missed caller, no behavior removed. Independently reproduced the mypy --strict claim: built a standalone snippet composing get_hourly_bars(resolve_conid(ticker), ...) (after narrowing None) -- against a `git worktree` checkout of main it fails with exactly the claimed error (`Argument 1 to \"get_hourly_bars\" ... has incompatible type \"int\"; expected \"str\"`), and against this PR's HEAD it type-checks cleanly. Confirmed ScannerResult.conid is genuinely `int` (backend/app/data/ibkr_provider.py:123) and resolve_conid returns `int | None` (line 341), not just asserted in the diff's docstring. Confirmed FINTRADE_IBKR_ENABLED still defaults to `False` (app/config.py:36) and every one of the 26 mocker.patch(\"...IBKRProvider._request\") call sites in test_ibkr_provider.py mocks the HTTP boundary -- no live network call. The recorded `decisions` entry gives a real what+why with rejected alternatives (widening to `int | str`, converting at each call site), consistent with what the diff actually does. No API route/schema or frontend change in this PR, so the OpenAPI-snapshot and browser-walkthrough/e2e steps don't apply. scripts/validate_tasks.py: no violations. No non-blocking findings to track as a further follow-up task."
   }
 }
