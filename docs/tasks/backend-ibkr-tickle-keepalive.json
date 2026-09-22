@@ -64,7 +64,7 @@
         "line": 78
       },
       {
-        "summary": "Minor robustness nit: _ibkr_tickle_loop only catches IBKRUnavailableError around tickle(); widening to a broader Exception (still logging, still not raising) would protect the keep-alive loop against any future/unexpected exception type silently stopping it. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
+        "summary": "Minor robustness nit (sharpened after an independent code-review pass reproduced it): _ibkr_tickle_loop only catches IBKRUnavailableError around tickle(); if it ever raised anything else, the task finishes with that exception stored, tickle_task.cancel() is then a no-op at shutdown, and `await tickle_task` inside `contextlib.suppress(asyncio.CancelledError)` re-raises it -- propagating out of lifespan()'s own finally block, not just silently pausing the loop. No current code path triggers this (_request's raise sites are exhaustively IBKRUnavailableError today), so it's latent, not live. Non-blocking, filed as backend-ibkr-tickle-keepalive-followups.",
         "file": "backend/app/main.py",
         "line": 48
       }
