@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot endpoint — non-blocking review follow-ups",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-market-breadth-indicators"
   ],
@@ -61,5 +61,28 @@
     "pr_number": 242,
     "pr_url": "https://github.com/rainoko/fintrade/pull/242",
     "pushed_at": "2026-09-22T00:25:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T00:32:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/242",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Concurrency-race fix (item 1) independently reproduced with two real threads and two separate SQLAlchemy sessions against a real file-backed SQLite DB (not just the PR's own mocked-commit test): a genuine sqlite3.IntegrityError on the composite PK was raised by the loser's real db.commit(), caught, rolled back, and correctly fell back to the winner's row -- both requests' responses reflected the winner's count, exactly one row persisted.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 336
+      },
+      {
+        "summary": "Non-blocking: the except (IntegrityError, OperationalError) fallback assumes any caught OperationalError implies a same-key winner exists and is readable via db.get(...). True for IntegrityError (verified: composite PK is this table's only constraint), but SQLite's whole-file locking can raise 'database is locked' OperationalError from any concurrent write anywhere in the file, not only a race on this exact key -- in which case db.get(...) legitimately returns None and `assert winner is not None` raises AssertionError instead of the described graceful fallback. Not a behavior regression (pre-fix, an uncaught OperationalError also propagated to a generic 500) but the log line would misleadingly claim a race occurred. This exact scope caveat was already reviewed and explicitly accepted as non-blocking for the identical race pattern in app/data/cache.py's _upsert (docs/tasks/done/data-cache-followups-followups.json, PR #56 review), but this PR's new decision entry doesn't carry forward that caveat. Filed as a checklist item on docs/tasks/backend-market-breadth-indicators-followups-followups.json.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 359
+      },
+      {
+        "summary": "Non-blocking: the invariant is enforced with a bare `assert`, which is stripped under python -O/PYTHONOPTIMIZE -- in the scenario above that would silently produce row = None and a later AttributeError on row.count rather than even an AssertionError. Not a live concern (no evidence of -O anywhere in this repo), but worth an explicit if/raise guard if this pattern is reused elsewhere. Filed on docs/tasks/backend-market-breadth-indicators-followups-followups.json.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 359
+      }
+    ],
+    "notes": "Full review: gh pr checkout 242 (already on the branch). Backend pytest --cov: 1139 passed, 99.95% coverage, app/api/routers/ibkr.py and app/api/schemas.py both 100% -- matches the PR's own reported numbers, no regression. ruff+mypy clean; scripts/check_profit_target_wording.py clean; frontend untouched by this PR (no frontend/ files in the diff) so frontend lint/tsc was skipped, stated explicitly. Re-ran python scripts/export_openapi.py from a clean tree and diffed against the committed backend/openapi.json: byte-identical, confirming the PR's claim that item 4's field-description rewording didn't change the rendered schema. python3 scripts/validate_tasks.py: no violations across 254 task files. Concurrency-race fix (item 1) verified beyond reading the test: wrote a standalone two-thread/two-session reproduction against a real file-backed SQLite DB with an artificial scanner delay to widen the race window, confirming a genuine IntegrityError is raised, caught, and correctly falls back to the winner's row with exactly one row persisted -- the PR's own test (test_concurrent_first_population_falls_back_to_winners_row) is also a faithful simulation since it monkeypatches the exact same db_session object the router uses via the client fixture's dependency override, not a fake/detached mock. Items 2-4 (query combination, ROLLING_WINDOW_DAYS single-source-of-truth, series_key boundary tests) read correct with no stale references to the removed names anywhere in the tree. All four decisions entries are sound, each with genuine rejected-alternatives rationale, and map 1:1 onto the four checklist items -- no undocumented judgment call (no checklist item here is phrased as 'decide X' needing a cross-check beyond this). No frontend/UI surface in this PR (backend router/schema/test/task-board files only), so the browser walkthrough (step 9) and persisted e2e suite (step 9a) don't apply -- stated explicitly, not silently skipped. area is backend/api (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal isn't formally triggered; no new module/dependency/layer added, so architecture-review doesn't apply either. Dispatched code-review skill (effort high) independently found the same OperationalError-scope gap as my own manual read, surfacing it at lines 344/351 of the diff; cross-checked against this exact codebase's own precedent (data-cache-followups-followups.json's PR #56 review, which reviewed and explicitly accepted the identical scope gap in app/data/cache.py's _upsert as non-blocking) to confirm this severity call is consistent with prior practice, not a one-off judgment. Both non-blocking findings filed as new checklist entries on docs/tasks/backend-market-breadth-indicators-followups-followups.json (created fresh; no existing -followups-followups task for this id was found in index.json)."
   }
 }
