@@ -23,5 +23,11 @@
       "decision": "Fixed the display-name mismatch by making the illustrative names in `app/data/cftc_cot_provider.py`'s `COT_MARKETS` inline comments explicitly illustrative-only (added a block comment above the dict stating these are non-authoritative labels for a human skimmer, never read by code, that CFTC does rename contracts over time, and that the live `market_and_exchange_names` field on a fetched `COTWeeklyReport` is the only authoritative source), and appended a `oil`/`bonds`-specific note recording the two confirmed renames (067651 -> \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\", 020601 -> \"UST BOND - CHICAGO BOARD OF TRADE\") without deleting the original research-time names. Also appended a NOTE to the `backend-cftc-cot-data` task's own second `decisions` entry (in docs/tasks/done/backend-cftc-cot-data.json) recording the same drift, so a reader of that historical decision record isn't misled either.",
       "rationale": "Chose 'mark as illustrative + append the current known drift' over silently rewriting the original names to their new live values, because the original names were correct at research time and rewriting them in place would erase that history without leaving a trace that CFTC renaming is an ongoing risk (the same drift could recur again later for these or the other three markets). Chose an in-place amendment of the already-done task's decisions entry (rather than only a new comment/decisions entry on this followup task) because the misleading claim lives specifically in that entry's own text -- a reader who opens `backend-cftc-cot-data.json` looking for the current display name has no reason to also check this followup task's file unless the original entry itself points them there. This is a narrow, additive correction (nothing deleted, decision itself unchanged, only appended text distinguishing 'name at research time' from 'name today'), not a rewrite of what was decided or a touch to code/merge state -- CLAUDE.md's stricter 'additive-comment-only' rule specifically targets *merged PR descriptions*, not a task board decisions entry, and there is no code/functional behavior change here since the endpoint's own live `display_name`/`market_and_exchange_names` field was never hardcoded in the first place."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups",
+    "pr_number": 274,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/274",
+    "pushed_at": "2026-09-22T19:50:16Z"
+  }
 }
