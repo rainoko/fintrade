@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #274's review (in-place decisions-entry editing convention)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-cftc-cot-data-followups"],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups.json#review",
@@ -29,5 +29,38 @@
     "pr_number": 275,
     "pr_url": "https://github.com/rainoko/fintrade/pull/275",
     "pushed_at": "2026-09-22T20:06:42Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T20:21:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/275",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed genuinely docs/task-board-only: `git diff main...HEAD --stat` shows only CLAUDE.md (+2/-0), this task's own JSON (checklist checked off, decisions entry added, git block added), and index.json's state mirror. No backend/frontend application code touched, so the coverage/lint gates aren't at risk from this diff specifically (still re-ran them for a baseline -- see notes).",
+        "file": "CLAUDE.md",
+        "line": 75
+      },
+      {
+        "summary": "The new CLAUDE.md paragraph accurately parallels the existing PR-description convention: both default to append-only, both list the same four carve-out conditions (narrow factual correction, recoverable via history, also recorded as a fresh decisions entry, no code/merge-state touched), and both apply the 'explicit callout' exception only when the checklist/task names the existing text itself as the thing to fix. No contradiction found with any other CLAUDE.md section (the index.json state/path mirror paragraph immediately above, the 'references entry as logical pointer' paragraph immediately below, and the Autonomous-pipeline PR-description bullet it mirrors all remain consistent).",
+        "file": "CLAUDE.md",
+        "line": 75
+      },
+      {
+        "summary": "Verified the retrofitted PR #274 precedent against the actual done-task records rather than taking the PR body's claim at face value: docs/tasks/done/backend-cftc-cot-data.json's second decisions entry (the cftc_contract_market_code one) does contain an appended NOTE (not a rewrite) recording the oil/bonds display-name renames, and docs/tasks/done/backend-cftc-cot-data-followups.json's checklist item literally says 'Worth a small comment/decisions-text update' -- matching the new paragraph's characterization exactly, the same 'explicit callout' shape backend-trade-journal-followup-review-followups-followups documents for PR #227.",
+        "file": "docs/tasks/done/backend-cftc-cot-data.json",
+        "line": 28
+      },
+      {
+        "summary": "Confirmed the still-unresolved governance question in backend-trade-journal-followup-review-followups-followups-followups-followups (whether a CLAUDE.md/.claude/ edit needs an explicit human touchpoint) remains in `state: waiting_input` with no new decisions entry answering it -- so the existing precedent (PR #229: ordinary pipeline handles it) still applies here, and this PR going through the ordinary pipeline is not itself a violation of anything currently decided.",
+        "file": "docs/tasks/backend-trade-journal-followup-review-followups-followups-followups-followups.json",
+        "line": 20
+      },
+      {
+        "summary": "Non-blocking, unrelated to this PR's own diff: the frontend vitest suite showed 2 different flaky timeout failures across two separate runs under the default parallel (84-worker) execution -- FollowUpReviewDialog.test.tsx and AddPositionDialog.test.tsx, different specific tests failing each time -- but ran clean (825/825, 99.76%/99.31%/99.78%/99.82% coverage) when serialized with --no-file-parallelism, and clean again when the two failing files were run in isolation. Confirmed pre-existing and unrelated to this docs-only PR (which touches no frontend files). A very similar, already-investigated flake on FollowUpReviewDialog.test.tsx alone is tracked on frontend-trade-journal-followup-review-followups-followups (still planned) as a one-off suspected environmental fluke; this review's observation (recurrence on a second, unrelated PR, now also affecting a second file, and resolved by disabling file-parallelism specifically) is new evidence worth adding to the board rather than only noting here. Tracked as a new follow-up task (see below) rather than duplicating into that unrelated task chain, since this review's own instructions scope follow-ups to this task's id.",
+        "file": "frontend/src/features/portfolio/components/AddPositionDialog.test.tsx",
+        "line": 106
+      }
+    ],
+    "notes": "Reviewed per explicit dispatch instructions scoping this to a docs/task-board-only change: scrutinized the new CLAUDE.md paragraph's wording, cross-checked its parallel to the Autonomous-pipeline PR-description rule, and independently re-read PR #274's and backend-cftc-cot-data-followups's actual JSON to confirm the retrofitted precedent is accurate (it is). scripts/validate_tasks.py: 277 files, no violations. git diff main...HEAD --stat confirms docs/task-board-only (CLAUDE.md +2/-0, this task's JSON, index.json). Also ran the full gates as a baseline per pr-reviewer's standard protocol even though this PR itself touches no code: backend suite 1194 passed, 100% line/branch coverage; backend ruff/mypy clean; frontend suite 825/825 passed with 99.76%/99.31%/99.78%/99.82% coverage once serialized (two earlier parallel runs hit unrelated flaky timeouts in AddPositionDialog.test.tsx/FollowUpReviewDialog.test.tsx, confirmed pre-existing and unrelated to this diff -- tracked as a new follow-up); frontend eslint/tsc clean; scripts/check_profit_target_wording.py clean. code-review skill (medium effort) found zero findings, independently corroborating this review's own read of the diff. No API/schema change, so no openapi.json regeneration applies. area is backend/data (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No frontend files touched by this PR, so no component-placement check, browser walkthrough, or e2e run applies (each stated explicitly). The one checklist item (phrased as 'decide X') has a matching, well-reasoned decisions entry -- no gap. Confirmed the open governance question (CLAUDE.md edits needing a human touchpoint) is still unanswered/waiting_input, so the existing ordinary-pipeline precedent (PR #229) still governs this PR too. One non-blocking finding (unrelated pre-existing frontend test flakiness under parallel execution) filed as backend-cftc-cot-data-followups-followups-followups. Verdict: accepted."
   }
 }
