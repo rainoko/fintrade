@@ -3,7 +3,7 @@
   "title": "'Am I ready to trade?' daily self-test form",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-daily-homework-self-test"],
   "references": [
     "docs/ideas.md#daily-homework--am-i-ready-to-trade-self-test-ch-57"
@@ -41,5 +41,11 @@
       "decision": "`HomeworkScoreBanner` (the red/yellow/green summary banner) lives under `features/homework/components/`, not `components/common/`, despite taking only a plain `{ totalScore, band }` prop with no fetch of its own.",
       "rationale": "Unlike `components/common/SignalBadge` (a pure color-by-string-union chip with no interpretive text), this banner bakes in wording specific to this self-test's own meaning of 'red'/'yellow'/'green' -- notably that the *same* 'yellow' band means two different things depending on `totalScore` (5-6 'trade cautiously' vs. 9-10 Elder's own 'with everything so perfect, any change is bound to be for the worse' caution), which only makes sense in the context of this specific 0-10 homework score. No other domain in this app currently has red/yellow/green bands with this meaning (the closest analog, `confidence_band`, uses a completely different Low/Medium/High scale via `common/ConfidenceGauge`), so there's no real current reuse case to justify hoisting it to `common/`; if a second red/yellow/green-with-interpretive-copy use case appears later, consolidating at that point (per the skill's own near-duplicate guidance) is preferable to speculatively generalizing now."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-page",
+    "pr_number": 271,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/271",
+    "pushed_at": "2026-09-22T16:51:25Z"
+  }
 }
