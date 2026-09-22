@@ -1804,8 +1804,8 @@
       "id": "frontend-market-breadth-widget",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-market-breadth-widget.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode",
@@ -1869,6 +1869,13 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/frontend-close-position-dialog-followups.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-market-breadth-widget-followups.json"
     }
   ]
 }

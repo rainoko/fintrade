@@ -3,7 +3,7 @@
   "title": "Real market-breadth widget, alongside the existing personal-breadth proxy",
   "area": "frontend/pages/watchlist",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-market-breadth-indicators"],
   "references": [
     "frontend/src/features/watchlist/components",
@@ -42,5 +42,28 @@
     "pr_url": "https://github.com/rainoko/fintrade/pull/262",
     "pushed_at": "2026-09-22T12:07:00Z"
   },
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-22T12:23:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/262",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "formatSpread is implemented twice with slightly different null-handling/parameter types (MarketBreadthCard.tsx's own local formatSpread vs. marketBreadthHelp.ts's) rather than shared -- a future change to the spread-formatting rule (rounding, sign convention) only reaches one of the two call sites unless both are remembered together. Non-blocking cleanup.",
+        "file": "frontend/src/features/ibkr/components/MarketBreadthCard.tsx",
+        "line": 32
+      },
+      {
+        "summary": "This task file itself sets `\"questions\": []` even though no question was ever raised -- CLAUDE.md's task-board section says `questions` (like `decisions`/`test`/`review`/`pr_decision`) should stay absent entirely until populated, not present-but-empty. Minor board-hygiene nit, not fixed here since it's outside a review's normal edit scope.",
+        "file": "docs/tasks/frontend-market-breadth-widget.json",
+        "line": 45
+      },
+      {
+        "summary": "No frontend/tests/e2e/*.spec.ts spec exercises MarketBreadthCard directly (available vs. disabled rendering) as a persisted regression check -- watchlist.spec.ts only incidentally hits the default-disabled POST /api/ibkr/breadth/snapshot MSW-less fixture handler in passing. vitest component coverage for the card itself is thorough (100% lines/branches), so this is a nice-to-have for the persisted e2e layer, not a gap in unit coverage.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full review pass: backend pytest (1144 passed, 99.95% coverage) and frontend vitest (798 passed, 99.76%+ statements/branches/functions/lines) both clean, well above the 90% gate, no regressions. ruff/mypy/eslint/tsc/profit-target-wording guard all clean. Verified docs/Analyse.md's 'IBKR-scanner breadth approximation' section names 'top-gainers vs. top-losers for an Advance/Decline reading' as its own example -- TOP_PERC_GAIN/TOP_PERC_LOSE matches it exactly, not a new unverified guess. Verified the sequential-fetch + one-shot Retry-After retry logic both by reading useMarketBreadth.ts (each of the two snapshot calls goes through its own independent fetchSnapshotWithRateLimitRetry, so a 429 on the *second* (decline) request after the first (advance) already succeeded is handled, not just a 429 on the first) and by an end-to-end live browser run against the real backend + a stub IBKR gateway + a fresh DB: observed advance succeed (200), decline's first attempt get a real 429 with `Retry-After`, and the retried decline request land ~1.02s later succeeding with the correct count -- the widget never flashed an error during the wait, matching the design intent in this task's second `decisions` entry. Also did a live browser pass for the 'disabled' (default, no IBKR) and 'available' (via a stub gateway) states -- both rendered correctly, clearly distinguished from PersonalBreadthCard, no console/network errors. Ran the persisted e2e suite (`make e2e`): all 21 specs across all 4 files passed, including watchlist.spec.ts which now incidentally exercises the new POST /api/ibkr/breadth/snapshot default-disabled MSW-less fixture handler with no regression. Checked add-frontend-feature placement rules: MarketBreadthCard/marketBreadthHelp.ts are correctly feature-scoped under features/ibkr/ (every value rendered and the hook backing it are IBKR-scanner domain concepts, not watchlist ones) -- no common/-vs-feature misplacement, and the reused IbkrStatusBadge (components/common/) is genuinely domain-agnostic (takes only a state/detail prop) so its placement there remains correct too. No API route/schema changed in this PR (POST /api/ibkr/breadth/snapshot already existed and was already documented by backend-market-breadth-indicators), so backend/openapi.json is correctly untouched -- confirmed not stale. All three decisions entries are well-reasoned and match what's implemented; no checklist item is phrased as 'decide X' without a corresponding decision. Three non-blocking findings recorded above and filed as docs/tasks/frontend-market-breadth-widget-followups.json."
+  }
 }
