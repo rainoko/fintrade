@@ -39,5 +39,11 @@
       "decision": "No separate `useResetOnSubjectChange.test.ts` unit test file was added for the new hook; its behavior (initial mount, transition between two non-null subjects, and transition to/from `null`) continues to be exercised only indirectly, through `TradeApgarDialog.test.tsx`'s and `FollowUpReviewDialog.test.tsx`'s existing 'resets ... when switching to a different ticker/trade' and 'closes when the ... prop transitions to null' tests (both already passing, both hooks/components at 100% coverage after the refactor).",
       "rationale": "No hook in this codebase (`features/*/hooks/*.ts`) has its own standalone `renderHook`-based test file today -- every hook is covered exclusively through the component(s) that use it, per this codebase's established (if unwritten) convention, and introducing the first one here for a small, already-covered helper would be inconsistent with every sibling hook around it. Rejected adding one anyway for extra direct documentation value: the two existing dialog tests already exercise every branch this hook has (same-subject no-op, subject change, non-null-to-null and null-to-non-null transitions), so a dedicated test would be redundant coverage rather than closing an actual gap."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trade-apgar-followups",
+    "pr_number": 255,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/255",
+    "pushed_at": "2026-09-22T00:20:00Z"
+  }
 }
