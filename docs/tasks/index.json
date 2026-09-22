@@ -1475,8 +1475,15 @@
       "id": "backend-trade-strategy-tagging-followups",
       "area": "backend/portfolio",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-strategy-tagging-followups.json"
+    },
+    {
+      "id": "backend-trade-strategy-tagging-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-trade-strategy-tagging-followups.json"
+      "path": "docs/tasks/backend-trade-strategy-tagging-followups-followups.json"
     },
     {
       "id": "backend-trailing-profit-stop",

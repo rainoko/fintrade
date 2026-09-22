@@ -407,11 +407,17 @@ class PositionIn(BaseModel):
         "breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, "
         "predefined list, since Elder's own framing is that a trader's strategies are "
         "personal and evolve over time -- see the backend-trade-strategy-tagging task's "
-        "`decisions`. On merge with an existing position for the same ticker, an incoming "
-        "`strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a "
-        "merge with no incoming `strategy` leaves the existing one untouched. Carried through "
-        "unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later "
-        "closed.",
+        "`decisions`. Leading/trailing whitespace is stripped, and an empty or "
+        "whitespace-only tag normalizes to null (mirrors `entry_notes`' own strip/normalize "
+        "convention -- see the backend-trade-strategy-tagging-followups task's `decisions`). "
+        "Casing is preserved as typed -- two tags differing only in case (e.g. 'Pullback to "
+        "value' vs. 'pullback to value') are NOT folded into one on write; see that same "
+        "task's `decisions` for why. On merge with an existing position for the same ticker, "
+        "an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which "
+        "appends) -- a merge with no incoming `strategy` leaves the existing one untouched. "
+        "A whitespace-only incoming tag normalizes to null before the merge check runs, so it "
+        "never overwrites an existing tag. Carried through unchanged to the resulting "
+        "`ClosedTradeOut.strategy` if/when this position is later closed.",
     )
 
     @field_validator("ticker")
@@ -425,6 +431,14 @@ class PositionIn(BaseModel):
     @field_validator("entry_notes")
     @classmethod
     def _strip_and_normalize_entry_notes(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("strategy")
+    @classmethod
+    def _strip_and_normalize_strategy(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()

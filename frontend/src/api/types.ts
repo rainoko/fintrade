@@ -369,7 +369,12 @@ export interface paths {
          *     `entry_notes`) so this field stays a single clean tag for future strategy-segmented
          *     grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
          *     merge with no incoming `strategy` leaves the existing one untouched -- see the
-         *     backend-trade-strategy-tagging task's `decisions`.
+         *     backend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is
+         *     stripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to
+         *     null at the schema layer; neither field is case-folded on write, so casing is preserved
+         *     exactly as typed for both -- the real asymmetry between the two is the merge behavior
+         *     above (`strategy` overwrites, `entry_notes` appends), not casing -- see the
+         *     backend-trade-strategy-tagging-followups task's `decisions`.
          *     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
          *     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
          *     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -1811,7 +1816,7 @@ export interface components {
             quantity: number;
             /**
              * Strategy
-             * @description Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.
+             * @description Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. Leading/trailing whitespace is stripped, and an empty or whitespace-only tag normalizes to null (mirrors `entry_notes`' own strip/normalize convention -- see the backend-trade-strategy-tagging-followups task's `decisions`). Casing is preserved as typed -- two tags differing only in case (e.g. 'Pullback to value' vs. 'pullback to value') are NOT folded into one on write; see that same task's `decisions` for why. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. A whitespace-only incoming tag normalizes to null before the merge check runs, so it never overwrites an existing tag. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.
              */
             strategy?: string | null;
             /**
