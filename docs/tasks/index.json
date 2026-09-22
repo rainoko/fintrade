@@ -1881,8 +1881,8 @@
       "id": "backend-ibkr-symbol-resolution-followups",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-symbol-resolution-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-symbol-resolution-followups.json"
     }
   ]
 }

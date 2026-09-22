@@ -1,0 +1,48 @@
+{
+  "id": "backend-ibkr-symbol-resolution-followups",
+  "title": "Non-blocking findings from backend-ibkr-symbol-resolution's review (PR #263)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-ibkr-symbol-resolution"
+  ],
+  "references": [
+    "docs/tasks/backend-ibkr-symbol-resolution.json#review",
+    "https://github.com/rainoko/fintrade/pull/263"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #263 (backend-ibkr-symbol-resolution), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. The PR itself has no blocking findings -- all tests pass (1157 passed, 99.95% coverage), mypy/ruff are clean on the touched files, no live network calls appear anywhere in the new tests, both 'decide X' checklist items have corresponding decisions entries, and the documented /iserver/secdef/search shape is internally consistent with how the rest of ibkr_provider.py already parses similar responses (reuses the existing _int_or_none helper the same way _parse_scanner_results does).",
+  "checklist": [
+    {
+      "step": "IBKRProvider.resolve_conid returns `int | None`, but IBKRProvider.get_hourly_bars takes `conid: str`. Confirmed with a standalone mypy check that `get_hourly_bars(resolve_conid(ticker), ...)` -- the exact composition this task's own description frames resolve_conid as unblocking ('get_hourly_bars/run_scanner both key off IBKR's own numeric conid... this task closes that gap') -- fails static type-checking today (`Argument 1 to \"get_hourly_bars\" ... has incompatible type \"int\"; expected \"str\"`). Not blocking this PR since resolve_conid isn't wired into any consumer yet (nothing exercises the composition), but the very next task that wires ticker-driven get_hourly_bars/run_scanner calls through resolve_conid will hit this immediately. Reconcile the conid type across the class (e.g. make get_hourly_bars accept `int | str`, or standardize on one representation and convert at the call boundary) before or as part of that wiring task.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T13:01:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Changed IBKRProvider.get_hourly_bars's `conid` parameter type from `str` to `int`, converting to a string only where it's placed into the outgoing HTTP query params dict (`str(conid)`), rather than widening it to `int | str` or converting at every call site instead.",
+      "rationale": "`int` is already this class's one consistent in-memory representation of an IBKR conid: `resolve_conid` returns `int | None`, `ScannerResult.conid` is `int`, and `_resolve_stk_conid`/`_int_or_none` both parse conids to `int`. `get_hourly_bars` was the sole outlier still typed `str`, purely because query params are strings on the wire -- but that's a fact about the one HTTP call this method makes, not about what a caller should hold. Widening to `int | str` was rejected: it doesn't reconcile anything, it just lets both the correct (int) and now-inconsistent (str) shapes keep coexisting, and every caller would still need to pick one. Converting at each call site was rejected as needless duplication once the method itself can just do `str(conid)` internally where it already builds `params: dict[str, str]`. Verified the fix with a standalone `mypy --strict` check of `get_hourly_bars(resolve_conid(ticker), ...)` composition (after narrowing out `None`), which now type-checks cleanly; updated tests/unit/data/test_ibkr_provider.py's existing `get_hourly_bars(\"265598\", ...)` call sites to pass `265598` (int) instead, keeping the assertion that the outgoing request param is still the string `\"265598\"`."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-symbol-resolution-followups",
+    "pr_number": 264,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/264",
+    "pushed_at": "2026-09-22T13:01:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:05:55Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/264",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Small, self-contained fix (11 lines in ibkr_provider.py + call-site updates in test_ibkr_provider.py). Full backend suite: 1157 passed, 99.95% coverage (no regression from 99.95% baseline). ruff check app/ and mypy both clean. code-review skill (medium effort) over the diff: zero findings -- mechanical str->int conid type-correction applied consistently, no dead code, no missed caller, no behavior removed. Independently reproduced the mypy --strict claim: built a standalone snippet composing get_hourly_bars(resolve_conid(ticker), ...) (after narrowing None) -- against a `git worktree` checkout of main it fails with exactly the claimed error (`Argument 1 to \"get_hourly_bars\" ... has incompatible type \"int\"; expected \"str\"`), and against this PR's HEAD it type-checks cleanly. Confirmed ScannerResult.conid is genuinely `int` (backend/app/data/ibkr_provider.py:123) and resolve_conid returns `int | None` (line 341), not just asserted in the diff's docstring. Confirmed FINTRADE_IBKR_ENABLED still defaults to `False` (app/config.py:36) and every one of the 26 mocker.patch(\"...IBKRProvider._request\") call sites in test_ibkr_provider.py mocks the HTTP boundary -- no live network call. The recorded `decisions` entry gives a real what+why with rejected alternatives (widening to `int | str`, converting at each call site), consistent with what the diff actually does. No API route/schema or frontend change in this PR, so the OpenAPI-snapshot and browser-walkthrough/e2e steps don't apply. scripts/validate_tasks.py: no violations. No non-blocking findings to track as a further follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T13:12:18Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (1157 passed, 99.95% coverage, matching pr-reviewer's numbers exactly) plus ruff and mypy on app/ (both clean). Reproduced the mypy claim myself with a standalone script composing get_hourly_bars(resolve_conid(ticker), ...): fails with the exact reported error against a fresh worktree of origin/main, type-checks cleanly against this PR's HEAD. Skimmed the full diff (11-line ibkr_provider.py change + mechanical str->int test call-site updates + task-board bookkeeping) -- purely mechanical, no missed callers. Confirmed FINTRADE_IBKR_ENABLED defaults to False (backend/app/config.py:36) and all 26 IBKRProvider._request mocker.patch sites in test_ibkr_provider.py mock the HTTP boundary, so no live network calls. The recorded decisions entry (int over int|str, converting only at the HTTP-params boundary) matches what the diff actually does."
+  }
+}

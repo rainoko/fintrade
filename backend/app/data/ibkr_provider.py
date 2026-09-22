@@ -222,12 +222,19 @@ class IBKRProvider:
             return GatewayStatus(state="not_authenticated", detail=detail)
         return GatewayStatus(state="available")
 
-    def get_hourly_bars(self, conid: str, *, lookback_days: int = 30) -> list[IBKRBar]:
+    def get_hourly_bars(self, conid: int, *, lookback_days: int = 30) -> list[IBKRBar]:
         """Hourly OHLCV bars for IBKR contract id `conid`, covering roughly the last
         `lookback_days` days -- the Screen 3 intraday entry-timing mechanism this task's
         `description` names. Walks `/iserver/marketdata/history`'s `startTime` parameter
         backward across as many calls as needed, since a single call returns at most
         `_MAX_BARS_PER_PAGE` (1,000) points (~41 days of hourly bars) -- checklist item 3.
+
+        `conid` is `int` (not `str`) to match `resolve_conid`'s return type and
+        `ScannerResult.conid` -- this class's one consistent in-memory representation of
+        an IBKR contract id, converted to a string only at this method's own HTTP
+        request boundary (query params are always strings on the wire). See
+        `backend-ibkr-symbol-resolution-followups`'s `decisions` entry for why this
+        method's signature changed rather than `resolve_conid`'s.
 
         Raises:
             IBKRUnavailableError: the gateway isn't `available` (see `get_gateway_status`),
@@ -239,7 +246,7 @@ class IBKRProvider:
         collected: dict[datetime, IBKRBar] = {}
         start_time: str | None = None
         for _ in range(_MAX_PAGINATION_PAGES):
-            params: dict[str, str] = {"conid": conid, "bar": _BAR_INTERVAL}
+            params: dict[str, str] = {"conid": str(conid), "bar": _BAR_INTERVAL}
             if start_time is None:
                 # First page: no cursor yet, so ask for the whole requested span via
                 # `period` -- if `lookback_days` implies more than 1,000 hourly bars,
