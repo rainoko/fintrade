@@ -1643,8 +1643,8 @@
       "id": "backend-cftc-cot-data",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-cftc-cot-data.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data.json"
     },
     {
       "id": "backend-trade-apgar",
