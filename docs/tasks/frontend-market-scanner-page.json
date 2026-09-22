@@ -3,7 +3,7 @@
   "title": "Scanner page -- run a scan, review candidates, add hits to the watchlist",
   "area": "frontend/pages",
   "skill": "add-frontend-feature",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-market-scanner"
   ],
@@ -54,5 +54,11 @@
       "decision": "common/ErrorState gained a fourth documented status case (429, alongside 404/422/503/0): a distinct 'Too many requests' heading/icon, plus a new `Try again in {retryAfterSeconds}s.` line rendered when `ApiError.retryAfterSeconds` is non-null. Previously 429 fell through to the generic 'Something went wrong' default case, since no earlier frontend feature had ever called a rate-limited backend route (POST /api/ibkr/scanner/run is the first).",
       "rationale": "API.md documents 429 as a real, expected outcome of POST /api/ibkr/scanner/run (IBKRProvider's 1-request/second client-side throttle) and api/client.ts already parses the response's Retry-After header into `ApiError.retryAfterSeconds` specifically so a caller doesn't have to -- leaving ErrorState's generic fallback in place for this endpoint's very first UI consumer would both mislabel a normal, actionable, retry-shortly outcome as 'Something went wrong' and leave that already-parsed retry delay unused. Rendering the retry delay as its own Typography line (not appended into `detail`'s string) was chosen so a future backend wording change to `detail` can never accidentally duplicate or contradict this app-owned line."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-market-scanner-page",
+    "pr_number": 243,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/243",
+    "pushed_at": "2026-09-22T00:58:38Z"
+  }
 }
