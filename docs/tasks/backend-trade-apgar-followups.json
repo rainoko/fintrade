@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-trade-apgar PR #220 review",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trade-apgar"],
   "references": [
     "docs/tasks/backend-trade-apgar.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "backend/app/api/routers/portfolio.py:776's POST /api/portfolio/trade-apgar handler is named `get_trade_apgar`, a `get_`-prefixed function name attached to a `@router.post` -- mismatches this file's own verb/method-matching convention (`add_position`/`delete_position`/`get_risk`, etc.) and the endpoint's own declared `operation_id=\"score_trade_apgar\"`. No behavior impact (FastAPI dispatches on the decorator/operation_id, not the Python function name), but rename to something like `score_trade_apgar` (matching the operation_id) to avoid misleading a future reader grepping for `def get_` to find read-only handlers.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Renamed the handler to `evaluate_trade_apgar`, not `score_trade_apgar` as the checklist item's own example suggested.",
+      "rationale": "`score_trade_apgar` is already the name of the imported domain function from `app.portfolio.trade_apgar` (`from app.portfolio.trade_apgar import ... score_trade_apgar`), which the router handler calls on its own body (`apgar = score_trade_apgar(...)`). Renaming the handler itself to that exact same name would shadow the module-level import with the router function object, turning the handler's own internal call into unbounded self-recursion (a real bug, not just a style nit) rather than calling the intended domain-layer scorer. `evaluate_trade_apgar` avoids the collision while still matching this file's existing naming precedent for a POST handler that orchestrates several inputs before delegating to a domain-layer scoring/evaluation function (`app.portfolio.exits.evaluate_exit_flags`, `app.signals.impulse.evaluate_impulse`, `app.signals.triple_screen.evaluate_tide`) rather than persisting or reading state, which is what the `get_`/`add_`/`delete_`/`record_` verbs in this file's other handlers denote. Verified no other reference to `get_trade_apgar` existed anywhere in the backend (tests, docs, other call sites) before renaming, and reran the full `-k apgar` test slice plus the full backend suite afterward to confirm no accidental recursion or breakage."
+    }
+  ],
   "questions": []
 }

@@ -943,7 +943,7 @@ def record_follow_up_review(
         503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
     },
 )
-def get_trade_apgar(
+def evaluate_trade_apgar(
     request: TradeApgarIn, provider: DataProvider = Depends(get_data_provider)
 ) -> TradeApgarOut:
     """Elder ch. 58's "Trade Apgar" (docs/Analyse.md §7 / docs/ideas.md ch. 58): a fixed
