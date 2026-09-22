@@ -4,7 +4,6 @@ import type { RiskPosition } from '../../../api/portfolio'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
-import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import ExitFlagChips from './ExitFlagChips'
@@ -41,14 +40,28 @@ const columns: DataTableColumn<RiskPosition>[] = [
  * ticker, an exit flag) is a portfolio-risk domain concept, and it owns its
  * own `usePortfolioRisk` call so DashboardPage stays a thin composition
  * (Frontend.md §3) — same reasoning as RiskSummaryCard/RiskPanel.
+ *
+ * Renders nothing (not its own `common/ErrorState`) on `riskQuery.isError`:
+ * this card and `RiskSummaryCard` share the exact same `usePortfolioRisk`
+ * hook/query key and are always rendered together as siblings on
+ * DashboardPage, so a single underlying `GET /api/portfolio/risk` failure
+ * previously produced two identical stacked `ErrorState` alerts — the same
+ * sibling-duplication shape `pr-reviewer` found blocking on PortfolioPage's
+ * PositionsTable/RiskPanel (PR #258). `RiskSummaryCard` renders first and
+ * already fully gates its body on this exact failure, so it remains the
+ * page's sole error surface for it; this card has no unaffected content of
+ * its own to fall back to (unlike PositionsTable's other, risk-independent
+ * columns), so returning `null` rather than a second alert (or a degraded
+ * placeholder) is the more surgical fix. See this task's `decisions` entry.
  */
 export default function SellFlaggedPositionsCard() {
   const riskQuery = usePortfolioRisk()
 
+  if (riskQuery.isError) {
+    return null
+  }
+
   if (!riskQuery.data) {
-    if (riskQuery.isError) {
-      return <ErrorState error={riskQuery.error} />
-    }
     return <LoadingState message="Loading sell-flagged positions..." />
   }
 
