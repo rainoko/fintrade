@@ -1,5 +1,10 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
+import type {
+  DailyHomeworkIn,
+  DailyHomeworkOut,
+  YesterdayTradingSuggestionOut,
+} from '../../src/api/homework'
 import type { IBKRStatusResponse } from '../../src/api/ibkr'
 import type {
   ClosedTradeOut,
@@ -563,6 +568,50 @@ export function resetWatchlistStore(): void {
   watchlistItems = initialWatchlistItems.map((item) => ({ ...item }))
 }
 
+// Mutable in-memory daily-homework store backing GET /api/daily-homework/today
+// and POST /api/daily-homework, keyed by calendar date (the real backend's
+// own primary key -- see backend-daily-homework-self-test's `decisions`).
+// `resetDailyHomeworkStore` clears it between tests (call from `beforeEach`).
+type StoredDailyHomeworkEntry = DailyHomeworkOut
+
+const dailyHomeworkEntries = new Map<string, StoredDailyHomeworkEntry>()
+
+export function resetDailyHomeworkStore(): void {
+  dailyHomeworkEntries.clear()
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// Mirrors the real backend's own thresholds exactly (app.portfolio.homework.
+// band_for_total_score, docs/architecture/API.md).
+function bandForTotalScore(totalScore: number): DailyHomeworkOut['band'] {
+  if (totalScore <= 4) {
+    return 'red'
+  }
+  if (totalScore <= 6) {
+    return 'yellow'
+  }
+  if (totalScore <= 8) {
+    return 'green'
+  }
+  return 'yellow'
+}
+
+// Static fixture backing GET /api/daily-homework/yesterday-trading-suggestion
+// -- deliberately *not* derived from the `closedTrades` store above (whose
+// fixture dates are fixed, not relative to whatever "today" the test
+// actually runs on), so this stays a deterministic, always-available
+// suggestion a form can prefill from rather than usually resolving to null.
+// A test that cares about the "nothing closed yesterday" (null) case
+// overrides this directly with `server.use()`.
+const yesterdayTradingSuggestionFixture: YesterdayTradingSuggestionOut = {
+  as_of_date: '2026-09-20',
+  net_realized_pnl: 150.0,
+  suggested_score: 2,
+}
+
 const defaultIbkrStatusResponse: IBKRStatusResponse = {
   state: 'disabled',
   detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
@@ -968,4 +1017,38 @@ export const handlers: HttpHandler[] = [
     watchlistItems.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
   }),
+
+  http.get('/api/daily-homework/today', () => {
+    const entry = dailyHomeworkEntries.get(todayIsoDate()) ?? null
+    return HttpResponse.json({ entry })
+  }),
+
+  http.post('/api/daily-homework', async ({ request }) => {
+    const body = (await request.json()) as DailyHomeworkIn
+    const date = body.date ?? todayIsoDate()
+    const totalScore =
+      body.physical_state_score +
+      body.yesterday_trading_score +
+      body.trade_planning_score +
+      body.mood_score +
+      body.schedule_score
+
+    const entry: StoredDailyHomeworkEntry = {
+      date,
+      physical_state_score: body.physical_state_score,
+      yesterday_trading_score: body.yesterday_trading_score,
+      trade_planning_score: body.trade_planning_score,
+      mood_score: body.mood_score,
+      schedule_score: body.schedule_score,
+      total_score: totalScore,
+      band: bandForTotalScore(totalScore),
+      recorded_at: new Date().toISOString(),
+    }
+    dailyHomeworkEntries.set(date, entry)
+    return HttpResponse.json(entry, { status: 201 })
+  }),
+
+  http.get('/api/daily-homework/yesterday-trading-suggestion', () =>
+    HttpResponse.json(yesterdayTradingSuggestionFixture),
+  ),
 ]
