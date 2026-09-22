@@ -168,7 +168,7 @@ describe('PortfolioPage', () => {
     await waitFor(() => expect(screen.getByText('AAPL')).toBeInTheDocument())
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
 
     await waitFor(() =>
       expect(

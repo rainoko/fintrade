@@ -1,9 +1,9 @@
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
 import { useState } from 'react'
 import type { PositionOut, RiskPosition } from '../../../api/portfolio'
-import ConfirmDialog from '../../../components/common/ConfirmDialog/ConfirmDialog'
 import DataTable, {
   type DataTableColumn,
 } from '../../../components/common/DataTable/DataTable'
@@ -14,6 +14,7 @@ import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { formatCurrency, formatNullableCurrency } from '../../../utils/format'
 import { useDeletePosition } from '../hooks/useDeletePosition'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
+import ClosePositionDialog, { type ClosePositionConfirmValues } from './ClosePositionDialog'
 import PositionProfitTargetCell from './PositionProfitTargetCell'
 
 export interface PositionsTableProps {
@@ -22,14 +23,23 @@ export interface PositionsTableProps {
 
 /**
  * Positions table for the Portfolio page, built on common/DataTable. Owns
- * the delete-position flow end to end (confirm dialog + useDeletePosition
+ * the close-position flow end to end (ClosePositionDialog + useDeletePosition
  * mutation) so PortfolioPage itself stays a thin composition (Frontend.md §3).
  * The Signal column reuses the exact common/SignalBadge + '—' null-fallback
  * pattern WatchlistTable established (frontend-lists-show-signal) rather than
  * a second implementation. A row's own Delete button is disabled while
  * `deletePosition` is pending *for that row's id specifically* (`variables
- * === row.id`, not just `isPending`) — same double-click-race guard
+ * ?.id === row.id`, not just `isPending`) — same double-click-race guard
  * WatchlistTable's own Remove button uses (frontend-watchlist-page-followups).
+ *
+ * `useDeletePosition()` is instantiated here rather than inside
+ * ClosePositionDialog itself (unlike AddPositionDialog/FollowUpReviewDialog/
+ * TradeApgarDialog, each of which owns its own mutation) specifically so its
+ * `isPending`/`variables` also drive the row-level double-click guard above,
+ * outside the dialog — a second, independent `useDeletePosition()` call
+ * inside the dialog wouldn't share that pending state with this table's own
+ * row button. See ClosePositionDialog's own doc comment and this task's
+ * `decisions` entry.
  *
  * Protective Stop and Profit Target columns (frontend-position-risk-columns)
  * read from GET /api/portfolio/risk via this component's own
@@ -56,11 +66,43 @@ export interface PositionsTableProps {
  * failure. See this task's `decisions` entry (corrected after PR #258's
  * review) for why an earlier revision of this task added, then removed,
  * that second block.
+ *
+ * A close-position failure's `ErrorState` is scoped to whichever position it
+ * actually belongs to (`deletePosition.variables?.id`), not just "the
+ * currently open dialog": while ClosePositionDialog is open *for that same
+ * position*, the error renders inside it (as `handleConfirmClose`'s own doc
+ * comment describes); once the dialog has been dismissed for that position
+ * (or was never reopened, or is now open for a *different* position — a
+ * backdrop click can dismiss it while a DELETE is still in flight, see
+ * `handleCancelClose`), the same error instead renders as a page-level
+ * banner below, explicitly naming the position it belongs to. This is what
+ * makes a background failure both (a) never invisible -- it's always shown
+ * somewhere once it settles, dialog or banner -- and (b) never misattributed
+ * to an unrelated, later-opened dialog for a different position. See this
+ * task's `decisions` entry (PR #261 review) for the bug this fixes: the
+ * dialog previously received `deletePosition.error` unconditionally, so a
+ * stale error from a dismissed-while-pending close could render inside a
+ * different position's dialog once reopened, or vanish entirely if none was
+ * reopened.
  */
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [pendingDelete, setPendingDelete] = useState<PositionOut | null>(null)
   const deletePosition = useDeletePosition()
   const riskQuery = usePortfolioRisk()
+
+  // `deletePosition.error`/`.variables` describe whichever close attempt
+  // last failed, which isn't necessarily the position the dialog is
+  // currently open for (see this component's own doc comment above) --
+  // `belongsToOpenDialog` is what decides whether that error renders inside
+  // ClosePositionDialog itself or as the page-level banner below instead.
+  const belongsToOpenDialog =
+    pendingDelete !== null && deletePosition.variables?.id === pendingDelete.id
+  const dialogCloseError = belongsToOpenDialog ? deletePosition.error : null
+  const strayCloseError =
+    !belongsToOpenDialog && deletePosition.isError ? deletePosition.error : null
+  const strayCloseTicker = strayCloseError
+    ? positions.find((position) => position.id === deletePosition.variables?.id)?.ticker
+    : undefined
 
   const riskByTicker = new Map<string, RiskPosition>(
     (riskQuery.data?.positions ?? []).map((riskPosition) => [
@@ -152,7 +194,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         <IconButton
           aria-label={`Delete ${row.ticker}`}
           size="small"
-          disabled={deletePosition.isPending && deletePosition.variables === row.id}
+          disabled={deletePosition.isPending && deletePosition.variables?.id === row.id}
           onClick={() => setPendingDelete(row)}
         >
           <DeleteOutlineIcon fontSize="small" />
@@ -161,27 +203,55 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     },
   ]
 
-  const handleConfirmDelete = () => {
-    // ConfirmDialog's onConfirm only fires while it's open, and it's only
-    // open while pendingDelete !== null (see the `open` prop below), so this
-    // guard is unreachable through the UI in practice — it exists purely so
-    // TypeScript narrows `pendingDelete` from `PositionOut | null` before
-    // `.id` is read below. Intentionally-defensive dead code, not a bug;
-    // /* v8 ignore next 3 */ keeps it out of the branch-coverage denominator
-    // instead of it showing up as a real gap on future coverage sweeps.
+  const handleConfirmClose = (values: ClosePositionConfirmValues) => {
+    // ClosePositionDialog's onConfirm only fires while it's open, and it's
+    // only open while pendingDelete !== null (see the `position` prop
+    // below), so this guard is unreachable through the UI in practice — it
+    // exists purely so TypeScript narrows `pendingDelete` from
+    // `PositionOut | null` before `.id` is read below. Intentionally-
+    // defensive dead code, not a bug; /* v8 ignore next 3 */ keeps it out of
+    // the branch-coverage denominator instead of it showing up as a real gap
+    // on future coverage sweeps.
     /* v8 ignore next 3 */
     if (!pendingDelete) {
       return
     }
-    deletePosition.mutate(pendingDelete.id)
+    deletePosition.mutate(
+      { id: pendingDelete.id, ...values },
+      // The dialog only closes on success -- an error leaves it open with
+      // its own ErrorState visible (see ClosePositionDialog), so the user
+      // can retry or cancel instead of the error appearing after the dialog
+      // has already vanished.
+      { onSuccess: () => setPendingDelete(null) },
+    )
+  }
+
+  const handleCancelClose = () => {
     setPendingDelete(null)
+    // Clears any error from a previous failed close attempt so reopening
+    // this dialog for a different position doesn't start by showing a stale
+    // ErrorState for an unrelated earlier failure -- but only when nothing is
+    // actually still in flight. ClosePositionDialog's own Cancel button is
+    // already disabled while pending, but a backdrop click still fires this
+    // same handler regardless of pending state; calling `reset()` in that
+    // case would flip `isPending` back to false immediately even though the
+    // DELETE request itself is still running in the background, defeating
+    // the row icon's own double-click-race guard above (a second click could
+    // reopen this dialog and fire a second DELETE for the same position
+    // before the first one already in flight has resolved).
+    if (!deletePosition.isPending) {
+      deletePosition.reset()
+    }
   }
 
   return (
     <Box>
-      {deletePosition.isError && (
+      {strayCloseError && (
         <Box sx={{ mb: 2 }}>
-          <ErrorState error={deletePosition.error} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Failed to close {strayCloseTicker ?? 'a position'}:
+          </Typography>
+          <ErrorState error={strayCloseError} />
         </Box>
       )}
       <DataTable
@@ -191,18 +261,12 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         emptyMessage="No positions yet. Add one to get started."
         ariaLabel="Positions"
       />
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title="Delete position"
-        body={
-          pendingDelete
-            ? `Delete ${pendingDelete.ticker} (${pendingDelete.quantity} shares)? This cannot be undone.`
-            : ''
-        }
-        confirmLabel="Delete"
-        destructive
-        onConfirm={handleConfirmDelete}
-        onCancel={() => setPendingDelete(null)}
+      <ClosePositionDialog
+        position={pendingDelete}
+        isPending={deletePosition.isPending}
+        error={dialogCloseError}
+        onConfirm={handleConfirmClose}
+        onCancel={handleCancelClose}
       />
     </Box>
   )
