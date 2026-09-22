@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-trade-strategy-tagging-followups review (PR #252)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-strategy-tagging-followups"],
   "references": [
     "docs/tasks/done/backend-trade-strategy-tagging-followups.json",
@@ -29,5 +29,12 @@
     "pr_number": 253,
     "pr_url": "https://github.com/rainoko/fintrade/pull/253",
     "pushed_at": "2026-09-22T00:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T06:29:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/253",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite green (1144 passed, 99.95% coverage vs 90% gate), ruff/mypy/profit-target-wording-guard clean, frontend untouched so skipped. Independently confirmed the OpenAPI no-diff claim (git status empty before and after re-running scripts/export_openapi.py). Independently confirmed the consolidated @field_validator(\"entry_notes\", \"strategy\") applies per-field with no cross-field leakage by instantiating PositionIn with differing whitespace/value combinations on both fields simultaneously -- both normalized correctly and independently. Not applicable: verify-elder-signal (no app/signals or app/portfolio computation logic touched, only a PositionIn schema validator), architecture-review (no new module/dependency/layer), frontend component placement (frontend untouched), browser walkthrough / e2e suite (no UI surface in this backend-only refactor). code-review skill ran against the diff with zero findings. Task board: checklist item has a proper decisions entry (decision + rationale); scripts/validate_tasks.py reports 0 violations. No blocking or non-blocking findings."
   }
 }
