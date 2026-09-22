@@ -1678,8 +1678,8 @@
       "id": "frontend-ibkr-status-indicator-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-ibkr-status-indicator-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-status-indicator-followups.json"
     },
     {
       "id": "frontend-daily-homework-page",

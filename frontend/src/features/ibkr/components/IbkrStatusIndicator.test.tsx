@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IBKRStatusResponse } from '../../../api/ibkr'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
@@ -11,11 +11,22 @@ function mockIbkrStatus(response: IBKRStatusResponse) {
 }
 
 describe('IbkrStatusIndicator', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('shows a loading spinner, then the disabled badge (the default MSW handler)', async () => {
     renderWithProviders(<IbkrStatusIndicator />)
 
     expect(screen.getByLabelText('Loading IBKR status')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('IBKR: Disabled')).toBeInTheDocument())
+  })
+
+  it('wraps its rendered chip in a role="status" live region, for a screen-reader user away from the app bar to be told about a silent background-poll state change', async () => {
+    renderWithProviders(<IbkrStatusIndicator />)
+
+    await waitFor(() => expect(screen.getByText('IBKR: Disabled')).toBeInTheDocument())
+    expect(screen.getByRole('status')).toContainElement(screen.getByText('IBKR: Disabled'))
   })
 
   it('renders the available state', async () => {
@@ -55,5 +66,24 @@ describe('IbkrStatusIndicator', () => {
     )
     expect(screen.getByText('IBKR: Unknown')).toBeInTheDocument()
     expect(screen.queryByText('IBKR: Gateway down')).not.toBeInTheDocument()
+  })
+
+  it("flips to the 'Unknown' chip on a *later* background poll failure, rather than keeping the last successful state forever (regression: TanStack Query keeps the last-successful `data` populated across a failed background refetch)", async () => {
+    mockIbkrStatus({ state: 'available', detail: null })
+    vi.useFakeTimers()
+
+    renderWithProviders(<IbkrStatusIndicator />)
+    await vi.waitFor(() => expect(screen.getByText('IBKR: Connected')).toBeInTheDocument())
+
+    // Flip the handler to a transport failure *after* the first successful
+    // fetch, then advance past the hook's 30s `refetchInterval` so the next
+    // background poll actually fires and fails.
+    server.use(http.get('/api/ibkr/status', () => HttpResponse.error()))
+    await vi.advanceTimersByTimeAsync(31_000)
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('ibkr-status-indicator-unknown')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('IBKR: Connected')).not.toBeInTheDocument()
   })
 })
