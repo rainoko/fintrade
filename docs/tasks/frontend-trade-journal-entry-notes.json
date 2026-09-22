@@ -33,5 +33,11 @@
       "decision": "Extended `frontend/tests/mocks/handlers.ts`'s `POST /api/portfolio/positions` mock handler to actually store and echo `entry_notes` on create, and to append (blank-line separated) on a same-ticker merge -- mirroring the real backend's merge-append behavior recorded in the `backend-trade-journal-entry-notes` task's own `decisions` -- rather than leaving the shared mock oblivious to the field.",
       "rationale": "Without this, any test asserting the mock portfolio actually persists/echoes `entry_notes` (including a future GET /api/portfolio round-trip test) would silently fail against a mock that drops the field, which would misrepresent the real API's contract that this task's frontend UI now depends on. This is test infrastructure shared beyond just this task's two component tests, but keeping it accurate is a small, low-risk addition that avoids the mock diverging from the real backend it stands in for."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-trade-journal-entry-notes",
+    "pr_number": 246,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/246",
+    "pushed_at": "2026-09-22T03:09:30Z"
+  }
 }
