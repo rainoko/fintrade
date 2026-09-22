@@ -1,0 +1,27 @@
+{
+  "id": "frontend-daily-homework-page-followups-followups-followups",
+  "title": "Non-blocking findings from PR #273's round-2 review (DailyHomeworkForm suggestion-gate fix)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-daily-homework-page-followups-followups"],
+  "references": [
+    "docs/tasks/done/frontend-daily-homework-page-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/273"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's round-2 review of PR #273 (frontend-daily-homework-page-followups-followups's fix that gates useYesterdayTradingSuggestion on `todayQuery.isSuccess && !existingEntry` and adds HomeworkQuestionsForm's render-time suggestedScore adjustment), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. The review's blocking checks (correctness via a real browser walkthrough of all three scenarios, full backend+frontend coverage, static analysis, `make e2e`) all passed -- these are quality/design observations only.",
+  "checklist": [
+    {
+      "step": "`HomeworkQuestionsForm`'s new render-time state adjustment (`prevSuggestedScore`/`hasEditedYesterdayScore`/the `if (suggestedScore !== prevSuggestedScore) { ... }` block in `DailyHomeworkForm.tsx`) hand-rolls the same 'compare a prop to its previously-seen value, adjust state during render' shape that `useResetOnSubjectChange` (`frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts`) already generalizes -- the new code's own comments cite that hook as prior art but don't reuse or extend it. Consider extracting a small shared hook (or generalizing `useResetOnSubjectChange` itself) so a future fix to this pattern (e.g. a React version change affecting mid-render setState) only needs to land in one place instead of two independently-maintained copies.",
+      "done": false
+    },
+    {
+      "step": "The new test `does not overwrite a user's own answer to \"yesterday\" if the suggestion resolves after they have already changed it themselves` (and similarly the two strengthened pre-existing tests) synchronize on a fixed `await new Promise((resolve) => setTimeout(resolve, 20))` after manually resolving the mocked suggestion request, instead of a `waitFor`-based poll for the actual expected UI state. Confirmed via `yarn vitest run ... --reporter=verbose` that this specific test genuinely produces React 'An update to DailyHomeworkForm inside a test was not wrapped in act(...)' / 'ForwardRef(FormControl) ... not wrapped in act(...)' warnings (not just a hypothetical concern) -- a real signal that the fixed-timeout synchronization is racing the actual render rather than reliably waiting for it, which is a latent flakiness risk under CI resource contention even though it passes reliably today. Switch these to `waitFor`-based assertions on the expected DOM state instead of a bare timeout.",
+      "done": false
+    },
+    {
+      "step": "Gating `useYesterdayTradingSuggestion` on `todayQuery.isSuccess` (this task's fix) sequences `/api/daily-homework/today` and `/api/daily-homework/yesterday-trading-suggestion` for *every* cold load with no existing entry, not just the existing-entry case the fix targets -- confirmed via a live browser network trace: the suggestion request no longer starts until the `/today` response has already landed, versus firing concurrently before this fix. This tradeoff is already documented and accepted in this task's own `decisions` entry (second entry), so it's not a new finding requiring rework -- but it's tracked here as a design point worth reconsidering later, e.g. by having the backend return the suggestion alongside `/today`'s response (or another data-layer composition), which would also let `HomeworkQuestionsForm` go back to capturing `yesterday_trading_score` in its plain `useState` initializer and remove the render-time-adjustment machinery (checklist item 1 above) entirely.",
+      "done": false
+    }
+  ]
+}
