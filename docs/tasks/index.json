@@ -1692,8 +1692,8 @@
       "id": "frontend-trade-journal-entry-notes",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "testing",
-      "path": "docs/tasks/frontend-trade-journal-entry-notes.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-entry-notes.json"
     },
     {
       "id": "frontend-trade-journal-followup-review",

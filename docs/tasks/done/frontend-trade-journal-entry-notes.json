@@ -3,7 +3,7 @@
   "title": "Surface entry_notes in the add-position form and Trade Journal",
   "area": "frontend/pages/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trade-journal-entry-notes"],
   "references": [
     "docs/ideas.md#expanding-the-trade-journal-entry-notes-a-two-months-later-follow-up-and-strategy-segmented-equity-curves-ch-59"
@@ -39,5 +39,12 @@
     "pr_number": 246,
     "pr_url": "https://github.com/rainoko/fintrade/pull/246",
     "pushed_at": "2026-09-22T03:09:30Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T03:19:01Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/246",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review pass: backend suite 1139 passed, 99.95% coverage (unchanged by this PR); frontend suite 727 passed across 74 files, coverage 99.72% statements / 99.2% branches / 99.72% functions / 99.79% lines, all well above the 90% gate. ruff, mypy, eslint, tsc, and the profit-target wording guard all clean. code-review skill (medium effort) found no correctness, reuse, or simplification issues. Verified the MSW mock's merge-append behavior against the real backend by reading backend/app/api/routers/portfolio.py's add_position handler directly (not just trusting the summary): both append an incoming entry_notes to the existing one blank-line-separated (\\n\\n) on a same-ticker merge, and both leave the existing entry_notes untouched when the incoming one is empty/absent. Confirmed live: started the real backend (fixture provider, scratch sqlite db, alembic-migrated) plus the Vite dev server and drove a full browser walkthrough (Playwright script since no MCP browser tools were available in this session) -- added MSFT with a note (trimmed and sent), added AAPL with no note (entry_notes key verified absent from the POST body), then merged a second MSFT buy with a second note and confirmed via GET /api/portfolio that the real backend produced quantity 15, avg_cost_basis 303.33, and entry_notes exactly 'Breakout above resistance, strong earnings beat.\\n\\nAdding on strength after pullback held.' -- matching the mock's own contract exactly. Route-mocked /api/portfolio/closed-trades to exercise TradeJournalPanel's Notes column: em dash for the no-notes row, icon + InfoBalloon popover (title 'Entry Notes', full body text) for the with-notes row. No console errors, no failed network requests. Also ran the persisted e2e suite (make e2e): all 18 specs across dashboard/navigation/portfolio/stock-analysis/watchlist passed, no regression. Checked add-frontend-feature placement rules (Frontend.md §3): NotesCell correctly stays feature-local in TradeJournalPanel.tsx (it encodes the domain-specific em-dash-vs-note decision for a closed trade's entry_notes, mirroring the existing GradeCell precedent in the same file) while reusing the already-domain-agnostic common/InfoBalloon rather than creating a near-duplicate popover component -- no placement violation either direction. All three recorded `decisions` entries are well-formed (decision + rationale, alternatives considered) and consistent with what's actually implemented; no checklist item is phrased as 'decide X' so there's no decision-record gap to flag. No backend/schema changes in this PR, so backend/openapi.json (already reflecting entry_notes from the prior backend-trade-journal-entry-notes task, verified unchanged/still consistent) doesn't need regeneration here. No non-blocking findings to file as a followup task -- this is a clean pass."
   }
 }
