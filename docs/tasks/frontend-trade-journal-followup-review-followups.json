@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from frontend-trade-journal-followup-review PR #248 review",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-trade-journal-followup-review"],
   "references": [
     "docs/tasks/frontend-trade-journal-followup-review.json",
@@ -16,9 +16,17 @@
   "checklist": [
     {
       "step": "No Playwright e2e spec (frontend/tests/e2e/*.spec.ts) exercises the new 'Due for Follow-Up Review' panel or FollowUpReviewDialog end to end -- portfolio.spec.ts wasn't extended, and no new spec file was added, even though the flow adds a new API round trip (POST .../follow-up-review) and a new query-string filter (due_for_follow_up=true) that the existing e2e suite's fixture-provider backend now serves live. Per the e2e-test skill's own 'Relationship to Other Checks' note ('If a new UI flow is added, the underlying task should also add or extend an e2e spec for it'), this flow should get a persisted regression spec (e.g. extend portfolio.spec.ts: seed a due trade via the running backend's fixture-provider database, record a review through the UI, assert it drops off the due list) rather than relying solely on mocked component tests plus one-off manual browser walkthroughs for future regression coverage.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended the existing `frontend/tests/e2e/portfolio.spec.ts` with a new `test.describe.serial('portfolio: due-for-follow-up review flow', ...)` block (3 tests: due panel renders the seeded trade, blank-notes validation keeps the dialog open, and a successful review closes the dialog/removes the row/survives a reload) rather than adding a new spec file, and seeded the due trade for that block via two direct `request` fixture calls to the real running backend (`POST /api/portfolio/positions` then `DELETE .../positions/{id}?exit_price=...&exit_date=<9 weeks ago>`) rather than driving the seed through the UI.",
+      "rationale": "A new spec file was considered and rejected: this flow lives entirely on the existing Portfolio page (`PortfolioPage.tsx` renders `TradeFollowUpDuePanel` alongside `PositionsTable`/`RiskPanel`), matching how `watchlist.spec.ts` and `stock-analysis.spec.ts` are each scoped to one page rather than one flow, and the checklist item's own suggested example ('extend portfolio.spec.ts') already named this option. A UI-driven seed (add a position through AddPositionDialog, then delete it through the confirm dialog) was also considered and rejected as currently impossible: `DELETE /api/portfolio/positions/{id}`'s `exit_price`/`exit_date` manual-override query params (needed to backdate the trade into the backend's 8-10-week due window -- a same-day UI delete always exits 'today', never due) have no UI surface yet -- that's `frontend-close-position-dialog`, still `planned`, a separate task. Driving those two existing, already-tested API calls directly via Playwright's `request` fixture keeps the seed honest (it's the real backend, the real validation, the real DB -- not a mock) while not blocking this task on `frontend-close-position-dialog` landing first; the seed step itself asserts `response.ok()` so a backend regression in either call would still fail this spec, not silently produce a no-op fixture. 9 weeks back was chosen for the exit date (not, say, 8 or 10, the window's exact edges) for the same boundary-flake-avoidance reason `frontend/tests/mocks/handlers.ts`'s `dueTradeFixture` already uses 9 weeks -- comfortably inside both edges of `_FOLLOW_UP_DUE_WINDOW_MIN`/`_MAX` (`app/api/routers/portfolio.py`) so a few seconds of clock drift between the seed call and the page's own `as_of` never risks the row falling just outside the window.",
+      "alternatives_considered": "New standalone spec file (frontend/tests/e2e/trade-follow-up-review.spec.ts); UI-driven backdated seed (blocked on frontend-close-position-dialog); seeding via a direct SQLite write to backend/e2e.db (rejected as more brittle/coupled to internal schema than the same public API a real user-driven flow would use)."
+    }
+  ],
   "questions": []
 }

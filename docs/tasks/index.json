@@ -1804,7 +1804,7 @@
       "id": "frontend-trade-journal-followup-review-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-trade-journal-followup-review-followups.json"
     }
   ]
