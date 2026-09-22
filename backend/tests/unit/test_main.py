@@ -11,6 +11,8 @@ lets a real `IBKRProvider` make an HTTP call.
 """
 
 import asyncio
+import threading
+import time
 
 import pytest
 
@@ -98,12 +100,97 @@ class TestLifespanIbkrTickleGate:
         assert task.cancelled()
         fake_provider.tickle.assert_not_called()
 
+    def test_shutdown_does_not_block_on_an_in_flight_tickle_call(self, mocker) -> None:
+        """`backend-ibkr-tickle-keepalive-followups`: exercises cancelling `tickle_task`
+        while it's mid-`await asyncio.to_thread(provider.tickle)` (an HTTP request already
+        dispatched to a worker thread) -- previously untested; only the "still sleeping"
+        cancellation path (`test_enabled_task_is_cancelled_cleanly_on_shutdown` above) was
+        covered.
+
+        Verified with a real-timing repro (see this task's `decisions`) that
+        `lifespan()`'s `await tickle_task` in its `finally` block does *not* block on that
+        in-flight call: `asyncio.to_thread` awaits a plain `asyncio.Future` wrapping the
+        executor's `concurrent.futures.Future`, and a plain `Future.cancel()` marks itself
+        cancelled immediately regardless of whether the underlying thread-pool work can
+        actually be stopped -- so `CancelledError` propagates into the `await` right away.
+        The worker thread itself isn't interrupted; it keeps running `provider.tickle()`
+        to completion in the background, orphaned and discarded (bounded here by a short
+        real `time.sleep`, never a live network call), which is harmless since nothing
+        ever reads its result.
+        """
+        sleep_seconds = 0.2
+        started = threading.Event()
+        tickle_start = 0.0
+
+        def _slow_tickle() -> None:
+            nonlocal tickle_start
+            tickle_start = time.monotonic()
+            started.set()
+            time.sleep(sleep_seconds)
+
+        fake_provider = mocker.Mock()
+        fake_provider.tickle.side_effect = _slow_tickle
+        mocker.patch("app.main.get_ibkr_provider", return_value=iter([fake_provider]))
+        mocker.patch("app.main._IBKR_TICKLE_INTERVAL_SECONDS", 0.0)
+        create_task_spy = mocker.spy(asyncio, "create_task")
+
+        async def _run() -> float:
+            async with lifespan(app):
+                # `started` is set before the in-flight `time.sleep` below even begins, so
+                # waiting on it and then immediately falling out of this `async with`
+                # block reliably triggers `tickle_task.cancel()` while that sleep --
+                # standing in for the real blocking HTTP round trip -- is still running in
+                # the worker thread.
+                await _wait_until(lambda: started.is_set())
+            # Measured here, inside the coroutine, before `asyncio.run`'s own outer
+            # teardown (which does wait for the default executor's threads to drain) has
+            # a chance to run -- this isolates exactly how long `lifespan()`'s own
+            # `finally` block took.
+            return time.monotonic() - tickle_start
+
+        elapsed_since_tickle_started = asyncio.run(_run())
+
+        # `lifespan()`'s shutdown returned well before the in-flight call's sleep did --
+        # it did not block waiting for that worker thread.
+        assert elapsed_since_tickle_started < sleep_seconds * 0.5
+        task = create_task_spy.spy_return
+        assert task is not None
+        assert task.cancelled()
+        fake_provider.tickle.assert_called_once()
+
     def test_enabled_logs_and_keeps_looping_when_tickle_fails(self, mocker, caplog) -> None:
         """A single failed `/tickle` call (gateway down, session actually expired) must
         not kill the loop -- `GET /api/ibkr/status` already exists for a caller to
         observe the resulting state, so this loop's job is only to keep pinging."""
         fake_provider = mocker.Mock()
         fake_provider.tickle.side_effect = IBKRUnavailableError("gateway unreachable")
+        mocker.patch("app.main.get_ibkr_provider", return_value=iter([fake_provider]))
+        mocker.patch("app.main._IBKR_TICKLE_INTERVAL_SECONDS", 0.0)
+
+        async def _run() -> None:
+            with caplog.at_level("WARNING", logger="app.main"):
+                async with lifespan(app):
+                    await _wait_until(lambda: fake_provider.tickle.call_count >= 2)
+
+        asyncio.run(_run())
+
+        assert fake_provider.tickle.call_count >= 2
+        assert "IBKR /tickle keep-alive call failed" in caplog.text
+
+    def test_enabled_logs_and_keeps_looping_on_a_non_ibkr_exception(self, mocker, caplog) -> None:
+        """`backend-ibkr-tickle-keepalive-followups`: `provider.tickle()`'s three raise
+        sites are exhaustively `IBKRUnavailableError` today, but a catch narrowed to that
+        one type is a latent trap -- if `tickle()` ever raised anything else, the loop
+        would exit with that exception stored on the task, `tickle_task.cancel()` in
+        `lifespan()`'s `finally` would be a no-op against an already-done task, and
+        `await tickle_task` there would re-raise the original exception straight out of
+        `lifespan()`'s own `finally` block. This must not happen: an unexpected exception
+        (a bare `ValueError` here, standing in for anything that isn't
+        `IBKRUnavailableError`) must be logged and the loop must keep running, exactly
+        like the already-covered `IBKRUnavailableError` case above, and `lifespan()` must
+        exit cleanly (no exception escaping `_run`) on shutdown."""
+        fake_provider = mocker.Mock()
+        fake_provider.tickle.side_effect = ValueError("some unexpected failure")
         mocker.patch("app.main.get_ibkr_provider", return_value=iter([fake_provider]))
         mocker.patch("app.main._IBKR_TICKLE_INTERVAL_SECONDS", 0.0)
 

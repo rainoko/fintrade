@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_ibkr_provider
 from app.api.routers import homework, ibkr, portfolio, stocks, watchlist
-from app.data.ibkr_provider import IBKRProvider, IBKRUnavailableError
+from app.data.ibkr_provider import IBKRProvider
 from app.db.models import Base
 from app.db.session import engine
 
@@ -47,7 +47,19 @@ async def _ibkr_tickle_loop(provider: IBKRProvider) -> None:
         await asyncio.sleep(_IBKR_TICKLE_INTERVAL_SECONDS)
         try:
             await asyncio.to_thread(provider.tickle)
-        except IBKRUnavailableError as exc:
+        except Exception as exc:  # noqa: BLE001 - deliberately broad, see rationale below
+            # `provider.tickle()`'s three raise sites (`IBKRProvider._request`) are
+            # exhaustively `IBKRUnavailableError` today, but narrowing this catch to that
+            # one type is a latent trap: if `tickle()` ever raised anything else, this
+            # loop would exit with that exception stored on the task, `tickle_task.cancel()`
+            # in `lifespan()`'s `finally` would become a no-op against an already-done
+            # task, and `await tickle_task` there (inside
+            # `contextlib.suppress(asyncio.CancelledError)`) would re-raise the original
+            # exception straight out of `lifespan()`'s own `finally` block, disrupting app
+            # shutdown -- not just silently pausing the keep-alive the way a caught
+            # `IBKRUnavailableError` does. `Exception` (not `BaseException`) deliberately
+            # still lets a real `asyncio.CancelledError` (a `BaseException` since Python
+            # 3.8) propagate through untouched, so cancellation at shutdown still works.
             logger.warning("IBKR /tickle keep-alive call failed: %s", exc)
 
 
@@ -78,6 +90,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if tickle_task is not None:
             tickle_task.cancel()
+            # `await tickle_task` here returns promptly even if `_ibkr_tickle_loop` was
+            # cancelled while mid-`await asyncio.to_thread(provider.tickle)` (an HTTP
+            # request already dispatched to a worker thread): `asyncio.to_thread` awaits a
+            # plain `asyncio.Future` wrapping the executor's `concurrent.futures.Future`,
+            # and a plain `Future.cancel()` marks itself cancelled immediately regardless
+            # of whether the underlying thread-pool work can actually be stopped, so
+            # `CancelledError` propagates into this `await` right away rather than
+            # blocking on the in-flight call. The worker thread itself is not
+            # interrupted -- it keeps running `provider.tickle()` to completion in the
+            # background, orphaned and discarded, which is harmless here (no result is
+            # ever read back from it). Verified with a real-timing repro (see
+            # `docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json`'s
+            # `decisions`) rather than assumed.
             with contextlib.suppress(asyncio.CancelledError):
                 await tickle_task
 
