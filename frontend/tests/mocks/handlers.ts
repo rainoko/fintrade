@@ -9,6 +9,9 @@ import type {
   PositionIn,
   PositionOut,
   RiskResponse,
+  TradeApgarIn,
+  TradeApgarOut,
+  TradeApgarQuestionOut,
 } from '../../src/api/portfolio'
 import type {
   AnalysisResponse,
@@ -38,9 +41,15 @@ import type {
 //
 // Sentinel tickers (case-insensitive, matched after the same uppercase
 // normalization the backend applies — see API.md):
-//   UNKNOWN       -> 404 (stocks: analysis + history + indicators)
-//   NOPROVIDER    -> 503 (stocks: analysis + history + indicators)
-//   THINHISTORY   -> 422 insufficient weekly history (analysis + indicators always; history only when interval=weekly)
+//   UNKNOWN       -> 404 (stocks: analysis + history + indicators; also POST /api/portfolio/trade-apgar)
+//   NOPROVIDER    -> 503 (stocks: analysis + history + indicators; also POST /api/portfolio/trade-apgar)
+//   THINHISTORY   -> 422 insufficient weekly history (analysis + indicators always; history only when interval=weekly; also POST /api/portfolio/trade-apgar)
+//   APGARHIGH     -> POST /api/portfolio/trade-apgar only: auto-populated questions (weekly/daily
+//                    Impulse, price vs. value) all score the maximum (2 each, auto total 6) rather
+//                    than the default profile's 1-each (auto total 3) below -- lets a test reach a
+//                    high `total_score` while still driving one manual answer to 0, to exercise
+//                    Elder's "no single zero" rule at a high total (docs/ideas.md ch. 58) without
+//                    the default ticker's lower auto total making that combination unreachable.
 // Sentinel position ids:
 //   any id not present in the in-memory portfolio store -> 404 (DELETE)
 // Sentinel POST /api/portfolio/positions payloads:
@@ -474,6 +483,50 @@ const MIN_WEEKLY_BARS_TICKER = 'THINHISTORY'
 const UNKNOWN_TICKER = 'UNKNOWN'
 const PROVIDER_DOWN_TICKER = 'NOPROVIDER'
 
+// POST /api/portfolio/trade-apgar's own scoring tables, mirroring
+// `app.portfolio.trade_apgar`'s fixed scoring exactly (Elder ch. 58,
+// docs/ideas.md) -- kept in the mock rather than importing anything from the
+// backend, same as every other handler in this file computing its own
+// response shape from request input.
+const HIGH_AUTO_SCORE_TICKER = 'APGARHIGH'
+
+type MockImpulseColor = 'RED' | 'GREEN' | 'BLUE'
+type MockPriceVsValue = 'above_value' | 'in_value_zone' | 'below_value'
+
+const IMPULSE_SCORES: Record<MockImpulseColor, number> = { RED: 0, GREEN: 1, BLUE: 2 }
+const PRICE_VS_VALUE_SCORES: Record<MockPriceVsValue, number> = {
+  above_value: 0,
+  in_value_zone: 1,
+  below_value: 2,
+}
+const FALSE_BREAKOUT_SCORES: Record<TradeApgarIn['false_breakout_status'], number> = {
+  none: 0,
+  already_happened: 1,
+  on_the_verge: 2,
+}
+const PERFECTION_SCORES: Record<TradeApgarIn['perfection'], number> = {
+  neither: 0,
+  one: 1,
+  both: 2,
+}
+
+// Every ticker other than HIGH_AUTO_SCORE_TICKER gets this same
+// deterministic, middling auto-question profile (auto total 3) -- fine for
+// tests exercising the go/low-total-no-go outcomes, but too low to also
+// reach a single-zero-at-high-total outcome (max manual score is 2+2=4, so
+// zeroing one manual answer caps the total at 3+0+2=5) -- see
+// HIGH_AUTO_SCORE_TICKER above for that case.
+function tradeApgarAutoQuestions(ticker: string): {
+  weekly_impulse: MockImpulseColor
+  daily_impulse: MockImpulseColor
+  price_vs_value: MockPriceVsValue
+} {
+  if (ticker === HIGH_AUTO_SCORE_TICKER) {
+    return { weekly_impulse: 'BLUE', daily_impulse: 'BLUE', price_vs_value: 'below_value' }
+  }
+  return { weekly_impulse: 'GREEN', daily_impulse: 'GREEN', price_vs_value: 'in_value_zone' }
+}
+
 const RANGE_PATTERN = /^(max|\d{1,4}[dwmy])$/
 
 // Core, always-known fields for a stored watchlist item — deliberately
@@ -631,6 +684,73 @@ export const handlers: HttpHandler[] = [
     }
     positions.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post('/api/portfolio/trade-apgar', async ({ request }) => {
+    const body = (await request.json()) as TradeApgarIn
+    const ticker = body.ticker.trim().toUpperCase()
+
+    if (ticker === UNKNOWN_TICKER) {
+      return HttpResponse.json({ detail: `Unknown ticker: ${ticker}` }, { status: 404 })
+    }
+    if (ticker === PROVIDER_DOWN_TICKER) {
+      return HttpResponse.json(
+        { detail: 'Market data provider is currently unavailable. Try again shortly.' },
+        { status: 503 },
+      )
+    }
+    if (ticker === MIN_WEEKLY_BARS_TICKER) {
+      return HttpResponse.json(
+        {
+          detail: `Insufficient weekly history for ${ticker} to compute weekly indicators (< 26 weeks).`,
+        },
+        { status: 422 },
+      )
+    }
+
+    const auto = tradeApgarAutoQuestions(ticker)
+    const questions: TradeApgarQuestionOut[] = [
+      {
+        key: 'weekly_impulse',
+        label: 'Weekly Impulse',
+        value: auto.weekly_impulse,
+        score: IMPULSE_SCORES[auto.weekly_impulse],
+        source: 'auto',
+      },
+      {
+        key: 'daily_impulse',
+        label: 'Daily Impulse',
+        value: auto.daily_impulse,
+        score: IMPULSE_SCORES[auto.daily_impulse],
+        source: 'auto',
+      },
+      {
+        key: 'price_vs_value',
+        label: 'Daily price vs. value',
+        value: auto.price_vs_value,
+        score: PRICE_VS_VALUE_SCORES[auto.price_vs_value],
+        source: 'auto',
+      },
+      {
+        key: 'false_breakout',
+        label: 'False breakout status',
+        value: body.false_breakout_status,
+        score: FALSE_BREAKOUT_SCORES[body.false_breakout_status],
+        source: 'manual',
+      },
+      {
+        key: 'perfection',
+        label: '"Perfection" (both timeframes look ideal)',
+        value: body.perfection,
+        score: PERFECTION_SCORES[body.perfection],
+        source: 'manual',
+      },
+    ]
+    const total_score = questions.reduce((sum, question) => sum + question.score, 0)
+    const go = total_score >= 7 && questions.every((question) => question.score > 0)
+
+    const response: TradeApgarOut = { ticker, questions, total_score, go }
+    return HttpResponse.json(response)
   }),
 
   http.get('/api/stocks/:ticker/analysis', ({ params }) => {
