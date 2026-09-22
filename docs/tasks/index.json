@@ -1671,8 +1671,8 @@
       "id": "frontend-position-risk-columns-followups",
       "area": "frontend/pages/portfolio",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-position-risk-columns-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups.json"
     },
     {
       "id": "frontend-position-risk-columns-followups-followups",

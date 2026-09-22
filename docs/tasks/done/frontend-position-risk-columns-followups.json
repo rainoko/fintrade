@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns review (PR #257)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-position-risk-columns"],
   "references": [
     "docs/tasks/done/frontend-position-risk-columns.json",
@@ -51,26 +51,26 @@
     "pushed_at": "2026-09-22T09:12:00Z"
   },
   "review": {
-    "reviewed_at": "2026-09-22T08:47:54Z",
+    "reviewed_at": "2026-09-22T09:04:46Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/258",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "Blocking: PositionsTable and RiskPanel are both rendered on PortfolioPage and both independently call usePortfolioRisk(); with this PR, a genuine GET /api/portfolio/risk failure now renders two identical, stacked common/ErrorState blocks (same heading, same error.detail, both role=\"alert\") on the same page -- confirmed with a real browser walkthrough. PositionsTable.test.tsx's new test only renders PositionsTable standalone, so it didn't catch the page-level duplication with RiskPanel. The PR's decisions entry frames the new block as 'mirroring RiskPanel's own ErrorState' without accounting for both being composed on the same page.",
+        "summary": "Round 2 verification of the round-1 blocking finding's fix: PositionsTable's riskQuery.isError ErrorState block was fully removed (diff 0bdc853..68ba631 confirmed by direct read of the current file), reverting to the silent per-row '—' fallback; RiskPanel remains the sole page-level ErrorState for this shared query. Confirmed with a real browser walkthrough (headless Chromium, GET /api/portfolio/risk routed to a 503) against a manually-started fixture-mode backend + vite dev server with a real held AAPL position: exactly one role=\"alert\" block rendered on PortfolioPage, the Positions table still rendered underneath with Protective Stop/Profit Target falling back to '—' and all other columns intact. Screenshot captured.",
         "file": "frontend/src/features/portfolio/components/PositionsTable.tsx",
-        "line": 179
+        "line": null
       },
       {
-        "summary": "Non-blocking: HeldPositionBanner's two warning icons (Current Stop, Profit Target) share the identical aria-label \"Risk data unavailable\" with no field-specific accessible name -- confirmed via browser (two icons rendered, both labeled identically). A screen reader user can't distinguish which field failed without relying on surrounding visual/DOM context alone. HeldPositionBanner.test.tsx's new test even asserts toHaveLength(2) for this identical label, so the duplication was noticed but not treated as a gap. Filed as a followup.",
+        "summary": "The new PortfolioPage.test.tsx regression test (mounting PositionsTable + RiskPanel together, asserting getAllByRole('alert')).toHaveLength(1)) genuinely would have failed against the pre-fix code: the pre-fix PositionsTable independently rendered its own ErrorState for the same riskQuery.isError, which combined with RiskPanel's own pre-existing ErrorState would have produced 2 alerts, not 1. Confirmed by reading the pre-fix diff (commit 0bdc853, PositionsTable.tsx lines removed in 68ba631) rather than just trusting the test's own comment.",
+        "file": "frontend/src/pages/PortfolioPage.test.tsx",
+        "line": null
+      },
+      {
+        "summary": "HeldPositionBanner's inline-warning-icon degrade behavior from round 1 is untouched and still correct: unchanged since the prior review (not part of this round's diff), verified with the same browser walkthrough against a held AAPL position on StockDetailPage during a simulated GET /api/portfolio/risk 503 -- two WarningAmberIcon/Tooltip elements render on Current Stop and Profit Target as designed, Entry Price (sourced from GET /api/portfolio, unaffected) renders normally. The shared-aria-label non-blocking finding from round 1 (both icons labeled \"Risk data unavailable\") is unchanged and remains correctly tracked (not duplicated here) on frontend-position-risk-columns-followups-followups' checklist -- confirmed that task is still 'planned' and its existing entry already covers this exact finding.",
         "file": "frontend/src/features/portfolio/components/HeldPositionBanner.tsx",
         "line": 96
-      },
-      {
-        "summary": "Non-blocking, pre-existing (not touched by this PR's diff): DashboardPage composes RiskSummaryCard and SellFlaggedPositionsCard, which both independently call usePortfolioRisk() and both render their own ErrorState on isError -- the same sibling-duplication shape as the blocking finding above. Worth a follow-up spot-check for whether Dashboard has the identical duplicate-alert bug, and fixing all instances of this pattern consistently if so. Filed as a followup.",
-        "file": "frontend/src/pages/DashboardPage.tsx",
-        "line": null
       }
     ],
-    "notes": "Verified frontend vitest (763/763, coverage well above 90% gate), backend pytest (1144 passed, 99.95% coverage), backend ruff+mypy clean, frontend eslint+tsc clean, check_profit_target_wording.py clean. Ran the persisted e2e suite (make e2e): 21/21 Playwright specs passing. No Playwright MCP tool was available in this session, so drove a headless Chromium directly (via frontend's installed @playwright/test) against a manually-started fixture-mode backend + vite dev server, simulating a genuine GET /api/portfolio/risk 503 for a held AAPL position on both PortfolioPage and StockDetailPage -- this found the blocking duplicate-ErrorState bug above; non-error paths on both pages render correctly with no regression. Cross-checked the corrective decisions entry (#2) against the parent task's original decision #4: confirmed accurate -- PositionsTable genuinely had no riskQuery.isError handling before this PR, and PositionsTable/RiskPanel render on PortfolioPage while HeldPositionBanner renders on the separate StockDetailPage, so the correction's characterization holds."
+    "notes": "Round 2 re-review. Verified frontend vitest (764/764 passed, statements 99.74%/branches 99.23%/functions 99.75%/lines 99.8%, gate 90%), backend pytest (1144 passed, 99.95% coverage), backend ruff+mypy clean, frontend eslint+tsc clean, check_profit_target_wording.py clean. Ran the code-review skill (medium effort) against the PR diff: it independently surfaced only the same already-tracked non-blocking HeldPositionBanner aria-label finding, no new blocking issues, and confirmed the core revert is clean with no leftover dead code. Ran the persisted e2e suite (make e2e): 21/21 Playwright specs passing (no regression from this fix). No Playwright MCP tool was available in this session, so drove a headless Chromium directly (via frontend's installed playwright-core) against a manually-started fixture-mode backend (FINTRADE_DATA_PROVIDER_MODE=fixture, scratch sqlite db, cleaned up afterward) + vite dev server on the default ports, with a real AAPL position added via the API -- simulated the GET /api/portfolio/risk failure via Playwright route interception rather than a live backend error. This is a frontend-only PR (no backend files, no API/schema changes, no new components requiring a common/-vs-feature placement decision) -- backend openapi.json check and component-placement review (steps 8, 7a) don't apply. No pr_decision field was present to clear. Accepted: round-1's blocking finding is genuinely fixed, its regression test would have caught the original bug, and no new blocking findings were found."
   }
 }
