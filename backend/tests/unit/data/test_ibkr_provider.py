@@ -504,6 +504,172 @@ class TestRunScanner:
         assert request.call_count == 2
 
 
+class TestResolveConid:
+    """docs/tasks/backend-ibkr-symbol-resolution.json -- `GET /iserver/secdef/search`
+    mocked per this module's own no-live-gateway testing constraint."""
+
+    @staticmethod
+    def _stk_entry(symbol: str, conid: int, extra_sections: list[dict] | None = None) -> dict:
+        return {
+            "conid": str(conid),
+            "companyHeader": f"{symbol} INC - NASDAQ",
+            "companyName": f"{symbol} INC",
+            "symbol": symbol,
+            "sections": [{"secType": "STK"}, *(extra_sections or [])],
+        }
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().resolve_conid("AAPL")
+
+        request.assert_not_called()
+
+    def test_single_exact_match_resolves(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPL", 265598, extra_sections=[{"secType": "OPT"}])]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        conid = IBKRProvider().resolve_conid("AAPL")
+
+        assert conid == 265598
+
+    def test_request_uses_symbol_query_param(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+
+        IBKRProvider().resolve_conid("AAPL")
+
+        _method, path = request.call_args.args
+        assert path == "/iserver/secdef/search"
+        assert request.call_args.kwargs["params"] == {"symbol": "AAPL"}
+
+    def test_match_is_case_insensitive(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+
+        conid = IBKRProvider().resolve_conid("aapl")
+
+        assert conid == 265598
+
+    def test_no_match_returns_none(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=[])
+
+        assert IBKRProvider().resolve_conid("NOSUCHTICKER") is None
+
+    def test_ambiguous_multiple_distinct_conids_returns_none(self, mocker) -> None:
+        """The same symbol resolving to two distinct stock conids (e.g. dual listings on
+        different exchanges) is ambiguous -- degrades to `None` rather than guessing."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("BAR", 111), self._stk_entry("BAR", 222)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("BAR") is None
+
+    def test_duplicate_rows_for_the_same_conid_are_not_ambiguous(self, mocker) -> None:
+        """Two rows resolving to the SAME conid (e.g. one row per derivative-bearing
+        section returned as separate entries) isn't genuine ambiguity."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPL", 265598), self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_non_exact_symbol_matches_are_ignored(self, mocker) -> None:
+        """The search endpoint can return fuzzy/partial matches -- only an exact
+        (case-insensitive) symbol match counts."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPLX", 999), self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_option_only_entry_without_stk_section_is_ignored(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            {"conid": "1", "symbol": "AAPL", "sections": [{"secType": "OPT"}]},
+            self._stk_entry("AAPL", 265598),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_malformed_conid_row_is_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [{"conid": "not-a-number", "symbol": "AAPL", "sections": [{"secType": "STK"}]}]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
+
+    def test_non_list_payload_returns_none(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"unexpected": "shape"})
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
+
+    def test_non_dict_rows_are_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = ["unexpected", self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_non_list_sections_is_ignored(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [{"conid": "1", "symbol": "AAPL", "sections": "not-a-list"}]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
+
+
 class TestRequest:
     """Direct tests of the one method that performs the real HTTP call (mocked at the
     `httpx.Client` boundary here, unlike every other test class above which mocks

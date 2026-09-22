@@ -156,7 +156,9 @@ class IBKRRateLimitedError(Exception):
 
 class IBKRProvider:
     """Optional secondary market-data source: hourly bars + the market scanner, via a
-    locally-run IB Gateway (Client Portal Gateway). See this module's own docstring for
+    locally-run IB Gateway (Client Portal Gateway), plus `resolve_conid` for turning a
+    plain ticker symbol into the IBKR conid those two capabilities actually key off of
+    (docs/tasks/backend-ibkr-symbol-resolution.json). See this module's own docstring for
     why it's a distinct class rather than a `DataProvider` implementation, and
     `docs/architecture/Backend.md` for the human setup walkthrough.
 
@@ -329,6 +331,36 @@ class IBKRProvider:
         self._last_scanner_run_at = self._clock()
         return _parse_scanner_results(payload)
 
+    def resolve_conid(self, ticker: str) -> int | None:
+        """Resolve a ticker symbol (e.g. ``"AAPL"``) to IBKR's own numeric conid via
+        ``GET /iserver/secdef/search`` -- the missing piece `get_hourly_bars`/
+        `run_scanner` need before either can be driven by a plain ticker the way every
+        other data source in this app is, rather than an already-known IBKR contract id
+        (`backend-ibkr-data-provider`'s own `decisions` entry explicitly deferred
+        researching this endpoint; this task's own `decisions` entry records the
+        documented request/response shape this was implemented against).
+
+        Matches on an exact (case-insensitive) symbol match that has a ``"STK"`` entry
+        in its ``sections`` list (the search endpoint's response also mixes in
+        options/warrants/futures tied to the same underlying, and can return unrelated
+        symbols as fuzzy/partial matches -- neither is a usable equity conid here).
+
+        Returns `None` -- never raises -- for both a **no-match** ticker and a
+        genuinely **ambiguous** one (more than one distinct stock conid for the same
+        symbol, e.g. the same ticker used by unrelated companies listed on different
+        exchanges): silently guessing among several candidate contracts risks resolving
+        to the wrong instrument entirely, which is worse than surfacing "could not
+        resolve automatically" and asking a human to supply a conid directly instead.
+        See this task's `decisions` entry.
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available` (see
+                `get_gateway_status`), or the request itself fails.
+        """
+        self._require_available()
+        payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
+        return _resolve_stk_conid(payload, ticker)
+
     def _require_available(self) -> None:
         status = self.get_gateway_status()
         if status.state != "available":
@@ -412,6 +444,41 @@ def _parse_scanner_results(payload: object) -> list[ScannerResult]:
             )
         )
     return results
+
+
+def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
+    """`[{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}, ...],
+    ...}, ...]` per `/iserver/secdef/search`'s documented shape (this task's `decisions`
+    entry) -- a list of candidate contracts, each potentially covering several asset
+    classes (`sections`) tied to the same underlying. Keeps only entries whose `symbol`
+    matches `ticker` exactly (case-insensitive) and which include a `"STK"` section
+    (skipping symbol matches that only exist as options/warrants/futures, and fuzzy
+    partial-symbol matches the endpoint can also return). Returns the single resulting
+    conid, or `None` if that leaves zero or more than one distinct candidate -- see
+    `IBKRProvider.resolve_conid`'s own docstring for why both degrade to the same `None`
+    rather than raising or guessing.
+    """
+    if not isinstance(payload, list):
+        return None
+    ticker_upper = ticker.upper()
+    candidates: set[int] = set()
+    for raw in payload:
+        if not isinstance(raw, dict):
+            continue
+        symbol = raw.get("symbol")
+        if not isinstance(symbol, str) or symbol.upper() != ticker_upper:
+            continue
+        sections = raw.get("sections") or []
+        if not isinstance(sections, list):
+            continue
+        if not any(isinstance(section, dict) and section.get("secType") == "STK" for section in sections):
+            continue
+        conid = _int_or_none(raw.get("conid"))
+        if conid is not None:
+            candidates.add(conid)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
 
 
 def _int_or_none(value: int | float | str | None) -> int | None:
