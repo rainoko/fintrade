@@ -1664,8 +1664,8 @@
       "id": "frontend-trade-grade-letter-display",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-grade-letter-display.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-grade-letter-display.json"
     },
     {
       "id": "frontend-ibkr-status-indicator",
