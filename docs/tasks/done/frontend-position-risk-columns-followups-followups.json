@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups review (PR #258)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-position-risk-columns-followups"],
   "references": [
     "docs/tasks/frontend-position-risk-columns-followups.json",
@@ -40,5 +40,33 @@
     "pr_number": 259,
     "pr_url": "https://github.com/rainoko/fintrade/pull/259",
     "pushed_at": "2026-09-22T09:22:25Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T09:37:11Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/259",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified both fixes hold up under independent re-verification rather than trusting the worker's own claims: (1) checked out commit 5f6626d (the pre-fix state) in a separate worktree, copied the new DashboardPage.test.tsx regression test onto it unmodified, and confirmed it genuinely fails there (2 alerts) and passes on the fix commit (1 alert) -- the worker's claimed pre/post verification is real, not asserted. (2) Confirmed SellFlaggedPositionsCard has no non-error content to lose by returning null: its entire body (title + exit-flags table) is wholly derived from the same failed usePortfolioRisk query, and RiskSummaryCard (which renders first in DashboardPage's Stack and fully gates its own body on the identical failure) remains the page's sole error surface -- verified live in a real Chromium browser (not just jsdom/MSW): exactly one 'Something went wrong' alert renders and 'Positions Flagged to Sell' is correctly absent when GET /api/portfolio/risk is made to return 500. (3) Confirmed HeldPositionBanner's two field-specific aria-labels/tooltips ('Current Stop unavailable' / 'Profit target unavailable') render correctly and independently in a real browser, screenshot attached to the review notes.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Full backend+frontend test/coverage suites pass: backend 99.95% (1144 passed), frontend 99.74% statements / 99.23% branches (765 vitest tests passed), both well above the 90% gate. Static analysis clean on both sides: ruff, mypy, eslint, tsc -b, and the profit-target stale-wording guard all pass with zero findings. The persisted Playwright e2e suite (make e2e) passes all 21 specs across dashboard/navigation/portfolio/stock-analysis.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (code-review skill, effort high): SellFlaggedPositionsCard.tsx's null-on-error return relies entirely on RiskSummaryCard being mounted first and owning the error surface for the shared usePortfolioRisk query -- an implicit, unenforced ordering coupling that would silently swallow a genuine failure with zero visible error if the component were ever reused/reordered elsewhere. Tracked as a followup, not blocking here since it's a documented, deliberate tradeoff (this task's own decisions entry) and today's actual composition is correct.",
+        "file": "frontend/src/features/portfolio/components/SellFlaggedPositionsCard.tsx",
+        "line": 60
+      },
+      {
+        "summary": "Non-blocking broader-sweep finding (explicitly requested by the review dispatch, given this is now the second occurrence of the sibling-duplicate-ErrorState pattern): the same bug also exists, unfixed, on StockDetailPage. PriceChart, OscillatorChart, VolumeIndicatorsChart, and TrendStrengthChart (composed via StockCharts) all share the exact same useIndicatorHistory(ticker, { range }) query key and each independently renders its own full common/ErrorState on indicatorsQuery.isError. Reproduced with a throwaway (not committed) vitest run forcing GET /api/stocks/:ticker/indicators to fail: 4 stacked identical alerts render. This is the third occurrence of this pattern in the codebase (after PortfolioPage/PR #258 and DashboardPage/this PR) and is out of scope for this specific PR, but should be fixed the same way. Tracked as a followup.",
+        "file": "frontend/src/features/stocks/components/StockCharts.tsx",
+        "line": null
+      }
+    ],
+    "notes": "Both recorded decisions checked against the actual diff and hold up: the aria-label/tooltip/data-testid split on HeldPositionBanner matches the decision text exactly, and the DashboardPage fix's chosen strategy (SellFlaggedPositionsCard returns null rather than hoisting the error to page level) is well-reasoned and verified correct in a real browser, not just unit tests. No checklist item was phrased as 'decide X' without a corresponding decisions entry. No new module/dependency/layer added (architecture-review not applicable); area is frontend/pages/portfolio, not backend/signals or backend/portfolio (verify-elder-signal not applicable). No new/substantially-changed frontend component -- both HeldPositionBanner and SellFlaggedPositionsCard are existing, already-domain-scoped feature components under features/portfolio/components/ receiving surgical modifications, so no placement finding. No API route/schema touched, so no OpenAPI snapshot check applies. Two non-blocking findings filed as docs/tasks/frontend-position-risk-columns-followups-followups-followups.json (a new followup-of-followup task, since none existed yet for this task id)."
   }
 }
