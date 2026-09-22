@@ -1,0 +1,25 @@
+{
+  "id": "frontend-position-risk-columns-followups-followups",
+  "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups review (PR #258)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-position-risk-columns-followups"],
+  "references": [
+    "docs/tasks/frontend-position-risk-columns-followups.json",
+    "https://github.com/rainoko/fintrade/pull/258"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #258 (frontend-position-risk-columns-followups), recorded here so they aren't lost once the PR merges. The blocking finding from that review (PositionsTable and RiskPanel both independently rendering a full common/ErrorState for the same GET /api/portfolio/risk failure on PortfolioPage, producing two identical stacked alerts) is tracked on frontend-position-risk-columns-followups itself as review.verdict: needs_work, not here.",
+  "checklist": [
+    {
+      "step": "HeldPositionBanner's two warning icons (Current Stop, Profit Target) share the identical aria-label \"Risk data unavailable\" with no field-specific accessible name. Confirmed via browser walkthrough: both icons render with the exact same aria-label, and HeldPositionBanner.test.tsx's own new test asserts toHaveLength(2) for this identical label rather than treating the duplication as a gap. Split into field-specific labels (e.g. \"Current Stop unavailable\" / \"Profit target unavailable\") so a screen reader user can distinguish which field failed without relying on surrounding visual/DOM context alone.",
+      "done": false
+    },
+    {
+      "step": "Spot-check DashboardPage for the same duplicate-ErrorState shape found blocking on PortfolioPage: RiskSummaryCard and SellFlaggedPositionsCard both independently call usePortfolioRisk() and both render their own full common/ErrorState on isError, pre-existing code not touched by PR #258. If a genuine GET /api/portfolio/risk failure produces two stacked identical alerts on the Dashboard the same way it did on Portfolio, fix all instances of this sibling-duplication pattern consistently (e.g. hoist the risk-error banner to the page level once, or have only one sibling per page own the error block) rather than patching just the Portfolio page.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
