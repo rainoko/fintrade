@@ -151,7 +151,10 @@ export interface paths {
          *     other field null. Being rate-limited or a transient scanner-call failure against an
          *     otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like
          *     `POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first
-         *     request for this `series_key`), since a cache hit never calls the scanner at all.
+         *     request for this `series_key`), since a cache hit never calls the scanner at all. A `503`
+         *     is also raised (distinct from the concurrent-insert fallback below succeeding silently)
+         *     if a concurrent-write conflict is caught on this row's own commit but no same-key row
+         *     actually exists afterwards -- see this task's `decisions` entry.
          */
         post: operations["record_ibkr_breadth_snapshot"];
         delete?: never;
@@ -2576,7 +2579,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
+            /** @description Either the scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that), or a concurrent-write conflict was raised on this row's commit but no same-key row was actually found afterwards (see this task's `decisions` entry) -- both transient, safe to retry. */
             503: {
                 headers: {
                     [name: string]: unknown;
