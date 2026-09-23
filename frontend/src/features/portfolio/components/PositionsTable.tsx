@@ -240,13 +240,36 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     if (!pendingDelete) {
       return
     }
+    const closedPositionId = pendingDelete.id
     deletePosition.mutate(
-      { id: pendingDelete.id, ...values },
+      { id: closedPositionId, ...values },
       // The dialog only closes on success -- an error leaves it open with
       // its own ErrorState visible (see ClosePositionDialog), so the user
       // can retry or cancel instead of the error appearing after the dialog
       // has already vanished.
-      { onSuccess: () => setPendingDelete(null) },
+      //
+      // This onSuccess callback is bound to *this specific* mutate() call --
+      // it isn't necessarily the one for whatever `pendingDelete` currently
+      // holds by the time it fires. A backdrop click can dismiss this
+      // dialog while this DELETE is still in flight (see
+      // `handleCancelClose`), after which the user can open a *different*
+      // position's dialog -- which shares this same `deletePosition`
+      // instance's `isPending`, so its Confirm button stays disabled/loading
+      // until this call settles. If this call's onSuccess cleared
+      // `pendingDelete` unconditionally at that point, it would close the
+      // second dialog out from under the user right as its own Confirm
+      // button would have become clickable, silently discarding whatever
+      // they'd already entered. The functional updater below scopes the
+      // clear to only fire when `pendingDelete` still refers to the position
+      // *this* mutation was for, no-op'ing otherwise. See this task's
+      // `decisions` entry (frontend-close-position-dialog-followups-followups,
+      // PR #285 review finding).
+      {
+        onSuccess: () =>
+          setPendingDelete((current) =>
+            current?.id === closedPositionId ? null : current,
+          ),
+      },
     )
   }
 

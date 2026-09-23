@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #285's review (PositionsTable.handleConfirmClose's unconditional pendingDelete clear)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-close-position-dialog-followups"],
   "references": [
     "docs/tasks/done/frontend-close-position-dialog-followups.json#decisions",
@@ -14,9 +14,22 @@
   "checklist": [
     {
       "step": "`PositionsTable.handleConfirmClose`'s `onSuccess: () => setPendingDelete(null)` callback is bound per-call to whichever position's `mutate()` invocation it was passed to, not to whatever `pendingDelete` currently holds when it later fires. Reachable sequence: (1) open Position A's ClosePositionDialog and confirm -- `deletePosition.mutate()` starts, held pending by a slow/delayed DELETE response; (2) dismiss A's dialog via a backdrop click while the DELETE is still in flight (`handleCancelClose` allows this, and doesn't call `reset()` while `isPending`); (3) open Position B's (a different position) ClosePositionDialog -- its Confirm button renders disabled/loading too, since `isPending` is shared/unscoped across the whole table (this is the exact invariant PR #285's own new regression test and doc comment describe); (4) A's DELETE resolves successfully -- its `onSuccess` fires, calling `setPendingDelete(null)` unconditionally, which closes B's dialog out from under the user at the same moment B's Confirm button would have become clickable, silently discarding any exit-reason/manual-override values the user had already entered for B, with no error or explanation shown. Not a data-corruption risk (B's position is never actually deleted), but a real, user-visible 'dialog vanishes unexpectedly mid-interaction' bug. Fix by scoping the `onSuccess` clear to only fire when `pendingDelete` still refers to the position that mutation call was for (e.g. capture the intended position id in the closure and compare against current `pendingDelete?.id`, or use a functional `setPendingDelete` updater that no-ops when the ids don't match), and add a regression test exercising this exact sequence (two positions, held DELETE responses, backdrop-dismiss then reopen-for-a-different-position, assert the second dialog stays open after the first's DELETE resolves).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Scoped `handleConfirmClose`'s `onSuccess` clear with a functional `setPendingDelete` updater that captures the mutated position's id in the closure (`closedPositionId`) and no-ops unless `pendingDelete?.id` still matches it, rather than e.g. comparing against `deletePosition.variables?.id` read at callback-fire time (the pattern `belongsToOpenDialog` already uses elsewhere in this component) or adding a second piece of state to track 'which position is this mutate() call for'.",
+      "rationale": "The closure-captured id is simpler and unambiguous: `deletePosition.variables` is TanStack Query's own single most-recent-call snapshot, which is exactly the kind of not-necessarily-matching-which-callback-is-firing indirection that caused this bug in the first place if a third close were to start before this callback runs (unlikely given the shared-isPending guard, but not worth relying on transitively). A locally-captured `const closedPositionId = pendingDelete.id` above the `mutate()` call ties the check directly to the specific invocation's own intent with no dependency on mutation-observer ordering."
+    },
+    {
+      "timestamp": "2026-09-23T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended the existing PositionsTable.test.tsx test (previously titled 'keeps a second position's dialog Confirm button disabled while a different position's close is still pending...', which already built the exact repro sequence but stopped short of asserting post-resolve dialog state, per its own comment noting the quirk was 'outside this test's scope') with the new assertions and a comment explaining what's now verified, rather than adding a wholly separate test.",
+      "rationale": "The existing test already set up the full two-position/held-DELETE/backdrop-dismiss/reopen sequence this bug needs -- duplicating that setup in a new test would just be a near-identical copy differing only in its final assertions. Extending it keeps one authoritative test for the whole scenario and removes the now-stale comment explicitly calling out this exact gap, rather than leaving that comment sitting next to a second test that closes it."
+    }
+  ],
   "questions": []
 }
