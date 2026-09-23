@@ -40,5 +40,11 @@
       "rationale": "The invariant under test is inherently about two dialogs sharing one `PositionsTable`-owned `useDeletePosition()` mutation instance -- `ClosePositionDialog` itself takes `isPending` as a prop and has no opinion on where it comes from, so the interesting behavior (opening a second position's dialog while the first's mutate() is still in flight) can only be exercised at the `PositionsTable` level, matching where the existing analogous tests (the double-click-race guard test, the delayed-failure-misattribution test) already live. Separately, `handleConfirmClose`'s per-call `onSuccess: () => setPendingDelete(null)` callback is bound to whichever position's `mutate()` call it was given to, not to whatever `pendingDelete` currently holds when it later fires -- so if AAPL's held DELETE is resolved while ZZZZ's dialog is what's now open, AAPL's own onSuccess still fires and clears `pendingDelete`, closing ZZZZ's dialog out from under it. That's a real, pre-existing, separate latent quirk of `PositionsTable.tsx` (not something this task's 3 checklist items call for fixing, and not the orphaned-error bug this checklist item's own test is verifying protection against), so the test deliberately doesn't assert on the dialog's state after resolving the held DELETE -- it only confirms the request itself settled, without asserting anything that would depend on which of the two behaviors is 'correct' here. Not filed as a separate followup task since it's a narrow, latent edge case with no `depends_on` chain of its own review flagging it yet; if a future reviewer wants it tracked, the natural home is a new `<id>-followups` entry against this task or `frontend-close-position-dialog`."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-close-position-dialog-followups",
+    "pr_number": 285,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/285",
+    "pushed_at": "2026-09-23T22:57:14Z"
+  }
 }
