@@ -3,7 +3,7 @@
   "title": "GET /api/portfolio/closed-trades 500s on a legacy/out-of-taxonomy exit_reason value",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/app/api/routers/portfolio.py",
@@ -44,5 +44,23 @@
     "pr_number": 280,
     "pr_url": "https://github.com/rainoko/fintrade/pull/280",
     "pushed_at": "2026-09-23T21:03:56Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T21:12:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/280",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: get_closed_trades's per-row `except Exception` around _to_closed_trade_out is intentionally broad (narrower than wrapping the whole endpoint, per the task's own decisions entry), but that breadth means a future systemic bug affecting every row would degrade to a silently near-/fully-empty 200 in production, visible only via a per-row logger.exception line rather than any aggregate signal. Worth a per-request dropped-row count/metric or aggregate log line later. Tracked on backend-closed-trades-legacy-exit-reason-500-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 913
+      },
+      {
+        "summary": "Non-blocking: _normalize_exit_reason's logger.warning fires on every request that includes a persistent out-of-taxonomy row, not just once -- could produce repeated identical log noise for a long-lived legacy row. Likely acceptable (matches existing per-request logging conventions elsewhere) but worth reconsidering. Tracked on backend-closed-trades-legacy-exit-reason-500-followups.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 234
+      }
+    ],
+    "notes": "Full review: gh pr checkout 280; backend/.venv/bin/pytest --cov (1198 passed, 100% line+branch coverage on the touched module and repo-wide, well above the 90% gate); ruff check . and mypy clean; scripts/check_profit_target_wording.py clean; code-review skill (high effort) found zero surviving findings after independently verifying _normalize_exit_reason's taxonomy match, the grades-dict-always-populated invariant behind the per-row try/except, and record_follow_up_review's shared fix. Confirmed backend/openapi.json and frontend/src/api/types.ts have no diff (no schema/taxonomy change), matching the PR's claim. docs/architecture/API.md's closed-trades section was updated to document the new fallback + per-row isolation. Verified end to end against the real reported scenario: started the backend against the existing shared dev fintrade.db (which already had a real legacy row with exit_reason='manual' from a prior manual reproduction), confirmed GET /api/portfolio/closed-trades now returns 200 with that row's exit_reason normalized to 'unspecified' instead of 500ing, then drove the frontend Portfolio page with a real (Playwright-launched, non-MCP since no browser MCP tool was available in this session) Chromium browser and confirmed the Trade Journal panel renders that trade with an 'Unspecified' exit-reason chip, no console errors, no failed/4xx+ network requests. Also ran the full frontend/tests/e2e/*.spec.ts suite via `make e2e` as this PR's endpoint has an existing frontend consumer (Trade Journal / Portfolio page): all 22 specs passed. New integration tests (backend/tests/integration/test_portfolio_closed_trades.py) directly exercise the reported scenario (out-of-taxonomy exit_reason -> 'unspecified'), the other-rows-unaffected claim, record_follow_up_review not 500ing on a legacy row, and the per-row-isolation defense-in-depth path via a monkeypatched flaky helper -- all sound and reachable. Checklist item 1/3/5 (each phrased as 'decide X') each have a matching decisions entry with rationale and rejected alternatives, satisfying CLAUDE.md's decision-memory rule. docs/tasks/index.json and scripts/validate_tasks.py both confirmed consistent. No pre-existing pr_decision to clear. Two non-blocking findings recorded above and filed as backend-closed-trades-legacy-exit-reason-500-followups (new task, since none existed yet for this id)."
   }
 }

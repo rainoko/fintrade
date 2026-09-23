@@ -1,0 +1,24 @@
+{
+  "id": "backend-closed-trades-legacy-exit-reason-500-followups",
+  "title": "Non-blocking findings from PR #280's review (legacy exit_reason 500 fix)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-closed-trades-legacy-exit-reason-500"],
+  "references": [
+    "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500.json",
+    "https://github.com/rainoko/fintrade/pull/280",
+    "backend/app/api/routers/portfolio.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #280 (backend-closed-trades-legacy-exit-reason-500), which fixed GET /api/portfolio/closed-trades 500ing on an out-of-taxonomy exit_reason value. Neither finding blocked acceptance -- the fix itself, its tests, and its decision records were all sound -- but both are worth tracking rather than only living in the PR's own (eventually-invisible) review comments.",
+  "checklist": [
+    {
+      "step": "Reconsider get_closed_trades's per-row `except Exception` (backend/app/api/routers/portfolio.py, _to_closed_trade_out call site): it's intentionally broad (documented rationale: narrower than wrapping the whole endpoint, per this task's own decisions entry), but that same breadth means a future systemic bug in _to_closed_trade_out (e.g. a typo affecting every row, not just one bad legacy row) would degrade to a silently near-empty or fully-empty 200 response in production, visible only via a per-row logger.exception line rather than any aggregate signal an on-call engineer would actually notice. Consider adding a per-request dropped-row count/metric (or at least a single aggregate log line when any rows were dropped) so a systemic regression is distinguishable from the one-bad-row case this fix targets, without re-introducing the original bug (one bad row 500ing everything).",
+      "done": false
+    },
+    {
+      "step": "Reconsider _normalize_exit_reason's logger.warning: it fires on every GET /api/portfolio/closed-trades request that includes a persistent out-of-taxonomy row (e.g. old hand-inserted dev data left in place), not just once -- for a long-lived legacy row this could produce repeated, identical warning-log noise indefinitely. Weigh whether that's acceptable (matches this app's existing per-request logging conventions elsewhere) or worth de-duplicating/rate-limiting.",
+      "done": false
+    }
+  ]
+}
