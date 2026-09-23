@@ -386,5 +386,18 @@ class TestRecordBreadthSnapshot:
         )
 
         assert response.status_code == 503
-        assert "nh" in response.json()["detail"]
+        detail = response.json()["detail"]
+        # Exact match, not just `"nh" in detail`: a substring check alone would still pass
+        # if a future edit re-adds `({type(exc).__name__}: {exc})` (or any other raw
+        # exception interpolation) to this `HTTPException`'s `detail`, since the leaked
+        # SQL/params text would still contain "nh" somewhere -- that's exactly the leak
+        # PR #283 fixed. Pinning the full string (and independently asserting known
+        # leak-indicator substrings are absent) makes a reintroduction fail loudly here.
+        assert detail == (
+            "Transient write conflict recording breadth snapshot for series_key='nh'; retry."
+        )
+        assert "OperationalError" not in detail
+        assert "database is locked" not in detail
+        assert "INSERT" not in detail
+        assert "sqlalche.me" not in detail
         assert db_session.query(IBKRBreadthSnapshotORM).filter_by(series_key="nh").count() == 0
