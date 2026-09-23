@@ -3,7 +3,7 @@
   "title": "Fix pre-existing ruff findings in backend test files",
   "area": "backend",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "backend/tests/unit/data/test_stooq_provider.py",
@@ -34,5 +34,38 @@
     "pr_number": 278,
     "pr_url": "https://github.com/rainoko/fintrade/pull/278",
     "pushed_at": "2026-09-23T20:30:23Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T20:36:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/278",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified each of the 6 auto-fixed findings against ruff run on the pre-fix (main-branch) file content: 5 genuine I001 import-block reorder/blank-line fixes (test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_rsi.py, test_stochastic.py) and 1 genuine UP012 encode->bytes-literal fix (test_stooq_provider.py, byte-identical since the string is pure ASCII) -- all behavior-neutral.",
+        "file": "backend/tests/unit/indicators/test_force_index.py",
+        "line": 0
+      },
+      {
+        "summary": "F841 fix in test_triple_screen.py confirmed correct: read the whole TestEvaluateTidePrecomputedSeries.test_precomputed_series_causal_slice_matches_recomputing_on_truncated_series test -- full_ohlcv was dead (full_components/full_ema_13 are computed straight from `closes`, and only truncated_ohlcv is used downstream), so deletion (not adding an assertion) was the right call.",
+        "file": "backend/tests/unit/signals/test_triple_screen.py",
+        "line": 438
+      },
+      {
+        "summary": "static-verify scope-widening decision (ruff check app/ -> ruff check .) checked against backend/pyproject.toml: [tool.ruff] has no files= scoping (only excludes app/db/migrations/versions), unlike [tool.mypy]'s deliberate files=[\"app\"]. Re-ran `ruff check .` from backend/ myself independently -- clean. Decision and rationale are sound.",
+        "file": ".claude/skills/static-verify/SKILL.md",
+        "line": 21
+      },
+      {
+        "summary": "Independently re-ran the full backend suite with coverage: 1194 passed, 100% line/branch coverage, matching the PR's reported numbers exactly. mypy (scoped correctly per static-verify's `mypy` command, not `mypy .`) and ruff check . both clean; python3 scripts/validate_tasks.py clean (280 files, no violations).",
+        "file": "backend/",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: PR #278's description/commit message (and the task's own pre-existing description/checklist text, carried over from PR #277) say '5/6 I001 unsorted-import findings' while listing test_stooq_provider.py among the I001 files -- that file's only actual pre-existing finding was UP012, not I001 (verified directly with ruff against main-branch content). Total finding count (7) and every actual code fix are correct; this is a wording slip only. Tracked as a checklist item on backend-static-verify-cleanup-followups rather than fixed in this review pass.",
+        "file": "docs/tasks/done/backend-static-verify-cleanup.json",
+        "line": 17
+      }
+    ],
+    "notes": "No blocking findings. Checklist scoped to backend area (no frontend/, no API route or schema change, no new module/dependency/layer) -- static-verify's own SKILL.md was the only non-test file touched, and it was reviewed for both wording accuracy and re-verified functionally. No UI-facing surface in this PR (test-file lint fixes and an internal skill-doc change only) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped as not applicable. Checklist item 3 ('decide whether to widen ruff scope') has a corresponding decisions entry with rationale, satisfying the decide-X cross-check. code-review skill (medium effort) run in parallel corroborated the same findings independently, including the same I001/UP012 wording-slip observation recorded above."
   }
 }
