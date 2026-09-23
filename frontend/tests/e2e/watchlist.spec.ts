@@ -71,3 +71,34 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
     await expect(watchlistRow(page)).toHaveCount(0)
   })
 })
+
+// Regression check for MarketBreadthCard (frontend-market-breadth-widget-followups): the e2e
+// stack always runs with IBKR disabled (backend/app/config.py's `ibkr_enabled: bool = False`
+// default -- playwright.config.ts's webServer never overrides it), so this card is guaranteed to
+// always render its disabled/unavailable panel here, never the real advance/decline data -- a
+// stable, deterministic thing to assert as a persisted e2e check, unlike the "available" state
+// (which would need a stub IBKR gateway this suite doesn't run). Kept outside the
+// `describe.serial` block above since it neither depends on nor mutates the add/remove flow's
+// watchlist state -- a failure here shouldn't skip that flow's remaining steps, or vice versa.
+// No equivalent e2e assertion exists yet for PersonalBreadthCard either (see this task's
+// `decisions` entry) -- this follows this spec file's own existing assertion style rather than a
+// PersonalBreadthCard e2e pattern.
+test('market breadth card shows the disabled panel when IBKR is not connected', async ({
+  page,
+}) => {
+  await page.goto('/watchlist')
+
+  // Scoped to `main` since the app shell's own header IbkrStatusIndicator (AppShell.tsx)
+  // renders the same "IBKR: Disabled" chip text outside this card -- a plain page-wide
+  // `getByText` would match both and fail Playwright's strict-mode uniqueness check.
+  const main = page.getByRole('main')
+  await expect(
+    main.getByRole('heading', { level: 2, name: 'Market Breadth (IBKR, Whole Market)' }),
+  ).toBeVisible()
+  await expect(
+    main.getByText(
+      "Real market breadth isn't available right now — it needs the optional IBKR Client Portal Gateway integration connected.",
+    ),
+  ).toBeVisible()
+  await expect(main.getByText('IBKR: Disabled')).toBeVisible()
+})

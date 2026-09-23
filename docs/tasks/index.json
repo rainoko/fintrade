@@ -1916,7 +1916,7 @@
       "id": "frontend-market-breadth-widget-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-market-breadth-widget-followups.json"
     },
     {
