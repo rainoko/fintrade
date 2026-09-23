@@ -1979,7 +1979,7 @@
       "id": "backend-closed-trades-legacy-exit-reason-500",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-closed-trades-legacy-exit-reason-500.json"
     }
   ]
