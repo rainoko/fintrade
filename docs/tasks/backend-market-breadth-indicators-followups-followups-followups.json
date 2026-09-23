@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking finding from PR #283's round-2 review",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-market-breadth-indicators-followups-followups"],
   "references": [
     "docs/tasks/done/backend-market-breadth-indicators-followups-followups.json#review",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "`test_operational_error_with_no_same_key_winner_returns_503` (backend/tests/integration/test_ibkr_breadth.py:358-390) only asserts `\"nh\" in response.json()[\"detail\"]`, so it does not actually guard against the exact regression the round-2 fix addressed (the raw SQLAlchemy exception -- interpolated SQL statement, bound parameters, and a sqlalche.me docs link -- leaking into the client-facing 503 `detail` at backend/app/api/routers/ibkr.py:380-386). If a future edit re-adds `({type(exc).__name__}: {exc})` (or any other raw-exception interpolation) to that `HTTPException`'s `detail`, this test would still pass unchanged since `\"nh\"` remains present in the string -- the leak regression would ship silently with green CI. Worth strengthening the assertion to also check the exception-derived text is absent, e.g. `assert \"SQL\" not in response.json()[\"detail\"]` and/or `assert \"database is locked\" not in response.json()[\"detail\"]`, so the test actually fails if the interpolation is reintroduced.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Strengthened `test_operational_error_with_no_same_key_winner_returns_503` to assert the full expected `detail` string exactly (`\"Transient write conflict recording breadth snapshot for series_key='nh'; retry.\"`), plus separate negative assertions that known leak-indicator substrings (`OperationalError`, `database is locked`, `INSERT`, `sqlalche.me`) are absent from `detail`.",
+      "rationale": "An exact-match assertion is the strongest guard against the round-1 leak regression (raw exception text re-interpolated into the client-facing detail) reappearing, since any such interpolation changes the string and fails the equality check immediately. The extra explicit substring-absence assertions were kept alongside it (rather than relying on exact-match alone) because they self-document exactly which leaked tokens this test exists to catch, matching the task's own suggested approach; considered using substring-absence checks only (no exact match), but rejected that since a still-loose substring set risks missing some other exception-derived fragment that happens not to match the chosen substrings, whereas pinning the full literal string can't miss any change to it."
+    }
+  ],
   "questions": []
 }
