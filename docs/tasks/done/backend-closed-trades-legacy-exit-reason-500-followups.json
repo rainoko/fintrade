@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #280's review (legacy exit_reason 500 fix)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-closed-trades-legacy-exit-reason-500"],
   "references": [
     "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500.json",
@@ -40,5 +40,38 @@
     "pr_number": 282,
     "pr_url": "https://github.com/rainoko/fintrade/pull/282",
     "pushed_at": "2026-09-23T21:41:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T21:50:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/282",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The check-then-act de-dup in `_normalize_exit_reason` (`if raw_exit_reason not in _warned_exit_reason_values: ...add(...); logger.warning(...)`) is not atomic, and `get_closed_trades` is a sync `def` route run in FastAPI/Starlette's thread-pool executor, so concurrent requests can race it: two threads can both pass the `not in` check for the same brand-new value before either adds it, producing a duplicate warning. CPython's GIL keeps the `set.add()` itself safe (no corruption), so the only consequence is an occasional duplicate log line, not data corruption or a crash -- assessed as an acceptable tradeoff for a logging de-dup mechanism given the low stakes, not something requiring a lock. Non-blocking; filed as a follow-up to have the decisions entry/comment note the guarantee is best-effort under concurrency rather than absolute.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 245
+      },
+      {
+        "summary": "`_warned_exit_reason_values` has no size cap and lives for the process's lifetime. Bounded today because the position-close write path validates `exit_reason` against the `ExitReason` enum, so only pre-existing legacy/hand-inserted rows can ever be out-of-taxonomy -- not something ordinary API usage or an attacker can grow unboundedly via repeated requests. Still worth noting as a design caveat: if the underlying `closed_trades.exit_reason` column ever held many distinct freeform legacy values instead of a small fixed bad set, the set would grow without bound and the log-volume reduction wouldn't materialize (every value is 'new' once). Non-blocking; filed as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 227
+      },
+      {
+        "summary": "Aggregate `logger.error` line's content (dropped count, total, percentage, dropped row ids) matches its tests exactly (dropped 1/2, 50.0%, `trade_bad` present); no rows dropped produces no aggregate log line. No division-by-zero risk since `dropped_row_ids` is only populated inside the per-row loop, so `len(rows) >= 1` whenever it's non-empty. No finding.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 940
+      },
+      {
+        "summary": "Both judgment calls (aggregate log line vs. a new `ClosedTradesResponse` field; per-process warning de-dup vs. accept-as-is) are recorded as sound `decisions` entries with rationale and rejected alternatives, and the comparison against `BreadthResponse.unavailable_count` is accurate: that field is a genuine response-contract concept the frontend consumes for percentage math, whereas a dropped defense-in-depth row has no analogous frontend affordance today, so keeping this a log line (no schema/openapi/frontend change) is the right call. No finding.",
+        "file": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups.json",
+        "line": 28
+      },
+      {
+        "summary": "Test isolation for the two new de-dup tests is handled correctly via `monkeypatch.setattr(portfolio_router, \"_warned_exit_reason_values\", set())` at the start of each -- since `_normalize_exit_reason` looks up the module-global by name on every call (not a captured/closed-over reference), the swap takes effect immediately and monkeypatch's automatic teardown restores the prior object afterward. No other test file touches an out-of-taxonomy `exit_reason` value, so there is no cross-file pollution risk either. No finding.",
+        "file": "backend/tests/integration/test_portfolio_closed_trades.py",
+        "line": 306
+      }
+    ],
+    "notes": "Independently re-ran the full backend suite (1202 passed), coverage (100% line+branch, gate is 90%), ruff/mypy (both clean), the profit-target wording guard (clean), and re-exported openapi.json (no diff -- correctly not regenerated, since no route/schema signature changed). Frontend untouched by this PR; skipped frontend lint/tsc explicitly for that reason, last known state clean. No new module/dependency/layer added (architecture-review not triggered), area is backend/api not backend/signals or backend/portfolio and skill is null (verify-elder-signal not triggered), no frontend components touched (placement-review step not applicable). This PR has no UI surface: it changes only server-side logging behavior for an existing endpoint whose response schema/behavior is unchanged (openapi.json diff-free confirms this) -- skipped the browser walkthrough (step 9) and the persisted e2e suite (step 9a) explicitly for that reason rather than silently omitting them. Also ran the code-review skill (effort: high) independently against the diff; it converged on the same two findings recorded above (the concurrency race and the unbounded-growth caveat) with no additional issues, and separately verified the aggregate-log divide-by-zero case, format-string arg count, `trade_`-prefix id matching in tests, and cross-file test-pollution risk all check out fine. Both findings are non-blocking: the race's worst case is a rare duplicate log line (no corruption, no crash) and the growth concern is mitigated today by the enum-constrained write path (`exit_reason: ExitReason = Query(...)`) that keeps genuinely out-of-taxonomy values confined to pre-existing legacy data. Filed as docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups.json so they aren't lost once this PR merges. No stale `pr_decision` was present on this task to clear (first review pass)."
   }
 }

@@ -1,0 +1,24 @@
+{
+  "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups",
+  "title": "Non-blocking findings from PR #282's review (aggregate drop log + exit_reason warning de-dup)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-closed-trades-legacy-exit-reason-500-followups"],
+  "references": [
+    "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups.json",
+    "https://github.com/rainoko/fintrade/pull/282",
+    "backend/app/api/routers/portfolio.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #282 (backend-closed-trades-legacy-exit-reason-500-followups), which added an aggregate dropped-row `logger.error` line to `get_closed_trades` and per-process de-duplication of `_normalize_exit_reason`'s `logger.warning` via a module-level `_warned_exit_reason_values: set[str]`. Neither finding blocked acceptance -- tests/coverage/lint/type-check all passed, the aggregate log line's content matched its tests, and both judgment calls (log line vs. response field; per-process dedup vs. accept-as-is) were already recorded as sound `decisions` entries -- but both are worth tracking since the PR's own review comments disappear once it merges.",
+  "checklist": [
+    {
+      "step": "`_normalize_exit_reason`'s de-dup is a non-atomic check-then-act on the module-level `_warned_exit_reason_values` set (`if raw_exit_reason not in _warned_exit_reason_values: ...add(...); logger.warning(...)`), and `get_closed_trades` is a sync `def` route handler, which FastAPI/Starlette runs in a thread-pool executor -- so concurrent requests execute this on separate OS threads. Two concurrent GET /api/portfolio/closed-trades requests that both first observe a not-yet-warned value can both pass the `not in` check before either calls `.add(...)`, so both log the warning: the 'warns only once per process' guarantee can be silently broken under real concurrent traffic (e.g. multiple simultaneous dashboard loads -- the exact scenario motivating this fix). CPython's GIL keeps the individual `set.add()` call itself safe (no corruption risk), so the only consequence is an occasional duplicate warning, not silent data corruption or a crash -- assessed as an acceptable tradeoff for a logging de-dup mechanism, not something requiring an actual lock/atomic primitive, but the task's `decisions` entry for this change describes the mechanism as 'non-repetitive' without calling out that it's a best-effort (not a hard) guarantee under concurrency. Consider adding a one-line code comment and/or a `decisions` addendum noting the race explicitly, so a future reader who sees an occasional duplicate warning in production logs doesn't mistake it for a regression.",
+      "done": false
+    },
+    {
+      "step": "`_warned_exit_reason_values` has no size cap and lives for the process's entire lifetime, so it grows by one entry per distinct `exit_reason` string ever seen. The task's `decisions` entry reasons this is bounded 'by how much genuinely-bad data actually exists', which holds today because `POST`/`PUT`-side position-closing already validates `exit_reason` against the `ExitReason` enum (see `exit_reason: ExitReason = Query(...)` in `backend/app/api/routers/portfolio.py`), so only pre-existing legacy/hand-inserted `closed_trades` rows can ever contain an out-of-taxonomy value -- not a channel an attacker or ordinary API usage can grow arbitrarily via repeated requests. Still, if a batch-imported or hand-maintained legacy dataset ever stores many distinct freeform values in that unconstrained `String` column (e.g. a per-row note like 'closed early - see ticket #1234') rather than a small fixed set of bad values, the set would grow without bound for the process's lifetime and the log-volume reduction this PR targets wouldn't actually materialize (each distinct value is still 'new' to the set once). Worth a one-line note in the `decisions` entry or a defensive cap (e.g. stop de-duping past N distinct values) if this scenario ever becomes plausible; not warranted today given the enum-constrained write path.",
+      "done": false
+    }
+  ]
+}
