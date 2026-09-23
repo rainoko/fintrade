@@ -8,6 +8,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import { useState, type FormEvent } from 'react'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import { isPositiveFinite } from '../../../utils/validation'
 import { useAddPosition } from '../hooks/useAddPosition'
 
 export interface AddPositionDialogProps {
@@ -43,10 +44,6 @@ const emptyForm: FormState = {
   avgCostBasis: '',
   entryDate: '',
   notes: '',
-}
-
-function isPositiveFinite(value: number): boolean {
-  return Number.isFinite(value) && value > 0
 }
 
 function validate(form: FormState): FormErrors {

@@ -41,6 +41,30 @@ export interface PositionsTableProps {
  * row button. See ClosePositionDialog's own doc comment and this task's
  * `decisions` entry.
  *
+ * That same single shared mutation instance is also *why* two closes can
+ * never actually overlap in flight, even though only the row Delete button
+ * that started the in-flight close is disabled (the other rows' Delete
+ * buttons stay clickable, and can open ClosePositionDialog for a different
+ * position while the first close is still pending): `isPending` below is
+ * passed into ClosePositionDialog *unscoped* -- the same
+ * `deletePosition.isPending` regardless of which position the dialog is
+ * currently open for -- so a dialog opened for a second position while the
+ * first's close is still in flight already renders with its own Confirm
+ * button disabled/loading, table-wide, and can't actually be confirmed
+ * (`handleConfirmClose` never fires a second `deletePosition.mutate()`)
+ * until the first close settles and `isPending` flips back to `false`. This
+ * is a verified, tested invariant (see PositionsTable.test.tsx), not just an
+ * assumption -- it's what keeps a second concurrent close from detaching
+ * TanStack Query's mutation observer from the first one's still-tracked
+ * error (which `belongsToOpenDialog` below wouldn't otherwise be able to
+ * attribute correctly): scoping `isPending` per-row instead (e.g. for better
+ * UX, since right now opening an unrelated position's dialog while another
+ * closes shows its Confirm button confusingly already loading) would remove
+ * this guard along with the confusing UX, so doing so must come with a
+ * deliberate replacement guard against overlapping closes, not just a prop
+ * change. See frontend-close-position-dialog-followups (PR #261 round-2
+ * review).
+ *
  * Protective Stop and Profit Target columns (frontend-position-risk-columns)
  * read from GET /api/portfolio/risk via this component's own
  * usePortfolioRisk call, cross-referenced against each row by ticker the

@@ -16,6 +16,7 @@ import { useState, type FormEvent } from 'react'
 import type { ApiError } from '../../../api/client'
 import type { ExitReason, PositionOut } from '../../../api/portfolio'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
+import { isPositiveFinite } from '../../../utils/validation'
 import { EXIT_REASON_LABELS } from '../exitReasonLabels'
 import { useResetOnSubjectChange } from '../hooks/useResetOnSubjectChange'
 
@@ -75,10 +76,6 @@ const emptyForm: FormState = {
 const EXIT_REASON_OPTIONS: Array<{ value: ExitReason; label: string }> = Object.entries(
   EXIT_REASON_LABELS,
 ).map(([value, label]) => ({ value: value as ExitReason, label }))
-
-function isPositiveFinite(value: number): boolean {
-  return Number.isFinite(value) && value > 0
-}
 
 function validate(form: FormState, entryDate: string): FormErrors {
   if (!form.useManualOverride) {
