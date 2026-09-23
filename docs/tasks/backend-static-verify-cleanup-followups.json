@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #278's review (backend-static-verify-cleanup)",
   "area": "backend",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-static-verify-cleanup"],
   "references": [
     "docs/tasks/backend-static-verify-cleanup.json#review",
@@ -13,7 +13,7 @@
   "checklist": [
     {
       "step": "PR #278's description/commit message and the (untouched by this PR) task description/checklist text on backend-static-verify-cleanup all say the same slightly wrong thing: '5/6 I001 unsorted-import findings' listing six filenames including test_stooq_provider.py. Verified directly with `ruff check` against each file's pre-fix (main-branch) content: test_stooq_provider.py's only pre-existing finding was UP012 (unnecessary `.encode(\"utf-8\")`) -- it had no I001 finding at all. The actual I001 set is the other five files (test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_rsi.py, test_stochastic.py). The total finding count (6 auto-fixable + 1 F841 = 7) is correct and every code fix applied is correct -- this is purely a wording slip, originating in the task's own description (carried over from PR #277) and repeated in PR #278's body/commit message without being caught or corrected, even though the PR's own new `decisions` entry (which does correctly single out UP012 vs I001 when explaining the ruff-scope rationale) implicitly contradicts the description/checklist text sitting right above it in the same file. No code or task-board functional field needs changing. If revisited: correct the task's own description/checklist text via a fresh note (per CLAUDE.md's decisions-array append-only-correction convention, since this task is now done) rather than editing it in place, and correct PR #278's description via an additive PR comment (per CLAUDE.md's 'Correcting a stale claim in an already-merged PR's description' section) rather than editing the merged PR body in place.",
-      "done": false
+      "done": true
     }
   ]
 }
