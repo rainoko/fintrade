@@ -38,7 +38,7 @@ class TestFetchCsv:
 
     def test_returns_decoded_response_body(self, mocker) -> None:
         mock_response = mocker.MagicMock()
-        mock_response.read.return_value = "Date,Open,High,Low,Close,Volume\n".encode("utf-8")
+        mock_response.read.return_value = b"Date,Open,High,Low,Close,Volume\n"
         mock_response.__enter__.return_value = mock_response
         mocker.patch("app.data.stooq_provider.urllib.request.urlopen", return_value=mock_response)
 
