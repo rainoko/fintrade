@@ -3,7 +3,7 @@
   "title": "Fix pre-existing ruff findings in backend test files",
   "area": "backend",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/tests/unit/data/test_stooq_provider.py",
@@ -16,9 +16,17 @@
   ],
   "description": "A full-repo `ruff check backend/` (not the narrower `ruff check app/` that static-verify/pr-reviewer/pr-decision have been running as their gated command all session) surfaces 7 pre-existing lint findings in test files, none introduced by any task worked this session -- they were repeatedly noticed and correctly judged out-of-scope by individual PR reviews (since none of those PRs touched these files), but never fixed or tracked as their own task, so they've kept resurfacing as noise in review after review. 6 are auto-fixable `I001` unsorted/unformatted import blocks (test_stooq_provider.py, test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_rsi.py, test_stochastic.py); 1 is a genuine `F841` unused local variable (`full_ohlcv` in test_triple_screen.py's `_weekly_ohlcv` truncation test, assigned but never read after a prior refactor). Also worth deciding: whether static-verify's own gated command (`ruff check app/`) should widen to include `tests/` too, so this class of drift gets caught going forward instead of only being noticed incidentally during PR reviews.",
   "checklist": [
-    { "step": "Run `ruff check backend/ --fix` to auto-fix the 6 unsorted-import findings; confirm no behavior change (tests still pass, coverage unaffected).", "done": false },
-    { "step": "Fix the genuine F841 finding in test_triple_screen.py (either use `full_ohlcv` in an assertion it was clearly meant to support, or remove the now-dead assignment) -- read the surrounding test to determine which is correct, not just silence the warning.", "done": false },
-    { "step": "Decide and record whether static-verify's gated ruff command should widen from `app/` to include `tests/`, so this class of drift is caught by the normal pipeline instead of only being noticed incidentally during PR reviews.", "done": false },
-    { "step": "Confirm `ruff check backend/` (or backend/'s full test+app tree) is clean after the fix.", "done": false }
+    { "step": "Run `ruff check backend/ --fix` to auto-fix the 6 unsorted-import findings; confirm no behavior change (tests still pass, coverage unaffected).", "done": true },
+    { "step": "Fix the genuine F841 finding in test_triple_screen.py (either use `full_ohlcv` in an assertion it was clearly meant to support, or remove the now-dead assignment) -- read the surrounding test to determine which is correct, not just silence the warning.", "done": true },
+    { "step": "Decide and record whether static-verify's gated ruff command should widen from `app/` to include `tests/`, so this class of drift is caught by the normal pipeline instead of only being noticed incidentally during PR reviews.", "done": true },
+    { "step": "Confirm `ruff check backend/` (or backend/'s full test+app tree) is clean after the fix.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T20:26:56Z",
+      "recorded_by": "task-worker",
+      "decision": "Widen static-verify's gated backend lint command from `ruff check app/` to `ruff check .` (run from `backend/`, so it covers `app/` and `tests/` alike), rather than leaving it scoped to `app/` only.",
+      "rationale": "Checked `backend/pyproject.toml`'s `[tool.ruff]` section: unlike `[tool.mypy]`, which deliberately scopes to `files = [\"app\"]` (test code isn't held to the same strict-typing bar, per that config's own rationale on docs/tasks/skill-static-verify.json), `[tool.ruff]` has no such scoping -- it only excludes `app/db/migrations/versions`, so it was always intended to apply repo-wide. The narrower `ruff check app/` gate used by static-verify/pr-reviewer/pr-decision meant real, auto-fixable lint findings in `tests/` (5 I001 unsorted-import blocks, 1 UP012 unnecessary-encode, repeatedly noticed but correctly judged out-of-scope by individual PR reviews) kept resurfacing as incidental review noise across many PRs instead of being caught by the normal static-verify gate. Considered and rejected leaving the gate as `app/`-only and only fixing the pre-existing findings by hand (this task's original scope): that fixes the symptom once but leaves the same drift class free to recur on the next test file that adds an unsorted import, with nothing in the pipeline to catch it before another PR review notices it again. `ruff check .` from `backend/` is confirmed clean after this task's fixes, so widening imposes no new false-positive burden today."
+    }
   ]
 }

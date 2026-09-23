@@ -41,7 +41,6 @@ import pytest
 
 from app.indicators.rsi import rsi
 
-
 CLOSE = pd.Series([10, 11, 12, 11, 10, 9, 10, 11, 12, 11, 12, 14], dtype=float)
 
 

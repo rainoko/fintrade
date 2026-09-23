@@ -1965,7 +1965,7 @@
       "id": "backend-static-verify-cleanup",
       "area": "backend",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-static-verify-cleanup.json"
     }
   ]
