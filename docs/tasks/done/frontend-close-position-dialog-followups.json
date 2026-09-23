@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-close-position-dialog's review (PR #261)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-close-position-dialog"
   ],
@@ -46,5 +46,30 @@
     "pr_number": 285,
     "pr_url": "https://github.com/rainoko/fintrade/pull/285",
     "pushed_at": "2026-09-23T22:57:14Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T23:06:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/285",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified `isPositiveFinite` in `frontend/src/utils/validation.ts` is byte-identical to both removed copies (diffed against `main`'s versions in `AddPositionDialog.tsx`/`ClosePositionDialog.tsx`); new `validation.test.ts` covers positive, zero, negative, NaN, and Infinity. Both dialogs' existing tests still pass with the shared import, and a repo-wide grep confirms no remaining duplicate implementation.",
+        "file": "frontend/src/utils/validation.ts"
+      },
+      {
+        "summary": "The new PositionsTable.test.tsx regression test genuinely exercises the shared-isPending mechanism, not a tautology: it opens a second position's (ZZZZ) dialog while a different position's (AAPL) DELETE is deliberately held pending, and asserts ZZZZ's own Confirm button is disabled. ClosePositionDialog's Confirm button has no other source of disabled/loading state (only `loading={isPending}`, no form-validation-driven disable), so this correctly isolates the invariant the doc comment describes rather than incidentally passing for an unrelated reason.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.test.tsx",
+        "line": 255
+      },
+      {
+        "summary": "Independently assessed the flagged-but-unfixed `pendingDelete` quirk in `handleConfirmClose`: it is real and reachable (open A's dialog, confirm, backdrop-dismiss while pending, open B's dialog for a different position, then A's held DELETE resolves -- A's per-call `onSuccess` unconditionally clears `pendingDelete`, closing B's dialog out from under the user right as its Confirm button would have become clickable, silently discarding whatever the user had entered for B). Confirmed via `git diff` that `handleConfirmClose` itself is untouched by this PR (pre-existing on `main`), so it's correctly out of scope for this PR's 3 checklist items rather than something that should have blocked or been fixed here. Filed as a tracked followup per CLAUDE.md's autonomous-pipeline rule: docs/tasks/frontend-close-position-dialog-followups-followups.json.",
+        "file": "frontend/src/features/portfolio/components/PositionsTable.tsx",
+        "line": 230
+      },
+      {
+        "summary": "No interactive Playwright MCP browser tool was available in this review session, so step 9's exploratory walkthrough couldn't be performed tool-call by tool-call. Mitigated by: (a) `git diff` confirms zero production-behavior change in this PR (the extraction is byte-identical, the doc comment adds no logic, the only new runtime-reachable surface is the already-covered regression test), (b) the full persisted e2e suite (`make e2e`, 22/22 specs including `portfolio.spec.ts`'s add/close-position flow) passed against a real browser + real backend, and (c) the new regression test itself drives real user-event clicks/dialog interactions via Testing Library, closely mirroring the actual browser flow. Given the change's near-zero behavioral surface, this is judged sufficient in lieu of a live exploratory pass, but noting the limitation explicitly per this review's own instructions rather than silently omitting it."
+      }
+    ],
+    "notes": "Backend: 100% coverage (pytest, 1203 tests, unaffected by this frontend-only PR). Frontend: vitest 831/831 passed, coverage 99.76%/99.31%/99.78%/99.82% (statements/branches/functions/lines), well above the 90% gate. Static analysis clean on both sides (ruff, mypy, eslint, tsc, profit-target-wording guard). Background `code-review` skill pass (effort: high) independently found zero findings, consistent with this review's own manual diff inspection. `validate_tasks.py` reports no board violations. No API/schema changes, so no OpenAPI snapshot check applies. No new module/dependency/layer, so architecture-review wasn't separately loaded (the extraction target, frontend/src/utils/, is an existing, already-established location per the task's own decisions entry and matches the signColor.ts precedent). No new/substantially-changed frontend components (only two existing feature dialogs' import lines and a table's doc comment changed), so the common/-vs-feature placement check in step 7a doesn't add anything beyond confirming the new validation.ts utility (not a component) is correctly domain-agnostic and correctly placed in utils/ rather than a feature folder. One non-blocking finding filed as a followup task (see comments above); no blocking findings."
   }
 }
