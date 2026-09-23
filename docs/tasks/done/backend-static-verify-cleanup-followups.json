@@ -1,0 +1,53 @@
+{
+  "id": "backend-static-verify-cleanup-followups",
+  "title": "Non-blocking finding from PR #278's review (backend-static-verify-cleanup)",
+  "area": "backend",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-static-verify-cleanup"],
+  "references": [
+    "docs/tasks/backend-static-verify-cleanup.json#review",
+    "https://github.com/rainoko/fintrade/pull/278"
+  ],
+  "description": "Tracked non-blocking finding from pr-reviewer's review of PR #278 (backend-static-verify-cleanup). Nothing here blocks the PR's accept; recorded so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #278's description/commit message and the (untouched by this PR) task description/checklist text on backend-static-verify-cleanup all say the same slightly wrong thing: '5/6 I001 unsorted-import findings' listing six filenames including test_stooq_provider.py. Verified directly with `ruff check` against each file's pre-fix (main-branch) content: test_stooq_provider.py's only pre-existing finding was UP012 (unnecessary `.encode(\"utf-8\")`) -- it had no I001 finding at all. The actual I001 set is the other five files (test_autoenvelope.py, test_elder_ray.py, test_force_index.py, test_rsi.py, test_stochastic.py). The total finding count (6 auto-fixable + 1 F841 = 7) is correct and every code fix applied is correct -- this is purely a wording slip, originating in the task's own description (carried over from PR #277) and repeated in PR #278's body/commit message without being caught or corrected, even though the PR's own new `decisions` entry (which does correctly single out UP012 vs I001 when explaining the ruff-scope rationale) implicitly contradicts the description/checklist text sitting right above it in the same file. No code or task-board functional field needs changing. If revisited: correct the task's own description/checklist text via a fresh note (per CLAUDE.md's decisions-array append-only-correction convention, since this task is now done) rather than editing it in place, and correct PR #278's description via an additive PR comment (per CLAUDE.md's 'Correcting a stale claim in an already-merged PR's description' section) rather than editing the merged PR body in place.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-static-verify-cleanup-followups",
+    "pr_number": 281,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/281",
+    "pushed_at": "2026-09-23T21:22:47Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T21:26:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/281",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently verified the core correction claim: checked out test_stooq_provider.py's pre-fix (main, commit 9742211~1) content in place and ran `ruff check` against it with the repo's real pyproject.toml config -- it reports only UP012 (unnecessary .encode(\"utf-8\")), no I001. Also spot-checked test_rsi.py's pre-fix content, which does report I001. Confirms the PR's claim precisely: test_stooq_provider.py's PR #278 fix was the UP012 one, not one of the five I001 fixes.",
+        "file": "docs/tasks/done/backend-static-verify-cleanup.json",
+        "line": 29
+      },
+      {
+        "summary": "Confirmed the append-only convention was followed: diffed backend-static-verify-cleanup.json and found only a new decisions array entry appended (original entry and description/checklist text untouched). Confirmed PR #278's body (via `gh api repos/.../pulls/278`) still contains the original uncorrected wording verbatim -- the correction was posted as a new PR comment (visible via `gh pr view 278 --json comments`), not an edit to the merged PR's description. Both match CLAUDE.md's additive-correction conventions exactly.",
+        "file": "PR #278",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: this PR's decisions-entry correction addresses backend-static-verify-cleanup.json's description text (which named test_stooq_provider.py among six I001 files) but leaves that same task's checklist item 1 with an analogous imprecision -- it still labels all 6 auto-fixable findings as 'unsorted-import', when one of the six (test_stooq_provider.py's UP012 fix) isn't an import-sorting issue at all. No functional impact; tracked as a follow-up rather than fixed in this review pass.",
+        "file": "docs/tasks/done/backend-static-verify-cleanup.json",
+        "line": 19
+      }
+    ],
+    "notes": "Pure documentation/board-bookkeeping correction, no application code touched. Ran full backend suite (`pytest --cov=app --cov-report=term-missing`): 1198 passed, 100% line/branch coverage -- no regression. `ruff check .` and `mypy app` both clean. `python3 scripts/validate_tasks.py` clean (now 284 files including this review's new followup task). No frontend/API/schema change, so no OpenAPI snapshot, browser walkthrough, or e2e-suite step applies -- explicitly skipped as not applicable (no UI surface). No checklist item phrased as 'decide X' on this task, so no decision-record cross-check gap. area is 'backend' (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal does not apply; no new module/dependency/layer, so architecture-review does not apply. One non-blocking wording-nit finding filed as backend-static-verify-cleanup-followups-followups. This task's own checklist item is done and its correction claim independently re-verified from scratch (not just trusted) -- see comments above."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-23T21:31:49Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified the core claim from scratch: wrote 9742211~1's pre-fix test_stooq_provider.py content back into place and ran `ruff check` (repo's real pyproject.toml config) -- reports only UP012 (unnecessary .encode(\"utf-8\")), no I001, confirming the correction. Confirmed append-only: diffed backend-static-verify-cleanup.json (only a new decisions entry appended, no in-place edits) and confirmed PR #278's body still contains the original uncorrected wording verbatim (gh api) with the correction living solely in a new PR comment (gh pr view 278 --comments). Skimmed the full PR #281 diff (git diff origin/main...HEAD --stat): only task-board JSON files touched (backend-static-verify-cleanup.json's appended decisions entry, backend-static-verify-cleanup-followups.json moved to done/, new backend-static-verify-cleanup-followups-followups.json follow-up, index.json mirror) -- no application code. Re-ran the full backend suite: 1198 passed, 100% line/branch coverage, matching pr-reviewer's reported numbers exactly; ruff check . and mypy app both clean; python3 scripts/validate_tasks.py clean (284 files). index.json's state/path mirror for both backend-static-verify-cleanup-followups (done, docs/tasks/done/...) and the new followups-followups (planned) checked correct. skill is null so no add-indicator reference-value spot-check applies. Accept holds."
+  }
+}
