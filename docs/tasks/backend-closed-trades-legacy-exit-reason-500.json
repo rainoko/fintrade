@@ -38,5 +38,11 @@
       "decision": "No `ExitReasonOut` taxonomy change was made (fallback-to-'unspecified' approach, see above), so regenerating `backend/openapi.json`/`frontend/src/api/types.ts` is a no-op for this task -- confirmed by running `python scripts/export_openapi.py` and diffing against the committed snapshot (no changes) rather than skipping the check.",
       "rationale": "Checklist item 5 is conditional on widening the taxonomy; recording explicitly that the condition wasn't met (and that this was verified, not assumed) avoids the next reader wondering whether the snapshot was simply forgotten."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-closed-trades-legacy-exit-reason-500",
+    "pr_number": 280,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/280",
+    "pushed_at": "2026-09-23T21:03:56Z"
+  }
 }
