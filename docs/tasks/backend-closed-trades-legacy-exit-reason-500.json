@@ -1,0 +1,22 @@
+{
+  "id": "backend-closed-trades-legacy-exit-reason-500",
+  "title": "GET /api/portfolio/closed-trades 500s on a legacy/out-of-taxonomy exit_reason value",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [],
+  "references": [
+    "backend/app/api/routers/portfolio.py",
+    "backend/app/api/schemas.py",
+    "backend/app/db/models.py",
+    "backend/app/portfolio/models.py"
+  ],
+  "description": "`GET /api/portfolio/closed-trades` returns a bare 500 (unhandled `pydantic_core.ValidationError`) when any row in the `closed_trades` table has an `exit_reason` string that isn't one of the 8 `ExitReasonOut` Literal values (`target_hit`, `stop_hit`, `reached_value_zone`, `going_nowhere`, `starting_to_turn`, `couldnt_stand_the_pain`, `recognized_junk_trade_after_entry`, `unspecified`). Observed in a dev environment with a row whose `exit_reason` is `'manual'` -- not a value this app's own code ever writes (DELETE /api/portfolio/positions/{id}'s `exit_reason` query param is itself an `ExitReason` enum with no 'manual' member; grep confirms 'manual' only appears elsewhere as an unrelated `trade_apgar.py` 'source' literal), so it's most likely hand-inserted dev/seed data or a leftover from a schema/taxonomy version predating the current `ExitReason` enum -- but the underlying bug is real regardless of how that row got there. Root cause: `backend/app/db/models.py` stores `ClosedTradeORM.exit_reason` as a plain unconstrained `String` column (no DB-level check constraint), while `_to_closed_trade_out` in `backend/app/api/routers/portfolio.py` (line ~235) does `exit_reason=cast(ExitReasonOut, row.exit_reason)` -- a type-checker-only `cast`, not a runtime validation/coercion -- so any row with a value outside the Literal blows up the whole list endpoint for every trade, not just the offending row, via a Python list comprehension with no per-row error isolation (`ClosedTradesResponse(items=[_to_closed_trade_out(row, grades[row.id]) for row in rows])`, line ~891). This violates the app's general degrade-gracefully contract (seen elsewhere e.g. IBKR-unavailable handling, malformed-daily-bar filtering) -- one bad row shouldn't take down the whole trade history/journal view.",
+  "checklist": [
+    { "step": "Decide and record (a decisions entry) how to handle a row whose exit_reason falls outside the ExitReasonOut taxonomy: e.g. map it to 'unspecified' at the API boundary (in _to_closed_trade_out, replacing the blind cast with an actual validation/fallback), vs. widening the ExitReasonOut Literal/ExitReason enum to add a value, vs. some other approach -- weigh against what the value likely means (a genuine data-entry/legacy value vs. real taxonomy gap).", "done": false },
+    { "step": "Implement the chosen fix in _to_closed_trade_out (and record_follow_up_review's shared call site) so an out-of-taxonomy exit_reason value degrades gracefully instead of 500ing the whole list.", "done": false },
+    { "step": "Decide whether this should also isolate a single bad row's failure from the rest of the response (so one malformed row can't ever again take down every other trade in the list), independent of the exit_reason-specific fix.", "done": false },
+    { "step": "Unit/integration test: a closed_trades row with an out-of-taxonomy exit_reason value (e.g. 'manual') no longer 500s GET /api/portfolio/closed-trades, and the response's other rows are unaffected.", "done": false },
+    { "step": "If the taxonomy itself changes (a new ExitReasonOut value added), regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false }
+  ]
+}
