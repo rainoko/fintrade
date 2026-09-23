@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking findings from PR #242's review",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-market-breadth-indicators-followups"
   ],
@@ -35,6 +35,19 @@
     "pr_number": 283,
     "pr_url": "https://github.com/rainoko/fintrade/pull/283",
     "pushed_at": "2026-09-23T22:02:39Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T22:12:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/283",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "The new 503's `detail` interpolates the raw SQLAlchemy exception (`{exc}`) directly into the client-facing HTTP response. For a real `OperationalError`/`IntegrityError`, `str(exc)` includes the interpolated SQL statement, the bound parameter dict, and a link to SQLAlchemy's own error-code docs page (verified directly: `str(OperationalError(stmt, params, orig))` reproduces the `[SQL: ...]`/`[parameters: ...]` sections). This regresses this same file's own established convention: the file's other 503 (`_resolve_scanner_unavailable`, line 137) only ever surfaces an app-defined `IBKRUnavailableError` message built entirely from this app's own code, never a raw third-party DB-driver exception with embedded table/column/statement internals; `app/data/cache.py`'s identical `except (IntegrityError, OperationalError)` branch (the very comment this PR's new code cites) only ever logs `exc`, never returns it to the client. Fix: keep the `logger.warning` call (already correct, matches `cache.py`) but drop `{exc}` from the client-facing `detail` string.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 383
+      }
+    ],
+    "notes": "Full review performed: backend pytest+coverage (1203 passed, 100% line/branch coverage), frontend vitest+coverage (825 passed, 99.7%+), backend ruff+mypy clean, frontend eslint+tsc clean, profit-target stale-wording guard clean, code-review skill pass, and the persisted Playwright e2e suite (make e2e, 22/22 passed, including watchlist.spec.ts's specs which exercise POST /api/ibkr/breadth/snapshot -- the exact touched route -- on its golden path in a real browser; Playwright MCP interactive tools were not available in this session, so the e2e regression suite plus the added unit test covering the actual edge case -- which needs DB-level fault injection, not reproducible by clicking -- served as the practical substitute for an interactive walkthrough). Confirmed backend/openapi.json and frontend/src/api/types.ts reproduce byte-for-byte after regenerating locally -- the claimed description-only diff checks out. The new test test_operational_error_with_no_same_key_winner_returns_503 correctly forces a real OperationalError with no winner ever committed, and is correctly distinguished from the unchanged genuine-race test. The decisions entry adequately explains the narrow+explicit-raise choice. The one blocking finding is the response-detail internals leak above; no non-blocking findings this round (nothing to track as a follow-up task)."
   },
   "questions": []
 }
