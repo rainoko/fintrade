@@ -275,8 +275,11 @@ def _unavailable_breadth_response(
         429: _RETRY_AFTER_429_RESPONSE,
         503: {
             "model": ErrorDetail,
-            "description": "The scanner-run call itself failed transiently (not a gateway/session "
-            "unavailability -- see GET /api/ibkr/status for that)",
+            "description": "Either the scanner-run call itself failed transiently (not a "
+            "gateway/session unavailability -- see GET /api/ibkr/status for that), or a "
+            "concurrent-write conflict was raised on this row's commit but no same-key row "
+            "was actually found afterwards (see this task's `decisions` entry) -- both "
+            "transient, safe to retry.",
         },
     },
 )
@@ -308,7 +311,10 @@ def record_ibkr_breadth_snapshot(
     other field null. Being rate-limited or a transient scanner-call failure against an
     otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like
     `POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first
-    request for this `series_key`), since a cache hit never calls the scanner at all.
+    request for this `series_key`), since a cache hit never calls the scanner at all. A `503`
+    is also raised (distinct from the concurrent-insert fallback below succeeding silently)
+    if a concurrent-write conflict is caught on this row's own commit but no same-key row
+    actually exists afterwards -- see this task's `decisions` entry.
     """
     if provider is None:
         return _unavailable_breadth_response(body.series_key, "disabled", _DISABLED_DETAIL)
@@ -346,7 +352,38 @@ def record_ibkr_breadth_snapshot(
             # the persisted row itself, so the loser must roll back its own failed insert
             # and fall back to reading the winner's already-committed row instead of just
             # swallowing the error. See this task's `decisions` entry.
+            #
+            # IntegrityError's scope is verified narrow: this table's composite PK is its
+            # only constraint (app/db/models.py), so an IntegrityError here can only mean
+            # the same-key race above. OperationalError's scope is *not* pinned down the
+            # same way -- SQLite's whole-file write locking can raise "database is locked"
+            # from *any* concurrent write anywhere in the file, not only a race on this
+            # exact (series_key, snapshot_date) -- see app/data/cache.py's `_upsert`
+            # OperationalError branch for the identical caveat on the identical exception
+            # pair. So `db.get(...)` below may legitimately find no winner row even after
+            # a genuine OperationalError; that's handled explicitly rather than assumed
+            # away, since (unlike `_upsert`, which can safely discard a wasted write) this
+            # route has no independently-fetched value to fall back to if no row exists.
             db.rollback()
+            winner = db.get(IBKRBreadthSnapshotORM, (body.series_key, snapshot_date))
+            if winner is None:
+                logger.warning(
+                    "Concurrent-write conflict recording breadth snapshot for "
+                    "series_key=%r date=%s, but no same-key row was found afterwards -- "
+                    "likely an unrelated SQLite lock contention, not a race on this key. "
+                    "(%s: %s)",
+                    body.series_key,
+                    snapshot_date,
+                    type(exc).__name__,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"Transient write conflict recording breadth snapshot for "
+                        f"series_key={body.series_key!r}; retry. ({type(exc).__name__}: {exc})"
+                    ),
+                ) from exc
             logger.warning(
                 "Concurrent breadth-snapshot population for series_key=%r date=%s raced "
                 "this insert; falling back to the concurrently-committed row. (%s: %s)",
@@ -354,11 +391,6 @@ def record_ibkr_breadth_snapshot(
                 snapshot_date,
                 type(exc).__name__,
                 exc,
-            )
-            winner = db.get(IBKRBreadthSnapshotORM, (body.series_key, snapshot_date))
-            assert winner is not None, (
-                "an IntegrityError/OperationalError on this composite PK implies a "
-                "concurrent committer won the race, so its row must now be visible"
             )
             row = winner
         else:

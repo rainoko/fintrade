@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking findings from PR #242's review",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "backend-market-breadth-indicators-followups"
   ],
@@ -15,13 +15,20 @@
   "checklist": [
     {
       "step": "The `except (IntegrityError, OperationalError)` branch's fallback (`winner = db.get(...)`, `assert winner is not None`) assumes any caught `OperationalError` implies a same-key winner committed and is now readable. That's verified true for `IntegrityError` (IBKRBreadthSnapshotORM's only constraint is the composite PK), but SQLite's whole-file write locking (no WAL/busy_timeout, per app/db/session.py) can raise 'database is locked' `OperationalError` from *any* concurrent write anywhere in the file, not only a race on this exact (series_key, snapshot_date) -- in which case `db.get(...)` legitimately returns None and the assert raises AssertionError instead of the graceful fallback the decision describes. Not a behavior regression (pre-fix, an uncaught OperationalError also propagated to a generic 500), but the fallback logs a misleading 'falling back to the concurrently-committed row' warning for a case where no such row exists, and the new decision entry doesn't carry forward the OperationalError-scope caveat app/data/cache.py's own `_upsert` comment makes for the identical exception pair (see docs/tasks/done/data-cache-followups-followups.json's review comment on PR #56, which reviewed and explicitly accepted this exact scope gap as non-blocking for the same race pattern). Worth either narrowing the assumption (return a clean error/None-safe path when no winner row is actually found) or adding the same explicit scope-limitation comment cache.py's OperationalError branch has.",
-      "done": false
+      "done": true
     },
     {
       "step": "The `assert winner is not None` at app/api/routers/ibkr.py:359 is a bare `assert`, which is fragile under `python -O`/`PYTHONOPTIMIZE` (assertions compiled out) -- in the scenario above, that would silently turn the failure into `row = None` and a later `AttributeError` on `row.count` instead of even the (still-uninformative but at least present) `AssertionError`. Not a live concern today (no evidence anywhere in the repo of running with `-O`), but worth an explicit `if winner is None: raise ...` guard instead of `assert` if this pattern is reused elsewhere, or at minimum a comment noting the reliance on assertions being enabled.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Both findings fixed together by narrowing the fallback's assumption (checklist item 1's first option), rather than just adding the scope-limitation comment cache.py's OperationalError branch has (its other, weaker option): the bare `assert winner is not None` at app/api/routers/ibkr.py:359 was replaced with an explicit `if winner is None:` branch that logs a distinct warning (making clear this wasn't actually a same-key race, just an unrelated SQLite lock) and raises `HTTPException(status_code=503, detail=...)` instead of falling through to `row = winner`. The commit's `except (IntegrityError, OperationalError)` comment block was extended with the same IntegrityError-verified-narrow / OperationalError-wider-causes distinction app/data/cache.py's `_upsert` OperationalError branch documents, adapted to explain why this route (unlike `_upsert`) can't just silently discard the failed write. The route's existing `503` `responses={}` entry and docstring paragraph were both updated to describe this second `503` cause alongside the pre-existing transient-scanner-call-failure one, and `backend/openapi.json` (plus the generated `frontend/src/api/types.ts`) were regenerated to match.",
+      "rationale": "Rejected the weaker option (leaving the bare `assert` and just adding a comment) because it wouldn't actually fix finding 2 (the `python -O`/`PYTHONOPTIMIZE`-fragility of a bare `assert`), and item 1's own narrower-assumption path already requires distinguishing the 'no winner found' case from the normal fallback anyway -- once that branch exists, turning it into a clean `if/raise` costs nothing extra and directly addresses both findings with one change, rather than leaving finding 2's fragility in place and documenting it as merely acceptable. Chose `HTTPException(503)` over inventing a new response shape because this route already declares and raises `503` for its other transient failure mode (`_resolve_scanner_unavailable`'s disagreeing-gateway-state case) -- reusing the same status code and `ErrorDetail` response model for another genuinely transient, retry-safe failure keeps the route's error surface consistent rather than adding a third distinct failure representation. Rejected retrying the commit internally (re-attempting `db.commit()` a bounded number of times before giving up) as disproportionate for a rare, low-frequency, manually-triggered endpoint -- consistent with `backend-market-breadth-indicators-followups`' own rejection of a locking mechanism (BEGIN IMMEDIATE / app-level mutex) for the same race pattern, and orthogonal to what this task's two findings actually asked for (a misleading log message and a fragile assert, not the absence of a retry). Verified with a new test (`test_operational_error_with_no_same_key_winner_returns_503`) that forces `db.commit()` to raise a real `sqlalchemy.exc.OperationalError` with no concurrent winner ever appearing for the same key, asserting a `503` response (not an uncaught `AssertionError`/500) and that nothing is persisted; the existing `test_concurrent_first_population_falls_back_to_winners_row` (the genuine-same-key-race path) continues to pass unchanged, confirming the narrowed branch doesn't regress the original fallback behavior."
+    }
+  ],
   "questions": []
 }
