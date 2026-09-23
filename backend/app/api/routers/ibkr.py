@@ -381,7 +381,7 @@ def record_ibkr_breadth_snapshot(
                     status_code=503,
                     detail=(
                         f"Transient write conflict recording breadth snapshot for "
-                        f"series_key={body.series_key!r}; retry. ({type(exc).__name__}: {exc})"
+                        f"series_key={body.series_key!r}; retry."
                     ),
                 ) from exc
             logger.warning(
