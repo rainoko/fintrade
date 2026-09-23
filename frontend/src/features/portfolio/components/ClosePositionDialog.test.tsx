@@ -41,7 +41,7 @@ describe('ClosePositionDialog', () => {
       <ClosePositionDialog
         position={null}
         isPending={false}
-          error={null}
+        error={null}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -193,7 +193,7 @@ describe('ClosePositionDialog', () => {
       <ClosePositionDialog
         position={zzzzPosition}
         isPending={false}
-          error={null}
+        error={null}
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,

@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from frontend-close-position-dialog's review (PR #261)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-close-position-dialog"
   ],
@@ -15,17 +15,30 @@
   "checklist": [
     {
       "step": "`isPositiveFinite` in `frontend/src/features/portfolio/components/ClosePositionDialog.tsx` (around line 79) is a verbatim copy of the identical helper already defined in `frontend/src/features/portfolio/components/AddPositionDialog.tsx` (around line 48) -- extract it to a shared location (e.g. a small validation utility module) so a future change to the rule (e.g. allowing zero, or adding a max) doesn't have to be made in two places and risk drifting out of sync.",
-      "done": false
+      "done": true
     },
     {
       "step": "Minor indentation inconsistency in `frontend/src/features/portfolio/components/ClosePositionDialog.test.tsx`: the `error={null}` prop is over-indented by 2 extra spaces relative to its sibling props on both occurrences (around lines 44 and 196). Cosmetic only (eslint/prettier didn't flag it), but worth a quick fix for consistency.",
-      "done": false
+      "done": true
     },
     {
       "step": "PR #261 round-2 review (a `code-review` skill pass) flagged that `PositionsTable`'s single shared `useDeletePosition()` instance means a second `mutate()` call detaches TanStack Query's mutation observer from whatever close attempt the first call was still tracking -- in isolation this reads as a way a second, different position's close (confirmed before the first settles) could orphan the first's eventual error entirely (neither the in-dialog error nor the page-level banner would ever show it). The reviewer verified empirically (two positions with independently-controlled held DELETE responses in a real browser) that this is *not* currently reachable through the UI: `ClosePositionDialog`'s Confirm button receives `isPending` unscoped from the shared mutation, so any open dialog's Confirm button is disabled table-wide while *any* close is in flight, not just for its own row -- a second dialog cannot actually be confirmed until the first settles. This safety is an incidental side effect of `isPending` being passed unscoped rather than a deliberately documented/tested invariant, so a future change (e.g. scoping `isPending` per-row for better UX, since right now opening an unrelated position's dialog while another closes shows its Confirm button confusingly already in a loading state) could silently reintroduce the orphaned-error bug with nothing to catch it. Add an explicit regression test asserting a second position's dialog Confirm button stays disabled while a different position's close is still pending, and a doc-comment note on `PositionsTable`'s existing doc comment explaining *why* overlapping closes can't happen (not just asserting that they don't), so `belongsToOpenDialog`'s own 'never invisible' claim is backed by a verified mechanism rather than an implicit one.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extracted `isPositiveFinite` into a new `frontend/src/utils/validation.ts` module (with its own `validation.test.ts` unit test) rather than e.g. a `features/portfolio`-local shared file, and updated both `AddPositionDialog.tsx` and `ClosePositionDialog.tsx` to import it from there.",
+      "rationale": "The existing `frontend/src/utils/` directory already holds exactly this kind of small, dependency-free, cross-feature helper (e.g. `signColor.ts`, extracted from two components the same way per frontend-trade-journal-followups) -- `isPositiveFinite` has no portfolio-specific meaning of its own (it's a generic numeric-validation predicate) and both call sites already import other things from `../../../utils/format`, so `utils/` is the established, discoverable home for it rather than introducing a new features/portfolio-scoped validation file for a single function that isn't domain-specific to portfolios at all."
+    },
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Placed the new regression test (second position's dialog Confirm button disabled while a different position's close is pending) in `PositionsTable.test.tsx` rather than `ClosePositionDialog.test.tsx`, and left an unresolved side detail out of its assertions: after the test lets the first (AAPL) DELETE settle so it doesn't leak into a later test, it does not assert on `ClosePositionDialog`'s post-resolve state (e.g. that the button re-enables), only on a local `deleteSettled` flag.",
+      "rationale": "The invariant under test is inherently about two dialogs sharing one `PositionsTable`-owned `useDeletePosition()` mutation instance -- `ClosePositionDialog` itself takes `isPending` as a prop and has no opinion on where it comes from, so the interesting behavior (opening a second position's dialog while the first's mutate() is still in flight) can only be exercised at the `PositionsTable` level, matching where the existing analogous tests (the double-click-race guard test, the delayed-failure-misattribution test) already live. Separately, `handleConfirmClose`'s per-call `onSuccess: () => setPendingDelete(null)` callback is bound to whichever position's `mutate()` call it was given to, not to whatever `pendingDelete` currently holds when it later fires -- so if AAPL's held DELETE is resolved while ZZZZ's dialog is what's now open, AAPL's own onSuccess still fires and clears `pendingDelete`, closing ZZZZ's dialog out from under it. That's a real, pre-existing, separate latent quirk of `PositionsTable.tsx` (not something this task's 3 checklist items call for fixing, and not the orphaned-error bug this checklist item's own test is verifying protection against), so the test deliberately doesn't assert on the dialog's state after resolving the held DELETE -- it only confirms the request itself settled, without asserting anything that would depend on which of the two behaviors is 'correct' here. Not filed as a separate followup task since it's a narrow, latent edge case with no `depends_on` chain of its own review flagging it yet; if a future reviewer wants it tracked, the natural home is a new `<id>-followups` entry against this task or `frontend-close-position-dialog`."
+    }
+  ],
   "questions": []
 }

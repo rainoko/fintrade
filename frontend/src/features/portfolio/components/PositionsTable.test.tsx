@@ -252,6 +252,60 @@ describe('PositionsTable', () => {
     )
   })
 
+  it('keeps a second position\'s dialog Confirm button disabled while a different position\'s close is still pending, since both dialogs share one useDeletePosition() instance', async () => {
+    // Delays AAPL's DELETE response so its pending window is observable while
+    // ZZZZ's dialog is opened in the meantime -- without this the mutation
+    // would settle before the second dialog could even be opened.
+    let resolveDelete: () => void = () => {}
+    let deleteSettled = false
+    server.use(
+      http.delete('/api/portfolio/positions/:id', async () => {
+        await new Promise<void>((resolve) => {
+          resolveDelete = resolve
+        })
+        deleteSettled = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderPositionsTable(positions)
+
+    // Start closing AAPL, then dismiss its dialog via a backdrop click while
+    // the DELETE is still deliberately held pending (its own Cancel button is
+    // disabled while pending, but a backdrop click isn't gated on that --
+    // same pattern the double-click-race test above uses).
+    await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
+    const backdrop = document.querySelector('.MuiBackdrop-root') as HTMLElement
+    await user.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // AAPL's close is still in flight, but its row-level guard only disables
+    // AAPL's own Delete button -- ZZZZ's stays interactive, so its dialog can
+    // be opened while AAPL's mutation is still pending.
+    expect(screen.getByRole('button', { name: 'Delete ZZZZ' })).not.toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Delete ZZZZ' }))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/close zzzz \(10 shares\)/i)).toBeInTheDocument()
+    // The single shared useDeletePosition() instance means ZZZZ's dialog
+    // renders with the *same* isPending that's still true for AAPL's
+    // in-flight close -- so ZZZZ's own Confirm button is disabled too, table-
+    // wide, and can't actually be confirmed until AAPL's close settles. This
+    // is the mechanism PositionsTable's own doc comment describes as what
+    // keeps two closes from ever overlapping in flight.
+    expect(screen.getByRole('button', { name: 'Close Position' })).toBeDisabled()
+
+    // Let AAPL's held DELETE settle so it doesn't leak into a later test --
+    // not asserting further UI state here, since AAPL's own onSuccess
+    // callback (bound to that specific mutate() call, see
+    // `handleConfirmClose`) unconditionally clears `pendingDelete` once it
+    // resolves, which is a separate, pre-existing behavior outside this
+    // test's scope.
+    resolveDelete()
+    await waitFor(() => expect(deleteSettled).toBe(true))
+  })
+
   it('degrades silently to \'—\' (no own ErrorState) when GET /api/portfolio/risk fails, since RiskPanel already surfaces this failure on the same PortfolioPage', async () => {
     let riskRequestSettled = false
     server.use(
