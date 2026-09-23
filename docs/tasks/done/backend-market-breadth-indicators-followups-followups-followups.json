@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking finding from PR #283's round-2 review",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-market-breadth-indicators-followups-followups"],
   "references": [
     "docs/tasks/done/backend-market-breadth-indicators-followups-followups.json#review",
@@ -30,5 +30,12 @@
     "pr_number": 284,
     "pr_url": "https://github.com/rainoko/fintrade/pull/284",
     "pushed_at": "2026-09-23T22:36:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T22:42:53Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/284",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Small, test-only change. Verified the core claim by spot-check: temporarily reintroduced the raw-exception-leak pattern PR #283 fixed (appending `({type(exc).__name__}: {exc})` to the 503 detail in backend/app/api/routers/ibkr.py) and re-ran test_operational_error_with_no_same_key_winner_returns_503 -- it failed loudly on the exact-match assertion (diff showed the leaked OperationalError text, SQL, and sqlalche.me link), confirming the strengthened test genuinely catches the regression the old `\"nh\" in detail` substring check would have missed (since \"nh\" remains present in the leaked string). Reverted the temporary edit afterward (git checkout --, working tree clean). Test is not tautological or overfit in a concerning way -- the exact-match string mirrors the actual production f-string, and the added negative substring assertions are intentional defense-in-depth (self-documenting which leak tokens matter), not dead checks, per the code-review skill's independent read of the diff. Backend: 1203 passed, 100% coverage (--cov-fail-under=90). Frontend: unchanged by this PR; ran anyway for completeness -- 825 passed, 84 files, 99.76%/99.31%/99.78%/99.82% stmt/branch/func/line coverage, all above the 90% gate. Static analysis clean: backend ruff + mypy, frontend eslint + tsc, and the profit-target stale-wording guard all pass with zero findings. No API route/schema touched (openapi.json check not applicable). No UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped; this PR only touches a backend integration test file. Task's own decisions entry (exact-match vs. substring-only tradeoff) is adequately recorded per CLAUDE.md. No new non-blocking findings from this review, so no additional follow-up task entry needed."
   }
 }

@@ -1832,8 +1832,8 @@
       "id": "backend-market-breadth-indicators-followups-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-market-breadth-indicators-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-breadth-indicators-followups-followups-followups.json"
     },
     {
       "id": "frontend-market-breadth-widget",
