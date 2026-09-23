@@ -252,7 +252,7 @@ describe('PositionsTable', () => {
     )
   })
 
-  it('keeps a second position\'s dialog Confirm button disabled while a different position\'s close is still pending, since both dialogs share one useDeletePosition() instance', async () => {
+  it('keeps a second position\'s dialog Confirm button disabled while a different position\'s close is still pending (since both dialogs share one useDeletePosition() instance), and keeps that second dialog open once the first position\'s close resolves', async () => {
     // Delays AAPL's DELETE response so its pending window is observable while
     // ZZZZ's dialog is opened in the meantime -- without this the mutation
     // would settle before the second dialog could even be opened.
@@ -296,14 +296,20 @@ describe('PositionsTable', () => {
     // keeps two closes from ever overlapping in flight.
     expect(screen.getByRole('button', { name: 'Close Position' })).toBeDisabled()
 
-    // Let AAPL's held DELETE settle so it doesn't leak into a later test --
-    // not asserting further UI state here, since AAPL's own onSuccess
-    // callback (bound to that specific mutate() call, see
-    // `handleConfirmClose`) unconditionally clears `pendingDelete` once it
-    // resolves, which is a separate, pre-existing behavior outside this
-    // test's scope.
+    // Let AAPL's held DELETE settle while ZZZZ's dialog is still the one
+    // open. AAPL's own onSuccess callback is bound to that specific
+    // mutate() call (see `handleConfirmClose`), so it must not clear
+    // `pendingDelete` unconditionally -- doing so would close ZZZZ's dialog
+    // out from under the user right as its Confirm button would have become
+    // clickable, silently discarding whatever they'd entered for ZZZZ. See
+    // frontend-close-position-dialog-followups-followups.
     resolveDelete()
     await waitFor(() => expect(deleteSettled).toBe(true))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/close zzzz \(10 shares\)/i)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Close Position' })).not.toBeDisabled(),
+    )
   })
 
   it('degrades silently to \'—\' (no own ErrorState) when GET /api/portfolio/risk fails, since RiskPanel already surfaces this failure on the same PortfolioPage', async () => {
