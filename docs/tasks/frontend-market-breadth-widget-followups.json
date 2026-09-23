@@ -39,5 +39,11 @@
       "decision": "For checklist item 3's e2e spec, added a standalone `test(...)` (not part of `watchlist.spec.ts`'s existing `describe.serial` add/remove block) that asserts the Market Breadth card's disabled-panel heading, copy, and `IbkrStatusBadge` text ('IBKR: Disabled'), scoped to `page.getByRole('main')` to disambiguate from the app shell's own header `IbkrStatusIndicator` chip (which renders the identical 'IBKR: Disabled' text outside `main`, discovered via a genuine Playwright strict-mode failure on the first run). Did not add an equivalent new assertion for `PersonalBreadthCard` as the checklist item's phrasing ('matching the level of e2e attention PersonalBreadthCard already gets there... check how that existing spec covers PersonalBreadthCard for the pattern to follow') implied existed.",
       "rationale": "Checked `frontend/tests/e2e/*.spec.ts` directly (grep for 'PersonalBreadthCard'/'Personal Breadth'/'Bullish'/'Bearish'/'Neutral') and confirmed no existing spec asserts on `PersonalBreadthCard` at all -- the pr-reviewer finding this checklist item was copied from appears to have been inaccurate on that specific point (or referred to `MarketBreadthCard.test.tsx`'s thorough *vitest* coverage rather than an e2e pattern; that review's own `notes` field does credit vitest coverage as 'thorough (100% lines/branches)' for the card). Since there was no real e2e pattern to mirror, the new test instead follows this spec file's own existing assertion style (role/text locators, `toBeVisible()`) and is placed outside the `describe.serial` block since it neither depends on nor mutates the add/remove flow's watchlist state, so a failure in one doesn't skip or gate the other. Chose the 'always-disabled' assertion specifically (rather than also exercising an 'available' state) because the e2e stack always runs with `ibkr_enabled: bool = False` (`backend/app/config.py`'s default, unmodified by `playwright.config.ts`'s `webServer` block) -- the disabled panel is the only `MarketBreadthCard` state this suite can deterministically reach without a stub IBKR gateway, which is out of this task's scope to add."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget-followups",
+    "pr_number": 287,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/287",
+    "pushed_at": "2026-09-23T23:53:45Z"
+  }
 }
