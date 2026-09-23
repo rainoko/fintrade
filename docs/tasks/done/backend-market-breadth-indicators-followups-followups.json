@@ -3,7 +3,7 @@
   "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking findings from PR #242's review",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-market-breadth-indicators-followups"
   ],
@@ -43,17 +43,22 @@
     "pushed_at": "2026-09-23T22:17:28Z"
   },
   "review": {
-    "reviewed_at": "2026-09-23T22:12:16Z",
+    "reviewed_at": "2026-09-23T22:24:40Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/283",
-    "verdict": "needs_work",
+    "verdict": "accepted",
     "comments": [
       {
-        "summary": "The new 503's `detail` interpolates the raw SQLAlchemy exception (`{exc}`) directly into the client-facing HTTP response. For a real `OperationalError`/`IntegrityError`, `str(exc)` includes the interpolated SQL statement, the bound parameter dict, and a link to SQLAlchemy's own error-code docs page (verified directly: `str(OperationalError(stmt, params, orig))` reproduces the `[SQL: ...]`/`[parameters: ...]` sections). This regresses this same file's own established convention: the file's other 503 (`_resolve_scanner_unavailable`, line 137) only ever surfaces an app-defined `IBKRUnavailableError` message built entirely from this app's own code, never a raw third-party DB-driver exception with embedded table/column/statement internals; `app/data/cache.py`'s identical `except (IntegrityError, OperationalError)` branch (the very comment this PR's new code cites) only ever logs `exc`, never returns it to the client. Fix: keep the `logger.warning` call (already correct, matches `cache.py`) but drop `{exc}` from the client-facing `detail` string.",
+        "summary": "Round-1 finding (now fixed, recorded here for history): the new 503's `detail` interpolated the raw SQLAlchemy exception (`{exc}`) directly into the client-facing HTTP response, leaking interpolated SQL/bound parameters/a docs link. Fixed in commit a02fa48 by dropping `{exc}` from the client-facing `detail` string, leaving only the generic app-defined message; the server-side `logger.warning` call still logs the real exception, matching `app/data/cache.py`'s convention. Verified directly: `detail` at ibkr.py:380-386 now reads only \"Transient write conflict recording breadth snapshot for series_key=<series_key>; retry.\" -- no exception-derived text present.",
         "file": "backend/app/api/routers/ibkr.py",
         "line": 383
+      },
+      {
+        "summary": "Non-blocking (filed as a follow-up task, backend-market-breadth-indicators-followups-followups-followups): `test_operational_error_with_no_same_key_winner_returns_503` only asserts `\"nh\" in response.json()[\"detail\"]`, so it doesn't actually guard against the round-2 regression it was meant to catch -- if the raw-exception interpolation were reintroduced, this test would still pass since \"nh\" remains present. Worth strengthening to also assert the exception-derived text (e.g. \"SQL\"/\"database is locked\") is absent.",
+        "file": "backend/tests/integration/test_ibkr_breadth.py",
+        "line": 388
       }
     ],
-    "notes": "Full review performed: backend pytest+coverage (1203 passed, 100% line/branch coverage), frontend vitest+coverage (825 passed, 99.7%+), backend ruff+mypy clean, frontend eslint+tsc clean, profit-target stale-wording guard clean, code-review skill pass, and the persisted Playwright e2e suite (make e2e, 22/22 passed, including watchlist.spec.ts's specs which exercise POST /api/ibkr/breadth/snapshot -- the exact touched route -- on its golden path in a real browser; Playwright MCP interactive tools were not available in this session, so the e2e regression suite plus the added unit test covering the actual edge case -- which needs DB-level fault injection, not reproducible by clicking -- served as the practical substitute for an interactive walkthrough). Confirmed backend/openapi.json and frontend/src/api/types.ts reproduce byte-for-byte after regenerating locally -- the claimed description-only diff checks out. The new test test_operational_error_with_no_same_key_winner_returns_503 correctly forces a real OperationalError with no winner ever committed, and is correctly distinguished from the unchanged genuine-race test. The decisions entry adequately explains the narrow+explicit-raise choice. The one blocking finding is the response-detail internals leak above; no non-blocking findings this round (nothing to track as a follow-up task)."
+    "notes": "Round 2 (re-review after needs_work). Verified the fix directly by reading the current source: the client-facing `detail` at ibkr.py:380-386 contains only the app-defined message and `series_key` (not exception-derived text), while the preceding `logger.warning` (untouched) still logs `type(exc).__name__`/`exc` server-side only -- resolves the leak exactly as described. The existing test still exercises the right scenario (forces a real OperationalError via commit monkeypatching with no winner ever committed, asserts 503 not an uncaught AssertionError/500, and nothing persisted); its assertion is just weaker than it could be (see non-blocking finding above). Independently re-ran: backend pytest+coverage (1203 passed, 100% line/branch coverage), frontend vitest+coverage (825 passed, 99.76% statements/99.31% branches), backend ruff+mypy clean, frontend eslint+tsc clean, profit-target stale-wording guard clean, and the persisted Playwright e2e suite (make e2e, 22/22 passed, including watchlist.spec.ts's specs exercising POST /api/ibkr/breadth/snapshot -- the touched route -- on its golden path in a real browser; this round's fix is a plain string-literal change with no golden-path behavior change, and the edge case itself needs DB-level fault injection not reproducible by clicking, consistent with round 1's assessment). code-review skill (medium effort) confirmed the fix is correct/minimal/consistent with the file's existing pattern and independently reproduced that str(OperationalError(...)) does embed raw SQL/params, confirming the pre-fix leak was real; its only finding was the test-assertion-strength gap above, now tracked as a follow-up. No schema/route-signature change this round, so no openapi.json regeneration needed (round 1's regeneration already covers the docstring/responses changes made then; confirmed unchanged in this round's diff). No new module/dependency/layer; area is backend/api (not signals/portfolio), so verify-elder-signal not applicable. No frontend component added/changed this round. decisions entries for both rounds are complete with rationale. Accepting: no blocking findings remain."
   },
   "questions": []
 }

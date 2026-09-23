@@ -1,0 +1,21 @@
+{
+  "id": "backend-market-breadth-indicators-followups-followups-followups",
+  "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking finding from PR #283's round-2 review",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-market-breadth-indicators-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-market-breadth-indicators-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/283"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's round-2 review of PR #283 (backend-market-breadth-indicators-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. Concerns the regression test added to fix round-1's raw-exception-leak finding.",
+  "checklist": [
+    {
+      "step": "`test_operational_error_with_no_same_key_winner_returns_503` (backend/tests/integration/test_ibkr_breadth.py:358-390) only asserts `\"nh\" in response.json()[\"detail\"]`, so it does not actually guard against the exact regression the round-2 fix addressed (the raw SQLAlchemy exception -- interpolated SQL statement, bound parameters, and a sqlalche.me docs link -- leaking into the client-facing 503 `detail` at backend/app/api/routers/ibkr.py:380-386). If a future edit re-adds `({type(exc).__name__}: {exc})` (or any other raw-exception interpolation) to that `HTTPException`'s `detail`, this test would still pass unchanged since `\"nh\"` remains present in the string -- the leak regression would ship silently with green CI. Worth strengthening the assertion to also check the exception-derived text is absent, e.g. `assert \"SQL\" not in response.json()[\"detail\"]` and/or `assert \"database is locked\" not in response.json()[\"detail\"]`, so the test actually fails if the interpolation is reintroduced.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
