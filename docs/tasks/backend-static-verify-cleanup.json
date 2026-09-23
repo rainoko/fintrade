@@ -28,5 +28,11 @@
       "decision": "Widen static-verify's gated backend lint command from `ruff check app/` to `ruff check .` (run from `backend/`, so it covers `app/` and `tests/` alike), rather than leaving it scoped to `app/` only.",
       "rationale": "Checked `backend/pyproject.toml`'s `[tool.ruff]` section: unlike `[tool.mypy]`, which deliberately scopes to `files = [\"app\"]` (test code isn't held to the same strict-typing bar, per that config's own rationale on docs/tasks/skill-static-verify.json), `[tool.ruff]` has no such scoping -- it only excludes `app/db/migrations/versions`, so it was always intended to apply repo-wide. The narrower `ruff check app/` gate used by static-verify/pr-reviewer/pr-decision meant real, auto-fixable lint findings in `tests/` (5 I001 unsorted-import blocks, 1 UP012 unnecessary-encode, repeatedly noticed but correctly judged out-of-scope by individual PR reviews) kept resurfacing as incidental review noise across many PRs instead of being caught by the normal static-verify gate. Considered and rejected leaving the gate as `app/`-only and only fixing the pre-existing findings by hand (this task's original scope): that fixes the symptom once but leaves the same drift class free to recur on the next test file that adds an unsorted import, with nothing in the pipeline to catch it before another PR review notices it again. `ruff check .` from `backend/` is confirmed clean after this task's fixes, so widening imposes no new false-positive burden today."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-static-verify-cleanup",
+    "pr_number": 278,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/278",
+    "pushed_at": "2026-09-23T20:30:23Z"
+  }
 }
