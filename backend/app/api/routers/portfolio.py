@@ -221,6 +221,11 @@ def _grade_closed_trades(
 
 _EXIT_REASON_VALUES: frozenset[str] = frozenset(get_args(ExitReasonOut))
 
+# Distinct out-of-taxonomy exit_reason values already warned about in this process's lifetime
+# (backend-closed-trades-legacy-exit-reason-500-followups) -- see _normalize_exit_reason's
+# docstring for why this is de-duplicated rather than logged on every request.
+_warned_exit_reason_values: set[str] = set()
+
 
 def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
     """Coerces a `closed_trades` row's raw (unconstrained-`String`-column, see
@@ -228,13 +233,23 @@ def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
     Literal, falling back to `'unspecified'` for anything outside the current 8-value taxonomy
     instead of letting `ClosedTradeOut(...)` raise a `pydantic.ValidationError` for the whole
     request -- see the backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry
-    for why a fallback was chosen over widening the taxonomy."""
+    for why a fallback was chosen over widening the taxonomy.
+
+    Logs a `logger.warning` the first time a given out-of-taxonomy value is seen in this
+    process, then stays silent for that same value on every subsequent request -- a
+    long-lived legacy row (e.g. hand-inserted dev data) would otherwise produce an identical
+    warning on every single `GET /api/portfolio/closed-trades` call indefinitely. See the
+    backend-closed-trades-legacy-exit-reason-500-followups task's `decisions` entry."""
     if raw_exit_reason in _EXIT_REASON_VALUES:
         return cast(ExitReasonOut, raw_exit_reason)
-    logger.warning(
-        "closed_trades row has out-of-taxonomy exit_reason %r -- reporting as 'unspecified'",
-        raw_exit_reason,
-    )
+    if raw_exit_reason not in _warned_exit_reason_values:
+        _warned_exit_reason_values.add(raw_exit_reason)
+        logger.warning(
+            "closed_trades row has out-of-taxonomy exit_reason %r -- reporting as "
+            "'unspecified' (further occurrences of this same value are suppressed for the "
+            "rest of this process's lifetime)",
+            raw_exit_reason,
+        )
     return "unspecified"
 
 
@@ -911,6 +926,7 @@ def get_closed_trades(
     grades = _grade_closed_trades(rows, provider)
 
     items: list[ClosedTradeOut] = []
+    dropped_row_ids: list[str] = []
     for row in rows:
         try:
             items.append(_to_closed_trade_out(row, grades[row.id]))
@@ -921,6 +937,25 @@ def get_closed_trades(
             # than 500ing every other trade in the list. See the
             # backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry.
             logger.exception("Skipping closed_trades row %s: failed to build API response", row.id)
+            dropped_row_ids.append(row.id)
+    if dropped_row_ids:
+        # Aggregate signal on top of the per-row logger.exception above (backend-closed-trades-
+        # legacy-exit-reason-500-followups' `decisions` entry): a handful of per-row tracebacks
+        # scattered through the log is easy to miss, and by itself can't distinguish "one bad
+        # legacy row" from a systemic bug affecting most/all of `rows` -- an on-call engineer
+        # watching only aggregate log volume/error-rate metrics (not tailing every traceback)
+        # needs a single line carrying the count and ratio to notice the latter. logger.error,
+        # not .warning, since every row here already failed unexpectedly (dropped_row_ids is
+        # only ever non-empty via the `except Exception` above, never the exit_reason fallback,
+        # which never drops a row).
+        logger.error(
+            "GET /api/portfolio/closed-trades dropped %d/%d row(s) (%.1f%%) due to unexpected "
+            "per-row failures: %s",
+            len(dropped_row_ids),
+            len(rows),
+            100.0 * len(dropped_row_ids) / len(rows),
+            dropped_row_ids,
+        )
     return ClosedTradesResponse(items=items)
 
 

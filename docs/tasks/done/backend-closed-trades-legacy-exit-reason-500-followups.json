@@ -1,0 +1,82 @@
+{
+  "id": "backend-closed-trades-legacy-exit-reason-500-followups",
+  "title": "Non-blocking findings from PR #280's review (legacy exit_reason 500 fix)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-closed-trades-legacy-exit-reason-500"],
+  "references": [
+    "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500.json",
+    "https://github.com/rainoko/fintrade/pull/280",
+    "backend/app/api/routers/portfolio.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #280 (backend-closed-trades-legacy-exit-reason-500), which fixed GET /api/portfolio/closed-trades 500ing on an out-of-taxonomy exit_reason value. Neither finding blocked acceptance -- the fix itself, its tests, and its decision records were all sound -- but both are worth tracking rather than only living in the PR's own (eventually-invisible) review comments.",
+  "checklist": [
+    {
+      "step": "Reconsider get_closed_trades's per-row `except Exception` (backend/app/api/routers/portfolio.py, _to_closed_trade_out call site): it's intentionally broad (documented rationale: narrower than wrapping the whole endpoint, per this task's own decisions entry), but that same breadth means a future systemic bug in _to_closed_trade_out (e.g. a typo affecting every row, not just one bad legacy row) would degrade to a silently near-empty or fully-empty 200 response in production, visible only via a per-row logger.exception line rather than any aggregate signal an on-call engineer would actually notice. Consider adding a per-request dropped-row count/metric (or at least a single aggregate log line when any rows were dropped) so a systemic regression is distinguishable from the one-bad-row case this fix targets, without re-introducing the original bug (one bad row 500ing everything).",
+      "done": true
+    },
+    {
+      "step": "Reconsider _normalize_exit_reason's logger.warning: it fires on every GET /api/portfolio/closed-trades request that includes a persistent out-of-taxonomy row (e.g. old hand-inserted dev data left in place), not just once -- for a long-lived legacy row this could produce repeated, identical warning-log noise indefinitely. Weigh whether that's acceptable (matches this app's existing per-request logging conventions elsewhere) or worth de-duplicating/rate-limiting.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T21:39:54Z",
+      "recorded_by": "task-worker",
+      "decision": "get_closed_trades now logs a single aggregate `logger.error` line at the end of the request whenever the per-row `except Exception` dropped at least one row, carrying the dropped count, the total row count, the percentage, and the list of dropped row ids (e.g. \"dropped 1/2 row(s) (50.0%) ... ['trade_bad']\"). No response-level field (e.g. a `BreadthResponse.unavailable_count`-style int on `ClosedTradesResponse`) was added. Widening the taxonomy comparison considered: `BreadthResponse.unavailable_count` (backend/app/api/schemas.py) is a real precedent for surfacing a per-request \"some items excluded\" count directly in the response body, but that field exists because the frontend itself needs to compute percentages excluding unavailable tickers -- i.e. it's a genuine part of the response's meaning, not just an operability signal. A dropped closed_trades row is different: `_to_closed_trade_out` failing for an unanticipated reason (as opposed to the already-normalized exit_reason case) is a bug-class signal aimed at whoever operates this backend, not something the Portfolio/Trade Journal UI has any established way to render or would benefit from rendering (there's no existing 'N trades hidden due to an error' UI affordance, unlike the watchlist/breadth screens' already-established unavailable-ticker handling) -- and adding one would mean a schema change (openapi.json + frontend/src/api/types.ts) for a code path that, ideally, is never actually exercised. A log line reaches the same on-call audience the per-row logger.exception already targets, requires no schema/frontend change, and is trivially upgradeable to a real metric/counter later if this app grows a metrics pipeline, without committing to a response-contract change now for a defense-in-depth path.",
+      "rationale": "The checklist item explicitly asks to weigh a response-level field against a log-line approach given the app's own existing patterns; a log line matches the audience (backend operators, not end users) and blast radius (schema-change-free) that this specific gap calls for, while unavailable_count's existing precedent is closer to a data-availability concept the frontend already has UI for, which dropped-row defense-in-depth is not. Rejected: adding a `dropped_count`/`dropped_row_ids` field to `ClosedTradesResponse` -- would require an openapi.json/frontend types regen and a frontend consumer that doesn't exist yet, for a path meant to almost never fire; can be revisited if it ever does fire in production and a persistent, queryable signal (not just a log line) turns out to be needed."
+    },
+    {
+      "timestamp": "2026-09-23T21:39:54Z",
+      "recorded_by": "task-worker",
+      "decision": "_normalize_exit_reason now de-duplicates its `logger.warning` per distinct out-of-taxonomy value for the lifetime of the process (a new module-level `_warned_exit_reason_values: set[str]`), rather than logging identically on every request that touches a persistent bad row. The 'accept as-is, matches existing per-request logging conventions elsewhere' alternative was considered and rejected: this specific case differs from those other per-request logs (e.g. grading-failure logging, which varies per ticker/date and is genuinely new information each time) in that a single long-lived legacy row would otherwise produce byte-for-byte identical warnings on every single GET /api/portfolio/closed-trades call indefinitely -- unbounded, purely repetitive log volume with no new information after the first occurrence, for a condition that (per the parent task's own decision) is expected to be static bad data, not something that changes moment to moment. De-duplicating by value (not a single global flag) still means a second, different out-of-taxonomy value gets its own first warning.",
+      "rationale": "A per-process de-duplication set is the minimal change that eliminates the unbounded noise while still guaranteeing at least one warning is emitted for every distinct bad value this process ever encounters (so it isn't silently invisible, just non-repetitive) -- simpler than a time-based rate limiter (e.g. 'warn at most once per hour') for a condition that doesn't need that granularity, and it resets naturally on every process restart/deploy, which is an acceptable, low-cost re-arm rather than a leak concern (the set can only ever hold as many entries as there are distinct malformed string values ever seen, which is bounded by how much genuinely-bad data actually exists)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-closed-trades-legacy-exit-reason-500-followups",
+    "pr_number": 282,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/282",
+    "pushed_at": "2026-09-23T21:41:40Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T21:50:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/282",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "The check-then-act de-dup in `_normalize_exit_reason` (`if raw_exit_reason not in _warned_exit_reason_values: ...add(...); logger.warning(...)`) is not atomic, and `get_closed_trades` is a sync `def` route run in FastAPI/Starlette's thread-pool executor, so concurrent requests can race it: two threads can both pass the `not in` check for the same brand-new value before either adds it, producing a duplicate warning. CPython's GIL keeps the `set.add()` itself safe (no corruption), so the only consequence is an occasional duplicate log line, not data corruption or a crash -- assessed as an acceptable tradeoff for a logging de-dup mechanism given the low stakes, not something requiring a lock. Non-blocking; filed as a follow-up to have the decisions entry/comment note the guarantee is best-effort under concurrency rather than absolute.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 245
+      },
+      {
+        "summary": "`_warned_exit_reason_values` has no size cap and lives for the process's lifetime. Bounded today because the position-close write path validates `exit_reason` against the `ExitReason` enum, so only pre-existing legacy/hand-inserted rows can ever be out-of-taxonomy -- not something ordinary API usage or an attacker can grow unboundedly via repeated requests. Still worth noting as a design caveat: if the underlying `closed_trades.exit_reason` column ever held many distinct freeform legacy values instead of a small fixed bad set, the set would grow without bound and the log-volume reduction wouldn't materialize (every value is 'new' once). Non-blocking; filed as a follow-up.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 227
+      },
+      {
+        "summary": "Aggregate `logger.error` line's content (dropped count, total, percentage, dropped row ids) matches its tests exactly (dropped 1/2, 50.0%, `trade_bad` present); no rows dropped produces no aggregate log line. No division-by-zero risk since `dropped_row_ids` is only populated inside the per-row loop, so `len(rows) >= 1` whenever it's non-empty. No finding.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 940
+      },
+      {
+        "summary": "Both judgment calls (aggregate log line vs. a new `ClosedTradesResponse` field; per-process warning de-dup vs. accept-as-is) are recorded as sound `decisions` entries with rationale and rejected alternatives, and the comparison against `BreadthResponse.unavailable_count` is accurate: that field is a genuine response-contract concept the frontend consumes for percentage math, whereas a dropped defense-in-depth row has no analogous frontend affordance today, so keeping this a log line (no schema/openapi/frontend change) is the right call. No finding.",
+        "file": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups.json",
+        "line": 28
+      },
+      {
+        "summary": "Test isolation for the two new de-dup tests is handled correctly via `monkeypatch.setattr(portfolio_router, \"_warned_exit_reason_values\", set())` at the start of each -- since `_normalize_exit_reason` looks up the module-global by name on every call (not a captured/closed-over reference), the swap takes effect immediately and monkeypatch's automatic teardown restores the prior object afterward. No other test file touches an out-of-taxonomy `exit_reason` value, so there is no cross-file pollution risk either. No finding.",
+        "file": "backend/tests/integration/test_portfolio_closed_trades.py",
+        "line": 306
+      }
+    ],
+    "notes": "Independently re-ran the full backend suite (1202 passed), coverage (100% line+branch, gate is 90%), ruff/mypy (both clean), the profit-target wording guard (clean), and re-exported openapi.json (no diff -- correctly not regenerated, since no route/schema signature changed). Frontend untouched by this PR; skipped frontend lint/tsc explicitly for that reason, last known state clean. No new module/dependency/layer added (architecture-review not triggered), area is backend/api not backend/signals or backend/portfolio and skill is null (verify-elder-signal not triggered), no frontend components touched (placement-review step not applicable). This PR has no UI surface: it changes only server-side logging behavior for an existing endpoint whose response schema/behavior is unchanged (openapi.json diff-free confirms this) -- skipped the browser walkthrough (step 9) and the persisted e2e suite (step 9a) explicitly for that reason rather than silently omitting them. Also ran the code-review skill (effort: high) independently against the diff; it converged on the same two findings recorded above (the concurrency race and the unbounded-growth caveat) with no additional issues, and separately verified the aggregate-log divide-by-zero case, format-string arg count, `trade_`-prefix id matching in tests, and cross-file test-pollution risk all check out fine. Both findings are non-blocking: the race's worst case is a rare duplicate log line (no corruption, no crash) and the growth concern is mitigated today by the enum-constrained write path (`exit_reason: ExitReason = Query(...)`) that keeps genuinely out-of-taxonomy values confined to pre-existing legacy data. Filed as docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups.json so they aren't lost once this PR merges. No stale `pr_decision` was present on this task to clear (first review pass)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-23T21:54:25Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the backend suite (1202 passed, 100% line+branch coverage) and ruff/mypy (both clean), matching pr-reviewer's reported numbers exactly; re-exported openapi.json and confirmed no diff. Skimmed the full diff (portfolio.py's _warned_exit_reason_values set, aggregate logger.error block, and the four new/updated tests) against origin/main -- matches the PR's own description. Confirmed the race-condition assessment: the check-then-act on the module-level set is a real race under FastAPI's thread-pool executor, but CPython's GIL bounds the fallout to an occasional duplicate log line (no corruption), so 'non-blocking, filed as a follow-up' is not underweighted. Verified backend-closed-trades-legacy-exit-reason-500-followups-followups.json exists with both non-blocking findings as checklist items, depends_on this task, and index.json mirrors state/path correctly for both tasks."
+  }
+}
