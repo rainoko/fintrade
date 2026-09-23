@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #285's review (PositionsTable.handleConfirmClose's unconditional pendingDelete clear)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-close-position-dialog-followups"],
   "references": [
     "docs/tasks/done/frontend-close-position-dialog-followups.json#decisions",
@@ -37,5 +37,12 @@
     "pr_number": 286,
     "pr_url": "https://github.com/rainoko/fintrade/pull/286",
     "pushed_at": "2026-09-23T23:20:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T23:32:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/286",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #286. Traced the exact repro sequence from the task description against `handleConfirmClose`'s new functional `setPendingDelete` updater and confirmed it genuinely closes the race, not just the specific test written for it: reverted the fix locally (restored the old unconditional `setPendingDelete(null)`) and re-ran PositionsTable.test.tsx -- the extended assertions fail exactly as expected (dialog no longer present after AAPL's held DELETE resolves), then restored the fix and confirmed green again. Independently reproduced the full sequence live in a real Chromium browser (Playwright driving a manually-started backend+frontend stack, with the AAPL DELETE held via page.route()): opened AAPL's dialog and confirmed, backdrop-dismissed it while its DELETE was held, opened GOOGL's dialog (rendered with its own Confirm disabled/loading, confirming the shared-isPending invariant), released AAPL's DELETE, and confirmed GOOGL's dialog stayed open with its own title and its Confirm button re-enabling -- no console errors or failed network requests. Also verified the normal single-close flow is unaffected (dialog closes on its own once its own DELETE resolves, position removed from the table). Backend suite: 1203 passed, 100% coverage. Frontend suite: 831 passed, 99.76%/99.31%/99.78%/99.82% (statements/branches/functions/lines), well above the 90% gate. Backend ruff/mypy and frontend eslint/tsc/profit-target-wording guard all clean. Ran the code-review skill against the diff independently -- no bugs found. Ran the full persisted e2e suite (`make e2e`) -- all 22 specs passed. Change is frontend-only (no API/schema touch, so no openapi.json check applies); no new module/component/layer introduced (existing PositionsTable.tsx modified in place, correctly placed under features/portfolio/components already), so architecture-review/component-placement assessment doesn't apply here. Area is frontend/pages/portfolio, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply. No checklist item phrased as 'decide X' without a corresponding decisions entry -- both judgment calls made (closure-capture vs `variables?.id`, extending vs duplicating the existing test) are recorded with rationale. No non-blocking findings from this review; no followup task filed."
   }
 }
