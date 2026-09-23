@@ -31,5 +31,11 @@
       "rationale": "The existing test already set up the full two-position/held-DELETE/backdrop-dismiss/reopen sequence this bug needs -- duplicating that setup in a new test would just be a near-identical copy differing only in its final assertions. Extending it keeps one authoritative test for the whole scenario and removes the now-stale comment explicitly calling out this exact gap, rather than leaving that comment sitting next to a second test that closes it."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-close-position-dialog-followups-followups",
+    "pr_number": 286,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/286",
+    "pushed_at": "2026-09-23T23:20:33Z"
+  }
 }
