@@ -1,8 +1,9 @@
+import logging
 import math
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import cast, get_args
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -58,6 +59,8 @@ from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
 from app.signals.support_resistance import detect_support_resistance_zones
 from app.time_utils import today, utcnow
+
+logger = logging.getLogger(__name__)
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -216,6 +219,25 @@ def _grade_closed_trades(
     return grades
 
 
+_EXIT_REASON_VALUES: frozenset[str] = frozenset(get_args(ExitReasonOut))
+
+
+def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
+    """Coerces a `closed_trades` row's raw (unconstrained-`String`-column, see
+    `app.db.models.ClosedTradeORM.exit_reason`) `exit_reason` value to a valid `ExitReasonOut`
+    Literal, falling back to `'unspecified'` for anything outside the current 8-value taxonomy
+    instead of letting `ClosedTradeOut(...)` raise a `pydantic.ValidationError` for the whole
+    request -- see the backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry
+    for why a fallback was chosen over widening the taxonomy."""
+    if raw_exit_reason in _EXIT_REASON_VALUES:
+        return cast(ExitReasonOut, raw_exit_reason)
+    logger.warning(
+        "closed_trades row has out-of-taxonomy exit_reason %r -- reporting as 'unspecified'",
+        raw_exit_reason,
+    )
+    return "unspecified"
+
+
 def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeOut:
     """Builds the `ClosedTradeOut` for one `closed_trades` row + its already-computed
     `TradeGrade` (from `_grade_closed_trades`). Shared by `get_closed_trades` and
@@ -232,7 +254,7 @@ def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeO
         exit_price=row.exit_price,
         exit_date=row.exit_date,
         realized_pnl=row.realized_pnl,
-        exit_reason=cast(ExitReasonOut, row.exit_reason),
+        exit_reason=_normalize_exit_reason(row.exit_reason),
         buy_grade_pct=grade.buy_grade_pct,
         sell_grade_pct=grade.sell_grade_pct,
         trade_grade_pct=grade.trade_grade_pct,
@@ -888,7 +910,18 @@ def get_closed_trades(
     rows = query.order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc()).all()
     grades = _grade_closed_trades(rows, provider)
 
-    return ClosedTradesResponse(items=[_to_closed_trade_out(row, grades[row.id]) for row in rows])
+    items: list[ClosedTradeOut] = []
+    for row in rows:
+        try:
+            items.append(_to_closed_trade_out(row, grades[row.id]))
+        except Exception:
+            # Defense in depth beyond the exit_reason-specific fallback above (which already
+            # covers the one failure mode actually observed): a single malformed row -- of any
+            # future/unanticipated kind, not just exit_reason -- is dropped and logged rather
+            # than 500ing every other trade in the list. See the
+            # backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry.
+            logger.exception("Skipping closed_trades row %s: failed to build API response", row.id)
+    return ClosedTradesResponse(items=items)
 
 
 @router.post(

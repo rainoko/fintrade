@@ -252,6 +252,71 @@ class TestGetClosedTradesGradingDegradesGracefully:
             app.dependency_overrides.pop(get_data_provider, None)
 
 
+class TestGetClosedTradesLegacyExitReasonDegradesGracefully:
+    """backend-closed-trades-legacy-exit-reason-500: a row whose `exit_reason` predates (or
+    otherwise falls outside) the current `ExitReasonOut` taxonomy must not 500 the whole
+    endpoint -- it's reported as `'unspecified'` instead (this app's own existing sentinel for
+    "no real reason known"), and every other row in the same response is unaffected."""
+
+    def test_out_of_taxonomy_exit_reason_reported_as_unspecified(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        [item] = response.json()["items"]
+        assert item["exit_reason"] == "unspecified"
+
+    def test_other_rows_in_the_same_response_are_unaffected(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="legacy", exit_reason="manual")
+        _add_closed_trade(db_session, id="ok", exit_reason=ExitReason.STOP_HIT.value)
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        items = {item["id"]: item for item in response.json()["items"]}
+        assert items["trade_legacy"]["exit_reason"] == "unspecified"
+        assert items["trade_ok"]["exit_reason"] == "stop_hit"
+
+    def test_follow_up_review_on_a_legacy_exit_reason_trade_does_not_500(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Legacy row, reviewed anyway."},
+        )
+        assert response.status_code == 200
+        assert response.json()["exit_reason"] == "unspecified"
+
+    def test_a_row_that_fails_for_an_unanticipated_reason_is_skipped_not_500ed(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Defense in depth beyond the exit_reason-specific fallback (this task's checklist
+        item 3): any row that still fails `_to_closed_trade_out` for some other,
+        unanticipated reason is dropped from the response and logged, rather than 500ing
+        every other trade in the list."""
+        _add_closed_trade(db_session, id="bad", ticker="AAPL")
+        _add_closed_trade(db_session, id="ok", ticker="AAPL", exit_date=date(2020, 1, 2))
+
+        real_to_closed_trade_out = portfolio_router._to_closed_trade_out
+
+        def _flaky(row: ClosedTradeORM, grade: object) -> object:
+            if row.id == "trade_bad":
+                raise RuntimeError("simulated unanticipated failure")
+            return real_to_closed_trade_out(row, grade)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(portfolio_router, "_to_closed_trade_out", _flaky)
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids == ["trade_ok"]
+
+
 class TestGetClosedTradesSharesOneFetchPerTicker:
     def test_two_trades_same_ticker_only_fetch_once(
         self, db_session: Session
