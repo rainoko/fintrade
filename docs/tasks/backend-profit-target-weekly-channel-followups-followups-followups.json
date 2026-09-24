@@ -77,5 +77,11 @@
       "rationale": "Confirmed via grep (`\\.end\\b`) that nothing downstream ever reads a run member's tokenize `.end` attribute for an f-string member specifically (the only other `.end`-shaped names in the file are `_PieceSpan.end`, a distinct field, and `re.Match.end()`, an unrelated method) -- keeping the `_replace` call would have left a functioning-but-pointless allocation on every f-string member with no reader depending on it, whereas dropping it is strictly simpler and the risk (some future change re-introducing a position-based adjacency check that then silently regresses for f-strings) is exactly what the corrected comment now calls out explicitly."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel-followups-followups-followups",
+    "pr_number": 307,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/307",
+    "pushed_at": "2026-09-24T15:26:48Z"
+  }
 }
