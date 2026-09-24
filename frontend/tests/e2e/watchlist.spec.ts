@@ -56,6 +56,34 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
     )
   })
 
+  test('adding a ticker updates the personal breadth card with a Bullish/Bearish/Neutral breakdown', async ({
+    page,
+  }) => {
+    await page.goto('/watchlist')
+
+    // Regression check for PersonalBreadthCard (frontend-market-breadth-widget-followups-
+    // followups): unlike MarketBreadthCard's IBKR-gated disabled panel above, this card's data
+    // comes straight from GET /api/watchlist/breadth over the real (fixture-backed) backend, so
+    // once the previous test's GOOGL add makes tracked_ticker_count >= 1, the card renders its
+    // three stat cards instead of the "add a ticker" empty state. Scoped to `main` for the same
+    // reason as the market-breadth assertions above (nothing else on the page renders these
+    // labels today, but scoping keeps this robust to that changing).
+    const main = page.getByRole('main')
+    await expect(
+      main.getByRole('heading', { level: 2, name: 'Personal Breadth (Watchlist + Portfolio)' }),
+    ).toBeVisible()
+
+    // Asserted structurally (labels present, values shaped like "N (P.P%)") rather than
+    // pinning which bucket GOOGL's fixture series actually lands in -- same reasoning
+    // fixture_provider.py's own docstring gives for why e2e specs assert shape, not an exact
+    // signal outcome, and duplicating app.signals.engine's Tide computation here just to
+    // predict it would be both fragile and redundant with the pytest suite's job.
+    await expect(main.getByText('Bullish')).toBeVisible()
+    await expect(main.getByText('Bearish')).toBeVisible()
+    await expect(main.getByText('Neutral')).toBeVisible()
+    await expect(main.getByText(/^\d+ \(\d+\.\d%\)$/)).toHaveCount(3)
+  })
+
   test('removing the ticker takes it out of the table', async ({ page }) => {
     await page.goto('/watchlist')
 
@@ -80,9 +108,10 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
 // (which would need a stub IBKR gateway this suite doesn't run). Kept outside the
 // `describe.serial` block above since it neither depends on nor mutates the add/remove flow's
 // watchlist state -- a failure here shouldn't skip that flow's remaining steps, or vice versa.
-// No equivalent e2e assertion exists yet for PersonalBreadthCard either (see this task's
-// `decisions` entry) -- this follows this spec file's own existing assertion style rather than a
-// PersonalBreadthCard e2e pattern.
+// PersonalBreadthCard now gets its own equivalent e2e assertion inside the `describe.serial`
+// block above (frontend-market-breadth-widget-followups-followups) -- placed there rather than
+// out here since, unlike this card, its "has tracked tickers" state genuinely depends on the
+// add/remove flow's watchlist mutation.
 test('market breadth card shows the disabled panel when IBKR is not connected', async ({
   page,
 }) => {

@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #287's review (MarketBreadthCard followups)",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-market-breadth-widget-followups"
   ],
@@ -15,13 +15,25 @@
   "checklist": [
     {
       "step": "No frontend/tests/e2e/*.spec.ts spec asserts on PersonalBreadthCard at all (confirmed via grep across every spec file). PR #287's own task-worker discovered this while working checklist item 3 (whose premise -- 'matching the level of e2e attention PersonalBreadthCard already gets' -- turned out false) and correctly recorded it as a decision rather than expanding that task's scope to fix it. The underlying gap is real: PersonalBreadthCard (features/watchlist/components/PersonalBreadthCard.tsx) has thorough vitest coverage but zero persisted e2e regression coverage, unlike MarketBreadthCard which now has an explicit disabled-state e2e assertion (frontend/tests/e2e/watchlist.spec.ts). Consider adding an equivalent e2e assertion for PersonalBreadthCard's rendered Bullish/Bearish/Neutral stat cards on the watchlist page.",
-      "done": false
+      "done": true
     },
     {
       "step": "Both of PR #287's new `decisions` entries on frontend-market-breadth-widget-followups.json are timestamped `2026-09-23T00:00:00Z` -- an exact-midnight value that doesn't match the PR's actual push time (git log shows commits at 2026-09-23T23:53-23:54Z, i.e. roughly 24h later same calendar day). Looks like a placeholder/rounded value rather than a real `date -u` capture. Doesn't affect the decisions' validity, but worth using a real captured timestamp for future `decisions` entries the same way `review`/`pr_decision` timestamps are already required to.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
-  "questions": []
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T04:34:19Z",
+      "recorded_by": "task-worker",
+      "decision": "Added the new PersonalBreadthCard e2e assertion as a test inside watchlist.spec.ts's existing `describe.serial` add/remove block (right after the 'adding a ticker shows it in the watchlist table' test, before 'removing the ticker'), not as a standalone test alongside MarketBreadthCard's disabled-panel assertion. Verified empirically (`GET /api/watchlist/breadth` against the real fixture backend, and by running the full `yarn test:e2e` suite in order) that with GOOGL as the watchlist's only tracked ticker at that point in the flow, `tracked_ticker_count` is exactly 1 and the card renders its three stat cards instead of the empty state. The assertion itself is structural only -- it checks the Bullish/Bearish/Neutral labels are present and each stat card's value matches `/^\\d+ \\(\\d+\\.\\d%\\)$/` -- rather than pinning which bucket GOOGL's fixture series lands in (confirmed via a one-off script to be NEUTRAL today, i.e. HOLD/0% confidence), since fixture_provider.py's own docstring explicitly documents why e2e specs should assert shape rather than duplicate app.signals.engine's Tide computation to predict an exact outcome.",
+      "rationale": "MarketBreadthCard's disabled-panel assertion is a standalone test because that card's state (always-disabled) is independent of the add/remove flow entirely -- it would pass identically no matter what the watchlist/portfolio contain. PersonalBreadthCard's state genuinely depends on tracked_ticker_count being nonzero, which only holds once the serial block's own add step has run (this suite's portfolio.spec.ts and watchlist.spec.ts's own earlier steps otherwise leave both watchlist and portfolio empty, per each spec's self-cleaning design) -- so placing it inside the serial block, immediately after the add step, is the only place in the file where that precondition is actually true without introducing new setup/teardown of its own. Considered adding a fully separate ticker+test pair (mirroring MarketBreadthCard's independence) but rejected it as needless duplication of state the add/remove flow already creates and destroys just for this one assertion."
+    },
+    {
+      "timestamp": "2026-09-24T04:34:19Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 2 (the round-midnight `2026-09-23T00:00:00Z` decisions timestamps PR #287 recorded on the now-done frontend-market-breadth-widget-followups.json), did not edit that file's existing entries -- consistent with CLAUDE.md's append-only convention for a done task's `decisions` array, and this task's own description explicitly framing the finding as 'worth noting for future decisions entries' rather than a concrete artifact to produce. No dedicated guidance doc/checklist exists that governs how `task-worker` captures a `decisions` timestamp (CLAUDE.md's task-board section already states the field is an 'ISO 8601 timestamp' but doesn't separately call out capturing it via a live `date -u`, unlike `review`/`pr_decision`, which the pr-reviewer/pr-decision agent docs do call out) -- rather than inventing a new standalone doc/process file for a one-line convention, this decisions entry itself, plus this task-worker session's own real `date -u` captures used throughout this file (2026-09-24T04:34:19Z), stands as the record future sessions can point back to. Marked checklist item 2 done on that basis: the acknowledgment this item called for now exists on the board.",
+      "rationale": "Editing docs/tasks/done/frontend-market-breadth-widget-followups.json's existing decisions text in place would violate CLAUDE.md's explicit append-only default (the four-condition carve-out for an in-place edit doesn't apply here: this isn't a narrow factual correction to that entry's own claims, and the checklist item never named that entry's text itself as the thing to fix, unlike the backend-cftc-cot-data-followups precedent CLAUDE.md cites). Considered adding a brand-new appended decisions entry directly onto that done task's file (the narrower carve-out CLAUDE.md documents) but rejected it here too, for the same reason: that carve-out requires the referencing task's own checklist to explicitly call out the existing entry's text as needing a fix, which this task's checklist item does not -- it asks only to note the observation for future decisions entries, which this task's own decisions array (not the other, already-closed task's) is the natural place to do."
+    }
+  ]
 }
