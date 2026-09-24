@@ -35,5 +35,11 @@
       "decision": "For checklist item 2 (the round-midnight `2026-09-23T00:00:00Z` decisions timestamps PR #287 recorded on the now-done frontend-market-breadth-widget-followups.json), did not edit that file's existing entries -- consistent with CLAUDE.md's append-only convention for a done task's `decisions` array, and this task's own description explicitly framing the finding as 'worth noting for future decisions entries' rather than a concrete artifact to produce. No dedicated guidance doc/checklist exists that governs how `task-worker` captures a `decisions` timestamp (CLAUDE.md's task-board section already states the field is an 'ISO 8601 timestamp' but doesn't separately call out capturing it via a live `date -u`, unlike `review`/`pr_decision`, which the pr-reviewer/pr-decision agent docs do call out) -- rather than inventing a new standalone doc/process file for a one-line convention, this decisions entry itself, plus this task-worker session's own real `date -u` captures used throughout this file (2026-09-24T04:34:19Z), stands as the record future sessions can point back to. Marked checklist item 2 done on that basis: the acknowledgment this item called for now exists on the board.",
       "rationale": "Editing docs/tasks/done/frontend-market-breadth-widget-followups.json's existing decisions text in place would violate CLAUDE.md's explicit append-only default (the four-condition carve-out for an in-place edit doesn't apply here: this isn't a narrow factual correction to that entry's own claims, and the checklist item never named that entry's text itself as the thing to fix, unlike the backend-cftc-cot-data-followups precedent CLAUDE.md cites). Considered adding a brand-new appended decisions entry directly onto that done task's file (the narrower carve-out CLAUDE.md documents) but rejected it here too, for the same reason: that carve-out requires the referencing task's own checklist to explicitly call out the existing entry's text as needing a fix, which this task's checklist item does not -- it asks only to note the observation for future decisions entries, which this task's own decisions array (not the other, already-closed task's) is the natural place to do."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget-followups-followups",
+    "pr_number": 295,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/295",
+    "pushed_at": "2026-09-24T04:36:06Z"
+  }
 }
