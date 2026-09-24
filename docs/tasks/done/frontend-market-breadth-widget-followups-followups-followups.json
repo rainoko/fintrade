@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #295's review (watchlist.spec.ts serial-block failure-window)",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-market-breadth-widget-followups-followups"
   ],
@@ -32,5 +32,12 @@
     "pr_number": 297,
     "pr_url": "https://github.com/rainoko/fintrade/pull/297",
     "pushed_at": "2026-09-24T05:27:03Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T05:34:51Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/297",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (1203 passed, 100% coverage) and frontend vitest (841 passed, 99.3-99.8% across statements/branches/functions/lines) both clean; backend ruff+mypy and frontend eslint+tsc both clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. code-review skill (medium effort) found no issues in the committed diff (it flagged an uncommitted line in my own working tree, which was my own temporary failure-injection from independently reproducing the afterAll behavior below -- reverted via `git checkout --` before that skill ran; confirmed `git status` clean afterward, not a PR issue). Independently reproduced the PR's own claimed verification: injected a throw at the top of the 'adding a ticker updates the personal breadth card...' test, ran `npx playwright test tests/e2e/watchlist.spec.ts` alone, and confirmed the 'removing the ticker' test reported 'did not run' (skipped by describe.serial+retries:0) while `test.afterAll` still fired and issued `DELETE /api/watchlist/GOOGL` (204) -- matching the PR description exactly. Reverted the injected failure immediately (git checkout, working tree clean). Checked the 204/404 tolerance against backend/app/api/routers/watchlist.py's delete_watchlist_item (status_code=204 on success, HTTPException(404) if absent -- no other status is possible in normal operation), so a genuine 500 would still fail the `expect([204, 404]).toContain(...)` assertion loudly rather than being masked. Ran `make e2e` twice end-to-end (24/24 passed both times, no flakiness); confirmed no double-cleanup conflict -- on a normal successful run the 'removing the ticker' test's own DELETE returns 204 and the subsequent afterAll DELETE correctly gets 404 (idempotent, tolerated), and TICKER='GOOGL' is exclusive to this spec file so there's no interference with other e2e specs (AAPL/MSFT). Task's own decisions entry's factual claim (portfolio.spec.ts's clearPreexistingDueFollowUpTrades pattern) verified to exist as described. No UI-facing application code changed (only frontend/tests/e2e/watchlist.spec.ts plus task-board JSON) -- browser MCP walkthrough (step 9) skipped as explicitly out of scope; the e2e suite run above is the applicable check for this PR. No blocking findings; no non-blocking findings either (no follow-up task filed)."
   }
 }
