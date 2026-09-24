@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #311's review (backend-day-trader-timeframe-mode-ibkr-intraday)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-ibkr-intraday"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json",
@@ -13,21 +13,40 @@
   "checklist": [
     {
       "step": "`get_intraday_bars_for_triple` fetches the `short_term` and `intermediate` legs sequentially even though they're independent IBKR HTTP calls (each potentially multi-page via `get_hourly_bars`'s own pagination). When both legs are `MINUTE`-unit, a caller pays roughly double the slower leg's latency for no correctness reason. Worth revisiting once a real caller exists (e.g. `backend-day-trader-timeframe-mode-signal-engine`) and the actual latency impact can be measured -- e.g. fetching both legs concurrently (a thread pool, since `IBKRProvider`'s HTTP calls are synchronous) if it turns out to matter in practice.",
-      "done": false
+      "done": true
     },
     {
       "step": "`_select_ibkr_bar_size`'s docstring is self-contradictory: its first sentence describes the return value as \"the finest IBKR-supported bar interval that (a) is <= target_minutes and (b) evenly divides it,\" but the very next sentence and the actual implementation (`chosen_minutes = max(candidates)`) pick the *largest* (coarsest) evenly-dividing candidate, not the finest -- confirmed correct by the module's own '30-minute target fetches 5min not 1min' example one line later, and by the passing tests. No functional impact, but the wording would mislead a future reader trying to understand the selection rule from the docstring alone. Fix: reword the first sentence to say 'coarsest'/'largest' instead of 'finest'.",
-      "done": false
+      "done": true
     },
     {
       "step": "`DayTraderIntradayBars`/`get_intraday_bars_for_triple` never fetches or exposes a `long_term` leg even when it's configured as `MINUTE`-unit. `TimeframeTriple`'s ordering validation (`long_term > intermediate > short_term` by trading-minute length) doesn't prevent an all-intraday, scalping-style triple (e.g. long_term=100m/intermediate=25m/short_term=5m) from being persisted via `PUT /api/settings/trading-mode`. This matches PR #311's own task scope ('the short-term leg always; the intermediate leg too if it's also intraday'), so it wasn't a scope violation by that PR, but `backend-day-trader-timeframe-mode-signal-engine` (the task expected to actually consume this module's output) should explicitly decide how to handle a fully-intraday triple -- either extend this module to also fetch `long_term` when it's `MINUTE`-unit, or document that this combination isn't supported yet -- before assuming IBKR-backed data is always available for whichever leg of the active triple needs it.",
-      "done": false
+      "done": true
     },
     {
       "step": "`_resample_to_target`'s open=first/high=max/low=min/close=last/volume=sum aggregation + `dropna(subset=[...])` pattern duplicates `StooqProvider._resample_weekly`'s identical aggregation logic almost verbatim (they differ only in the resample rule string, `\"{n}min\"` vs `\"W-FRI\"`). Could be extracted into one shared OHLCV-resampling helper (e.g. in `app.data.base`) to avoid the same logic living in two places, now that a second, deliberately-mirrored copy exists.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T21:22:55Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 3 (fetch/expose a `long_term` leg) was already fully resolved by PR #312 (`backend-day-trader-timeframe-mode-signal-engine`), before this task was picked up -- `get_intraday_bars_for_triple` already calls `_fetch_leg` uniformly for `long_term`/`intermediate`/`short_term` on current `main`, confirmed by reading the module directly and by `TestGetIntradayBarsForTripleUnitScoping::test_all_three_legs_fetched_for_a_fully_intraday_triple` already passing. Marked done here rather than re-implemented, per `backend-day-trader-timeframe-mode-signal-engine-followups.json`'s own checklist item 3, which explicitly named this exact bookkeeping gap and pointed at PR #312.",
+      "rationale": "Re-implementing already-shipped behavior would be pure churn with no functional change and real risk of introducing a regression in code that's already covered by a passing, review-verified test suite; the task-board bookkeeping gap (this checklist item never having been ticked off) is the only thing that needed fixing, and doing so here (rather than waiting for someone to separately pick up the signal-engine-followups task's own pointer) closes the loop in one place."
+    },
+    {
+      "timestamp": "2026-09-24T21:22:55Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (sequential vs. concurrent leg fetching): implemented concurrent fetching. `get_intraday_bars_for_triple` now submits all three legs' `_fetch_leg` calls to a `concurrent.futures.ThreadPoolExecutor(max_workers=3)` and blocks on every future's `.result()` before returning, rather than calling `_fetch_leg` three times in sequence.",
+      "rationale": "A real caller now exists on `main` (`app.api.day_trader_signal.compute_day_trader_signal`, wired into `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` by PR #313) and it requires the active triple to be *fully intraday* (every leg `MINUTE`-unit, `_is_fully_intraday`) before it will even attempt a day-trader-mode signal -- so the three-sequential-IBKR-round-trips case this checklist item worried about isn't hypothetical anymore, it's the only case `compute_day_trader_signal` ever exercises. That makes this a genuine user-facing request-latency cost on two real HTTP endpoints (and, for `GET /api/watchlist`, multiplied once per watched ticker, since `_compute_signal` already calls `compute_day_trader_signal` per ticker sequentially -- a separate, larger pre-existing pattern this task doesn't touch, and a natural next place to look if watchlist-level latency ever needs its own follow-up). Each leg's fetch is fully independent (no shared mutable state, `IntradayLegResult`/`DayTraderIntradayBars` are frozen dataclasses, `_fetch_leg` doesn't mutate anything outside its own local scope), so fanning the three out to a thread pool and fanning back in via `.result()` is a low-risk, low-complexity way to collapse roughly 3x the slowest leg's IBKR round-trip latency down to roughly 1x, with no new synchronization surface. Rejected alternatives: (a) leaving it sequential, since the latency-sensitive real caller this checklist item was explicitly waiting for now exists and the fix is small; (b) `asyncio` instead of a thread pool, rejected because `IBKRProvider`'s HTTP calls (`urllib`-based, confirmed by reading `ibkr_provider.py`) are synchronous and this module/its callers (`app.api.day_trader_signal`, both routers) are themselves synchronous FastAPI path functions, not `async def` -- introducing asyncio here would mean either wrapping the whole call chain in `asyncio.to_thread`/`run_in_executor` anyway (no simpler than a plain `ThreadPoolExecutor`) or a much larger async-ification of code that has no other reason to become async. Verified the change is safe for the existing test suite's mocking convention (`mocker.create_autospec(IBKRProvider, instance=True)`, a `Mock`/`MagicMock`-based double whose call-recording is safe enough for this module's read-only, fixed-return-value usage under the GIL) by re-running the full suite rather than assuming it; one existing test (`test_non_composable_interval_resamples_from_finest_evenly_dividing_bar_size`) asserted `call_args_list[0].kwargs[\"bar_size\"]`, which is no longer a valid assumption once leg-fetch order isn't guaranteed -- updated it to check bar_size membership across all calls instead of position."
+    },
+    {
+      "timestamp": "2026-09-24T21:22:55Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 4 (shared OHLCV-resampling helper): extracted `app.data.base.resample_ohlcv(frame, rule)`, implementing the open=first/high=max/low=min/close=last/volume=sum aggregation + incomplete-bin `dropna` + `index.name = \"date\"` pattern once. `StooqProvider._resample_weekly` now calls `resample_ohlcv(daily, \"W-FRI\")` and `app.data.day_trader_intraday._resample_to_target` now calls `resample_ohlcv(frame, f\"{target_minutes}min\")`, both losing their own previously-duplicated aggregation bodies.",
+      "rationale": "The two implementations were byte-for-byte identical except for the resample rule string and (in `_resample_weekly`'s case only) an explicit `weekly.index.name = \"date\"` line after resampling -- `app.data.base` (already the shared home for `DataProvider`'s own OHLCV-shape contract/`ExtendedData`) was the natural place to put the extraction, per the task's own suggestion, rather than either provider module depending on the other. Setting `index.name = \"date\"` unconditionally in the shared helper (rather than only for the weekly case) is a no-op for `_resample_to_target`'s callers today (`_bars_to_frame` already names its `DatetimeIndex` `\"date\"`, and resampling preserves that name), so this doesn't change `day_trader_intraday.py`'s observed behavior, confirmed by the full test suite (including `TestSelectIbkrBarSizeAndResampling`'s existing resampling-shape assertions) passing unchanged."
+    }
+  ],
   "questions": []
 }

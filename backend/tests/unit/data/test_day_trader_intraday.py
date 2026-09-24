@@ -169,8 +169,11 @@ class TestSelectIbkrBarSizeAndResampling:
 
         result = get_intraday_bars_for_triple(triple, provider=provider, conid=1)
 
-        call_kwargs = provider.get_hourly_bars.call_args_list[0].kwargs
-        assert call_kwargs["bar_size"] == "5min"
+        # The three legs are now fetched concurrently (checklist item 1 of
+        # backend-day-trader-timeframe-mode-ibkr-intraday-followups), so `call_args_list`'s
+        # own order across legs is no longer guaranteed -- check membership, not position.
+        bar_sizes_requested = {call.kwargs["bar_size"] for call in provider.get_hourly_bars.call_args_list}
+        assert "5min" in bar_sizes_requested
         assert result.short_term.ibkr_bar_size == "5min"
         assert len(result.short_term.ohlcv) == 1
         row = result.short_term.ohlcv.iloc[0]

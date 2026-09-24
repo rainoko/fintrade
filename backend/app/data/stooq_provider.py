@@ -3,7 +3,7 @@ import urllib.request
 
 import pandas as pd
 
-from app.data.base import DataProvider, ExtendedData
+from app.data.base import DataProvider, ExtendedData, resample_ohlcv
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
@@ -157,9 +157,8 @@ class StooqProvider(DataProvider):
 
     @staticmethod
     def _resample_weekly(daily: pd.DataFrame) -> pd.DataFrame:
-        weekly = daily.resample("W-FRI").agg(
-            {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-        )
-        weekly = weekly.dropna(subset=["open", "high", "low", "close"])
-        weekly.index.name = "date"
-        return weekly
+        """Daily -> calendar-week (Friday-ending) OHLCV bars -- the same
+        open=first/high=max/low=min/close=last/volume=sum aggregation `app.data.base
+        .resample_ohlcv` implements once for every OHLCV-resampling caller in this codebase
+        (see that function's own docstring)."""
+        return resample_ohlcv(daily, "W-FRI")
