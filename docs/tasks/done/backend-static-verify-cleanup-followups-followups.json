@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #281's review (backend-static-verify-cleanup-followups)",
   "area": "backend",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-static-verify-cleanup-followups"],
   "references": [
     "docs/tasks/done/backend-static-verify-cleanup-followups.json#review",
@@ -21,5 +21,12 @@
     "pr_number": 292,
     "pr_url": "https://github.com/rainoko/fintrade/pull/292",
     "pushed_at": "2026-09-24T02:17:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T02:20:10Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/292",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Documentation-only change, light-touch review per dispatch instruction. Confirmed the change is genuinely append-only: git diff main...HEAD shows only additions to docs/tasks/done/backend-static-verify-cleanup.json's `decisions` array (one new entry) plus this task's own checklist/git-block fields and the index.json state mirror -- no existing text (including backend-static-verify-cleanup.json's checklist item 1 wording, which the new decision explicitly declines to edit in place) was altered or deleted. Verified the underlying factual claim directly against PR #278's actual diff: test_stooq_provider.py's fix was `mock_response.read.return_value = \"...\".encode(\"utf-8\")` -> `b\"...\"`, i.e. UP012 (unnecessary encode rewritten to a bytes literal), not an I001 import-sort fix -- matching what the new decisions entry (and the prior, already-accepted PR #278/#281 review chain) states. Ran `python3 scripts/validate_tasks.py` (289 files, no violations) and confirmed all three touched JSON files parse. No code files touched (git diff --stat: only the 3 docs/tasks/*.json files) so backend/frontend test suite, coverage, static-verify (ruff/mypy/eslint/tsc), and code-review were not run as separate steps -- there is no code surface for them to check, consistent with the dispatch instruction that this is a very low-risk, light-touch review. No UI surface in this PR -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) do not apply and are explicitly skipped. No API/schema touched, so no OpenAPI snapshot concern. No new module/dependency/layer, so architecture-review does not apply. Checklist's single item (an append-a-decisions-entry instruction, not a 'decide X' item) is fully implemented and marked done; no undecided judgment call. No non-blocking findings to track as a follow-up task."
   }
 }

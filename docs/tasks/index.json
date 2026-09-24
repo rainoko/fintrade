@@ -2000,8 +2000,8 @@
       "id": "backend-static-verify-cleanup-followups-followups",
       "area": "backend",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-static-verify-cleanup-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-static-verify-cleanup-followups-followups.json"
     },
     {
       "id": "backend-closed-trades-legacy-exit-reason-500",
