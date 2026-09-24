@@ -36,6 +36,21 @@ own `decisions` entry): the original version of this module (PR #311) only ever 
 much a `MINUTE`-unit leg as the other two. `get_intraday_bars_for_triple` now fetches all
 three legs uniformly via the same `_fetch_leg` helper, so a fully-intraday triple is fully
 supported, not silently missing its Tide/Screen-1 data.
+
+**Walk-forward historical replay** (`backend-day-trader-timeframe-mode-history`):
+`get_intraday_bars_for_triple` above only ever fetches "the most recent `lookback_days` days of
+bars, as of now" -- a live-signal-computation snapshot. `get_intraday_history_bars_for_triple`
+(and its trading-mode-setting-driven counterpart, `get_active_day_trader_intraday_history_bars`)
+is the distinct fetch shape a growing walk-forward replay needs -- same three-leg concurrent
+fetch and per-leg degrade-gracefully contract (shared via `_fetch_legs_concurrently`), but with a
+much larger default `lookback_days`, clamped per leg to `app.data.ibkr_provider
+.max_lookback_days_for_bar_size`'s own bound for whichever IBKR-native granularity that leg
+resolves to, so a caller never silently requests more history than that leg's own bar size could
+ever return. See `app.signals.engine.analyse_history_day_trader` for the corresponding
+walk-forward Triple Screen replay these bars feed, and this task's `decisions` entry for the
+full design writeup (including why no *new* IBKR-side pagination logic was needed:
+`IBKRProvider.get_hourly_bars` already paginates arbitrarily deep within its own
+`_MAX_PAGINATION_PAGES` safety bound for any `lookback_days` value).
 """
 
 from __future__ import annotations
@@ -48,7 +63,12 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.data.base import resample_ohlcv
-from app.data.ibkr_provider import IBKRBar, IBKRProvider, IBKRUnavailableError
+from app.data.ibkr_provider import (
+    IBKRBar,
+    IBKRProvider,
+    IBKRUnavailableError,
+    max_lookback_days_for_bar_size,
+)
 from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TimeframeUnit, TradingMode
 from app.trading_mode import get_trading_mode_setting
 
@@ -254,6 +274,55 @@ def _fetch_leg(
     )
 
 
+def _fetch_legs_concurrently(
+    triple: TimeframeTriple,
+    *,
+    provider: IBKRProvider | None,
+    conid: int,
+    lookback_days_by_leg: dict[DayTraderLeg, int],
+) -> DayTraderIntradayBars:
+    """Shared fan-out/fan-in core of `get_intraday_bars_for_triple`/
+    `get_intraday_history_bars_for_triple` -- fetches all three legs of `triple`
+    **concurrently** (a small thread pool -- `IBKRProvider`'s HTTP calls are synchronous, so
+    this is the same "offload blocking I/O to a thread" pattern as everywhere else in this
+    codebase that overlaps otherwise-independent synchronous network calls), each with its own
+    `lookback_days` from `lookback_days_by_leg` rather than one value shared across all three --
+    see this task's `decisions` entry for why a walk-forward-history fetch needs a different
+    (per-leg-clamped) lookback than a live-signal-snapshot fetch, while the fan-out/fan-in
+    mechanics themselves (and every degrade-gracefully-per-leg behavior `_fetch_leg` already
+    has) are identical between the two callers, hence this one shared helper (extracted by
+    `backend-day-trader-timeframe-mode-history` to avoid the two public functions duplicating
+    this same concurrency plumbing). Each leg's own fetch is fully independent of the others'
+    (no shared mutable state, no ordering requirement between them), so this is a
+    straightforward fan-out/fan-in with no synchronization concerns beyond the thread pool
+    itself; `IntradayLegResult`/`DayTraderIntradayBars` are both frozen dataclasses, and
+    `_fetch_leg` never mutates anything outside its own local scope.
+    """
+    legs: tuple[tuple[DayTraderLeg, TimeframeInterval], ...] = (
+        ("long_term", triple.long_term),
+        ("short_term", triple.short_term),
+        ("intermediate", triple.intermediate),
+    )
+    with ThreadPoolExecutor(max_workers=len(legs)) as executor:
+        futures = {
+            leg: executor.submit(
+                _fetch_leg,
+                leg,
+                interval,
+                provider=provider,
+                conid=conid,
+                lookback_days=lookback_days_by_leg[leg],
+            )
+            for leg, interval in legs
+        }
+        results = {leg: future.result() for leg, future in futures.items()}
+    return DayTraderIntradayBars(
+        long_term=results["long_term"],
+        short_term=results["short_term"],
+        intermediate=results["intermediate"],
+    )
+
+
 def get_intraday_bars_for_triple(
     triple: TimeframeTriple,
     *,
@@ -269,42 +338,96 @@ def get_intraday_bars_for_triple(
     `state="disabled"` rather than raising, so day-trader mode being *configured* never
     itself requires IBKR to be reachable (checklist item 3).
 
-    The three legs are fetched **concurrently** (a small thread pool -- `IBKRProvider`'s HTTP
-    calls are synchronous, so this is the same "offload blocking I/O to a thread" pattern as
-    everywhere else in this codebase that overlaps otherwise-independent synchronous network
-    calls) rather than sequentially, now that `app.api.day_trader_signal
-    .compute_day_trader_signal` is a real caller requiring every leg to be `MINUTE`-unit (a
-    fully-intraday triple): a request-latency-sensitive caller (`GET /api/stocks/{ticker}
-    /analysis`, `GET /api/watchlist`) would otherwise pay three sequential IBKR round-trips
-    per ticker instead of roughly one (see this task's own `decisions` entry for the
-    measurement/tradeoff writeup). Each leg's own fetch is fully independent of the others'
-    (no shared mutable state, no ordering requirement between them), so this is a
-    straightforward fan-out/fan-in with no synchronization concerns beyond the thread pool
-    itself; `IntradayLegResult`/`DayTraderIntradayBars` are both frozen dataclasses, and
-    `_fetch_leg` never mutates anything outside its own local scope.
+    This is the **live-signal-snapshot** fetch -- "the most recent `lookback_days` days of
+    bars, as of now" (the right shape for `app.signals.engine.analyse_day_trader`'s
+    single-point-in-time evaluation) -- not a growing walk-forward historical replay; see
+    `get_intraday_history_bars_for_triple` below for that distinct use case
+    (`backend-day-trader-timeframe-mode-history`).
+
+    Now that `app.api.day_trader_signal.compute_day_trader_signal` is a real caller requiring
+    every leg to be `MINUTE`-unit (a fully-intraday triple), the three legs are fetched
+    concurrently rather than sequentially: a request-latency-sensitive caller (`GET
+    /api/stocks/{ticker}/analysis`, `GET /api/watchlist`) would otherwise pay three sequential
+    IBKR round-trips per ticker instead of roughly one (see this task's own `decisions` entry
+    for the measurement/tradeoff writeup, and `_fetch_legs_concurrently`'s own docstring for the
+    shared fan-out/fan-in mechanics).
 
     `conid` is the IBKR contract id already resolved for the ticker being analyzed
     (`IBKRProvider.resolve_conid`) -- resolving it is the caller's responsibility, not this
     function's; a caller with no resolved conid (e.g. `resolve_conid` returned `None`) has
     nothing meaningful to pass here and shouldn't call this function at all for that ticker.
     """
+    lookback_days_by_leg: dict[DayTraderLeg, int] = {
+        "long_term": lookback_days,
+        "short_term": lookback_days,
+        "intermediate": lookback_days,
+    }
+    return _fetch_legs_concurrently(
+        triple, provider=provider, conid=conid, lookback_days_by_leg=lookback_days_by_leg
+    )
+
+
+# Default lookback for `get_intraday_history_bars_for_triple`'s walk-forward *historical
+# replay* fetch -- deliberately much larger than `get_intraday_bars_for_triple`'s own 30-day
+# "live signal snapshot" default, since a chart-overlay replay needs enough bars for both the
+# eventual requested display window and indicator warm-up before it (mirroring
+# `analyse_history`'s own swing-mode convention: always fetch the full available history, let
+# the caller's own `range` trim only what's *returned*, never what's fetched/computed). 90 was
+# chosen -- not, say, the largest window any leg's granularity could ever support via
+# `max_lookback_days_for_bar_size` -- as a reasonable "enough for a meaningful chart, without
+# requesting far more than most legs' finer granularities (e.g. "1min") could ever honor
+# anyway" default; a future caller (the not-yet-built API-layer wiring,
+# `backend-day-trader-timeframe-mode-api-followups`) that wants a specific chart `range` should
+# pass its own `lookback_days` explicitly rather than relying on this default. See this task's
+# `decisions` entry.
+_HISTORY_LOOKBACK_DAYS_DEFAULT = 90
+
+
+def get_intraday_history_bars_for_triple(
+    triple: TimeframeTriple,
+    *,
+    provider: IBKRProvider | None,
+    conid: int,
+    lookback_days: int = _HISTORY_LOOKBACK_DAYS_DEFAULT,
+) -> DayTraderIntradayBars:
+    """`get_intraday_bars_for_triple`'s walk-forward-**history** counterpart
+    (`backend-day-trader-timeframe-mode-history`) -- fetches the same three legs the same way
+    (concurrently, degrading each leg to a typed availability state, never raising -- see
+    `_fetch_legs_concurrently`), but sized for feeding
+    `app.signals.engine.analyse_history_day_trader`'s growing per-bar replay instead of
+    `get_intraday_bars_for_triple`'s own single-point-in-time signal snapshot.
+
+    `lookback_days` is clamped **per leg**, not globally, to `IBKRProvider
+    .max_lookback_days_for_bar_size`'s own bound for whichever IBKR-native granularity that
+    leg's own `TimeframeInterval` resolves to (`_select_ibkr_bar_size`) -- each leg can pick a
+    different granularity (e.g. a 2-minute short-term leg vs. a 25-minute long-term leg), so a
+    single global clamp would either under-clamp a fine-grained leg or over-clamp a coarse one.
+    `IBKRProvider.get_hourly_bars` already silently self-limits to this same bound regardless of
+    what `lookback_days` it's given (its own `_MAX_PAGINATION_PAGES` page-count safety bound
+    stops it either way) -- this clamp changes no actual fetched data, it exists purely so a
+    caller (or a test) can observe the *effective* request each leg's own `get_hourly_bars` call
+    receives, rather than a `lookback_days` value quietly larger than anything that leg's
+    granularity could ever honor. A day/week-unit leg (needing no IBKR call at all -- see this
+    module's own docstring) is unaffected by any of this, exactly like
+    `get_intraday_bars_for_triple`. See this task's `decisions` entry for the full writeup,
+    including why revisiting `_MAX_PAGINATION_PAGES`/`_MAX_BARS_PER_PAGE` themselves (the actual
+    achievable-history ceiling) is out of scope here.
+    """
     legs: tuple[tuple[DayTraderLeg, TimeframeInterval], ...] = (
         ("long_term", triple.long_term),
         ("short_term", triple.short_term),
         ("intermediate", triple.intermediate),
     )
-    with ThreadPoolExecutor(max_workers=len(legs)) as executor:
-        futures = {
-            leg: executor.submit(
-                _fetch_leg, leg, interval, provider=provider, conid=conid, lookback_days=lookback_days
-            )
-            for leg, interval in legs
-        }
-        results = {leg: future.result() for leg, future in futures.items()}
-    return DayTraderIntradayBars(
-        long_term=results["long_term"],
-        short_term=results["short_term"],
-        intermediate=results["intermediate"],
+    lookback_days_by_leg: dict[DayTraderLeg, int] = {}
+    for leg, interval in legs:
+        if interval.unit is not TimeframeUnit.MINUTE:
+            lookback_days_by_leg[leg] = lookback_days
+            continue
+        bar_size, _ = _select_ibkr_bar_size(interval.count)
+        max_days = max_lookback_days_for_bar_size(bar_size)
+        lookback_days_by_leg[leg] = min(lookback_days, int(max_days))
+    return _fetch_legs_concurrently(
+        triple, provider=provider, conid=conid, lookback_days_by_leg=lookback_days_by_leg
     )
 
 
@@ -332,6 +455,33 @@ def get_active_day_trader_intraday_bars(
     if setting.mode is not TradingMode.DAY_TRADER or setting.day_trader_timeframe_triple is None:
         return None
     return get_intraday_bars_for_triple(
+        setting.day_trader_timeframe_triple,
+        provider=provider,
+        conid=conid,
+        lookback_days=lookback_days,
+    )
+
+
+def get_active_day_trader_intraday_history_bars(
+    db: Session,
+    *,
+    provider: IBKRProvider | None,
+    conid: int,
+    lookback_days: int = _HISTORY_LOOKBACK_DAYS_DEFAULT,
+) -> DayTraderIntradayBars | None:
+    """`get_intraday_history_bars_for_triple` above, but reading the active triple from the
+    global trading-mode setting the same way `get_active_day_trader_intraday_bars` does for the
+    live-snapshot fetch -- see that function's own docstring for the `None`-return contract,
+    identical here. Not yet called by any route (the API-layer wiring for a day-trader-mode
+    `/indicators`-style history endpoint is `backend-day-trader-timeframe-mode-api-followups`,
+    not yet built) -- provided now as a ready building block for that follow-up, the same way
+    `_long_term_through_bar_date`'s `DAY`/`MINUTE` branch was pre-built ready for this task
+    itself before this task existed to use it. See this task's `decisions` entry.
+    """
+    setting = get_trading_mode_setting(db)
+    if setting.mode is not TradingMode.DAY_TRADER or setting.day_trader_timeframe_triple is None:
+        return None
+    return get_intraday_history_bars_for_triple(
         setting.day_trader_timeframe_triple,
         provider=provider,
         conid=conid,

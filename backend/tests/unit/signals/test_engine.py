@@ -32,10 +32,12 @@ from app.signals.confidence import ConfidenceComponent
 from app.signals.engine import (
     _determine_signal,
     _long_term_through_bar_date,
+    _short_term_through_bar_date,
     _wave_lookback,
     analyse,
     analyse_day_trader,
     analyse_history,
+    analyse_history_day_trader,
     drop_malformed_daily_bars,
 )
 from app.signals.timeframe import TimeframeUnit
@@ -1799,3 +1801,344 @@ class TestAnalyseHistoryTideLookAhead:
         assert len(early_window) < len(late_window)
         assert len(late_window) == len(weekly_ohlcv)
         pd.testing.assert_frame_equal(late_window, weekly_ohlcv)
+
+
+class TestShortTermThroughBarDate:
+    """`_short_term_through_bar_date` (`backend-day-trader-timeframe-mode-history`) --
+    Trigger's own short-term-leg truncation helper for `analyse_history_day_trader`'s
+    walk-forward replay."""
+
+    def test_delegates_to_a_direct_less_than_or_equal_filter(self) -> None:
+        short_term_ohlcv = pd.DataFrame(
+            {"close": [1.0, 2.0, 3.0, 4.0]},
+            index=pd.date_range("2026-01-05 09:30", periods=4, freq="2min", name="date"),
+        )
+        bar_date = short_term_ohlcv.index[1]
+
+        result = _short_term_through_bar_date(short_term_ohlcv, bar_date)
+
+        assert list(result.index) == list(short_term_ohlcv.index[:2])
+
+    def test_never_includes_a_bar_after_bar_date(self) -> None:
+        short_term_ohlcv = pd.DataFrame(
+            {"close": [1.0, 2.0, 3.0, 4.0]},
+            index=pd.date_range("2026-01-05 09:30", periods=4, freq="2min", name="date"),
+        )
+        bar_date = short_term_ohlcv.index[1]
+
+        result = _short_term_through_bar_date(short_term_ohlcv, bar_date)
+
+        assert all(idx <= bar_date for idx in result.index)
+        assert short_term_ohlcv.index[2] not in result.index
+
+
+def _minute_index(start: pd.Timestamp, count: int, step_minutes: int) -> pd.DatetimeIndex:
+    """``count`` timestamps, ``step_minutes`` apart, starting at ``start`` -- shared builder for
+    every intraday (MINUTE-unit) fixture in `TestAnalyseHistoryDayTrader` below, since none of
+    them need calendar-week-anchored dates the way `_dated_buy_weekly_ohlcv`/
+    `_flipping_tide_weekly_ohlcv` do."""
+    return pd.date_range(start, periods=count, freq=f"{step_minutes}min", name="date")
+
+
+def _bullish_intraday_ohlcv(*, start: pd.Timestamp, count: int, step_minutes: int) -> pd.DataFrame:
+    """Accelerating 5%-per-bar growth -- the same fixture shape
+    `test_day_trader_mode_signal_engine.py`'s `_long_term_bars` uses for a reliably BULLISH
+    Tide/weekly-Impulse, generalized to an arbitrary start/count/step here since
+    `TestAnalyseHistoryDayTrader` needs several differently-spaced instances of it."""
+    closes = [100 * (1.05**i) for i in range(count)]
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": 1_000_000.0,
+        },
+        index=_minute_index(start, count, step_minutes),
+    )
+
+
+def _flat_intraday_ohlcv_spanning(
+    other: pd.DataFrame, *, step_minutes: int, price: float = 100.0
+) -> pd.DataFrame:
+    """One bar every ``step_minutes``, spanning ``other``'s full date range (inclusive), at a
+    flat/placeholder price -- the MINUTE-unit generalization of `_flat_daily_ohlcv_spanning`,
+    for fixtures where only the *dates* matter."""
+    index = pd.date_range(other.index[0], other.index[-1], freq=f"{step_minutes}min", name="date")
+    close = [price] * len(index)
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": [c + 0.3 for c in close],
+            "low": [c - 0.3 for c in close],
+            "close": close,
+            "volume": 1_000_000.0,
+        },
+        index=index,
+    )
+
+
+def _flipping_tide_intraday_ohlcv(
+    *, start: pd.Timestamp, n_bars: int, step_minutes: int, flip_at: int
+) -> pd.DataFrame:
+    """The MINUTE-unit generalization of `_flipping_tide_weekly_ohlcv`: closes rise 5%/bar for
+    the first ``flip_at`` bars (a real BULLISH tide), then fall 10%/bar for the rest -- by the
+    end of the series this produces a BEARISH tide against the *full* series, while the first
+    ``flip_at`` bars were genuinely BULLISH at the time. Used the same way
+    `TestAnalyseHistoryTideLookAhead` uses its own weekly version: to catch Screen 1 look-ahead
+    bias, generalized to a non-calendar-anchored (`_long_term_through_bar_date`'s ``MINUTE``
+    branch) truncation instead of the ``WEEK`` branch."""
+    closes = []
+    close = 100.0
+    for i in range(n_bars):
+        close *= 1.05 if i < flip_at else 0.90
+        closes.append(close)
+    return pd.DataFrame(
+        {
+            "open": closes,
+            "high": [c * 1.01 for c in closes],
+            "low": [c * 0.99 for c in closes],
+            "close": closes,
+            "volume": 1_000_000.0,
+        },
+        index=_minute_index(start, n_bars, step_minutes),
+    )
+
+
+class TestAnalyseHistoryDayTrader:
+    """Tests for `analyse_history_day_trader()` (`backend-day-trader-timeframe-mode-history`) --
+    the day-trader-mode counterpart to `analyse_history()`, walking forward over
+    ``intermediate_ohlcv`` and truncating ``long_term_ohlcv``/``short_term_ohlcv`` per bar via
+    `_long_term_through_bar_date`/`_short_term_through_bar_date`."""
+
+    _START = pd.Timestamp("2026-01-05 09:30")
+
+    def test_last_point_matches_a_full_analyse_day_trader_call(self) -> None:
+        """Mirrors `TestAnalyseHistory.test_last_point_matches_a_full_history_analyse_call` --
+        every leg's own last bar timestamp is `<=` `intermediate_ohlcv`'s own last bar, so the
+        final replay step's truncation is a no-op and must reproduce a direct
+        `analyse_day_trader` call exactly."""
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=10)
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=2)
+
+        expected = analyse_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert len(history) == len(intermediate_ohlcv)
+        last_date, last_result = history[-1]
+        assert last_date == intermediate_ohlcv.index[-1]
+        assert last_result.screens["tide"] == expected.screens["tide"]
+        assert last_result.screens["trigger"] == expected.screens["trigger"]
+        assert last_result.signal == expected.signal
+        assert last_result.confidence == expected.confidence
+        assert _nan_tolerant_equal(last_result.indicators, expected.indicators)
+
+    def test_dates_are_oldest_first_and_one_per_intermediate_bar(self) -> None:
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=10)
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=2)
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert [bar_date for bar_date, _ in history] == list(intermediate_ohlcv.index)
+
+    def test_from_index_skips_bars_but_keeps_full_warm_up_context(self) -> None:
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=10)
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=2)
+        full_history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        trimmed_history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+            from_index=len(intermediate_ohlcv) - 3,
+        )
+
+        assert len(trimmed_history) == 3
+        assert _nan_tolerant_equal(trimmed_history, full_history[-3:])
+
+    def test_empty_intermediate_ohlcv_returns_empty_list_without_raising(self) -> None:
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=2)
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert history == []
+
+    def test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value(self) -> None:
+        """The `analyse_history_day_trader` counterpart to `TestAnalyseHistoryTideLookAhead
+        .test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value` -- same look-ahead
+        bias check, generalized from ``WEEK``-unit calendar bins to ``MINUTE``-unit direct
+        timestamps."""
+        long_term_ohlcv = _flipping_tide_intraday_ohlcv(
+            start=self._START, n_bars=31, step_minutes=25, flip_at=20
+        )
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=5)
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=1)
+
+        todays_tide = analyse_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        ).screens["tide"]["trend"]
+        assert todays_tide == "BEARISH"  # sanity check on the fixture itself
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+        tides_by_date = {bar_date: result.screens["tide"]["trend"] for bar_date, result in history}
+
+        # An early intermediate bar, well within the first 20 (still-rising) long_term bars,
+        # must reflect the tide that actually held then -- not today's (since-flipped) BEARISH
+        # tide the full long_term series eventually reaches.
+        early_bar_date = intermediate_ohlcv.index[5]
+        assert early_bar_date < long_term_ohlcv.index[20]  # still sanity-checking the fixture
+        assert tides_by_date[early_bar_date] == "BULLISH"
+        assert tides_by_date[early_bar_date] != todays_tide
+
+    def test_earlier_bar_sees_fewer_long_term_bars_than_a_later_bar(self) -> None:
+        long_term_ohlcv = _flipping_tide_intraday_ohlcv(
+            start=self._START, n_bars=31, step_minutes=25, flip_at=20
+        )
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=5)
+
+        early_window = _long_term_through_bar_date(
+            long_term_ohlcv, intermediate_ohlcv.index[5], long_term_unit=TimeframeUnit.MINUTE
+        )
+        late_window = _long_term_through_bar_date(
+            long_term_ohlcv, intermediate_ohlcv.index[-1], long_term_unit=TimeframeUnit.MINUTE
+        )
+
+        assert len(early_window) < len(late_window)
+        assert len(late_window) == len(long_term_ohlcv)
+
+    def test_short_term_leg_does_not_leak_a_future_bar_backward_into_an_earlier_replay_point(
+        self,
+    ) -> None:
+        """The short-term-leg counterpart to the long-term-leg look-ahead tests above --
+        proves `analyse_history_day_trader` genuinely truncates `short_term_ohlcv` per bar
+        (via `_short_term_through_bar_date`), not just documents that it should.
+
+        Fixture: a real bullish crossing appears only in the *final two* short-term bars
+        (dated at/after the final intermediate bar's own date) -- every earlier short-term bar
+        is flat (no crossing). If truncation were silently dropped (e.g.
+        `analyse_history_day_trader` passing the *full*, untruncated `short_term_ohlcv` to
+        every `analyse()` call instead of `_short_term_through_bar_date`'s per-bar window),
+        `evaluate_trigger` would read that same final crossing pair as the "latest two bars"
+        for *every* intermediate bar_date, including the earliest ones -- so this test's
+        assertion that only the *last* replay point sees the trigger fire would fail under that
+        exact regression, not just under a hypothetical one.
+        """
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(long_term_ohlcv, step_minutes=10)
+        # 21 flat 2-minute bars spanning the same range as intermediate_ohlcv (T0..T0+40),
+        # except the final two bars (T0+38, T0+40) form a genuine bullish crossing -- mirroring
+        # test_day_trader_mode_signal_engine.py's `_short_term_bars()` shape.
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(intermediate_ohlcv, step_minutes=2)
+        short_term_ohlcv.loc[short_term_ohlcv.index[-2], ["open", "high", "low", "close"]] = [
+            95.0,
+            96.0,
+            94.0,
+            95.5,
+        ]
+        short_term_ohlcv.loc[short_term_ohlcv.index[-1], ["open", "high", "low", "close"]] = [
+            99.0,
+            100.0,
+            98.5,
+            99.5,
+        ]
+        assert short_term_ohlcv.index[-1] == intermediate_ohlcv.index[-1]  # sanity-check overlap
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert len(history) == len(intermediate_ohlcv)
+        for bar_date, result in history[:-1]:
+            assert bool(result.screens["trigger"]["fired"]) is False, (
+                f"bar {bar_date} must not see the not-yet-reached crossing bars"
+            )
+        last_date, last_result = history[-1]
+        assert last_date == intermediate_ohlcv.index[-1]
+        assert bool(last_result.screens["trigger"]["fired"]) is True
+        assert last_result.screens["trigger"]["reference"] == "close_above_prior_high"
+
+    def test_skips_long_term_precompute_entirely_when_long_term_ohlcv_too_short(self) -> None:
+        """The `analyse_history_day_trader` counterpart to `TestAnalyseHistoryPerformance
+        .test_skips_weekly_precompute_entirely_when_weekly_ohlcv_too_short` -- a <2-row
+        `long_term_ohlcv` can never produce anything for `evaluate_tide` to use, so there is
+        nothing worth precomputing (the ``long_term_ema_13_full is not None`` guard's `False`
+        branch)."""
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=1, step_minutes=60)
+        intermediate_ohlcv = _flat_intraday_ohlcv_spanning(
+            _bullish_intraday_ohlcv(start=self._START, count=5, step_minutes=60), step_minutes=10
+        )
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(intermediate_ohlcv, step_minutes=2)
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert len(history) == len(intermediate_ohlcv)
+        tides = {result.screens["tide"]["trend"] for _, result in history}
+        assert tides == {"NEUTRAL"}
+
+    def test_intermediate_leg_indicators_vary_across_the_series(self) -> None:
+        """Contrast with `test_tide_recomputed_...` above (which shows a *coarser*, MINUTE-unit
+        long_term series producing distinct Tide values as the replay walks forward): the
+        precomputed-and-sliced intermediate-leg indicator series must also genuinely vary bar
+        to bar, not accidentally replay one fixed value -- same property
+        `TestAnalyseHistory.test_daily_cadence_fields_vary_across_the_series` checks for swing
+        mode."""
+        long_term_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=10, step_minutes=60)
+        intermediate_ohlcv = _bullish_intraday_ohlcv(start=self._START, count=20, step_minutes=10)
+        short_term_ohlcv = _flat_intraday_ohlcv_spanning(intermediate_ohlcv, step_minutes=2)
+
+        history = analyse_history_day_trader(
+            "TEST",
+            long_term_ohlcv=long_term_ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        ema_13_values = {result.indicators["ema_13"] for _, result in history}
+        assert len(ema_13_values) > 1

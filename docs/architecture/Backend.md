@@ -327,13 +327,44 @@ documents what exists **today**, not the full eventual feature.
   `signal`/`confidence`/`confidence_band` instead, matching its own pre-existing per-ticker
   degrade-gracefully convention.
 
+- `app.signals.engine.analyse_history_day_trader` (`backend-day-trader-timeframe-mode-history`)
+  -- the walk-forward, no-look-ahead historical replay `analyse_history()` already provides for
+  swing mode's weekly/daily pair, generalized to a day-trader-mode `TimeframeTriple`'s
+  long-term/intermediate/short-term legs -- for a future day-trader-mode chart overlay
+  (`GET /api/stocks/{ticker}/indicators`'s own day-trader-mode wiring, still not yet landed --
+  see the next bullet). A separate function from `analyse_history()`, not a generic parameter
+  added to it, to keep swing mode's own already-reviewed implementation completely untouched.
+  Truncates `long_term_ohlcv` via the existing `_long_term_through_bar_date` (its `MINUTE`
+  branch, built ready for this by `backend-day-trader-timeframe-mode-signal-engine` but
+  unexercised until now) and `short_term_ohlcv` via a new sibling helper,
+  `_short_term_through_bar_date` -- both treat every leg's own bar timestamp as its "knowable
+  as of" point uniformly (a deliberate, documented approximation given IBKR/this app's own
+  client-side resampling both label a bar by its *start*, not its close -- see that function's
+  own `decisions`-referenced docstring for the two more-precise alternatives considered and
+  rejected). `app.data.day_trader_intraday.get_intraday_history_bars_for_triple` (plus its
+  trading-mode-setting-driven counterpart, `get_active_day_trader_intraday_history_bars`) is
+  the corresponding data-fetch shape this replay needs -- a much larger default `lookback_days`
+  than the live-signal-snapshot `get_intraday_bars_for_triple`, clamped **per leg** to
+  `app.data.ibkr_provider.max_lookback_days_for_bar_size`'s own bound for whichever IBKR-native
+  granularity that leg resolves to (a new public helper on `IBKRProvider`'s module, computed
+  from its existing `_MAX_PAGINATION_PAGES`/`_MAX_BARS_PER_PAGE`/`_BAR_INTERVAL_STEP`
+  constants) -- no *new* IBKR-side pagination logic was needed, since `IBKRProvider
+  .get_hourly_bars` already paginates arbitrarily deep (up to that same safety bound) for any
+  `lookback_days` value; the clamp exists purely so a caller can know in advance how much
+  history a given leg's granularity can actually return, rather than silently getting back
+  less than asked for. Neither the new fetch functions nor `analyse_history_day_trader` are
+  wired into any HTTP route yet -- that's the next bullet's job. See this task's `decisions`
+  entry for the full writeup.
+
 **Not yet landed** (tracked as dependent follow-up tasks):
 
 - `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk`
   (`backend-day-trader-timeframe-mode-api-followups`) -- deferred from
-  `backend-day-trader-timeframe-mode-api`'s own PR: `/indicators` needs `analyse_history()`'s
-  own day-trader-mode support (see below, itself not yet landed); `/portfolio`/`/portfolio/risk`
-  need the portfolio/risk-layer hard-coded weekly/daily split (next bullet) resolved first, and
+  `backend-day-trader-timeframe-mode-api`'s own PR: `/indicators` now has
+  `analyse_history_day_trader`/`get_intraday_history_bars_for_triple` (previous bullet) ready
+  to wire in, but that wiring itself (the route, its own `range`-to-`lookback_days` translation,
+  caching) is still not built; `/portfolio`/`/portfolio/risk` need the portfolio/risk-layer
+  hard-coded weekly/daily split (next bullet) resolved first, and
   `/portfolio`'s per-position day-trader-mode fetch would mean one IBKR round-trip per held
   position per request -- a latency concern worth its own design pass rather than folding into
   this already-large task. See that task's own `decisions` entry for the full scoping
@@ -353,12 +384,6 @@ documents what exists **today**, not the full eventual feature.
   today regardless of which `TradingMode` is active. `GET /api/stocks/{ticker}/analysis`'s own
   `profit_target`/`support_resistance_zones`/`extended_data` fields are likewise unaffected by
   trading mode for the same reason (`backend-day-trader-timeframe-mode-api`'s own decision).
-- `analyse_history()`'s own day-trader-mode support (a walk-forward historical replay over
-  intraday bars, for a future day-trader-mode chart overlay) -- `_long_term_through_bar_date`'s
-  new `DAY`/`MINUTE` branch is ready for this, but `app.data.day_trader_intraday`'s current
-  shape only ever fetches "recent bars as of now" (a signal-computation snapshot), not a
-  growing walk-forward history; that's a distinct IBKR historical-fetch design problem, not yet
-  solved.
 - Frontend settings UI to view/switch the global trading mode and configure the day-trader
   timeframe triple (`frontend-day-trader-timeframe-mode-settings`) -- until this lands, every
   endpoint above is only reachable via `PUT /api/settings/trading-mode` directly (no UI control

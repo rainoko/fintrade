@@ -439,6 +439,46 @@ class TestBarIntervalStep:
         assert _BAR_INTERVAL_STEP["1m"] <= shortest_real_month
 
 
+class TestMaxLookbackDaysForBarSize:
+    """Tests for `max_lookback_days_for_bar_size` (`backend-day-trader-timeframe-mode-history`)
+    -- the achievable-history-window helper `app.data.day_trader_intraday
+    .get_intraday_history_bars_for_triple` uses to clamp its own per-leg `lookback_days`."""
+
+    def test_one_hour_bars_match_the_documented_approximately_833_days(self) -> None:
+        """`get_hourly_bars`'s own docstring documents this exact figure for its default
+        `"1h"` bar size (`_MAX_PAGINATION_PAGES=20 * _MAX_BARS_PER_PAGE=1000` hourly bars ==
+        20,000 hours == ~833.3 days) -- this test pins that documented number down as a real,
+        checked value rather than only prose."""
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        max_days = max_lookback_days_for_bar_size("1h")
+
+        assert max_days == pytest.approx(20_000 / 24, rel=1e-9)
+        assert 833 < max_days < 834
+
+    def test_finer_bar_size_covers_proportionally_less_calendar_time(self) -> None:
+        """A `"1min"` bar's own achievable window must be exactly 1/60th of `"1h"`'s -- same
+        20,000-bar total, 60x shorter per bar."""
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        one_hour_max = max_lookback_days_for_bar_size("1h")
+        one_minute_max = max_lookback_days_for_bar_size("1min")
+
+        assert one_minute_max == pytest.approx(one_hour_max / 60, rel=1e-9)
+
+    def test_every_valid_bar_interval_except_monthly_has_a_finite_positive_bound(self) -> None:
+        from app.data.ibkr_provider import _VALID_BAR_INTERVALS, max_lookback_days_for_bar_size
+
+        for bar_size in _VALID_BAR_INTERVALS - {"1m"}:
+            assert max_lookback_days_for_bar_size(bar_size) > 0
+
+    def test_unsupported_bar_size_raises(self) -> None:
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        with pytest.raises(ValueError, match="Unsupported IBKR bar interval"):
+            max_lookback_days_for_bar_size("not-a-real-bar-size")
+
+
 class TestGetScannerParams:
     def test_raises_when_gateway_not_available(self, mocker) -> None:
         mocker.patch(

@@ -301,6 +301,7 @@ def analyse(
     kangaroo_tail: KangarooTail | None = _KANGAROO_TAIL_NOT_GIVEN,  # type: ignore[assignment]
     short_term_ohlcv: pd.DataFrame | None = None,
     _daily_ohlcv_already_clean: bool = False,
+    _short_term_ohlcv_already_clean: bool = False,
 ) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
 
@@ -395,9 +396,11 @@ def analyse(
     today) leaves this unset, so this parameter changes nothing for them; see
     `analyse_day_trader` below for the day-trader-mode entry point that supplies it. When
     given, ``short_term_ohlcv`` is cleaned via ``drop_malformed_daily_bars`` the same way
-    ``daily_ohlcv`` is (unconditionally, unlike ``daily_ohlcv``'s own ``_daily_ohlcv_already_
-    clean`` escape hatch -- there is no ``analyse_history``-style hot loop supplying this
-    parameter yet, so that optimization isn't needed here; see this task's `decisions` entry).
+    ``daily_ohlcv`` is, unless the caller passes ``_short_term_ohlcv_already_clean=True`` (see
+    that parameter's own docstring below) -- `backend-day-trader-timeframe-mode-signal-engine`'s
+    own original framing of "there is no ``analyse_history``-style hot loop supplying this
+    parameter yet, so that optimization isn't needed here" no longer holds once
+    ``analyse_history_day_trader`` (`backend-day-trader-timeframe-mode-history`) exists.
 
     Confidence scoring's ``volume_confirmation`` component (docs/Analyse.md §6, "Force Index
     spike / trigger bar volume is above 20-day average") deliberately stays on ``daily_ohlcv``'s
@@ -497,10 +500,20 @@ def analyse(
     caller promise. See ``analyse_history``'s own docstring for why this specific redundant
     O(i)-per-call ``dropna`` scan (repeated ``range_size`` times over an increasingly large
     slice) was worth eliminating on top of the five/eight precomputed-series parameters above.
+
+    ``_short_term_ohlcv_already_clean`` is the identical escape hatch for ``short_term_ohlcv``,
+    added by `backend-day-trader-timeframe-mode-history` for ``analyse_history_day_trader``'s
+    own per-bar hot loop over a growing ``short_term_ohlcv`` prefix -- the same O(i)-per-call
+    redundant ``dropna`` scan `_daily_ohlcv_already_clean` exists to eliminate for
+    ``daily_ohlcv``, now reachable for ``short_term_ohlcv`` too now that a caller like that
+    exists (it wasn't, when ``short_term_ohlcv`` was first added -- see this parameter's own
+    docstring paragraph above). Ignored (has no effect) when ``short_term_ohlcv`` is `None`.
+    Every other caller must leave this at its default ``False``, same as
+    ``_daily_ohlcv_already_clean``.
     """
     if not _daily_ohlcv_already_clean:
         daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
-    if short_term_ohlcv is not None:
+    if short_term_ohlcv is not None and not _short_term_ohlcv_already_clean:
         short_term_ohlcv = drop_malformed_daily_bars(short_term_ohlcv)
 
     tide_result = evaluate_tide(
@@ -980,6 +993,235 @@ def analyse_history(
                     kangaroo_tail=kangaroo_tail_confirmed_as_of(kangaroo_tail_cache, i),
                     _daily_ohlcv_already_clean=True,
                     **weekly_kwargs,
+                ),
+            )
+        )
+    return results
+
+
+def _short_term_through_bar_date(
+    short_term_ohlcv: pd.DataFrame, bar_date: pd.Timestamp
+) -> pd.DataFrame:
+    """Truncates ``short_term_ohlcv`` (Screen 3/Trigger's own short-term-timeframe data) to
+    only the bars knowable as of ``bar_date``, for `analyse_history_day_trader`'s walk-forward
+    replay -- the short-term-leg counterpart to `_long_term_through_bar_date`.
+
+    Delegates to `_long_term_through_bar_date`'s own ``DAY``/``MINUTE`` branch
+    (``long_term_unit=TimeframeUnit.MINUTE``, a direct ``index <= bar_date`` filter) rather than
+    duplicating that one-line filter under a second name: a short-term leg is, by
+    ``TimeframeTriple``'s own hard ordering rule (`app.signals.timeframe.TimeframeTriple
+    .__post_init__`), always the *finest*-grained of the three legs, so it can never itself be
+    ``WEEK``-unit -- `_long_term_through_bar_date`'s calendar-anchored ``WEEK`` branch is
+    therefore never reachable here and doesn't need its own copy. Named separately from
+    `_long_term_through_bar_date` purely for call-site clarity in `analyse_history_day_trader`
+    below, which truncates two structurally different legs (Tide's long-term data and Trigger's
+    short-term data) per bar -- a single shared function name at both call sites would obscure
+    which leg each call is actually truncating. See this task's `decisions` entry.
+    """
+    return _long_term_through_bar_date(short_term_ohlcv, bar_date, long_term_unit=TimeframeUnit.MINUTE)
+
+
+def analyse_history_day_trader(
+    ticker: str,
+    *,
+    long_term_ohlcv: pd.DataFrame,
+    intermediate_ohlcv: pd.DataFrame,
+    short_term_ohlcv: pd.DataFrame,
+    from_index: int = 0,
+) -> list[tuple[pd.Timestamp, SignalResult]]:
+    """Day-trader-mode counterpart to `analyse_history()` -- re-runs `analyse()` (via
+    `analyse_day_trader`'s own three-leg remapping, inlined here rather than delegating to that
+    function directly, for the same reason `analyse_history` calls `analyse()` itself rather
+    than a wrapper: this function needs to pass its own precomputed/sliced series through
+    `analyse()`'s passthrough parameters) once per ``intermediate_ohlcv`` bar from
+    ``from_index`` (inclusive) through the last bar -- the walk-forward, no-look-ahead replay
+    `analyse_history` already provides for swing mode's weekly/daily pair, generalized to a
+    day-trader-mode `app.signals.timeframe.TimeframeTriple`'s long-term/intermediate/short-term
+    legs (`backend-day-trader-timeframe-mode-history`, deferred by
+    `backend-day-trader-timeframe-mode-signal-engine` -- see that task's `decisions` entry).
+
+    ``intermediate_ohlcv`` plays `analyse_history`'s own ``daily_ohlcv`` role -- the *driving*
+    leg this function walks bar-by-bar over, and the series every indicator/Screen 2/the Impulse
+    gate reads, exactly matching `analyse_day_trader`'s own single-point-in-time remapping.
+    ``long_term_ohlcv``/``short_term_ohlcv`` are truncated per bar via
+    `_long_term_through_bar_date`/`_short_term_through_bar_date` respectively (see "no
+    look-ahead across three differently-sized intraday legs" below) instead of being held fixed
+    across the whole replay.
+
+    A separate function from `analyse_history`, not a generic parameter added to it: this keeps
+    swing mode's own already-reviewed, production-critical implementation completely untouched
+    (matching `backend-day-trader-timeframe-mode-signal-engine`'s own stated regression-risk
+    posture -- "extremely careful... regression risk here is real, not hypothetical" -- for
+    every change in this whole feature area), at the cost of the two functions' precompute
+    blocks below being structurally near-identical (see this task's `decisions` entry for why
+    that duplication was accepted rather than factored into a shared helper: the two functions'
+    inputs differ in exactly the two respects the docstring above and below describes --
+    ``daily_ohlcv``/``weekly_ohlcv`` vs. ``intermediate_ohlcv``/``long_term_ohlcv``, plus this
+    function's additional ``short_term_ohlcv`` truncation -- and threading a third, generic
+    helper through both call sites for a two-caller, unlikely-to-grow-a-third-caller duplication
+    was judged not worth the indirection, especially given how carefully
+    `analyse_history`'s own precompute block is already commented against exactly this kind of
+    "was it done right" scrutiny).
+
+    **No look-ahead across three differently-sized intraday legs** (this task's own checklist
+    item 2): every leg's own bar timestamp is treated as its own "knowable as of" point, exactly
+    like `_long_term_through_bar_date`'s pre-existing ``DAY``/``MINUTE`` branch already treats a
+    swing-mode daily bar's label -- i.e. a bar labeled ``T`` is treated as fully known once
+    ``T`` is reached, for every one of the three legs uniformly. This is a deliberate,
+    documented approximation, not a claim that IBKR/`app.data.day_trader_intraday
+    ._resample_to_target`'s own bar labels are literally end-of-bar timestamps -- both IBKR's
+    raw bars and this app's own client-side resampling (`app.data.base.resample_ohlcv`'s default
+    ``label="left"``) label a bar by its *start*, not its close, so a bar labeled ``T`` isn't
+    truly "settled" until ``T + that leg's own bar width``. Two alternatives were considered and
+    rejected in favor of the simpler uniform-cutoff rule above:
+
+    1. Computing each intermediate bar's own *settlement instant* (``bar_date + intermediate
+       leg's own bar width``) and using that (not ``bar_date`` itself) as the cutoff for
+       truncating the other two legs. Rejected: this only meaningfully changes anything for the
+       long_term leg (whose own bar width is, by `TimeframeTriple`'s hard ordering rule, always
+       *wider* than intermediate's, so a long_term bar labeled exactly at ``bar_date`` genuinely
+       hasn't closed by the time intermediate's own bar has) -- but even there, a long_term bar
+       usually can't have started less than intermediate's own bar width before ``bar_date``
+       anyway when the two intervals are reasonably close to a factor-of-five apart (ch. 39's own
+       guideline this whole feature is built around), so the practical effect is at most a
+       one-bar boundary edge case, not a systematic bias -- while the arithmetic itself needs a
+       genuine trading-calendar-aware "add N minutes of *trading* time" operation (a naive
+       wall-clock ``+ timedelta`` would incorrectly cross session/day boundaries for a wide
+       long_term interval), which is exactly the kind of precision this codebase's own
+       `TimeframeInterval.approx_trading_minutes` already documents as *not* attempting
+       ("adequate for this guideline-strength comparison, not a precise calendar computation").
+    2. Exact interval-overlap checking (only including a coarser-leg bar once its own end,
+       computed from its real bar width, has fully elapsed relative to the driving bar's start).
+       Rejected for the same reason plus one more: `TimeframeTriple` doesn't guarantee any leg's
+       width evenly divides another's (e.g. a 7-minute short_term leg against a 25-minute
+       intermediate leg), so "fully elapsed" isn't even well-defined at every boundary without
+       further judgment calls of its own -- unwarranted complexity for a feature this task's own
+       `description` already frames as "genuinely optional/lower-priority".
+
+    The uniform ``index <= bar_date`` rule matches how `_long_term_through_bar_date`'s
+    ``DAY``/``MINUTE`` branch was already built (by `backend-day-trader-timeframe-mode-
+    signal-engine`, explicitly "ready for this" future use, unmodified here) and how this
+    app already treats its own *driving* leg in both this function and swing-mode
+    `analyse_history` (a bar's own close is used by the very call that evaluates it, with no
+    settlement-delay applied to the driving leg either) -- so this is an extension of an
+    existing, already-reviewed convention, not a new one invented for this task alone.
+
+    Performance: the same precompute-and-slice discipline `analyse_history`'s own docstring
+    describes in detail applies here, over ``intermediate_ohlcv`` in place of ``daily_ohlcv``
+    (see that docstring for the full O(range_size x history_length) -> O(history_length)
+    rationale) -- every one of the twelve intermediate-leg indicator series, the divergence swing
+    cache, and the Kangaroo Tail cache are computed once over the full (cleaned)
+    ``intermediate_ohlcv`` and sliced per bar, exactly as `analyse_history` already does for
+    ``daily_ohlcv``. ``long_term_ohlcv``'s own EMA(13)/MACD-Histogram (Screen 1/Tide's inputs)
+    are likewise precomputed once and sliced via the same "a boolean ``<=`` mask over a
+    sorted-ascending index is always a prefix" positional-slice trick `analyse_history` uses for
+    its own weekly series -- `_long_term_through_bar_date`'s ``MINUTE``-unit branch is a boolean
+    mask over ``long_term_ohlcv.index``, so the same trick applies unchanged.
+    ``short_term_ohlcv`` needs no such precompute: `evaluate_trigger` (the only thing that reads
+    it) is O(1) per call (it only ever looks at the latest one or two bars), so
+    `_short_term_through_bar_date`'s own O(i)-per-bar boolean-mask cost is the only per-bar cost
+    this leg contributes, the same already-accepted residual-cost category
+    `analyse_history`'s own docstring names for `_long_term_through_bar_date`'s per-bar mask
+    cost.
+
+    ``intermediate_ohlcv``/``short_term_ohlcv`` are both cleaned via `drop_malformed_daily_bars`
+    once up front (not per bar), then passed to every `analyse()` call via
+    ``_daily_ohlcv_already_clean=True``/``_short_term_ohlcv_already_clean=True`` respectively --
+    the same redundant-rescan elimination `analyse_history` already does for ``daily_ohlcv``,
+    extended to ``short_term_ohlcv`` by this task (see `analyse()`'s own
+    ``_short_term_ohlcv_already_clean`` docstring paragraph).
+
+    Returns a list of ``(bar_date, SignalResult)`` pairs, oldest first, one per
+    ``intermediate_ohlcv`` bar from ``from_index`` through the last available bar (empty if
+    ``intermediate_ohlcv`` has no bars in that range) -- identical shape to `analyse_history`'s
+    own return value.
+    """
+    intermediate_ohlcv = drop_malformed_daily_bars(intermediate_ohlcv)
+    short_term_ohlcv = drop_malformed_daily_bars(short_term_ohlcv)
+
+    n = len(intermediate_ohlcv)
+    start = max(from_index, 0)
+    if start >= n:
+        return []
+
+    intermediate_close = intermediate_ohlcv["close"]
+    ema_13_full = ema(intermediate_close, 13)
+    ema_26_full = ema(intermediate_close, 26)
+    histogram_full = macd_components(intermediate_close).histogram
+    stochastic_k_full = stochastic_oscillator(
+        intermediate_ohlcv["high"], intermediate_ohlcv["low"], intermediate_ohlcv["close"]
+    )["k"]
+    force_index_2ema_full = force_index(
+        intermediate_ohlcv["close"], intermediate_ohlcv["volume"], ema_period=2
+    )
+    channel_bands_full = autoenvelope(intermediate_close, mid=ema_13_full)
+    channel_upper_full = channel_bands_full["upper"]
+    channel_lower_full = channel_bands_full["lower"]
+    rsi_full = compute_rsi(intermediate_close)
+    true_range_full = compute_true_range(
+        intermediate_ohlcv["high"], intermediate_ohlcv["low"], intermediate_close
+    )
+    plus_di_full, minus_di_full = plus_minus_di(
+        intermediate_ohlcv["high"], intermediate_ohlcv["low"], intermediate_close, true_range=true_range_full
+    )
+    atr_full = compute_atr(
+        intermediate_ohlcv["high"], intermediate_ohlcv["low"], intermediate_close, true_range=true_range_full
+    )
+    adx_full = compute_adx(plus_di_full, minus_di_full)
+    divergence_swing_cache = build_divergence_swing_cache(intermediate_close, window=DEFAULT_SWING_WINDOW)
+    kangaroo_tail_cache = build_kangaroo_tail_cache(intermediate_ohlcv)
+
+    long_term_ema_13_full = long_term_histogram_full = None
+    if len(long_term_ohlcv) >= 2 and "close" in long_term_ohlcv.columns:
+        long_term_close = long_term_ohlcv["close"]
+        long_term_ema_13_full = ema(long_term_close, 13)
+        long_term_histogram_full = macd_components(long_term_close).histogram
+
+    results = []
+    for i in range(start, n):
+        bar_date = intermediate_ohlcv.index[i]
+        long_term_window = _long_term_through_bar_date(
+            long_term_ohlcv, bar_date, long_term_unit=TimeframeUnit.MINUTE
+        )
+        long_term_kwargs: dict[str, pd.Series] = {}
+        if long_term_ema_13_full is not None and long_term_histogram_full is not None:
+            long_term_window_length = len(long_term_window)
+            long_term_kwargs = {
+                "weekly_ema_13": long_term_ema_13_full.iloc[:long_term_window_length],
+                "weekly_histogram": long_term_histogram_full.iloc[:long_term_window_length],
+            }
+        short_term_window = _short_term_through_bar_date(short_term_ohlcv, bar_date)
+        results.append(
+            (
+                bar_date,
+                analyse(
+                    ticker,
+                    intermediate_ohlcv.iloc[: i + 1],
+                    long_term_window,
+                    ema_13=ema_13_full.iloc[: i + 1],
+                    ema_26=ema_26_full.iloc[: i + 1],
+                    histogram=histogram_full.iloc[: i + 1],
+                    stochastic_k=stochastic_k_full.iloc[: i + 1],
+                    force_index_2ema=force_index_2ema_full.iloc[: i + 1],
+                    channel_upper=channel_upper_full.iloc[: i + 1],
+                    channel_lower=channel_lower_full.iloc[: i + 1],
+                    rsi=rsi_full.iloc[: i + 1],
+                    plus_di=plus_di_full.iloc[: i + 1],
+                    minus_di=minus_di_full.iloc[: i + 1],
+                    atr=atr_full.iloc[: i + 1],
+                    adx=adx_full.iloc[: i + 1],
+                    divergence=confirmed_divergence_as_of(
+                        divergence_swing_cache,
+                        i,
+                        macd_histogram=histogram_full,
+                        stochastic=stochastic_k_full,
+                        rsi=rsi_full,
+                    ),
+                    kangaroo_tail=kangaroo_tail_confirmed_as_of(kangaroo_tail_cache, i),
+                    short_term_ohlcv=short_term_window,
+                    _daily_ohlcv_already_clean=True,
+                    _short_term_ohlcv_already_clean=True,
+                    **long_term_kwargs,
                 ),
             )
         )

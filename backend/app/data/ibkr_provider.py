@@ -125,6 +125,38 @@ _BAR_INTERVAL_STEP: dict[str, timedelta] = {
 # framing: "recent-bar entry timing, not deep history").
 _MAX_PAGINATION_PAGES = 20
 
+def max_lookback_days_for_bar_size(bar_size: str) -> float:
+    """The most calendar days of history `get_hourly_bars(bar_size=bar_size)` can *ever* return,
+    given `_MAX_PAGINATION_PAGES`'s own safety bound on page count -- `_MAX_PAGINATION_PAGES *
+    _MAX_BARS_PER_PAGE` bars total, each `_BAR_INTERVAL_STEP[bar_size]` apart.
+    `get_hourly_bars` already silently self-limits to this regardless of whatever
+    `lookback_days` it's asked for (its own pagination loop simply stops issuing further
+    requests once the page cap is hit) -- this function exists so a caller that wants to
+    request a specific amount of look-back history at a specific granularity (day-trader
+    mode's walk-forward historical-replay fetch, `app.data.day_trader_intraday
+    .get_intraday_history_bars_for_triple`, `backend-day-trader-timeframe-mode-history`) can
+    know in advance how much of that request is actually achievable, rather than silently
+    getting back fewer bars than asked for with no way to tell why. A finer `bar_size` (e.g.
+    `"1min"`) covers proportionally *less* real calendar time before hitting the same 20-page
+    cap than a coarser one (e.g. `"1h"`) -- see `_MAX_PAGINATION_PAGES`'s own comment for the
+    `"1h"`-anchored ~833-day figure this generalizes.
+
+    Revisiting `_MAX_PAGINATION_PAGES`/`_MAX_BARS_PER_PAGE` themselves (raising the achievable
+    window for a feature that genuinely needs deeper finer-grained history) is explicitly out
+    of scope for whatever caller uses this function -- see `get_hourly_bars`'s own docstring,
+    which already flagged this as a distinct, unscoped problem before this function existed.
+
+    Raises:
+        ValueError: `bar_size` isn't one of `_VALID_BAR_INTERVALS`.
+    """
+    if bar_size not in _VALID_BAR_INTERVALS:
+        raise ValueError(
+            f"Unsupported IBKR bar interval {bar_size!r}; must be one of {sorted(_VALID_BAR_INTERVALS)}"
+        )
+    total_span = _MAX_PAGINATION_PAGES * _MAX_BARS_PER_PAGE * _BAR_INTERVAL_STEP[bar_size]
+    return total_span / timedelta(days=1)
+
+
 # docs/ideas.md: "`params` is rate-limited to 1 request per 15 minutes (cache it)".
 _SCANNER_PARAMS_TTL_SECONDS = 15 * 60.0
 
