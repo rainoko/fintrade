@@ -56,14 +56,35 @@ export default defineConfig({
     // full-suite runs of the committed config (corrected here from an earlier,
     // inconsistent "0/4" in this same comment -- see
     // backend-cftc-cot-data-followups-followups-followups-followups's `decisions`
-    // entry for the reconciliation). A later bisection (same task) tried 6/8/10/12
-    // workers, 5 full-suite runs each (20/20 clean, no reproduction), with wall-clock
-    // dropping from ~54s at 4 workers to ~30s at 12 -- 12 was adopted as the new cap:
-    // still well under the 23-worker count that reproduces the original flake on this
-    // 24-core host, while recovering most of the runtime the original conservative
-    // cap gave up. Revisit if the suite grows enough, or moves to a much
-    // lower-core-count CI host, for this tradeoff to shift again.
-    maxWorkers: 12,
+    // entry for the reconciliation).
+    //
+    // A later bisection of *fixed absolute* worker counts (6/8/10/12, 5 full-suite
+    // runs each, 20/20 clean) found 12 workers safe and much faster (~30s vs ~54s)
+    // -- but only on the 24-core devcontainer that bisection ran on. pr-reviewer
+    // caught that a fixed absolute count doesn't scale down to a lower-core host:
+    // vitest's `maxWorkers` (once explicitly set) is used verbatim with zero
+    // clamping to the host's actual core count -- the `availableParallelism() - 1`
+    // fallback only applies when `maxWorkers` is left unset. Empirically, the
+    // committed `maxWorkers: 12` deterministically reproduced the original timeout
+    // flake (15/841 tests, 3/3 runs) under a `taskset -c 0-1` 2-core restriction,
+    // while `maxWorkers: 4` passed cleanly (2/2 runs) under the same restriction.
+    // This repo has no CI workflow configured and no pinned CPU count
+    // (.devcontainer/devcontainer.json), so a fixed count tuned to one 24-core host
+    // isn't safe to assume elsewhere.
+    //
+    // Switched to a percentage instead of a fixed count: vitest resolves a string
+    // `maxWorkers` via `getWorkersCountByPercentage()` at run time, off
+    // `os.availableParallelism()` on whatever host actually runs the suite --
+    // '50%' matches the bisected-safe value of 12 workers on this 24-core
+    // devcontainer (round(0.5 * 24) = 12) while also degrading proportionally on a
+    // smaller host instead of holding the absolute count fixed. Re-ran the exact
+    // `taskset -c 0-1` 2-core repro from pr-reviewer's finding with `maxWorkers:
+    // '50%'` committed: resolves to 1 worker on a 2-core host
+    // (round(0.5*2)=1), and the full suite passed cleanly 3/3 runs, no timeouts.
+    // Also re-ran the unrestricted 24-core host normally (841/841 passed, ~30s,
+    // matching the fixed-12 wall-clock) to confirm no regression there. Revisit if
+    // per-file overhead changes enough for 50% to need retuning.
+    maxWorkers: '50%',
     coverage: {
       provider: 'v8',
       // 'text' is given explicit options (not just the bare 'text' string)
