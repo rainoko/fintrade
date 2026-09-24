@@ -58,6 +58,12 @@ export interface ErrorStateProps {
  * sentence, which is not a stable contract a caller should parse. Rendered
  * as its own `Typography`, not appended into `detail`, so a backend wording
  * change to `detail` can never accidentally duplicate or contradict it.
+ *
+ * Carries a `data-testid="error-state"` on its root element so a caller embedding this
+ * inside a component that also has its own `role="alert"` live region elsewhere (e.g.
+ * ScannerResultsTable's per-row failure announcement) can assert on this specific block's
+ * presence/absence precisely, rather than relying on the `alert` role being unique to it —
+ * see `frontend-market-scanner-page-followups`'s `decisions` entry.
  */
 export default function ErrorState({ error }: ErrorStateProps) {
   const { heading, Icon } = presentationFor(error.status)
@@ -75,6 +81,7 @@ export default function ErrorState({ error }: ErrorStateProps) {
         textAlign: 'center',
       }}
       role="alert"
+      data-testid="error-state"
     >
       <Icon fontSize="large" color="error" />
       <Typography variant="h6" component="p">

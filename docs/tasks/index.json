@@ -1825,8 +1825,8 @@
       "id": "frontend-market-scanner-page-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-market-scanner-page-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-scanner-page-followups.json"
     },
     {
       "id": "backend-market-breadth-indicators",

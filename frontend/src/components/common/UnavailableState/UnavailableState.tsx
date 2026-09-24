@@ -24,6 +24,12 @@ export interface UnavailableStateProps {
  * of it right now" framing, since those two are genuinely different
  * outcomes a caller needs to tell apart (e.g. a scan that ran successfully
  * but matched nothing, vs. a scanner that couldn't run at all).
+ *
+ * `message` is rendered only when it has non-whitespace content, not under a plain truthy
+ * check — the backend's own `detail` field is typed `string | null`, and an empty string
+ * (`''`) is a valid, distinct value from `null` that `{message && (...)}` would silently
+ * swallow into a bare heading with no explanation. A caller's own `?? 'fallback text'`
+ * doesn't help either, since `''` isn't nullish — see this task's `decisions` entry.
  */
 export default function UnavailableState({ heading, message }: UnavailableStateProps) {
   return (
@@ -44,7 +50,7 @@ export default function UnavailableState({ heading, message }: UnavailableStateP
       <Typography variant="h6" component="p" color="text.secondary">
         {heading}
       </Typography>
-      {message && (
+      {message?.trim() && (
         <Typography variant="body2" color="text.secondary">
           {message}
         </Typography>

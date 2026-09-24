@@ -1,13 +1,15 @@
 import AddIcon from '@mui/icons-material/Add'
 import CheckIcon from '@mui/icons-material/Check'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import Tooltip from '@mui/material/Tooltip'
 import { useState } from 'react'
 import type { IBKRScannerResultOut } from '../../../api/ibkr'
-import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
+import DataTable, {
+  type DataTableColumn,
+} from '../../../components/common/DataTable/DataTable'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import { useAddWatchlistItem } from '../../watchlist/hooks/useAddWatchlistItem'
 import { scannerKeys } from '../hooks/queryKeys'
@@ -95,17 +97,39 @@ export interface ScannerResultsTableProps {
  * mutating on failure is a reliable live-region update regardless of mount
  * timing) announces the failure to assistive tech even for a user who has
  * already moved focus elsewhere (e.g. to check another row while this row's
- * request is still in flight) — `role="status"`, not `role="alert"`, so it
- * doesn't reintroduce the "full ErrorState block" landmark this component's
- * own tests assert is gone (see ScannerResultsTable.test.tsx's
- * `queryByRole('alert')` assertion).
+ * request is still in flight) — `role="alert"` (assertive), matching
+ * `common/ErrorState`'s own live-region choice: WAI-ARIA authoring practice
+ * recommends `role="alert"` specifically for an action-failure announcement
+ * like this one, since a `role="status"` (polite) region can be skipped or
+ * queued behind other speech an AT is already announcing, whereas `alert`
+ * interrupts. An earlier version of this element used `role="status"`
+ * instead, specifically to avoid reintroducing the "full ErrorState block"
+ * landmark ScannerResultsTable.test.tsx's own regression test asserts is
+ * gone — but that test was guarding against the full layout-breaking
+ * ErrorState block (icon+heading+body, tall enough to stretch every cell in
+ * its row), not forbidding `role="alert"` on any element whatsoever; this
+ * always-mounted, visually-hidden element has zero layout impact either way,
+ * so it doesn't reintroduce that regression. That test now asserts on the
+ * ErrorState block's own `data-testid` instead of the `alert` role (see
+ * `common/ErrorState`'s doc comment and this task's `decisions` entry).
  */
 function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
-  const addWatchlistItem = useAddWatchlistItem({ mutationKey: scannerKeys.addToWatchlist })
+  const addWatchlistItem = useAddWatchlistItem({
+    mutationKey: scannerKeys.addToWatchlist,
+  })
   const [added, setAdded] = useState(false)
 
-  const handleAdd = () =>
+  const handleAdd = () => {
+    // Terminal state guard, not a native `disabled` attribute (which would blur a focused
+    // element — see this component's own doc comment above on why `disabled` is never used
+    // in any state): a settled "Added" button is clickable forever without this, re-firing
+    // an idempotent-but-redundant POST /api/watchlist and refetch on every extra click
+    // (round-5 review finding, PR #243).
+    if (added) {
+      return
+    }
     addWatchlistItem.mutate({ ticker }, { onSuccess: () => setAdded(true) })
+  }
 
   const failureAnnouncement = addWatchlistItem.isError
     ? `Failed to add ${ticker} to watchlist: ${addWatchlistItem.error.detail}`
@@ -128,7 +152,7 @@ function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
           update is announced reliably rather than depending on the element
           itself being freshly inserted into the DOM. */}
       <Box
-        role="status"
+        role="alert"
         sx={{
           position: 'absolute',
           width: 1,
@@ -147,7 +171,11 @@ function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
           so its child <Button> is never unmounted/remounted by a
           conditionally-rendered wrapper — see the doc comment above. */}
       <Tooltip
-        title={addWatchlistItem.isError ? `${addWatchlistItem.error.detail} Click to retry.` : ''}
+        title={
+          addWatchlistItem.isError
+            ? `${addWatchlistItem.error.detail} Click to retry.`
+            : ''
+        }
       >
         <span>
           <Button
@@ -205,7 +233,8 @@ export default function ScannerResultsTable({ results }: ScannerResultsTableProp
       key: 'symbol',
       header: 'Symbol',
       sortable: true,
-      render: (row) => (row.symbol ? <TickerLink ticker={row.symbol} /> : `#${row.conid}`),
+      render: (row) =>
+        row.symbol ? <TickerLink ticker={row.symbol} /> : `#${row.conid}`,
     },
     {
       key: 'company_name',
@@ -226,7 +255,8 @@ export default function ScannerResultsTable({ results }: ScannerResultsTableProp
       key: 'conid',
       header: '',
       align: 'right',
-      render: (row) => (row.symbol ? <ScannerAddToWatchlistButton ticker={row.symbol} /> : null),
+      render: (row) =>
+        row.symbol ? <ScannerAddToWatchlistButton ticker={row.symbol} /> : null,
     },
   ]
 
