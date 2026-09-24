@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #296's review (round-timestamp fix: evidence wording and instruction placement)",
   "area": "backend/api",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-closed-trades-legacy-exit-reason-500-followups-followups-followups"],
   "references": [
     "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json",
@@ -29,10 +29,16 @@
       "rationale": "The `pr_decision.notes` on the parent-of-parent task already did the work of re-running the grep and catching this exact off-by-one, and explicitly left it for 'a future pass on the follow-up task' to fix the count -- this is that pass. Propagating '6' into the corrected decisions-entry text would have replaced one overstated figure with a different, still-wrong one, defeating the purpose of the correction; re-verifying against a fresh `grep -rhoE '\"timestamp\": *\"[^\"]+\"' docs/tasks/*.json docs/tasks/done/*.json | grep 'T00:00:00Z' | sort | uniq -c | sort -rn` (run directly, not trusted from memory) confirmed 5 is correct. The underlying conclusion (pervasive enough to make a validator check noisy) is unaffected either way, so this doesn't reopen any substantive decision -- it's the same kind of narrow factual correction the checklist item itself calls for, just carried one step further with fresher evidence."
     },
     {
-      "timestamp": "2026-09-24T06:16:42Z",
+      "timestamp": "2026-09-24T06:18:09Z",
       "recorded_by": "task-worker",
       "decision": "For task-worker.md step 6, added a short cross-reference back to step 5's date -u timestamp-capture rule directly at the point step 6 introduces its own `questions[].timestamp` field, rather than moving the rule out to a standalone bullet.",
       "rationale": "The checklist item offered either option ('a short cross-reference from step 6 back to step 5's rule, or moving the timestamping rule to a standalone bullet'). The cross-reference is the smaller, more surgical diff: step 5 is still the natural home for the rule since it's where the concept (and the concrete `decisions`-entry example) is first introduced, and step 6 only needs a pointer at the exact spot a reader would otherwise miss it (the `questions` entry's own `timestamp` field) rather than a structural reorganization of the whole numbered list. Promoting it to a standalone bullet would require renumbering-adjacent surrounding prose for no added clarity, since every current and future timestamp-writing step can just point back to the one canonical rule."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups",
+    "pr_number": 300,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/300",
+    "pushed_at": "2026-09-24T06:18:17Z"
+  }
 }
