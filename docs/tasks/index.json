@@ -1930,8 +1930,8 @@
       "id": "frontend-market-breadth-widget-followups-followups-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/frontend-market-breadth-widget-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget-followups-followups-followups.json"
     },
     {
       "id": "backend-ibkr-symbol-resolution-followups",

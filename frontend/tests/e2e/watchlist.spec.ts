@@ -26,8 +26,25 @@ function watchlistRow(page: Page) {
  * idempotent no-op on a duplicate add, API.md) — both matter because playwright.config.ts's
  * webServer only guarantees a clean database at the start of a whole `yarn test:e2e`
  * invocation, not before each individual spec file.
+ *
+ * The 'removing the ticker' test below is the asserted UI-driven cleanup path, but it isn't the
+ * only one: `test.afterAll` below backs it up with a direct API delete, so a flake/timeout in
+ * either of the tests spliced in between add and remove (the signal-badge or personal-breadth
+ * assertions) can't strand GOOGL for the rest of the suite run even though `playwright.config.ts`
+ * sets `retries: 0` and `describe.serial` skips every remaining test in the block once one fails
+ * (frontend-market-breadth-widget-followups-followups-followups).
  */
 test.describe.serial('watchlist: view, add, and remove a ticker', () => {
+  test.afterAll(async ({ request }) => {
+    // Safety-net cleanup, not the primary assertion: guarantees GOOGL is gone after this block
+    // regardless of which test above failed. A normal completed run has already removed it via
+    // the UI in 'removing the ticker takes it out of the table', so this 404s (ticker already
+    // gone) far more often than it 204s -- both are expected outcomes, not a failure, unlike an
+    // unexpected status (e.g. a 5xx) which would still fail this hook and the run.
+    const response = await request.delete(`/api/watchlist/${TICKER}`)
+    expect([204, 404]).toContain(response.status())
+  })
+
   test('watchlist page loads with a watchlist table', async ({ page }) => {
     await page.goto('/watchlist')
     await expect(page.getByRole('heading', { level: 1, name: 'Watchlist' })).toBeVisible()
