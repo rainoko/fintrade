@@ -45,5 +45,11 @@
       "rationale": "This task's own checklist item 2 literally specifies 'a resolved IBKR conid' as the input, and `resolve_conid` (`backend-ibkr-symbol-resolution`, already done) already has its own documented `None`-on-ambiguous-or-no-match contract that a caller needs to handle before it has anything meaningful to pass here -- duplicating that resolution/error-handling inside this module would either force a second opinion on what to do with an unresolvable ticker (out of this task's scope) or silently swallow it, neither of which is better than leaving resolution to the caller, which is either `get_active_day_trader_intraday_bars`'s own future caller or `backend-day-trader-timeframe-mode-signal-engine` directly."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-ibkr-intraday",
+    "pr_number": 311,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/311",
+    "pushed_at": "2026-09-24T17:53:17Z"
+  }
 }
