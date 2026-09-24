@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #298's review (identical timestamps on its own two new decisions entries)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "PR #298 itself recorded its two new `decisions` entries on `backend-cftc-cot-data-followups-followups-followups-followups-followups.json` with the identical timestamp `2026-09-24T05:48:53Z` for both -- the same class of evidence-trail imprecision this exact task lineage exists to fix (the parent task's checklist item 1 flagged the analogous case: two sequential decisions entries sharing one timestamp). Low severity here since these two corrections were plausibly made back-to-back in the same edit/commit session rather than describing two lengthy separate investigations (unlike the original case), so simultaneity is at least plausible rather than provably impossible. Still worth a quick pass to give them distinct, sequential timestamps (or a note explaining why simultaneity is accurate here) the next time this task's decisions array is touched, for consistency with the standard this lineage otherwise holds everyone else to.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T06:06:28Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the two identical `2026-09-24T05:48:53Z` timestamps on `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json`'s two `decisions` entries in place (this checklist item explicitly names those entries' own timestamp text as the thing to fix, satisfying CLAUDE.md's narrow carve-out). Left the first entry (the duplicate-timestamp fix) at `2026-09-24T05:48:53Z` and moved the second entry (the '~23s' vs '~30s' reconciliation) to `2026-09-24T05:48:59Z` -- six seconds later, plausible for two short, comment-only edits made back-to-back in one sitting rather than two lengthy separate investigations, unlike the original PR #294 case this lineage exists to fix.",
+      "rationale": "A few-seconds gap rather than a larger one reflects that both corrections in that PR were narrow text edits (a timestamp swap and a wall-clock-figure reconciliation) with no multi-minute test runs or investigation between them, so a large gap would itself be an implausible fabrication; a small but non-zero gap is the most defensible guess given no other record of the exact sequencing survives. Editing the parent done task's decisions timestamps in place (rather than only adding a pointer entry there) matches this checklist item's explicit instruction and CLAUDE.md's carve-out precedent (PR #298/#274); recording this correction as a fresh entry on this task's own decisions array (rather than only editing the parent's text) satisfies the carve-out's own requirement that an in-place edit also be logged as a fresh decisions entry with rationale."
+    }
+  ],
   "questions": []
 }
