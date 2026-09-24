@@ -39,7 +39,7 @@ from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.portfolio.exits import evaluate_exit_flags
 from app.portfolio.grading import TradeGrade, grade_trade_from_filtered_history, trade_letter_grade
-from app.portfolio.models import Account, ExitReason
+from app.portfolio.models import Account, ExitReason, Position
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import (
     EnrichedPosition,
@@ -51,8 +51,10 @@ from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
+    ratchet_trailing_profit_stop,
     realized_losses_pct,
     total_open_risk_pct,
+    trailing_stop_floor_before_merge,
 )
 from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
@@ -389,7 +391,11 @@ def get_portfolio(
         },
     },
 )
-def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
+def add_position(
+    position: PositionIn,
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> PositionOut:
     """Creates a position from manual entry / CSV-import data. If a position for this ticker
     already exists it is merged rather than duplicated: quantities are summed and
     avg_cost_basis becomes the quantity-weighted average of the existing and incoming cost
@@ -415,7 +421,22 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
     reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
-    POST /api/watchlist's identical null-on-write convention for the same fields."""
+    POST /api/watchlist's identical null-on-write convention for the same fields.
+
+    On a same-ticker merge, this is also the one write path for `PositionORM
+    .trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    persisted floor, Elder ch. 54's "Move Your Stop Only in the Direction of Your Trade" hard
+    ratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --
+    `trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for
+    this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're
+    overwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged
+    cost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET
+    /api/portfolio/risk` itself never writes to the database -- see that route's own docstring
+    and `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather
+    than being advanced/persisted from every GET. A `provider` fetch failure for this ticker
+    (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
+    rather than blocking the merge -- adding a position must never depend on live market data
+    being reachable."""
     ticker = position.ticker.upper()
     existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
 
@@ -464,6 +485,39 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
                 "or average cost basis too large to represent (overflow). Reduce the "
                 "quantity/avg_cost_basis or split the addition into smaller increments.",
             )
+
+        # Locks in `trailing_stop_high_water_mark` (app.portfolio.risk
+        # .trailing_stop_floor_before_merge) against this position's OLD avg_cost_basis/
+        # entry_date, BEFORE they're overwritten just below -- the one write path for this
+        # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
+        # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
+        # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
+        # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
+        # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
+        # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
+        # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
+        # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
+        # value no later correct computation could ever bring back down (PR #240 round-3 finding).
+        old_position = Position(
+            id=existing.id,
+            ticker=existing.ticker,
+            quantity=existing.quantity,
+            avg_cost_basis=existing.avg_cost_basis,
+            entry_date=existing.entry_date,
+        )
+        try:
+            daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        except DataProviderError:
+            daily_ohlcv = None
+        if daily_ohlcv is not None:
+            daily_ohlcv = drop_malformed_daily_bars(
+                daily_ohlcv, require_full_ohlc_on_latest_bar=False
+            )
+        floor = trailing_stop_floor_before_merge(
+            old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
+        )
+        if floor is not None:
+            existing.trailing_stop_high_water_mark = floor
 
         existing.quantity = merged_quantity
         existing.avg_cost_basis = merged_avg_cost_basis
@@ -682,6 +736,16 @@ def get_risk(
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
     independent of entry-signal logic by design.
 
+    This is a pure read, like every other GET route in this app: computing each position's
+    `trailing_stop` (see below) only ever *reads* `PositionORM.trailing_stop_high_water_mark`
+    as a floor, never advances or persists it -- `POST /api/portfolio/positions`'s same-ticker-
+    merge branch is the one write path for that column (`app.portfolio.risk
+    .trailing_stop_floor_before_merge`, called there against the position's OLD, pre-merge cost
+    basis before it's overwritten) -- see `app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+    round-2 history of why an earlier revision that had this GET route do the writing (making it
+    this codebase's first side-effecting-write GET route) was reverted.
+
     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
     (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
@@ -741,6 +805,23 @@ def get_risk(
     rather than excluding it from `positions` entirely, since a missing profit target is far
     less consequential than a missing stop/risk-pct/exit-flags.
 
+    `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder ch. 54 "Don't Let
+    a Winning Trade Turn into a Loss") is this position's separate trailing/profit-protecting
+    stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
+    already has in hand plus this same position's already-computed `stop`. Unlike
+    `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
+    than it has on any previous call -- a stateless re-fold of this position's own full price
+    history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
+    (this position's own highest-ever *locked-in* value -- read here, never written; written
+    only by `POST /api/portfolio/positions`'s same-ticker-merge branch, see that route's own
+    docstring) -- see `ratchet_trailing_profit_stop`'s own docstring and this task's
+    (backend-trailing-profit-stop) `decisions` entry for the exact mechanics and why the
+    persisted floor turned out to be necessary after all (a same-ticker `POST
+    /api/portfolio/positions` merge that raises `avg_cost_basis` can invalidate the stateless
+    re-fold alone). A `ValueError` computing it excludes the position from `positions` entirely
+    (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
+    the independently-nullable `profit_target`).
+
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -755,7 +836,15 @@ def get_risk(
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
-    enriched = enrich_positions_with_price(_ordered_positions(db), provider)
+    # `position_rows` is kept alongside `enriched` (rather than re-querying by id later) so the
+    # trailing_stop persisted-high-water-mark floor read below (see
+    # ratchet_trailing_profit_stop's own docstring for why this is needed) has each position's
+    # ORM row in hand without a second query -- `enrich_positions_with_price` preserves
+    # `position_rows`' order and length 1:1 (one EnrichedPosition per input row), so this dict
+    # covers every id `enriched` can ever produce.
+    position_rows = _ordered_positions(db)
+    position_rows_by_id = {row.id: row for row in position_rows}
+    enriched = enrich_positions_with_price(position_rows, provider)
     value = positions_value(enriched)
     account = Account(
         equity=DomainEquity(cash=cash, positions_value=value, total=cash + value),
@@ -830,6 +919,31 @@ def get_risk(
                 weekly_by_id[e.position.id],
                 total_risk,
             )
+            # app.portfolio.risk.trailing_profit_stop/ratchet_trailing_profit_stop (Elder ch.
+            # 54 "Don't Let a Winning Trade Turn into a Loss") -- distinct from `stop` above
+            # (the static SafeZone protective_stop). `daily_by_id[e.position.id]` is the same
+            # drop_malformed_daily_bars-filtered, full-available-history frame `profit_target`
+            # below reuses (today's bar included, unlike the `.iloc[:-1]` slice `stop` itself
+            # was computed from) -- see ratchet_trailing_profit_stop's own docstring for why
+            # this endpoint doesn't need `daily_ohlcv.iloc[:-1]` here: the ratchet is a `max`
+            # over history, so including today's own bar can only ever raise it, never
+            # understate it the way `stop`'s own look-ahead-avoidance concern would apply.
+            #
+            # `persisted_high_water_mark` is this position's own `PositionORM
+            # .trailing_stop_high_water_mark` -- the floor that makes the ratchet genuinely
+            # never decrease even across a `POST /api/portfolio/positions` same-ticker merge
+            # that raises `avg_cost_basis` (see ratchet_trailing_profit_stop's own docstring
+            # for the exact bug this closes). Read-only here: this column is written only by
+            # that POST route's merge branch (app.portfolio.risk
+            # .trailing_stop_floor_before_merge), never by this GET route -- see this
+            # function's own docstring for the round-2 history of why.
+            position_row = position_rows_by_id[e.position.id]
+            trailing_stop = ratchet_trailing_profit_stop(
+                e.position,
+                daily_by_id[e.position.id],
+                stop,
+                persisted_high_water_mark=position_row.trailing_stop_high_water_mark,
+            )
         except ValueError:
             continue
 
@@ -862,6 +976,7 @@ def get_risk(
                 id=e.position.id,
                 ticker=e.position.ticker,
                 protective_stop=stop,
+                trailing_stop=trailing_stop,
                 position_risk_pct=risk_pct,
                 two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD,
                 exit_flags=exit_flags,

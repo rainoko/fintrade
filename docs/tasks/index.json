@@ -1489,8 +1489,15 @@
       "id": "backend-trailing-profit-stop",
       "area": "backend/portfolio",
       "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/backend-trailing-profit-stop.json"
+    },
+    {
+      "id": "backend-trailing-profit-stop-followups",
+      "area": "backend/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-trailing-profit-stop.json"
+      "path": "docs/tasks/backend-trailing-profit-stop-followups.json"
     },
     {
       "id": "backend-profit-target-weekly-channel",
