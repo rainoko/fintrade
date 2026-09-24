@@ -223,6 +223,44 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         self.assertEqual(len(violations), 1)
         self.assertIn("example_multiline.py:7", violations[0])
 
+    def test_run_line_number_accounts_for_a_multiline_member_literal(self) -> None:
+        # PR #226 review finding (round 4): a run containing a multi-line token (a
+        # triple-quoted string implicitly concatenated to another literal) must
+        # report the real source line the matched text falls on, not the token's
+        # opening line. Here the triple-quoted string opens on line 2 but the
+        # banned phrase's "today's" half only appears on line 3, joined to
+        # "Autoenvelope" on line 4 -- the violation must be reported at line 3
+        # (where the flagged text actually starts), not line 2.
+        path = self.repo.write(
+            "backend/app/api/example_multiline_token.py",
+            "x = (\n"
+            '    """line one\n'
+            "    mentions today's \"\"\"\n"
+            '    "Autoenvelope"\n'
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_multiline_token.py:3", violations[0])
+
+    def test_phrase_entirely_within_one_run_member_is_not_double_reported(self) -> None:
+        # PR #226 review finding (round 4): a banned phrase sitting entirely within
+        # ONE member literal of an implicit-concatenation run (never actually
+        # split across the join) must be reported once -- by the ordinary per-line
+        # scan -- not a second time by the run-based scan mislabeled "split across
+        # an implicit string concatenation".
+        path = self.repo.write(
+            "backend/app/api/example_not_split.py",
+            "description=(\n"
+            "    \"Current price + 30% of today's Autoenvelope, using data \"\n"
+            '    "for computation."\n'
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_not_split.py:2", violations[0])
+        self.assertNotIn("split across an implicit string concatenation", violations[0])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",

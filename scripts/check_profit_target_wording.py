@@ -223,8 +223,12 @@ def _iter_scanned_files() -> list[Path]:
 # separately, scoped to just that run. This also means no other line's numbering is
 # ever perturbed by a run found earlier in the file, since nothing here mutates or
 # re-derives line numbers from a modified buffer -- every reported line number comes
-# from the untouched original text (or, for a run, the real tokenize-reported start
-# line of the token the match falls in).
+# from the untouched original text (or, for a run, the real source line the matched
+# text itself starts on, accounting for any embedded newlines within a multi-line
+# token -- never just that token's own opening line). A run-based match is only
+# reported at all when it genuinely crosses from one member literal into another;
+# one sitting entirely within a single member literal is left to the per-line scan
+# (see `_find_run_violations`'s own docstring for why).
 
 # Token types that never end a logical line/expression on their own and so don't
 # break a run of otherwise-adjacent STRING tokens: comments, non-logical newlines
@@ -296,20 +300,44 @@ def _decode_string_token(tok: tokenize.TokenInfo) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _span_index_for_offset(offset: int, spans: list[tuple[int, int, tokenize.TokenInfo, str]]) -> int:
+    """Return the index into `spans` of the member-literal piece that contains
+    `offset` (a character position within the run's concatenated decoded value)."""
+    for index, (start, end, _tok, _value) in enumerate(spans):
+        if start <= offset < end:
+            return index
+    return len(spans) - 1
+
+
 def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     """Scan one implicit-concatenation run's true, decoded, concatenated string
     value (no injected whitespace or leftover newlines -- exactly what Python's own
-    runtime would produce) for banned patterns, reporting each match at the real
-    source line of whichever token it falls in."""
+    runtime would produce) for banned patterns.
+
+    Only a match that genuinely crosses from one member literal into another is
+    reported here -- a match sitting entirely within a single member literal isn't
+    actually split across the join at all, so it's either already caught by the
+    ordinary per-line scan in `check_banned_patterns` (if it's on one physical line),
+    or it's split only by a literal embedded newline within one multi-line token
+    with no concatenation involved (a separately-tracked, deliberately-accepted
+    gap -- see the module docstring). Reporting either of those here too would just
+    duplicate-and-mislabel a finding as "split across an implicit string
+    concatenation" when nothing was actually split across a join.
+
+    A reported match's line number is the real source line the matched text itself
+    starts on -- not the opening line of whichever token it starts in -- computed by
+    counting the token's own decoded newlines up to the match's offset within it, so
+    a match starting partway through a multi-line token (e.g. a triple-quoted string
+    concatenated to another literal) still reports correctly."""
     pieces: list[str] = []
-    spans: list[tuple[int, int, tokenize.TokenInfo]] = []
+    spans: list[tuple[int, int, tokenize.TokenInfo, str]] = []
     cursor = 0
     for tok in run:
         value = _decode_string_token(tok)
         if value is None:
             return []
         pieces.append(value)
-        spans.append((cursor, cursor + len(value), tok))
+        spans.append((cursor, cursor + len(value), tok, value))
         cursor += len(value)
     concatenated = "".join(pieces)
 
@@ -328,12 +356,14 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     reported: set[int] = set()
     for pattern in _BANNED_PATTERNS:
         for match in pattern.finditer(concatenated):
-            token_for_match = spans[-1][2]
-            for start, end, tok in spans:
-                if start <= match.start() < end:
-                    token_for_match = tok
-                    break
-            lineno = token_for_match.start[0]
+            start_index = _span_index_for_offset(match.start(), spans)
+            end_index = _span_index_for_offset(match.end() - 1, spans)
+            if start_index == end_index:
+                # Entirely within one member literal -- not actually split across
+                # the join, see the docstring above.
+                continue
+            start, _end, tok, value = spans[start_index]
+            lineno = tok.start[0] + value[: match.start() - start].count("\n")
             if lineno in reported:
                 continue
             reported.add(lineno)
