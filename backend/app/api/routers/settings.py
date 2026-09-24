@@ -19,25 +19,19 @@ Screen 1/2/3 evaluation (tracked as `backend-day-trader-timeframe-mode-signal-en
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.schemas import TimeframeTripleOut, TradingModeIn, TradingModeOut
+from app.api.day_trader_signal import trading_mode_setting_to_schema
+from app.api.schemas import TradingModeIn, TradingModeOut
 from app.db.session import get_db
 from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
-from app.trading_mode import TradingModeSetting, get_trading_mode_setting, set_trading_mode_setting
+from app.trading_mode import get_trading_mode_setting, set_trading_mode_setting
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-
-def _to_out(setting: TradingModeSetting) -> TradingModeOut:
-    triple_out = None
-    if setting.day_trader_timeframe_triple is not None:
-        triple = setting.day_trader_timeframe_triple
-        triple_out = TimeframeTripleOut(
-            long_term=triple.long_term.code,
-            intermediate=triple.intermediate.code,
-            short_term=triple.short_term.code,
-            factor_of_five_warnings=triple.factor_of_five_warnings(),
-        )
-    return TradingModeOut(mode=setting.mode.value, day_trader_timeframe_triple=triple_out)
+# `_to_out` used to live here as a private helper; moved to `app.api.day_trader_signal
+# .trading_mode_setting_to_schema` (backend-day-trader-timeframe-mode-api) once
+# GET /api/stocks/{ticker}/analysis and GET /api/watchlist also needed the identical
+# TradingModeSetting -> TradingModeOut mapping, rather than each keeping its own copy.
+_to_out = trading_mode_setting_to_schema
 
 
 @router.get(

@@ -35,6 +35,7 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
 {
   "ticker": "AAPL",
   "as_of": "2026-09-11",
+  "trading_mode": { "mode": "swing", "day_trader_timeframe_triple": null },
   "signal": "BUY",
   "confidence": 72,
   "confidence_band": "High",
@@ -147,6 +148,10 @@ Full Triple Screen evaluation for one ticker — signal, confidence, and the bre
   ]
 }
 ```
+
+`trading_mode` (`backend-day-trader-timeframe-mode-api`) is the global trading mode active when this response was computed — same `TradingModeOut` shape as `GET /api/settings/trading-mode` (see below). While `swing` (this app's default, and every behavior before this field existed), `signal`/`confidence`/`screens`/`indicators` are computed exactly as documented in this section — `app.signals.engine.analyse(daily_ohlcv, weekly_ohlcv)`, unchanged bar-for-bar. While `day_trader`, those same fields are instead computed by `app.signals.engine.analyse_day_trader` over the active `day_trader_timeframe_triple`'s long-term/intermediate/short-term legs, fetched via IBKR (`app.data.day_trader_intraday`) — **field names themselves are deliberately NOT renamed** (e.g. `weekly_macd_histogram_slope` still reads literally "weekly" even in `day_trader` mode) to avoid a breaking change to this app's only production frontend today for a still-incomplete feature (no settings UI to switch into `day_trader` mode exists yet) — see this task's `decisions` entry. Only a **fully-intraday** triple (every leg minute-unit, ch. 39's own canonical day-trading examples) is currently supported; this endpoint raises `503` (see Errors below) rather than ever returning a partial/degraded body when day-trader data isn't available right now. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of` below are unaffected by `trading_mode` either way — always derived from the ticker's ordinary daily/weekly chart data (the portfolio/profit-target layer's own hard-coded weekly/daily split is a separate, not-yet-landed follow-up — see `docs/architecture/Backend.md` §10).
+
+Errors: unknown ticker → `404`; `ticker`'s fetched weekly history has fewer than 26 weeks → `422`; market data provider unavailable, **or** (`day_trader` mode only) the active day-trader timeframe triple's IBKR intraday data couldn't be fetched right now (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active triple having a non-fully-intraday leg) → `503`.
 
 `signal` ∈ `BUY | SELL | HOLD`. `confidence` is an integer 0–100. `confidence_band` ∈ `Low | Medium | High` per Analyse.md §6.
 
@@ -430,10 +435,11 @@ Errors: unknown ticker → `404`; `ticker`'s fetched weekly history has fewer th
 
 ### `GET /api/watchlist`
 
-Every watched ticker, annotated with its current signal/confidence via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`, Analyse.md §5) — not a separately-implemented buy check.
+Every watched ticker, annotated with its current signal/confidence via the exact same Triple Screen signal engine `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`/`analyse_day_trader`, Analyse.md §5) — not a separately-implemented buy check.
 
 ```json
 {
+  "trading_mode": { "mode": "swing", "day_trader_timeframe_triple": null },
   "items": [
     {
       "ticker": "AAPL",
@@ -453,7 +459,7 @@ Every watched ticker, annotated with its current signal/confidence via the exact
 }
 ```
 
-`signal`/`confidence`/`confidence_band` are `null` together on an entry whose signal couldn't be computed right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable) — mirroring `PositionOut`'s `current_price`/`unrealized_pnl_pct` null-on-failure pattern rather than dropping the entry entirely (see the `api-watchlist` task's `decisions`). Ordered by `added_at` (oldest first).
+`trading_mode` (`backend-day-trader-timeframe-mode-api`) is the same `TradingModeOut` shape as `GET /api/stocks/{ticker}/analysis`'s own `trading_mode` field, reported once here (not per-item) since it's one global setting shared by every item in `items` — resolved once per request, so every item is evaluated against the same mode even under a concurrent mode switch mid-request. `signal`/`confidence`/`confidence_band` are `null` together on an entry whose signal couldn't be computed right now — while `swing`, an unknown/delisted ticker, insufficient history, or the data provider being unavailable (mirroring `PositionOut`'s `current_price`/`unrealized_pnl_pct` null-on-failure pattern rather than dropping the entry entirely, see the `api-watchlist` task's `decisions`); while `day_trader`, those same reasons plus the day-trader-mode data being unavailable for the reasons `GET /api/stocks/{ticker}/analysis`'s own `trading_mode` paragraph documents (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or a non-fully-intraday triple) — this endpoint never fails the whole list over one ticker's signal being unavailable, in either mode. Ordered by `added_at` (oldest first). `GET /api/watchlist/breadth` (below) shares this same `trading_mode`-aware signal computation via the same underlying helper, so a day-trader-mode-unavailable ticker there is likewise counted in `unavailable_count`, not a failed request.
 
 ### `POST /api/watchlist`
 
@@ -675,7 +681,7 @@ Raises `503` if the CFTC's request itself fails, or unexpectedly returns no rows
 
 ### `GET /api/settings/trading-mode` / `PUT /api/settings/trading-mode`
 
-The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json, Elder ch. 39's "Choosing Timeframes — the Factor of Five") — a single setting, not a per-request parameter (see that task's `decisions` entry). **Scope note**: as of this task, switching to `day_trader` mode here changes nothing about how any other endpoint computes signals — see `docs/architecture/Backend.md` §10 for what's landed vs. still tracked as a dependent follow-up task.
+The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json, Elder ch. 39's "Choosing Timeframes — the Factor of Five") — a single setting, not a per-request parameter (see that task's `decisions` entry). **Scope note**: switching to `day_trader` mode here now changes `GET /api/stocks/{ticker}/analysis`/`GET /api/watchlist`/`GET /api/watchlist/breadth`'s computed signals (`backend-day-trader-timeframe-mode-api`, see those endpoints' own `trading_mode` documentation above) for a **fully-intraday** triple; `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk` don't read this setting yet — see `docs/architecture/Backend.md` §10 for what's landed vs. still tracked as a dependent follow-up task.
 
 ```json
 {
@@ -704,6 +710,7 @@ The global, app-wide active trading mode (docs/tasks/backend-day-trader-timefram
 - `DELETE /api/watchlist/{ticker}` for a ticker not on the watchlist → `404`.
 - A tracked ticker (watchlist or portfolio) whose Tide can't be computed → counted in `GET /api/watchlist/breadth`'s `unavailable_count`, not a failed request (see `GET /api/watchlist/breadth` above).
 - A watchlist ticker whose signal can't be computed → its `GET /api/watchlist` entry has `signal`/`confidence`/`confidence_band` all `null`, not a failed request (see `GET /api/watchlist` above).
+- `day_trader` trading mode active but its intraday data can't be fetched right now (IBKR disabled/unreachable/unauthenticated, a ticker's IBKR contract id not resolving, or a non-fully-intraday triple) → `503` on `GET /api/stocks/{ticker}/analysis` (a single-ticker endpoint, so this is a failed request); `null` `signal`/`confidence`/`confidence_band` (or `unavailable_count`) on `GET /api/watchlist`/`GET /api/watchlist/breadth` (multi-ticker endpoints, so this never fails the whole request) — see both endpoints' own `trading_mode` documentation above.
 - A `POST /api/daily-homework` score outside `0`-`2` → `422` (standard per-field validation error shape).
 - `GET /api/daily-homework/today` before today's entry has been recorded, or `GET /api/daily-homework/yesterday-trading-suggestion` with no `closed_trades` row exited yesterday → a normal `200` with a null `entry`/`net_realized_pnl`+`suggested_score`, never a failed request (see both endpoints above).
 - IBKR disabled/gateway unreachable/not authenticated on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run` → a normal `200` with the corresponding `state`, `categories`/`results` both `null`, never a failed request (see both endpoints above).

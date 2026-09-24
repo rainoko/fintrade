@@ -2,7 +2,16 @@
 
 Uses a stub `DataProvider` (via a `get_data_provider` dependency override, same pattern as
 tests/integration/test_portfolio_get.py) so these tests never touch a live market data
-provider. This endpoint has no DB dependency of its own, so there's no `get_db` override here.
+provider.
+
+`_isolated_db` below (autouse) gives every test in this module its own fresh in-memory
+`TradingModeSettingORM` table (via a `get_db` override, same StaticPool in-memory-SQLite
+pattern as tests/integration/test_stocks_indicator_history.py's own) -- this endpoint now reads
+the active trading mode (`backend-day-trader-timeframe-mode-api`), so without this override
+every call here would hit the real on-disk `fintrade.db` (app/config.py's default
+`database_url`) instead of a test-only database. Every test in this module not explicitly
+about day-trader mode (see `TestDayTraderMode` below) relies on the isolated DB's default
+`swing` mode (no row ever written), matching this endpoint's behavior before this task.
 
 The BUY/SELL/HOLD fixtures below are copied verbatim from
 tests/unit/signals/test_engine.py's `TestAnalyseEndToEnd` (the real, unmocked
@@ -11,21 +20,50 @@ tests instead focus on this route's own job -- wiring the provider fetch, `analy
 `AnalysisResponse` mapping together, plus the 404/422/503 error mapping.
 """
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_data_provider
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.data.base import ExtendedData, InsiderTransaction
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.data.ibkr_provider import GatewayStatus, IBKRBar, IBKRUnavailableError
+from app.db.models import Base
+from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.main import app
+from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
+from app.trading_mode import set_trading_mode_setting
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db():
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = session_factory()
+
+    def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+        app.dependency_overrides.pop(get_db, None)
 
 # The all-null/empty ExtendedData every `_StubProvider` ticker gets unless a test explicitly
 # overrides it via `extended` -- keeps every pre-existing test in this file (written before
@@ -1000,3 +1038,279 @@ class TestProfitTarget:
         )
         assert profit_target["reward_risk_ratio"] < 2.0
         assert profit_target["meets_minimum_reward_risk"] is False
+
+
+def _ibkr_bars(
+    closes: list[float],
+    highs: list[float],
+    lows: list[float],
+    volumes: list[float],
+    *,
+    start: datetime,
+    step_minutes: int,
+) -> list[IBKRBar]:
+    # Same shape as tests/integration/test_day_trader_mode_signal_engine.py's own `_bars`.
+    return [
+        IBKRBar(
+            timestamp=start + timedelta(minutes=step_minutes * i),
+            open=close,
+            high=highs[i],
+            low=lows[i],
+            close=close,
+            volume=volumes[i],
+        )
+        for i, close in enumerate(closes)
+    ]
+
+
+def _day_trader_long_term_bars() -> list[IBKRBar]:
+    # BULLISH weekly-Impulse-equivalent Tide -- same shape as test_day_trader_mode_signal_
+    # engine.py's `_long_term_bars`, relabeled as 60-minute intraday bars.
+    closes = [100 * (1.05**i) for i in range(40)]
+    highs = [c * 1.01 for c in closes]
+    lows = [c * 0.99 for c in closes]
+    volumes = [1_000_000.0] * 40
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60)
+
+
+def _day_trader_intermediate_bars() -> list[IBKRBar]:
+    # An oversold-pullback-then-rally sequence whose own last two bars do NOT independently
+    # satisfy evaluate_trigger's crossing rule -- same shape/reasoning as test_day_trader_mode_
+    # signal_engine.py's `_intermediate_bars` (see that fixture's own docstring).
+    closes = [100 + i * 0.5 for i in range(20)]
+    closes += [closes[-1] - 3 * i for i in range(1, 6)]
+    closes.append(closes[-1] + 8.0)
+    closes.append(closes[-1] - 1.0)
+    highs = [c + 0.3 for c in closes]
+    lows = [c - 0.3 for c in closes]
+    volumes = [1_000_000.0] * 25 + [9_000_000.0, 3_000_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
+
+
+def _day_trader_short_term_bars() -> list[IBKRBar]:
+    # A genuine buy-stop trigger (close crosses above prior bar's high) -- same shape as
+    # test_day_trader_mode_signal_engine.py's `_short_term_bars`.
+    closes = [95.5, 99.5]
+    highs = [96.0, 100.0]
+    lows = [94.0, 98.5]
+    volumes = [500_000.0, 500_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2)
+
+
+_FULLY_INTRADAY_TRIPLE = TimeframeTriple(
+    long_term=TimeframeInterval.parse("60m"),
+    intermediate=TimeframeInterval.parse("10m"),
+    short_term=TimeframeInterval.parse("2m"),
+)
+
+
+class _StubIBKRProvider:
+    """Stands in for `IBKRProvider`, exposing only the methods `app.api.day_trader_signal
+    .compute_day_trader_signal`/`app.data.day_trader_intraday` call -- same convention as
+    tests/integration/test_ibkr_scanner.py's `_StubIBKRProvider`.
+
+    `resolve_conid_result`/`get_hourly_bars_by_bar_size` may each be (or contain) an
+    `Exception` instance to raise, covering the `IBKRUnavailableError` paths alongside the
+    happy path."""
+
+    def __init__(
+        self,
+        *,
+        resolve_conid_result: int | None | Exception = 999,
+        get_hourly_bars_by_bar_size: dict[str, list[IBKRBar] | Exception] | None = None,
+        gateway_status: GatewayStatus | None = None,
+    ) -> None:
+        self._resolve_conid_result = resolve_conid_result
+        self._get_hourly_bars_by_bar_size = get_hourly_bars_by_bar_size or {}
+        self._gateway_status = gateway_status or GatewayStatus(state="available")
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if isinstance(self._resolve_conid_result, Exception):
+            raise self._resolve_conid_result
+        return self._resolve_conid_result
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        result = self._get_hourly_bars_by_bar_size[bar_size]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return self._gateway_status
+
+
+def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
+    return _StubIBKRProvider(
+        get_hourly_bars_by_bar_size={
+            "1h": _day_trader_long_term_bars(),
+            "10min": _day_trader_intermediate_bars(),
+            "2min": _day_trader_short_term_bars(),
+        }
+    )
+
+
+class TestDayTraderMode:
+    """`GET /api/stocks/{ticker}/analysis` while the global trading mode is `day_trader`
+    (`backend-day-trader-timeframe-mode-api`) -- see `app.api.day_trader_signal
+    .compute_day_trader_signal`'s own docstring for the full set of unavailable-data cases."""
+
+    def _client(
+        self, db_session: Session, provider: _StubProvider, ibkr_provider: object | None
+    ) -> TestClient:
+        app.dependency_overrides[get_data_provider] = lambda: provider
+        app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
+        return TestClient(app)
+
+    def _get(
+        self,
+        db_session: Session,
+        provider: _StubProvider,
+        ibkr_provider: object | None,
+        ticker: str = "AAPL",
+    ):
+        test_client = self._client(db_session, provider, ibkr_provider)
+        try:
+            return test_client.get(f"/api/stocks/{ticker}/analysis")
+        finally:
+            app.dependency_overrides.pop(get_data_provider, None)
+            app.dependency_overrides.pop(get_ibkr_provider, None)
+
+    def test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal(
+        self, _isolated_db: Session
+    ) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        # daily/weekly are still fetched for support_resistance_zones/profit_target/
+        # extended_data/as_of (this task's own decision to defer that layer's day-trader
+        # wiring). Deliberately HOLD-shaped (not `_buy_daily_ohlcv()`/`_buy_weekly_ohlcv()`):
+        # those independently produce this exact same BUY/BULLISH/fired result under plain
+        # swing `analyse()` too (confirmed via mutation testing -- forcing the day-trader
+        # branch off left this test passing), so they provide no real discrimination between
+        # a genuine day-trader-mode computation and a silent fallback to swing-mode data.
+        # `_hold_daily_ohlcv()`/`_hold_weekly_ohlcv()` give HOLD/NEUTRAL/no-trigger under
+        # swing `analyse()` (see `TestGetAnalysis.test_hold_signal_has_zero_confidence_and_
+        # empty_breakdown`), so the BUY/BULLISH/fired asserted below can only come from the
+        # intraday IBKR legs going through `analyse_day_trader`.
+        provider = _StubProvider(daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()})
+
+        response = self._get(_isolated_db, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"] == {
+            "mode": "day_trader",
+            "day_trader_timeframe_triple": {
+                "long_term": "60m",
+                "intermediate": "10m",
+                "short_term": "2m",
+                "factor_of_five_warnings": [],
+            },
+        }
+        # Screen 3 fires from the genuinely distinct short-term leg (2-minute bars), not the
+        # HOLD-shaped daily fixture `_StubProvider` supplies -- proving this really went
+        # through analyse_day_trader, not a silent fallback to the swing-mode path (which
+        # would instead produce the HOLD/NEUTRAL/not-fired result this same fixture pair
+        # gives under plain swing `analyse()`).
+        assert body["screens"]["tide"]["trend"] == "BULLISH"
+        assert body["screens"]["trigger"]["fired"] is True
+        assert body["signal"] == "BUY"
+        assert 0 <= body["confidence"] <= 100
+        # extended_data/as_of are still derived from the ordinary daily/weekly fixture,
+        # unaffected by day-trader mode (this task's own decision, see AnalysisResponse
+        # .trading_mode's field description).
+        assert body["as_of"] == _hold_daily_ohlcv().index[-1].date().isoformat()
+
+    def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
+        self, _isolated_db: Session
+    ) -> None:
+        # Configuring a day-trader triple but leaving `mode` at its default ('swing') must not
+        # change this endpoint's behavior at all -- the triple is only read while `mode` is
+        # actually 'day_trader'.
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.SWING, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(_isolated_db, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "swing"
+        assert body["signal"] == "BUY"
+        assert body["screens"]["trigger"]["reference"] == "close_above_prior_high"
+
+    def test_non_fully_intraday_triple_returns_503(self, _isolated_db: Session) -> None:
+        mixed_triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1d"),
+            intermediate=TimeframeInterval.parse("30m"),
+            short_term=TimeframeInterval.parse("5m"),
+        )
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=mixed_triple
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(_isolated_db, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 503
+        assert "AAPL" in response.json()["detail"]
+
+    def test_ibkr_disabled_returns_503(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(_isolated_db, provider, ibkr_provider=None)
+
+        assert response.status_code == 503
+        assert "disabled" in response.json()["detail"]
+
+    def test_conid_not_resolved_returns_503(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(
+            _isolated_db, provider, _StubIBKRProvider(resolve_conid_result=None)
+        )
+
+        assert response.status_code == 503
+        assert "contract id" in response.json()["detail"]
+
+    def test_ibkr_gateway_unavailable_during_conid_resolution_returns_503(
+        self, _isolated_db: Session
+    ) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(
+            _isolated_db,
+            provider,
+            _StubIBKRProvider(resolve_conid_result=IBKRUnavailableError("gateway down")),
+        )
+
+        assert response.status_code == 503
+        assert "gateway down" in response.json()["detail"]
+
+    def test_one_leg_failing_returns_503(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+        failing_ibkr_provider = _StubIBKRProvider(
+            get_hourly_bars_by_bar_size={
+                "1h": _day_trader_long_term_bars(),
+                "10min": IBKRUnavailableError("history call failed"),
+                "2min": _day_trader_short_term_bars(),
+            }
+        )
+
+        response = self._get(_isolated_db, provider, failing_ibkr_provider)
+
+        assert response.status_code == 503
+        assert "intermediate leg" in response.json()["detail"]

@@ -90,6 +90,7 @@ import type {
 const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
   as_of: '2026-09-11',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   signal: 'BUY',
   confidence: 72,
   confidence_band: 'High',
@@ -931,7 +932,10 @@ export const handlers: HttpHandler[] = [
   }),
 
   http.get('/api/watchlist', () => {
-    const response: WatchlistResponse = { items: watchlistItems.map(enrichWatchlistItem) }
+    const response: WatchlistResponse = {
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      items: watchlistItems.map(enrichWatchlistItem),
+    }
     return HttpResponse.json(response)
   }),
 

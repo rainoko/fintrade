@@ -6,7 +6,8 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.day_trader_signal import compute_day_trader_signal, trading_mode_setting_to_schema
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.api.indicator_history_cache import IndicatorHistoryResponseCache
 from app.api.schemas import (
     AnalysisResponse,
@@ -35,6 +36,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.data.ibkr_provider import IBKRProvider
 from app.db.session import get_db
 from app.indicators.accumulation_distribution import (
     accumulation_distribution as compute_accumulation_distribution,
@@ -42,10 +44,12 @@ from app.indicators.accumulation_distribution import (
 from app.indicators.obv import obv as compute_obv
 from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.signals.divergence import Divergence
-from app.signals.engine import analyse, analyse_history, drop_malformed_daily_bars
+from app.signals.engine import SignalResult, analyse, analyse_history, drop_malformed_daily_bars
 from app.signals.insider_clusters import InsiderCluster, detect_insider_clusters
 from app.signals.kangaroo_tail import KangarooTail
 from app.signals.support_resistance import Zone, detect_support_resistance_zones
+from app.signals.timeframe import TradingMode
+from app.trading_mode import get_trading_mode_setting
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
 # or the literal 'max' for full available history. Matches the one example API.md gives
@@ -372,12 +376,23 @@ def _insider_cluster_to_schema(cluster: InsiderCluster) -> InsiderClusterOut:
     responses={
         404: {"model": ErrorDetail, "description": "Unknown ticker"},
         422: {"model": ErrorDetail, "description": "Insufficient history to compute weekly indicators"},
-        503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
+        503: {
+            "model": ErrorDetail,
+            "description": "Market data provider unavailable -- either the ordinary yfinance/"
+            "Stooq daily/weekly fetch failed, or (day-trader mode only, see "
+            "AnalysisResponse.trading_mode) the active day-trader timeframe triple's IBKR "
+            "intraday data couldn't be fetched right now (IBKR disabled/unreachable/"
+            "unauthenticated, this ticker's IBKR contract id not resolving, or the active "
+            "triple having a non-intraday leg -- see backend-day-trader-timeframe-mode-api's "
+            "`decisions` entry).",
+        },
     },
 )
 def get_analysis(
     ticker: str,
     provider: DataProvider = Depends(get_data_provider),
+    db: Session = Depends(get_db),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> AnalysisResponse:
     """Runs the full Triple Screen evaluation (tide, wave, trigger, Impulse gate) and the
     weighted confidence score for `ticker` (docs/Analyse.md §2-6). `confidence_breakdown`
@@ -417,7 +432,26 @@ def get_analysis(
     same as `support_resistance_zones`/`zones` above -- see the backend-insider-transaction-
     clusters task's `decisions` entry for why this lives as its own top-level response field
     (a computed detection result, like `support_resistance_zones`/`divergence`/`kangaroo_tail`)
-    rather than nested inside the raw `extended_data` object."""
+    rather than nested inside the raw `extended_data` object.
+
+    `trading_mode`/`signal`/`confidence`/`confidence_band`/`screens`/`indicators`/
+    `confidence_breakdown` (`backend-day-trader-timeframe-mode-api`): while the global trading
+    mode (`app.trading_mode.get_trading_mode_setting`) is `'swing'` (this app's default, and
+    every behavior before this task existed), these are computed exactly as described above --
+    `analyse(ticker, daily_ohlcv, weekly_ohlcv)`, unchanged bar-for-bar. While it's
+    `'day_trader'`, they're instead computed by `app.api.day_trader_signal
+    .compute_day_trader_signal` -- fetching the active `TimeframeTriple`'s three legs via IBKR
+    (`app.data.day_trader_intraday`) and running `app.signals.engine.analyse_day_trader` over
+    them -- and this handler raises `503` instead of returning a partial/degraded response if
+    that data isn't available right now (see this function's own `responses={}` 503 entry and
+    `compute_day_trader_signal`'s own docstring for every reason that can happen), rather than
+    ever returning `AnalysisResponse` with a `signal`/`confidence`/`screens`/`indicators` that
+    don't reflect real market data -- this endpoint's `signal`/`confidence`/etc. fields are
+    non-nullable specifically so a `200` always means a real, fully-computed result, in either
+    mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`
+    are unaffected either way -- always derived from `daily_ohlcv`/`weekly_ohlcv` regardless of
+    trading mode, per this task's own decision to defer the portfolio/profit-target layer's
+    hard-coded weekly/daily split to a follow-up (docs/architecture/Backend.md §10)."""
     ticker = ticker.upper()
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
@@ -431,7 +465,25 @@ def get_analysis(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
-    result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
+
+    trading_mode_setting = get_trading_mode_setting(db)
+    result: SignalResult
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        outcome = compute_day_trader_signal(
+            ticker, trading_mode_setting.day_trader_timeframe_triple, provider=ibkr_provider
+        )
+        if outcome.signal_result is None:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Day-trader mode signal data unavailable for '{ticker}': "
+                f"{outcome.unavailable_reason}",
+            )
+        result = outcome.signal_result
+    else:
+        result = analyse(ticker, daily_ohlcv, weekly_ohlcv)
     # Computed directly here rather than inside `app.signals.engine.analyse()`/
     # `analyse_history()`: unlike every other `indicators`/`screens` field, zone detection
     # isn't a per-bar scalar `analyse_history()`'s precompute-and-slice pattern would benefit
@@ -465,6 +517,7 @@ def get_analysis(
     return AnalysisResponse(
         ticker=ticker,
         as_of=as_of,
+        trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
         signal=result.signal,
         confidence=result.confidence,
         confidence_band=result.confidence_band,

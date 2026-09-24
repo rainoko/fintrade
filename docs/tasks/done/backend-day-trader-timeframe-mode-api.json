@@ -1,0 +1,95 @@
+{
+  "id": "backend-day-trader-timeframe-mode-api",
+  "title": "Day-trader mode: expose generically-computed signals via the stocks/watchlist/portfolio API",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "done",
+  "depends_on": [
+    "backend-day-trader-timeframe-mode",
+    "backend-day-trader-timeframe-mode-signal-engine"
+  ],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode.json",
+    "docs/architecture/API.md",
+    "docs/architecture/Backend.md#10-day-trader-timeframe-mode-foundational-model--settings-in-progress"
+  ],
+  "description": "Fourth of four dependent follow-up tasks splitting docs/tasks/backend-day-trader-timeframe-mode.json's original checklist item 6 out of that task (see its `decisions` entry for the full split rationale). By the time this task starts, `GET`/`PUT /api/settings/trading-mode` already exists (backend-day-trader-timeframe-mode) and `app.signals.engine`/`app.signals.triple_screen` can already generically evaluate whichever `TimeframeTriple` is active (backend-day-trader-timeframe-mode-signal-engine) -- this task is purely about the API surface: what `GET /api/stocks/{ticker}/analysis`, `GET /api/stocks/{ticker}/indicators`, `GET /api/watchlist`, and `GET /api/portfolio`/`GET /api/portfolio/risk` actually report while day-trader mode is active.\n\nKey decision to make and record: whether the existing `weekly_macd_histogram_slope`/`screens.tide`/etc. field names (which read as literally 'weekly' today, see `docs/architecture/API.md`) get renamed to generic long-term/intermediate/short-term names (a breaking API change, needs frontend coordination) or stay as-is and are simply reinterpreted as 'whichever timeframe currently fills that role' while day-trader mode is active (non-breaking, but arguably misleading field naming while day-trader mode is on) -- docs/tasks/backend-day-trader-timeframe-mode.json's own original checklist item 6 explicitly flagged this as an open call, not a settled one. Regenerate `backend/openapi.json` + `frontend/src/api/types.ts` (`python scripts/export_openapi.py` from `backend/`, then `yarn generate:api-types` from `frontend/`) as part of whichever choice is made, per CLAUDE.md's API documentation standard.",
+  "checklist": [
+    {
+      "step": "Decide and record (via `decisions`) the field-naming question above.",
+      "done": true
+    },
+    {
+      "step": "Update `app/api/schemas.py`/the relevant routers so `GET /api/stocks/{ticker}/analysis`, `GET /api/stocks/{ticker}/indicators`, `GET /api/watchlist`, and `GET /api/portfolio`/`GET /api/portfolio/risk` all correctly reflect the active trading mode's generic signal computation.",
+      "done": true
+    },
+    {
+      "step": "Regenerate `backend/openapi.json` and `frontend/src/api/types.ts`; keep every documented error case current (per CLAUDE.md's API documentation standard).",
+      "done": true
+    },
+    {
+      "step": "Unit/integration tests for the updated endpoints under both swing and day-trader mode.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T20:16:17Z",
+      "recorded_by": "task-worker",
+      "decision": "Existing field names (`screens.tide.trend`, `weekly_macd_histogram_slope`, `screens.wave`/`screens.trigger`, etc.) are NOT renamed to generic long-term/intermediate/short-term equivalents. They stay exactly as-is and are reinterpreted as 'whichever timeframe currently fills that role' while day-trader mode is active. A new `trading_mode: TradingModeOut` field is added to `AnalysisResponse`/`WatchlistResponse` instead, so a client can tell which mode produced the response without needing a field rename to convey it.",
+      "rationale": "This app's swing-mode frontend is a real, live consumer today -- every existing page reading `AnalysisResponse.screens.tide.trend`/`.wave`/`.trigger` or `WatchlistItemOut.signal` would need updating for a rename, for a feature (day-trader mode) that has no settings UI yet to even switch into it (frontend-day-trader-timeframe-mode-settings is a separate, not-yet-started task) -- there is no way to actually reach day-trader mode as an end user today except a raw `PUT /api/settings/trading-mode` call. Paying a real, immediate breaking-change cost against the app's only production mode, for a mode nothing can currently switch into through the UI, was judged not worth it. The counter-argument (a field literally named `weekly_macd_histogram_slope` that means something other than 'weekly' while day-trader mode is active is genuinely misleading, and a rename now is cheaper than a rename after more code has grown to depend on the old names) is real and was weighed seriously -- but 'weekly_macd_histogram_slope' is one field among many equally mode-relabeled ones (`screens.tide` itself, the whole `WaveScreen`/`TriggerScreen` shape), so a partial rename would be inconsistent and a full rename is the large, coordinated, frontend-touching change this decision is declining to force through un-asked. The new `trading_mode` field resolves the 'genuinely misleading' half of the concern directly: a client (or a person reading a raw response) can always tell which mode produced a given `AnalysisResponse`/`WatchlistResponse`, so the existing field names' literal wording is no longer the only source of truth about what they mean right now. Revisiting the rename is explicitly left open for `frontend-day-trader-timeframe-mode-settings` (or a later task) once day-trader mode has a real UI entry point and this tradeoff's premise (a rename affects nothing reachable in production) no longer holds."
+    },
+    {
+      "timestamp": "2026-09-24T20:16:17Z",
+      "recorded_by": "task-worker",
+      "decision": "This PR wires only `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` (+`GET /api/watchlist/breadth`, which reuses the same `_tide_trend`/`_compute_signal` helpers) into day-trader-mode signal computation. `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk` are deferred to a new follow-up task, `backend-day-trader-timeframe-mode-api-followups` (`depends_on` this task, plus the two sibling tasks below it structurally depends on).",
+      "rationale": "`GET /api/stocks/{ticker}/indicators` is structurally blocked, not just deprioritized: it's powered by `app.signals.engine.analyse_history()`'s walk-forward per-bar replay, which docs/architecture/Backend.md \u00a710's own 'Not yet landed' list already documents as having no day-trader-mode support -- `backend-day-trader-timeframe-mode-history` (a separate, already-filed, not-yet-started task) is what has to land first. `GET /api/portfolio/risk`'s `protective_stop`/`profit_target`/exit-flag fields are equally blocked: `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits` still unconditionally hard-code swing mode's weekly/daily split today (confirmed via docs/architecture/Backend.md \u00a710 and `backend-day-trader-timeframe-mode-portfolio-risk`, another already-filed, not-yet-started task covering exactly this). `GET /api/portfolio`'s own per-position `signal`/`confidence`/`confidence_band` fields are NOT structurally blocked the same way (they only need `analyse_day_trader`, already built) -- but wiring only that endpoint's signal field while `GET /api/portfolio/risk` for the same position stays swing-only would leave the two portfolio endpoints inconsistently day-trader-aware, and `GET /api/portfolio`'s per-position IBKR fetch (one round-trip per held position per request, unlike `GET /api/watchlist`'s already-established per-item pattern) raises its own latency question worth a dedicated design pass rather than a naive sequential loop -- both judged better decided together with the risk-layer work in the follow-up task than rushed in here. This matches this task's own explicit permission to scope down given the endpoint count and swing-mode regression risk, and mirrors `backend-day-trader-timeframe-mode-signal-engine`'s identical precedent of deferring `app.portfolio.risk`/`profit_target`/`exits` out of its own PR for the same reason."
+    },
+    {
+      "timestamp": "2026-09-24T20:51:42Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pr-reviewer's blocking finding on PR #313: `TestDayTraderMode.test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal` in `backend/tests/integration/test_stocks_analysis.py` was paired with `_buy_daily_ohlcv()`/`_buy_weekly_ohlcv()` -- a swing-mode fixture that independently produces the exact same BUY/BULLISH/fired result under plain swing `analyse()`, so the test provided no real regression protection against a silent fallback to swing-mode data. Swapped in this same file's own `_hold_daily_ohlcv()`/`_hold_weekly_ohlcv()` (already proven HOLD/NEUTRAL/zero-confidence under swing `analyse()` by `TestGetAnalysis.test_hold_signal_has_zero_confidence_and_empty_breakdown`), mirroring `test_watchlist.py::TestDayTraderMode`'s already-correct pattern of pairing the day-trader intraday fixture with a swing fixture that independently resolves to a different result.",
+      "rationale": "Verified the fix the same way pr-reviewer found the gap (mutation testing, not just eyeballing it): temporarily forced `get_analysis`'s day-trader branch condition in `backend/app/api/routers/stocks.py` to `False and ...` (never triggers, silently falls through to swing `analyse()`), reran `TestDayTraderMode` -- the target test now fails (200 body no longer matches the asserted BUY/BULLISH/fired/trading_mode shape) alongside the five already-discriminating 'unavailable' tests, while `test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple` (which deliberately exercises the swing path) still passes, exactly the same pass/fail split pr-reviewer's own mutation test produced for test_watchlist.py's correct version. Reverted the mutation (diffed clean against origin) and reran -- all 7 `TestDayTraderMode` tests pass again. Full backend suite (1341 tests), ruff, and mypy (`mypy app`, matching this project's `files = [\"app\"]` config -- `mypy .` alone spuriously flags ~387 untyped-test-def errors outside that scope and isn't the project's real gate) all pass; coverage stayed at 100%; `openapi.json` diffed clean (no schema/route change, test-only fix)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-api",
+    "pr_number": 313,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/313",
+    "pushed_at": "2026-09-24T20:20:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T21:06:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/313",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round-2 re-review, verifying task-worker's fix for round 1's blocking finding. Independently reproduced the same mutation test (forced get_analysis's day-trader branch condition to `False and ...` in app/api/routers/stocks.py, reran TestDayTraderMode, reverted -- working tree left clean): the fixed test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal now genuinely fails alongside the five 'unavailable' tests, while test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple still passes -- confirms _hold_daily_ohlcv()/_hold_weekly_ohlcv() (already independently proven HOLD/0/empty-breakdown under swing analyse() by TestGetAnalysis.test_hold_signal_has_zero_confidence_and_empty_breakdown) genuinely discriminates real day-trader computation from a silent swing fallback. Checked every other TestDayTraderMode test in this file and test_watchlist.py's/test_day_trader_signal.py's day-trader happy-path tests for the same non-discrimination gap -- none found (test_watchlist.py's day-trader tests already pair the day-trader fixture with _StubProvider()'s own default HOLD-shaped swing fixture; test_day_trader_signal.py's unit test doesn't involve a swing fixture at all).",
+        "file": "backend/tests/integration/test_stocks_analysis.py",
+        "line": 1178
+      },
+      {
+        "summary": "Non-blocking (already filed on backend-day-trader-timeframe-mode-api-followups from round 1, reconfirmed still present): GET /api/stocks/{ticker}/analysis fetches daily_ohlcv/weekly_ohlcv/extended_data from the swing DataProvider before checking whether day-trader mode is active, so a ticker IBKR could fully compute a day-trader signal for, but that the swing provider doesn't recognize, gets a 404/422 and never reaches compute_day_trader_signal -- inconsistent with GET /api/watchlist's day-trader branch, which has no such dependency.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 456
+      },
+      {
+        "summary": "Non-blocking (newly filed on backend-day-trader-timeframe-mode-api-followups, found via code-review skill pass): in day-trader mode, GET /api/watchlist/GET /api/watchlist/breadth now perform up to 4 sequential IBKR round-trips (1 conid resolve + 3 leg fetches) per tracked ticker with no cross-ticker concurrency, worse than swing mode's existing 2-round-trips-per-ticker pattern -- worth a concurrency pass (e.g. per-ticker ThreadPoolExecutor) alongside the deferred portfolio-endpoint latency design work.",
+        "file": "backend/app/api/routers/watchlist.py",
+        "line": 240
+      },
+      {
+        "summary": "Non-blocking (newly filed on backend-day-trader-timeframe-mode-api-followups, found via code-review skill pass): tests/integration/test_watchlist.py's new TestDayTraderMode class's _client_with_ibkr helper (via _make_client) never pops app.dependency_overrides[get_db]/[get_data_provider] in a finally/teardown (only get_ibkr_provider is cleaned up) -- mirrors a pre-existing repo-wide gap in this same file's _client_with_provider (predates this PR) rather than a new regression, but TestDayTraderMode is now the file's last class, so a disposed session/stale stub provider are left registered process-wide after its last test runs -- a latent, collection-order-dependent test-isolation risk worth cleaning up.",
+        "file": "backend/tests/integration/test_watchlist.py",
+        "line": 535
+      }
+    ],
+    "notes": "Full re-review from scratch (not trusting task-worker's self-verification claim): independently reproduced the exact mutation test pr-reviewer used in round 1 against the fixed test and confirmed it now discriminates correctly (see comment above); working tree left clean afterward (git status verified). Re-ran backend/frontend tests+coverage (1341/882 passed, 100.00%/99.77%+ stmt coverage, both well above the 90% gate), static analysis (ruff/mypy/eslint/tsc/profit-target-wording guard, all clean), regenerated backend/openapi.json and frontend/src/api/types.ts from scratch and diffed byte-for-byte clean against the committed snapshots, ran scripts/validate_tasks.py (no violations), did a Playwright browser walkthrough (dashboard/watchlist/stock-detail golden paths plus an unknown-ticker edge case -- watchlist page correctly renders the new trading_mode-aware response, no console/network errors besides the expected 404 on the edge case), ran the full persisted e2e suite (make e2e, 26/26 specs pass), and ran a dedicated code-review skill pass over the whole diff (surfaced two new non-blocking findings, filed on backend-day-trader-timeframe-mode-api-followups, plus reconfirmed the one already-filed from round 1 -- no blocking findings). Also reviewed the new app/api/day_trader_signal.py module's placement against docs/Architecture.md/Backend.md (correctly thin API-layer orchestration gluing app.data.day_trader_intraday and app.signals.engine.analyse_day_trader for two routers, no new dependency, docs updated consistently in the same PR) and confirmed the schemas.py reorder (TradingModeOut/TimeframeTripleOut moved above AnalysisResponse) is a pure move with no logic change. No new frontend components were added (only fixture/mock updates for the additive trading_mode field), so no common/-vs-feature-specific placement question applies. Round-1's one 'decide X' checklist item (field-naming) already has a corresponding decisions entry. Verdict: accepted. Posted as a COMMENTED-type PR review, not a formal approve/request-changes."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T21:15:24Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything before confirming: backend suite 1341 passed, 100.00% line/branch coverage (pytest --cov=app), matching pr-reviewer's numbers exactly; frontend 882 passed, 99.77%/99.08%/99.79%/99.82% stmt/branch/fn/line, also matching exactly. ruff/mypy/eslint/tsc all clean; re-exported backend/openapi.json and diffed byte-for-byte clean against the committed snapshot; scripts/validate_tasks.py reported no violations, including the api-followups task's checklist correctly carrying all three non-blocking findings from the round-2 review. Reproduced the mutation test myself a third time (forced get_analysis's day-trader branch condition to `False and ...` in app/api/routers/stocks.py, reran TestDayTraderMode): the happy-path test now fails alongside the five 'unavailable' tests while test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple still passes -- reverted, working tree left clean (git diff/status verified empty). Also wrote and ran my own from-scratch real-HTTP TestClient scenarios (own fixtures, not copied from the PR's test file) against the live FastAPI app: swing-mode default is unaffected, swing mode with a day-trader triple configured but not active produces byte-identical signal/confidence/screens output, day-trader mode with all IBKR legs available produces a screens.tide.trend/signal genuinely different from what the same flat daily/weekly fixture gives under swing mode (rules out a silent fallback), day-trader mode with IBKR unavailable correctly 503s rather than degrading to a partial/swing-derived body, and GET /api/watchlist under day-trader mode returns a real computed signal for a tracked ticker -- all 14 checks passed. Skimmed the full diff (day_trader_signal.py, routers/stocks.py, routers/watchlist.py, schemas.py, generated openapi.json/types.ts, docs) -- found nothing pr-reviewer's round-2 review underweighted; the one 'decide X' checklist item (field-naming) has a real, substantive decisions entry, and the non-blocking findings are all genuinely non-blocking (the swing-provider-fetched-before-mode-check gap is consistent with this PR's own documented decision that as_of/support_resistance_zones/extended_data stay swing-derived regardless of mode; the sequential IBKR round-trips and test-teardown gaps are pre-existing-pattern-adjacent, not new regressions). Accept holds up."
+  }
+}

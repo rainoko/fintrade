@@ -14,7 +14,8 @@ docstring below.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.day_trader_signal import compute_day_trader_signal, trading_mode_setting_to_schema
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.api.schemas import (
     BreadthResponse,
     ErrorDetail,
@@ -24,34 +25,61 @@ from app.api.schemas import (
 )
 from app.data.base import DataProvider
 from app.data.exceptions import DataProviderError
+from app.data.ibkr_provider import IBKRProvider
 from app.db.models import PositionORM, WatchlistItemORM
 from app.db.session import get_db
 from app.signals.engine import SignalResult, analyse
+from app.signals.timeframe import TradingMode
 from app.time_utils import utcnow
+from app.trading_mode import TradingModeSetting, get_trading_mode_setting
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
 
-def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
-    """Runs the same fetch-then-`analyse()` pipeline `GET /api/stocks/{ticker}/analysis` uses
-    for a single ticker, returning `None` instead of raising if the signal can't be computed
-    right now (unknown/delisted ticker, insufficient history, or the data provider being
-    unavailable -- any `DataProviderError`) -- see this task's `decisions` entry for why a
-    per-ticker failure degrades to a nullable field on that entry rather than failing the
-    whole `GET /api/watchlist` list or silently excluding the ticker from it (both of which
-    would hide from the caller that a ticker they're watching couldn't be evaluated).
+def _compute_signal(
+    ticker: str,
+    provider: DataProvider,
+    *,
+    trading_mode_setting: TradingModeSetting,
+    ibkr_provider: IBKRProvider | None,
+) -> SignalResult | None:
+    """Runs the same fetch-then-analyse pipeline `GET /api/stocks/{ticker}/analysis` uses for a
+    single ticker, returning `None` instead of raising if the signal can't be computed right
+    now -- see this task's `decisions` entry for why a per-ticker failure degrades to a
+    nullable field on that entry rather than failing the whole `GET /api/watchlist` list or
+    silently excluding the ticker from it (both of which would hide from the caller that a
+    ticker they're watching couldn't be evaluated).
 
-    Deliberately narrow: only `DataProviderError` (the documented, expected failure mode for
-    a market-data fetch) is caught here, not a bare `except Exception`, so a genuine bug in
-    `analyse()` itself still surfaces as a loud 500 in tests/CI instead of being silently
-    swallowed into a null field.
-
-    Unlike `stocks.py`'s `get_analysis` (which pre-filters `daily_ohlcv` with
+    While `trading_mode_setting.mode` is `TradingMode.SWING` (or `DAY_TRADER` with no triple
+    ever configured -- treated the same as swing, matching `app.trading_mode
+    .get_trading_mode_setting`'s own documented default): this app's original behavior,
+    unchanged -- fetches `daily_ohlcv`/`weekly_ohlcv` and calls `analyse()`. Deliberately narrow
+    here: only `DataProviderError` (the documented, expected failure mode for a market-data
+    fetch) is caught, not a bare `except Exception`, so a genuine bug in `analyse()` itself
+    still surfaces as a loud 500 in tests/CI instead of being silently swallowed into a null
+    field. Unlike `stocks.py`'s `get_analysis` (which pre-filters `daily_ohlcv` with
     `drop_malformed_daily_bars` itself because it needs the cleaned frame afterward to derive
     `as_of`), this function never uses `daily_ohlcv` again after passing it to `analyse()` --
     and `analyse()` already runs `drop_malformed_daily_bars` internally as its first step, so
     filtering here first would just be a redundant full-DataFrame pass per watched ticker on
-    every `GET /api/watchlist` request. `analyse()` is left to do it once."""
+    every `GET /api/watchlist` request. `analyse()` is left to do it once.
+
+    While `trading_mode_setting.mode` is `TradingMode.DAY_TRADER` with a configured triple
+    (`backend-day-trader-timeframe-mode-api`): delegates to `app.api.day_trader_signal
+    .compute_day_trader_signal` instead, and its own `unavailable_reason` (IBKR disabled/
+    unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active
+    triple not being fully intraday) is treated exactly like a `DataProviderError` above -- a
+    null `WatchlistItemOut.signal` for this entry, not a failed request. No `daily_ohlcv`/
+    `weekly_ohlcv` fetch happens in this branch at all."""
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        outcome = compute_day_trader_signal(
+            ticker, trading_mode_setting.day_trader_timeframe_triple, provider=ibkr_provider
+        )
+        return outcome.signal_result
+
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
         weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
@@ -61,7 +89,13 @@ def _compute_signal(ticker: str, provider: DataProvider) -> SignalResult | None:
     return analyse(ticker, daily_ohlcv, weekly_ohlcv)
 
 
-def _tide_trend(ticker: str, provider: DataProvider) -> str | None:
+def _tide_trend(
+    ticker: str,
+    provider: DataProvider,
+    *,
+    trading_mode_setting: TradingModeSetting,
+    ibkr_provider: IBKRProvider | None,
+) -> str | None:
     """Screen 1 (Tide) trend for `ticker` ('BULLISH' | 'BEARISH' | 'NEUTRAL'), or `None` if it
     can't be computed right now.
 
@@ -72,12 +106,15 @@ def _tide_trend(ticker: str, provider: DataProvider) -> str | None:
     `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry: the two
     functions previously duplicated identical error-handling around `analyse()`, which risked
     one being updated without the other if that shared contract ever changed. Reuses the full
-    `analyse()` pipeline rather than calling `app.signals.triple_screen.evaluate_tide`
-    directly, even though only `screens.tide.trend` is read from the result -- consistent with
-    this module's own "one place, testable once" principle (module docstring): no second,
-    narrower code path that fetches OHLCV and derives Tide on its own, which could silently
-    drift from what `GET /api/stocks/{ticker}/analysis`'s Tide says for the same ticker."""
-    result = _compute_signal(ticker, provider)
+    `analyse()`/`compute_day_trader_signal` pipeline rather than calling
+    `app.signals.triple_screen.evaluate_tide` directly, even though only `screens.tide.trend`
+    is read from the result -- consistent with this module's own "one place, testable once"
+    principle (module docstring): no second, narrower code path that fetches OHLCV and derives
+    Tide on its own, which could silently drift from what `GET /api/stocks/{ticker}/analysis`'s
+    Tide says for the same ticker, in either trading mode."""
+    result = _compute_signal(
+        ticker, provider, trading_mode_setting=trading_mode_setting, ibkr_provider=ibkr_provider
+    )
     if result is None:
         return None
     trend: str = result.screens["tide"]["trend"]
@@ -103,28 +140,46 @@ def _to_out(row: WatchlistItemORM, result: SignalResult | None) -> WatchlistItem
 def get_watchlist(
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> WatchlistResponse:
     """Every ticker on the watchlist, each annotated with its current BUY/SELL/HOLD signal
     and confidence by re-running the same Triple Screen signal engine
-    `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`,
+    `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`/`analyse_day_trader`,
     docs/Analyse.md §5) -- so "does the watchlist signal a buy" always agrees with what a
     direct lookup of that ticker's analysis page would say, with no second implementation of
-    the buy check to drift out of sync.
+    the buy check to drift out of sync. `trading_mode` echoes the global trading mode active
+    for this whole response (`backend-day-trader-timeframe-mode-api`) -- every item's
+    `signal`/`confidence`/`confidence_band` reflect that same mode, resolved once per request
+    (not once per ticker) so every item in the list is evaluated against the same mode even if
+    the global setting were changed by a concurrent request mid-list.
 
     `signal`/`confidence`/`confidence_band` are null together on an entry whose signal
-    couldn't be computed right now (unknown/delisted ticker, insufficient history, or the
-    data provider being unavailable) -- this endpoint never fails or drops an entry just
-    because one watched ticker's data is temporarily/permanently unavailable; see this
-    task's `decisions` entry. Ordered by `added_at` (oldest first), then `ticker` as a
-    tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s deterministic
-    ordering convention (`app.api.routers.portfolio._ordered_positions`)."""
+    couldn't be computed right now -- see `WatchlistItemOut.signal`'s own field description
+    for every reason that can happen in either trading mode -- this endpoint never fails or
+    drops an entry just because one watched ticker's data is temporarily/permanently
+    unavailable; see this task's `decisions` entry. Ordered by `added_at` (oldest first), then
+    `ticker` as a tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s
+    deterministic ordering convention (`app.api.routers.portfolio._ordered_positions`)."""
+    trading_mode_setting = get_trading_mode_setting(db)
     rows = (
         db.query(WatchlistItemORM)
         .order_by(WatchlistItemORM.added_at, WatchlistItemORM.ticker)
         .all()
     )
     return WatchlistResponse(
-        items=[_to_out(row, _compute_signal(row.ticker, provider)) for row in rows]
+        trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
+        items=[
+            _to_out(
+                row,
+                _compute_signal(
+                    row.ticker,
+                    provider,
+                    trading_mode_setting=trading_mode_setting,
+                    ibkr_provider=ibkr_provider,
+                ),
+            )
+            for row in rows
+        ],
     )
 
 
@@ -137,6 +192,7 @@ def get_watchlist(
 def get_watchlist_breadth(
     db: Session = Depends(get_db),
     provider: DataProvider = Depends(get_data_provider),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> BreadthResponse:
     """A cheap, no-new-data-source proxy for true market breadth (docs/Analyse.md's
     "Personal breadth proxy" section, per docs/ideas.md's ch. 34-36 entry): counts/
@@ -167,14 +223,23 @@ def get_watchlist_breadth(
     percentages, rather than guessed at -- mirroring `GET /api/watchlist`'s own
     null-signal-on-failure convention. An empty watchlist+portfolio (or one where every
     tracked ticker is currently unavailable) returns all-zero counts and 0.0 percentages,
-    not an error."""
+    not an error.
+
+    Also reflects the active global trading mode (`backend-day-trader-timeframe-mode-api`),
+    resolved once per request via the same `_tide_trend`/`_compute_signal` helpers
+    `GET /api/watchlist` uses -- a tracked ticker whose day-trader-mode data isn't available
+    right now (see `WatchlistItemOut.signal`'s field description) is counted in
+    `unavailable_count` here too, the same as any other unavailable-signal reason."""
+    trading_mode_setting = get_trading_mode_setting(db)
     watchlist_tickers = {row.ticker for row in db.query(WatchlistItemORM.ticker).all()}
     portfolio_tickers = {row.ticker for row in db.query(PositionORM.ticker).all()}
     tracked_tickers = watchlist_tickers | portfolio_tickers
 
     bullish_count = bearish_count = neutral_count = unavailable_count = 0
     for ticker in tracked_tickers:
-        trend = _tide_trend(ticker, provider)
+        trend = _tide_trend(
+            ticker, provider, trading_mode_setting=trading_mode_setting, ibkr_provider=ibkr_provider
+        )
         if trend == "BULLISH":
             bullish_count += 1
         elif trend == "BEARISH":
