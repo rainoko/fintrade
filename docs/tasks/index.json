@@ -1874,7 +1874,7 @@
       "id": "backend-day-trader-timeframe-mode",
       "area": "backend/signals",
       "skill": null,
-      "state": "waiting_input",
+      "state": "planned",
       "path": "docs/tasks/backend-day-trader-timeframe-mode.json"
     },
     {
