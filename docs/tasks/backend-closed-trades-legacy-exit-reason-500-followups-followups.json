@@ -34,5 +34,11 @@
       "decision": "Extended the existing comment above the `_warned_exit_reason_values: set[str] = set()` module-level declaration to note explicitly that the set has no size cap and grows by one entry per distinct out-of-taxonomy `exit_reason` value ever seen for the process's whole lifetime, and that this is accepted as-is today (no defensive cap added) because the write path enum-validates `exit_reason` (`exit_reason: ExitReason = Query(...)`), confining genuinely out-of-taxonomy values to pre-existing legacy/hand-inserted rows rather than a channel ordinary API usage or repeated requests could grow unboundedly. A defensive cap (e.g. stop de-duping -- or stop warning at all -- past N distinct values, falling back to logging every occurrence or none) was considered and rejected: with no concrete evidence today of a legacy dataset that stores many distinct freeform values in the unconstrained `exit_reason` column (as opposed to a small fixed set of bad values), a cap would add complexity and a new untested edge case (behavior once the cap is hit) for a scenario that is currently hypothetical.",
       "rationale": "This mirrors the checklist item's own conclusion ('not warranted today given the enum-constrained write path') -- documenting the tradeoff at the point of the code that carries it is enough to make sure a future reader (or a legacy-data-import task) reconsiders a cap if the growth scenario ever becomes real, without adding unexercised defensive code now. A cap's own edge-case behavior (what happens to the (N+1)th distinct bad value -- warn unconditionally, or suppress it too) is itself a judgment call better made at the time it's actually needed, with real data in hand, than speculatively now."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-closed-trades-legacy-exit-reason-500-followups-followups",
+    "pr_number": 291,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/291",
+    "pushed_at": "2026-09-24T02:05:52Z"
+  }
 }
