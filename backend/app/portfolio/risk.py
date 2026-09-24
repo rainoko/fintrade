@@ -394,8 +394,11 @@ def ratchet_trailing_profit_stop(
         # `candidate` mirror `trailing_profit_stop`'s own formula exactly: `candidate` is only
         # ever meaningful (and only ever consulted, via `.where(mask)`) on a row where `mask`
         # holds, i.e. where profit has reached the breakeven trigger -- matching that
-        # function's own "at or above that threshold" branch. A NaN close (skipped by the
-        # original loop's explicit `pd.isna(close): continue`) naturally produces NaN
+        # function's own "at or above that threshold" branch. In practice no row reaching this
+        # point can have a NaN close anymore -- the unconditional `drop_malformed_daily_bars`
+        # call above already strips those out -- so the paragraph below is now defense-in-depth
+        # documentation rather than a live code path: if a NaN close ever did reach here (e.g.
+        # the internal filtering above were ever removed), it would naturally produce NaN
         # `profit`, which makes `mask` False (a NaN comparison is never True) -- excluded from
         # the ratchet the same way, with no separate NaN check needed here. `cummax()`
         # defaults to `skipna=True`, so a NaN entry in `.where`'s masked-out rows never resets
