@@ -43,7 +43,7 @@ class TimeframeUnit(StrEnum):
     Deliberately not a plain "arbitrary minute count" model (the other option considered --
     see this task's `decisions` entry): a calendar-week bar is formed by resampling daily bars
     into Saturday-through-Friday bins anchored on Friday (`app.data.stooq_provider
-    .StooqProvider._resample_weekly`, `app.signals.engine._weekly_through_bar_date`), which is
+    .StooqProvider._resample_weekly`, `app.signals.engine._long_term_through_bar_date`), which is
     qualitatively different from "10080 minutes" -- collapsing WEEK into a minute count would
     lose that calendar-anchoring semantic a future generic Tide/Screen-1 implementation still
     needs. DAY is kept distinct from WEEK for the same reason (a daily bar is one trading
