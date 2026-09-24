@@ -673,6 +673,26 @@ Sourced from the CFTC's own public Socrata Open Data JSON API (`https://publicre
 
 Raises `503` if the CFTC's request itself fails, or unexpectedly returns no rows at all for one of the 5 fixed contract codes — there is no per-market "not found" case the way there is for an arbitrary user-supplied stock ticker, since these are all long-established, actively-traded futures contracts.
 
+### `GET /api/settings/trading-mode` / `PUT /api/settings/trading-mode`
+
+The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json, Elder ch. 39's "Choosing Timeframes — the Factor of Five") — a single setting, not a per-request parameter (see that task's `decisions` entry). **Scope note**: as of this task, switching to `day_trader` mode here changes nothing about how any other endpoint computes signals — see `docs/architecture/Backend.md` §10 for what's landed vs. still tracked as a dependent follow-up task.
+
+```json
+{
+  "mode": "day_trader",
+  "day_trader_timeframe_triple": {
+    "long_term": "25m",
+    "intermediate": "5m",
+    "short_term": "2m",
+    "factor_of_five_warnings": []
+  }
+}
+```
+
+`mode` is `swing` (this app's existing weekly/daily behavior, unchanged, and the default for any database that has never had this setting written) or `day_trader`. `day_trader_timeframe_triple` is null only if day-trader mode has never been configured at all — it stays populated (and is echoed back) even while `mode` currently reads `swing`, since switching modes back and forth preserves the last-configured triple rather than clearing it (see `app/db/models.py`'s `TradingModeSettingORM` docstring). Each leg is a canonical interval code — a positive integer immediately followed by `m`/`d`/`w` (minutes/days/weeks). `factor_of_five_warnings` (on the response only) lists any adjacent-leg ratio falling outside ch. 39's "roughly a factor of five" guideline band — informational only, never blocks saving.
+
+`PUT` accepts the same shape (minus `factor_of_five_warnings`, response-only) and raises `422` if `mode` is `day_trader` with no `day_trader_timeframe_triple` supplied, or if the triple's three legs aren't in strictly-decreasing `long_term > intermediate > short_term` order (by trading-minute length) — both hard requirements, unlike the guideline-strength factor-of-five spacing above.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.

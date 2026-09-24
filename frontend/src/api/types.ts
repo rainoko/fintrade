@@ -649,6 +649,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/trading-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the global active trading mode
+         * @description The currently-active global trading mode and, if one has ever been configured, the
+         *     persisted day-trader timeframe triple. Defaults to `mode='swing'` with a null triple for
+         *     a database that has never had this setting written (never a 404 -- 'not yet configured'
+         *     is this setting's normal starting state, not an error).
+         */
+        get: operations["get_trading_mode"];
+        /**
+         * Switch the global active trading mode
+         * @description Switches the global trading mode, and, when `mode` is `'day_trader'`, persists the
+         *     supplied timeframe triple as the new day-trader configuration (validated -- a 422 if its
+         *     three legs aren't in strictly-decreasing order -- but never rejected merely for falling
+         *     outside ch. 39's factor-of-five spacing *guideline*; see `TimeframeTripleOut
+         *     .factor_of_five_warnings` on the response for that non-blocking notice instead).
+         *
+         *     Switching to `'swing'` with no `day_trader_timeframe_triple` in the request body leaves
+         *     any previously-configured day-trader triple untouched in storage (see
+         *     `TradingModeSettingORM`'s own docstring) -- the response still echoes it back (`mode`
+         *     just reads `'swing'` alongside it) so a caller can see what's saved for next time without
+         *     a second request. A `day_trader_timeframe_triple` supplied alongside `mode='swing'` is
+         *     ignored, not persisted (per `TradingModeIn.day_trader_timeframe_triple`'s own documented
+         *     contract) -- it does not overwrite a previously-configured triple.
+         *
+         *     See this router module's own docstring for what switching modes does **not** yet do.
+         */
+        put: operations["update_trading_mode"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stocks/{ticker}/analysis": {
         parameters: {
             query?: never;
@@ -2242,6 +2283,47 @@ export interface components {
              */
             weekly_macd_histogram_slope: "rising" | "falling" | "flat";
         };
+        /** TimeframeTripleIn */
+        TimeframeTripleIn: {
+            /**
+             * Intermediate
+             * @description The intermediate (Wave/Screen 2) leg, same code format as `long_term`. Must be strictly longer than `short_term` and strictly shorter than `long_term`.
+             */
+            intermediate: string;
+            /**
+             * Long Term
+             * @description The long-term (Tide/Screen 1) leg of the day-trader timeframe triple, as a canonical interval code: a positive integer immediately followed by 'm' (minutes), 'd' (days), or 'w' (weeks) -- e.g. '25m', '1d'. Must be strictly longer (more trading minutes) than `intermediate`.
+             */
+            long_term: string;
+            /**
+             * Short Term
+             * @description The short-term (Trigger/Screen 3) leg, same code format as `long_term`. Must be strictly shorter (fewer trading minutes) than `intermediate`.
+             */
+            short_term: string;
+        };
+        /** TimeframeTripleOut */
+        TimeframeTripleOut: {
+            /**
+             * Factor Of Five Warnings
+             * @description Non-blocking notices (empty when the triple is fully within the guideline band) for either adjacent pair whose ratio falls outside ch. 39's 'roughly a factor of five' spacing guideline (this app's own 2x-10x band -- see `app.signals.timeframe`'s module-level comment). Never prevents the triple from being saved -- ch. 39 itself frames this ratio as a guideline, not a hard rule.
+             */
+            factor_of_five_warnings?: string[];
+            /**
+             * Intermediate
+             * @description The intermediate (Wave/Screen 2) leg, same code format as `long_term`. Must be strictly longer than `short_term` and strictly shorter than `long_term`.
+             */
+            intermediate: string;
+            /**
+             * Long Term
+             * @description The long-term (Tide/Screen 1) leg of the day-trader timeframe triple, as a canonical interval code: a positive integer immediately followed by 'm' (minutes), 'd' (days), or 'w' (weeks) -- e.g. '25m', '1d'. Must be strictly longer (more trading minutes) than `intermediate`.
+             */
+            long_term: string;
+            /**
+             * Short Term
+             * @description The short-term (Trigger/Screen 3) leg, same code format as `long_term`. Must be strictly shorter (fewer trading minutes) than `intermediate`.
+             */
+            short_term: string;
+        };
         /** TradeApgarIn */
         TradeApgarIn: {
             /**
@@ -2314,6 +2396,28 @@ export interface components {
              * @description The underlying classification this question's score was derived from -- one of Impulse's own 'GREEN'/'RED'/'BLUE' for weekly_impulse/daily_impulse, 'above_value'/'in_value_zone'/'below_value' for price_vs_value, or the caller's own TradeApgarIn.false_breakout_status/perfection value, echoed back, for the two manual questions.
              */
             value: string;
+        };
+        /** TradingModeIn */
+        TradingModeIn: {
+            /** @description Required when `mode` is 'day_trader' (rejected with a 422 if omitted or null in that case); ignored (may be omitted) when `mode` is 'swing' -- switching back to 'swing' without resupplying this field leaves a previously-configured day-trader triple persisted, unchanged, for next time (see `TradingModeSettingORM`'s own docstring). */
+            day_trader_timeframe_triple?: components["schemas"]["TimeframeTripleIn"] | null;
+            /**
+             * Mode
+             * @description The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json) -- 'swing' (this app's long-standing weekly/daily/daily-Trigger-approximation behavior, unchanged) or 'day_trader' (the user-configured `day_trader_timeframe_triple`, once a future task wires it into actual signal computation -- see this endpoint's own docstring for today's scope).
+             * @enum {string}
+             */
+            mode: "swing" | "day_trader";
+        };
+        /** TradingModeOut */
+        TradingModeOut: {
+            /** @description The last-configured day-trader timeframe triple, present whenever one has ever been configured (even if `mode` is currently 'swing' -- see `mode`'s own field description) -- null only if day-trader mode has never been configured at all. */
+            day_trader_timeframe_triple?: components["schemas"]["TimeframeTripleOut"] | null;
+            /**
+             * Mode
+             * @description The currently-active global trading mode.
+             * @enum {string}
+             */
+            mode: "swing" | "day_trader";
         };
         /** TrendStrength */
         TrendStrength: {
@@ -2980,6 +3084,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+        };
+    };
+    get_trading_mode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradingModeOut"];
+                };
+            };
+        };
+    };
+    update_trading_mode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradingModeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradingModeOut"];
+                };
+            };
+            /** @description Either of two distinct shapes, both under HTTP 422: `day_trader_timeframe_triple` is required when `mode` is 'day_trader' (FastAPI's standard HTTPValidationError, raised at the request-schema level), or an otherwise-well-formed triple violates the hard `long_term > intermediate > short_term` ordering rule (`app.signals.timeframe.TimeframeTriple`'s own construction check) -- the latter is reported as a single-string `ErrorDetail`, the same dual-422-shape convention `GET /api/stocks/{ticker}/history` already documents. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
                 };
             };
         };

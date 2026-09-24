@@ -1,0 +1,22 @@
+{
+  "id": "frontend-day-trader-timeframe-mode-settings",
+  "title": "Day-trader mode: settings UI to view/switch trading mode and configure the timeframe triple",
+  "area": "frontend/settings",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-api"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode.json",
+    "docs/architecture/API.md",
+    "docs/architecture/Frontend.md"
+  ],
+  "description": "Last of four dependent follow-up tasks splitting docs/tasks/backend-day-trader-timeframe-mode.json's original checklist item 7 out of that task (see its `decisions` entry for the full split rationale). Adds a settings UI backed by `GET`/`PUT /api/settings/trading-mode` (already implemented, backend-day-trader-timeframe-mode) letting the user view/switch the global trading mode (swing vs. day-trader) and, when day-trader mode is selected, configure the long-term/intermediate/short-term timeframe triple (three interval-code inputs, e.g. '25m'/'5m'/'2m') with the backend's non-blocking factor-of-five guideline warnings surfaced (not blocking submission). Depends on backend-day-trader-timeframe-mode-api (not directly on backend-day-trader-timeframe-mode-signal-engine) since this UI only needs the settings read/write contract and whatever the API task decides other endpoints report while day-trader mode is active -- it doesn't itself need to understand the signal-engine internals.",
+  "checklist": [
+    { "step": "Decide (per add-frontend-feature's own common/-vs-feature-specific placement decision) where this settings UI lives -- a new settings page/route vs. a section of an existing page.", "done": false },
+    { "step": "TanStack Query hook(s) for GET/PUT /api/settings/trading-mode.", "done": false },
+    { "step": "Form/controls for switching mode and entering the three timeframe-interval codes when day-trader mode is selected, with client-side format validation matching the backend's accepted interval-code pattern and surfacing the response's factor_of_five_warnings as a non-blocking notice.", "done": false },
+    { "step": "Storybook coverage for any new common/ component; vitest/Testing Library tests for the feature.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -259,6 +259,44 @@ class IndicatorHistoryCacheORM(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class TradingModeSettingORM(Base):
+    """Single-row table (same singleton-row convention as `AccountORM` above, `id` fixed at 1)
+    holding the global, app-wide active trading mode (docs/tasks/
+    backend-day-trader-timeframe-mode.json's `decisions` entry: global setting, not a
+    per-request parameter) and, when day-trader mode has ever been configured, the last
+    user-configured day-trader `TimeframeTriple` (`app.signals.timeframe`).
+
+    `mode` is a closed string-enum-like column (`app.signals.timeframe.TradingMode`'s values,
+    `'swing'`/`'day_trader'`) validated at the Python layer only, matching this codebase's
+    existing convention for the same reason (`ClosedTradeORM.exit_reason`,
+    `OHLCVCacheORM.interval` -- SQLite has no native enum/CHECK-constraint enforcement wired
+    up here).
+
+    `day_trader_long_term`/`day_trader_intermediate`/`day_trader_short_term` store each leg's
+    canonical `TimeframeInterval.code` (e.g. `"25m"`) -- all three null together until
+    day-trader mode has been configured at least once via `PUT /api/settings/trading-mode`,
+    and then, deliberately, **left populated even after switching back to `'swing'`** rather
+    than cleared: a user who toggles back and forth between the two modes shouldn't have to
+    re-enter their day-trader triple every time they switch away and back -- see this task's
+    `decisions` entry. They're only ever read (and their factor-of-five spacing only ever
+    re-validated) while `mode == 'day_trader'`.
+
+    No `TimeframeTriple` for `'swing'` mode is stored here at all -- that mode's timeframes
+    stay this app's existing hard-coded weekly/daily scheme (`app.signals.timeframe
+    .DEFAULT_SWING_TRIPLE_CODES`), which isn't itself a valid `TimeframeTriple` instance (see
+    that constant's own docstring) and isn't user-configurable.
+    """
+
+    __tablename__ = "trading_mode_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    mode: Mapped[str] = mapped_column(String, default="swing")
+    day_trader_long_term: Mapped[str | None] = mapped_column(String, nullable=True)
+    day_trader_intermediate: Mapped[str | None] = mapped_column(String, nullable=True)
+    day_trader_short_term: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class IBKRBreadthSnapshotORM(Base):
     """One row per (`series_key`, calendar day) IBKR-scanner-derived market-breadth count
     (docs/tasks/backend-market-breadth-indicators.json, Elder ch. 34-36's NH-NL/Advance-Decline

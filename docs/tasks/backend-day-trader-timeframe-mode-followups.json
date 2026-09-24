@@ -1,0 +1,28 @@
+{
+  "id": "backend-day-trader-timeframe-mode-followups",
+  "title": "Non-blocking follow-ups from backend-day-trader-timeframe-mode PR #309 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode.json",
+    "https://github.com/rainoko/fintrade/pull/309"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on backend-day-trader-timeframe-mode's PR #309, tracked here so they aren't lost once that PR merges (see PR #309's review comment for full context on each). The one blocking finding from that review -- PUT /api/settings/trading-mode not ignoring day_trader_timeframe_triple when mode='swing' -- is recorded directly on backend-day-trader-timeframe-mode's own review.comments and must be fixed on that task/PR itself, not here.",
+  "checklist": [
+    { "step": "Fix stale '3x-8x' guideline-band wording in three places (app/signals/timeframe.py's factor_of_five_warnings() message text, app/api/schemas.py's TimeframeTripleOut.factor_of_five_warnings field description, and a test comment in tests/unit/signals/test_timeframe.py) to match the actually-implemented 2x-10x band (_FACTOR_OF_FIVE_MIN_RATIO/_MAX_RATIO in app/signals/timeframe.py).", "done": true },
+    { "step": "Fix app/api/routers/settings.py's module docstring, which references a follow-up task id 'backend-day-trader-timeframe-mode-intraday-signal-engine' that doesn't exist -- should reference backend-day-trader-timeframe-mode-ibkr-intraday and backend-day-trader-timeframe-mode-signal-engine (the two actual follow-up tasks).", "done": true },
+    { "step": "Fix docs/architecture/Backend.md's day-trader-timeframe-mode section numbering -- it's numbered '## 11.' immediately after the existing '## 9.', skipping 10.", "done": true },
+    { "step": "Add a test to TestFactorOfFiveWarnings (tests/unit/signals/test_timeframe.py) pinning the factor-of-five band's exact boundary ratios (2.0x and 10.0x) to confirm the inclusive/exclusive comparison in factor_of_five_warnings() behaves as intended.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T17:17:15Z",
+      "recorded_by": "task-worker",
+      "decision": "All 4 non-blocking findings fixed directly on backend-day-trader-timeframe-mode's own PR #309 (task/backend-day-trader-timeframe-mode branch) while fixing that PR's 2 blocking findings, rather than as this task's own separate PR.",
+      "rationale": "The dispatch that sent task-worker back to PR #309 to fix its blocking findings explicitly offered the choice to also fold these 4 non-blocking fixes into the same PR, since they're small, low-risk, and in the same area of the codebase already open for the blocking fix (app/signals/timeframe.py, app/api/schemas.py, app/api/routers/settings.py's module docstring, docs/architecture/Backend.md, tests/unit/signals/test_timeframe.py). Landing them together avoids a second PR/review round-trip for work that's already in front of the same reviewer for the blocking fix. Rejected leaving them for a separate dispatch on this task: no benefit once the same files are already open, and this task's own checklist items are marked done here with the fix traceable to PR #309's commits."
+    }
+  ],
+  "questions": []
+}

@@ -40,6 +40,7 @@ backend/
       support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
       divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
       kangaroo_tail.py         # Kangaroo Tail ("fingers") reversal-pattern detection (Analyse.md §4 row 13)
+      timeframe.py             # generic long-term/intermediate/short-term TimeframeTriple model (ch. 39, docs/tasks/backend-day-trader-timeframe-mode.json) -- foundational domain model only, not yet read by triple_screen.py/engine.py (see §11)
       insider_clusters.py      # insider-transaction buy/sell classification + cluster detection (Elder ch. 37 p. 147)
     portfolio/
       models.py        # Position, Account (Pydantic/SQLAlchemy)
@@ -47,6 +48,7 @@ backend/
       risk.py           # 2% rule, 6% rule, protective stop calc
       exits.py           # existing-position exit rules (Analyse.md §7)
       profit_target.py    # suggested profit target + reward:risk ratio; signal-agnostic itself, gated BUY-only by one caller (fresh-signal analysis) but computed unconditionally by the other (an already-open position) (Analyse.md §7)
+    trading_mode.py    # global trading-mode settings persistence (docs/tasks/backend-day-trader-timeframe-mode.json §11) -- top-level, parallel to config.py, not nested under portfolio/ or signals/
     db/
       models.py         # SQLAlchemy ORM models
       session.py
@@ -221,6 +223,50 @@ well-known form for exactly this data. No local caching/persistence layer (unlik
 `CachedDataProvider`'s OHLCV/extended-data caches, §7): `GET /api/cftc/cot` fetches fresh on
 every request, since the underlying data changes at most weekly and this is explicitly scoped
 as a minimal, informational surface — see this task's `decisions` entry.
+
+## 10. Day-Trader Timeframe Mode (foundational model + settings, in progress)
+
+Elder ch. 39, "Choosing Timeframes -- the Factor of Five": Triple Screen doesn't hard-code
+weekly/daily/intraday -- it's built around whatever three timeframes the trader picks, each
+related to its neighbor by roughly a factor of five. `docs/tasks/
+backend-day-trader-timeframe-mode.json` is landing this as a deliberately split, multi-PR
+feature (see that task's own `decisions` entry for the full split rationale); this section
+documents what exists **today**, not the full eventual feature.
+
+**Landed so far:**
+
+- `app.signals.timeframe` -- the generic domain model: `TimeframeUnit` (minute/day/week),
+  `TimeframeInterval` (a count of a unit, with a canonical `"25m"`/`"1d"`/`"1w"`-style `code`),
+  and `TimeframeTriple` (long-term/intermediate/short-term, replacing the app's hard-coded
+  Tide/Wave/Trigger weekly/daily assumption for a future generic evaluation). Construction
+  enforces one **hard** rule (`long_term > intermediate > short_term`, by trading-minute
+  length) but only **warns** (`factor_of_five_warnings()`, never rejects) when a ratio falls
+  outside a 2x-10x band -- ch. 39 itself frames "roughly a factor of five" as a guideline, and
+  even the book's own 25-min/5-min/2-min day-trading example isn't a clean 5x on both legs
+  (25/5 = 5x, but 5/2 = only 2.5x). See that module's own docstrings and this task's
+  `decisions` entry for the full reasoning, including why `WEEK` is kept as its own unit
+  (rather than collapsing everything to a minute count) to preserve the calendar-anchored
+  weekly-resampling semantic `app.signals.engine._weekly_through_bar_date` already depends on.
+- `app.trading_mode` + `TradingModeSettingORM` (`app/db/models.py`) -- global, app-wide
+  settings persistence (a single settings row, same singleton-row convention as `AccountORM`
+  §7 above) for the active `TradingMode` (`swing`/`day_trader`) and, once ever configured, the
+  day-trader `TimeframeTriple`. A previously-configured day-trader triple is preserved (not
+  cleared) across a switch back to `swing` mode, so a user toggling between modes doesn't lose
+  their configuration -- see `TradingModeSettingORM`'s own docstring.
+- `GET`/`PUT /api/settings/trading-mode` (`app.api.routers.settings`) -- reads/writes the
+  setting above. `PUT` rejects (422) a `day_trader` mode request with no triple, or a triple
+  violating the hard ordering rule; a factor-of-five-guideline violation is echoed back as a
+  non-blocking `factor_of_five_warnings` list on the response instead.
+
+**Not yet landed** (tracked as dependent follow-up tasks, `depends_on` this task):
+
+- IBKR intraday data fetching for the day-trader triple's faster leg(s) -- `Settings.mode`
+  currently changes nothing about what data any endpoint actually fetches or computes.
+- Generic Screen 1/2/3 (Tide/Wave/Trigger) evaluation in `app.signals.triple_screen`/
+  `app.signals.engine` over whichever triple is active -- both still unconditionally use the
+  hard-coded weekly/daily scheme regardless of `TradingMode`.
+- Any API-schema/frontend surface for the generically-computed signal (item 6/7 of the task's
+  original checklist).
 
 ## Testing Notes
 

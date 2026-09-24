@@ -1874,8 +1874,36 @@
       "id": "backend-day-trader-timeframe-mode",
       "area": "backend/signals",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-ibkr-intraday",
+      "area": "backend/data",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode.json"
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-signal-engine",
+      "area": "backend/signals",
+      "skill": "verify-elder-signal",
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-api",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-api.json"
+    },
+    {
+      "id": "frontend-day-trader-timeframe-mode-settings",
+      "area": "frontend/settings",
+      "skill": "add-frontend-feature",
+      "state": "planned",
+      "path": "docs/tasks/frontend-day-trader-timeframe-mode-settings.json"
     },
     {
       "id": "backend-daily-homework-self-test-followups",
@@ -2100,6 +2128,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-followups.json"
     }
   ]
 }
