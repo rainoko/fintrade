@@ -31,6 +31,10 @@
     {
       "step": "(Round 4 review, PR #226) `_find_run_violations`'s `reported` dedup set is keyed only by `lineno` (`if lineno in reported: continue`), unlike the per-line scan's own dedup key of `(pattern_index, lineno)`. If two different `_BANNED_PATTERNS` entries both match within the same implicit-concatenation run and resolve to the same reported line, only one violation is now emitted instead of two -- a minor undercount (cosmetic reporting only; the guard still fails the check and points at the right line), not a missed regression, but worth aligning with the per-line scan's dedup granularity for consistency.",
       "done": false
+    },
+    {
+      "step": "(Round 6 review, PR #226) `_decode_string_token_with_offsets` returns `None` for a byte-string literal (`\"b\" in prefix_lower`), which is the correct, safe choice for a single byte-string piece -- but a run made entirely of byte-string literals (e.g. `b\"today's \" b\"Autoenvelope\"`, valid since Python only forbids mixing bytes and non-bytes literals in one run, not multiple bytes literals) shares the exact same cross-line-miss structural gap as round 6's three BLOCKING f-string/same-line/mixed-quote findings: `_find_run_violations` returns `[]` for the whole run the moment any one piece fails to decode, so a banned phrase split across a byte-string-only run is silently missed too. Verified directly. Not filed as blocking alongside the other three because byte literals holding this kind of descriptive prose (Field descriptions, docstrings) is not a realistic pattern anywhere in this codebase's actual style -- but whichever fix addresses the round-6 f-string finding (which requires broadening what `_iter_implicit_concat_runs`/`_find_run_violations` treat as a recognizable-but-inert piece rather than an entirely run-breaking token) should double-check it doesn't leave this byte-string case newly reachable-but-still-silently-wrong, and ideally add a regression test pinning that a byte-string-only run is still safely skipped (not mis-reported) after that fix.",
+      "done": false
     }
   ],
   "decisions": [],
