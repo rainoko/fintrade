@@ -675,7 +675,7 @@ Raises `503` if the CFTC's request itself fails, or unexpectedly returns no rows
 
 ### `GET /api/settings/trading-mode` / `PUT /api/settings/trading-mode`
 
-The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json, Elder ch. 39's "Choosing Timeframes — the Factor of Five") — a single setting, not a per-request parameter (see that task's `decisions` entry). **Scope note**: as of this task, switching to `day_trader` mode here changes nothing about how any other endpoint computes signals — see `docs/architecture/Backend.md` §11 for what's landed vs. still tracked as a dependent follow-up task.
+The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json, Elder ch. 39's "Choosing Timeframes — the Factor of Five") — a single setting, not a per-request parameter (see that task's `decisions` entry). **Scope note**: as of this task, switching to `day_trader` mode here changes nothing about how any other endpoint computes signals — see `docs/architecture/Backend.md` §10 for what's landed vs. still tracked as a dependent follow-up task.
 
 ```json
 {

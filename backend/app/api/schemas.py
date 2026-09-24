@@ -1187,7 +1187,7 @@ class TimeframeTripleOut(TimeframeTripleIn):
         default_factory=list,
         description="Non-blocking notices (empty when the triple is fully within the "
         "guideline band) for either adjacent pair whose ratio falls outside ch. 39's "
-        "'roughly a factor of five' spacing guideline (this app's own 3x-8x band -- see "
+        "'roughly a factor of five' spacing guideline (this app's own 2x-10x band -- see "
         "`app.signals.timeframe`'s module-level comment). Never prevents the triple from "
         "being saved -- ch. 39 itself frames this ratio as a guideline, not a hard rule.",
     )

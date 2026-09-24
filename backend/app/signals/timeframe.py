@@ -192,7 +192,7 @@ class TimeframeTriple:
                 warnings.append(
                     f"{larger_name} ({larger.code}) is {ratio:.1f}x {smaller_name} "
                     f"({smaller.code}) -- ch. 39's 'factor of five' guideline suggests each "
-                    "timeframe be roughly 3-8x its neighbor."
+                    "timeframe be roughly 2-10x its neighbor."
                 )
         return warnings
 

@@ -87,7 +87,7 @@ class TestTimeframeTripleOrdering:
             intermediate=TimeframeInterval.parse("8m"),
             short_term=TimeframeInterval.parse("1m"),
         )
-        # 39/8 ~= 4.9x, 8/1 = 8x -- both within the 3x-8x band.
+        # 39/8 ~= 4.9x, 8/1 = 8x -- both within the 2x-10x band.
         assert triple.factor_of_five_warnings() == []
 
     def test_inverted_ordering_raises(self) -> None:
@@ -157,6 +157,26 @@ class TestFactorOfFiveWarnings:
         )
         warnings = triple.factor_of_five_warnings()
         assert len(warnings) == 2
+
+    def test_ratio_exactly_at_min_boundary_does_not_warn(self) -> None:
+        # Both legs exactly 2.0x -- _FACTOR_OF_FIVE_MIN_RATIO's own value -- pins the `<` (not
+        # `<=`) comparison in factor_of_five_warnings(): the boundary itself is in-band.
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("20m"),
+            intermediate=TimeframeInterval.parse("10m"),
+            short_term=TimeframeInterval.parse("5m"),
+        )
+        assert triple.factor_of_five_warnings() == []
+
+    def test_ratio_exactly_at_max_boundary_does_not_warn(self) -> None:
+        # Both legs exactly 10.0x -- _FACTOR_OF_FIVE_MAX_RATIO's own value -- pins the `>` (not
+        # `>=`) comparison in factor_of_five_warnings(): the boundary itself is in-band.
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("100m"),
+            intermediate=TimeframeInterval.parse("10m"),
+            short_term=TimeframeInterval.parse("1m"),
+        )
+        assert triple.factor_of_five_warnings() == []
 
 
 class TestTradingModeEnum:

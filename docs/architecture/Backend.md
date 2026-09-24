@@ -224,7 +224,7 @@ well-known form for exactly this data. No local caching/persistence layer (unlik
 every request, since the underlying data changes at most weekly and this is explicitly scoped
 as a minimal, informational surface — see this task's `decisions` entry.
 
-## 11. Day-Trader Timeframe Mode (foundational model + settings, in progress)
+## 10. Day-Trader Timeframe Mode (foundational model + settings, in progress)
 
 Elder ch. 39, "Choosing Timeframes -- the Factor of Five": Triple Screen doesn't hard-code
 weekly/daily/intraday -- it's built around whatever three timeframes the trader picks, each

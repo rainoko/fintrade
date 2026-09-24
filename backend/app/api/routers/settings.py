@@ -10,9 +10,10 @@ foundational settings-persistence piece (checklist item 3) of a larger, delibera
 feature. As of this task, switching to `'day_trader'` here changes nothing about how any
 other endpoint computes signals -- `app.signals.engine`/`app.signals.triple_screen` still
 unconditionally use the hard-coded weekly/daily scheme regardless of this setting. Wiring
-the configured triple into actual IBKR intraday data fetching and generic Screen 1/2/3
-evaluation is tracked as a dependent follow-up task
-(`backend-day-trader-timeframe-mode-intraday-signal-engine`, `depends_on` this task).
+the configured triple into actual IBKR intraday data fetching (tracked as
+`backend-day-trader-timeframe-mode-ibkr-intraday`, `depends_on` this task) and generic
+Screen 1/2/3 evaluation (tracked as `backend-day-trader-timeframe-mode-signal-engine`,
+`depends_on` this task).
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -60,13 +61,24 @@ def get_trading_mode(db: Session = Depends(get_db)) -> TradingModeOut:
     summary="Switch the global active trading mode",
     responses={
         422: {
-            "description": "`day_trader_timeframe_triple` is required when `mode` is "
-            "'day_trader' (FastAPI's standard HTTPValidationError, raised at the request-"
-            "schema level), or an otherwise-well-formed triple violates the hard `long_term "
-            "> intermediate > short_term` ordering rule (`app.signals.timeframe"
-            ".TimeframeTriple`'s own construction check) -- the latter is reported as a "
-            "single-string `ErrorDetail`, the same dual-422-shape convention `GET "
-            "/api/stocks/{ticker}/history` already documents.",
+            "description": "Either of two distinct shapes, both under HTTP 422: "
+            "`day_trader_timeframe_triple` is required when `mode` is 'day_trader' "
+            "(FastAPI's standard HTTPValidationError, raised at the request-schema level), or "
+            "an otherwise-well-formed triple violates the hard `long_term > intermediate > "
+            "short_term` ordering rule (`app.signals.timeframe.TimeframeTriple`'s own "
+            "construction check) -- the latter is reported as a single-string `ErrorDetail`, "
+            "the same dual-422-shape convention `GET /api/stocks/{ticker}/history` already "
+            "documents.",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/HTTPValidationError"},
+                            {"$ref": "#/components/schemas/ErrorDetail"},
+                        ],
+                    },
+                },
+            },
         },
     },
 )
@@ -81,11 +93,13 @@ def update_trading_mode(body: TradingModeIn, db: Session = Depends(get_db)) -> T
     any previously-configured day-trader triple untouched in storage (see
     `TradingModeSettingORM`'s own docstring) -- the response still echoes it back (`mode`
     just reads `'swing'` alongside it) so a caller can see what's saved for next time without
-    a second request.
+    a second request. A `day_trader_timeframe_triple` supplied alongside `mode='swing'` is
+    ignored, not persisted (per `TradingModeIn.day_trader_timeframe_triple`'s own documented
+    contract) -- it does not overwrite a previously-configured triple.
 
     See this router module's own docstring for what switching modes does **not** yet do."""
     triple: TimeframeTriple | None = None
-    if body.day_trader_timeframe_triple is not None:
+    if body.mode == "day_trader" and body.day_trader_timeframe_triple is not None:
         try:
             triple = TimeframeTriple(
                 long_term=TimeframeInterval.parse(body.day_trader_timeframe_triple.long_term),

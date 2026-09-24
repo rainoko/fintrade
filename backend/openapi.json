@@ -2560,7 +2560,7 @@
       "TimeframeTripleOut": {
         "properties": {
           "factor_of_five_warnings": {
-            "description": "Non-blocking notices (empty when the triple is fully within the guideline band) for either adjacent pair whose ratio falls outside ch. 39's 'roughly a factor of five' spacing guideline (this app's own 3x-8x band -- see `app.signals.timeframe`'s module-level comment). Never prevents the triple from being saved -- ch. 39 itself frames this ratio as a guideline, not a hard rule.",
+            "description": "Non-blocking notices (empty when the triple is fully within the guideline band) for either adjacent pair whose ratio falls outside ch. 39's 'roughly a factor of five' spacing guideline (this app's own 2x-10x band -- see `app.signals.timeframe`'s module-level comment). Never prevents the triple from being saved -- ch. 39 itself frames this ratio as a guideline, not a hard rule.",
             "items": {
               "type": "string"
             },
@@ -3811,7 +3811,7 @@
         ]
       },
       "put": {
-        "description": "Switches the global trading mode, and, when `mode` is `'day_trader'`, persists the\nsupplied timeframe triple as the new day-trader configuration (validated -- a 422 if its\nthree legs aren't in strictly-decreasing order -- but never rejected merely for falling\noutside ch. 39's factor-of-five spacing *guideline*; see `TimeframeTripleOut\n.factor_of_five_warnings` on the response for that non-blocking notice instead).\n\nSwitching to `'swing'` with no `day_trader_timeframe_triple` in the request body leaves\nany previously-configured day-trader triple untouched in storage (see\n`TradingModeSettingORM`'s own docstring) -- the response still echoes it back (`mode`\njust reads `'swing'` alongside it) so a caller can see what's saved for next time without\na second request.\n\nSee this router module's own docstring for what switching modes does **not** yet do.",
+        "description": "Switches the global trading mode, and, when `mode` is `'day_trader'`, persists the\nsupplied timeframe triple as the new day-trader configuration (validated -- a 422 if its\nthree legs aren't in strictly-decreasing order -- but never rejected merely for falling\noutside ch. 39's factor-of-five spacing *guideline*; see `TimeframeTripleOut\n.factor_of_five_warnings` on the response for that non-blocking notice instead).\n\nSwitching to `'swing'` with no `day_trader_timeframe_triple` in the request body leaves\nany previously-configured day-trader triple untouched in storage (see\n`TradingModeSettingORM`'s own docstring) -- the response still echoes it back (`mode`\njust reads `'swing'` alongside it) so a caller can see what's saved for next time without\na second request. A `day_trader_timeframe_triple` supplied alongside `mode='swing'` is\nignored, not persisted (per `TradingModeIn.day_trader_timeframe_triple`'s own documented\ncontract) -- it does not overwrite a previously-configured triple.\n\nSee this router module's own docstring for what switching modes does **not** yet do.",
         "operationId": "update_trading_mode",
         "requestBody": {
           "content": {
@@ -3835,7 +3835,21 @@
             "description": "Successful Response"
           },
           "422": {
-            "description": "`day_trader_timeframe_triple` is required when `mode` is 'day_trader' (FastAPI's standard HTTPValidationError, raised at the request-schema level), or an otherwise-well-formed triple violates the hard `long_term > intermediate > short_term` ordering rule (`app.signals.timeframe.TimeframeTriple`'s own construction check) -- the latter is reported as a single-string `ErrorDetail`, the same dual-422-shape convention `GET /api/stocks/{ticker}/history` already documents."
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Either of two distinct shapes, both under HTTP 422: `day_trader_timeframe_triple` is required when `mode` is 'day_trader' (FastAPI's standard HTTPValidationError, raised at the request-schema level), or an otherwise-well-formed triple violates the hard `long_term > intermediate > short_term` ordering rule (`app.signals.timeframe.TimeframeTriple`'s own construction check) -- the latter is reported as a single-string `ErrorDetail`, the same dual-422-shape convention `GET /api/stocks/{ticker}/history` already documents."
           }
         },
         "summary": "Switch the global active trading mode",
