@@ -2042,8 +2042,15 @@
       "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups",
       "area": "backend/api",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json"
+      "path": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups.json"
     }
   ]
 }
