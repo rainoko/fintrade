@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -62,13 +62,19 @@
       "recorded_by": "task-worker",
       "decision": "Authorized and executed the 4th fix round for PR #240's round-3 blocking finding (this task's `questions` entry above), rather than leaving it parked at `waiting_input`: the dispatching orchestrator explicitly authorized the exact narrow, mechanical fix the question described, so this isn't a case of the worker deciding on its own to exceed the 3-round retry cap. Fix: `add_position`'s same-ticker-merge branch (`backend/app/api/routers/portfolio.py`) now filters `daily_ohlcv` through `app.signals.engine.drop_malformed_daily_bars` (`require_full_ohlc_on_latest_bar=False`, mirroring `get_risk`'s own call) before passing it to `trailing_stop_floor_before_merge`, exactly as suggested in `review.comments`. Updated `trailing_stop_floor_before_merge`'s own docstring (`backend/app/portfolio/risk.py`) to state the caller-must-pre-filter contract explicitly (matching `protective_stop`'s existing convention), and `drop_malformed_daily_bars`'s docstring (`backend/app/signals/engine.py`) to note `add_position` as a second caller of `require_full_ohlc_on_latest_bar=False`, alongside `get_risk`. Added a regression test, `test_merge_ignores_a_malformed_bar_when_capturing_the_pre_merge_floor` in `TestAddPositionCapturesTrailingStopFloorAtMerge` (`backend/tests/integration/test_portfolio_positions.py`), with a 20-day flat-$100 series carrying one interior malformed bar (NaN open/high, close=$5000) -- verified this test genuinely fails against the pre-fix code (reproduced the reviewer's exact 1730.0-vs-97.0 numbers by temporarily reverting the router fix, confirming the failure, then reapplying the fix) before treating it as a real regression guard. Full backend suite: 1171 passed, 99.95% coverage (ruff app/ + mypy clean, matching the static-verify skill's exact `ruff check app/` scope -- a broader `ruff check app tests` surfaces pre-existing, unrelated lint debt in other test files this PR doesn't touch). `openapi.json` regenerated, byte-identical (no schema/route signature change). Profit-target wording guard and `validate_tasks.py` both clean.",
       "rationale": "No alternative approach was considered here -- the reviewer's suggested fix was already fully specified, narrow, and mirrored an established pattern used twice already in the same file, so there was no genuine judgment call left to make about *how* to fix it, only whether a 4th automated round was authorized to proceed at all (the orchestrator's own retry-count policy, not a technical ambiguity). Recording this as a `decisions` entry rather than leaving the `questions` entry as the only trace, since CLAUDE.md's decision-memory rule asks for the resolution of a `waiting_input` state to itself be recorded (an answered `questions` entry stays in place as history; the answer/resumption is what a fresh `decisions` entry documents)."
+    },
+    {
+      "timestamp": "2026-09-24T07:24:06Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed round 5's blocking finding: added `trailing_stop: 210.15` (equal to that same fixture's own `protective_stop` value, the established placeholder convention from this task's round-1 fix) to the `RiskPosition` literal in both `frontend/src/features/portfolio/components/HeldPositionBanner.test.tsx` and `frontend/src/features/portfolio/components/PositionsTable.test.tsx`, immediately after `protective_stop` on the flagged lines. Grepped both files for every `protective_stop`/`trailing_stop` occurrence first to confirm there was exactly one `RiskPosition` literal needing the fix in each file, not multiple.",
+      "rationale": "This was a narrow, mechanical, fully-specified fix (round 5's review comment already named the exact files, lines, and value convention to use) with no remaining judgment call about how to do it. `yarn tsc -b --noEmit` is clean (0 errors) and the full frontend suite passes (841 passed) after the fix; `yarn lint` is also clean. No backend files were touched, so no backend re-test was needed."
     }
   ],
   "git": {
     "branch": "task/backend-trailing-profit-stop",
     "pr_number": 240,
     "pr_url": "https://github.com/rainoko/fintrade/pull/240",
-    "pushed_at": "2026-09-24T06:40:12Z"
+    "pushed_at": "2026-09-24T07:24:27Z"
   },
   "review": {
     "reviewed_at": "2026-09-24T07:19:03Z",
