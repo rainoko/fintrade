@@ -82,8 +82,9 @@ export default defineConfig({
     // '50%'` committed: resolves to 1 worker on a 2-core host
     // (round(0.5*2)=1), and the full suite passed cleanly 3/3 runs, no timeouts.
     // Also re-ran the unrestricted 24-core host normally (841/841 passed, ~30s,
-    // matching the fixed-12 wall-clock) to confirm no regression there. Revisit if
-    // per-file overhead changes enough for 50% to need retuning.
+    // matching the fixed-12 wall-clock's ~29-31s range above) to confirm no
+    // regression there. Revisit if per-file overhead changes enough for 50% to
+    // need retuning.
     maxWorkers: '50%',
     coverage: {
       provider: 'v8',
