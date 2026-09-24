@@ -3,7 +3,7 @@
   "title": "Switchable day-trader timeframe mode (ch. 39) -- fully configurable, global setting",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/ideas.md#switchable-trading-mode-positionswing-trader-vs-day-trader--different-triple-screen-timeframe-scales",
@@ -110,41 +110,10 @@
     "pushed_at": "2026-09-24T17:20:02Z"
   },
   "review": {
-    "reviewed_at": "2026-09-24T17:10:25Z",
+    "reviewed_at": "2026-09-24T17:30:10Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/309",
-    "verdict": "needs_work",
-    "comments": [
-      {
-        "summary": "Blocking: PUT /api/settings/trading-mode doesn't ignore day_trader_timeframe_triple when mode='swing' -- update_trading_mode parses and persists any supplied triple regardless of mode, contradicting TradingModeIn.day_trader_timeframe_triple's own documented 'ignored ... when mode is swing' contract and silently overwriting a previously-preserved day-trader triple. Reproduced directly against a live TestClient: PUT day_trader with triple A, then PUT swing with triple B, then GET -- the stored triple becomes B, not preserved A. No test exercises mode='swing' + a supplied triple.",
-        "file": "backend/app/api/routers/settings.py",
-        "line": 87
-      },
-      {
-        "summary": "Blocking: PUT /api/settings/trading-mode's 422 responses entry declares only a description string, with no content/schema -- unlike the 'dual-422-shape convention' it explicitly claims to follow (GET /api/stocks/{ticker}/history, which declares an explicit content.application/json.schema with anyOf: [HTTPValidationError, ErrorDetail]). Confirmed in the regenerated backend/openapi.json: this 422 has no content key at all, so frontend/src/api/types.ts generates content?: never for it. Violates CLAUDE.md's API documentation standard ('every documented error case declared in responses={...} ... using the ErrorDetail schema').",
-        "file": "backend/app/api/routers/settings.py",
-        "line": 61
-      },
-      {
-        "summary": "Non-blocking: factor_of_five_warnings()'s returned message text, TimeframeTripleOut's OpenAPI field description, and a test comment all still say the guideline band is '3-8x'/'3x-8x', but the actually-implemented band (_FACTOR_OF_FIVE_MIN_RATIO/_MAX_RATIO) is 2x-10x -- stale wording left over from the earlier 3x-8x draft the task's own decisions entry says was widened.",
-        "file": "backend/app/signals/timeframe.py",
-        "line": 195
-      },
-      {
-        "summary": "Non-blocking: app/api/routers/settings.py's module docstring references a follow-up task id 'backend-day-trader-timeframe-mode-intraday-signal-engine' that doesn't exist; the actual split created two separate tasks (backend-day-trader-timeframe-mode-ibkr-intraday and backend-day-trader-timeframe-mode-signal-engine).",
-        "file": "backend/app/api/routers/settings.py",
-        "line": 15
-      },
-      {
-        "summary": "Non-blocking: docs/architecture/Backend.md's new section is numbered '## 11.' immediately after the existing '## 9.', skipping 10.",
-        "file": "docs/architecture/Backend.md",
-        "line": 227
-      },
-      {
-        "summary": "Non-blocking: TestFactorOfFiveWarnings has no test pinning the factor-of-five band's exact boundary ratios (2.0x / 10.0x) -- only interior and clearly-exterior ratios are covered.",
-        "file": "backend/tests/unit/signals/test_timeframe.py",
-        "line": 122
-      }
-    ],
-    "notes": "Independently re-ran: pytest --cov=app (1287 passed, 100% line/branch coverage), ruff check + mypy (clean), yarn tsc -b --noEmit + yarn eslint (clean), alembic upgrade head / downgrade -1 against a throwaway DB (clean), scripts/export_openapi.py + yarn generate:api-types re-run and diffed byte-for-byte against committed backend/openapi.json + frontend/src/api/types.ts (no diff), scripts/validate_tasks.py (no violations). No UI surface in this PR (settings UI deferred to frontend-day-trader-timeframe-mode-settings) -- browser walkthrough and e2e suite both explicitly skipped. TimeframeTriple model, migration, and the 4-way task split are all sound; the two blocking findings are the swing-mode triple-overwrite bug and the missing 422 content schema on PUT /api/settings/trading-mode above (the latter surfaced by a background code-review pass dispatched during this review and confirmed independently before being added here)."
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Round-2 re-review of the fix commit (e2792c2) addressing both blocking findings from the prior needs_work pass. (1) Swing-mode triple-overwrite: confirmed fixed -- update_trading_mode now gates parsing itself on `body.mode == 'day_trader'` (not just persistence), so a triple supplied alongside mode='swing' is never parsed and never touches storage; verified TradingModeIn._require_triple_for_day_trader_mode unconditionally requires a triple on every switch to day_trader regardless of persisted state, confirming the task-worker's claim that the reviewer's literal 'no explicit triple restores A' phrasing is impossible without weakening that unrelated, pre-existing validator; the new integration test (day_trader+A -> swing+B -> GET confirms A, not B -> day_trader re-supplying A confirms restore) is a faithful, non-weakened equivalent of the intended regression check. (2) 422 schema: confirmed the new content.application/json.schema.anyOf:[HTTPValidationError, ErrorDetail] block matches GET /api/stocks/{ticker}/history's and GET /api/stocks/{ticker}/indicator-history's existing convention exactly. All 4 non-blocking findings (2x-10x wording in timeframe.py/schemas.py/test comment, dead follow-up-task-id in settings.py's module docstring split into the two real ids, Backend.md section renumbered 11->10 with API.md and sibling tasks' cross-references updated, boundary tests at exactly 2.0x/10.0x added) verified correct; backend-day-trader-timeframe-mode-followups.json's checklist already reflects all 4 as done, matching. No new findings this round. Re-ran full suite independently: pytest --cov=app (1290 passed, 100% line/branch coverage), frontend vitest --coverage (882 passed, 99.8%/99.1%/99.8%/99.9% stmt/branch/fn/line, no frontend files touched by this PR besides generated types.ts), ruff check + mypy (clean), eslint + tsc -b --noEmit (clean), scripts/check_profit_target_wording.py (clean), scripts/validate_tasks.py (no violations), alembic heads (single head, ac306d064b63 chains cleanly off main's 322370cba3c8). Regenerated backend/openapi.json and frontend/src/api/types.ts myself and diffed byte-for-byte against committed versions -- no diff. Dispatched a backgrounded code-review pass (high effort) over both the round-2 fix commit and the full PR diff; it completed before this verdict was finalized with no surviving findings, confirming the above. Also ran architecture-review and verify-elder-signal (task area is backend/signals): app.signals.timeframe (domain model) and top-level app.trading_mode (parallel to app.config, matching the AccountORM singleton-row/closed-string-column conventions) are correctly placed; the router stays thin (validation in schemas.py, persistence in trading_mode.py); the 2x-10x factor-of-five band is a reasoned, decisions-recorded judgment call that admits every one of ch. 39's own worked examples; DEFAULT_SWING_TRIPLE_CODES' Trigger-approximation rationale matches docs/Analyse.md's own documented wording verbatim; deferring signal-engine wiring to backend-day-trader-timeframe-mode-signal-engine (which already carries the required elder-signal-reviewer pass) is appropriate since this PR is provably inert -- confirmed only backend/app/api/schemas.py changed among all existing signal/engine/portfolio files, adding new schema classes only. No UI surface in this PR (frontend untouched apart from generated types.ts) -- browser walkthrough and e2e suite both explicitly skipped for that reason."
   }
 }
