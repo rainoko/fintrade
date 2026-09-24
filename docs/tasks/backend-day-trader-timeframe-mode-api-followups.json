@@ -1,0 +1,30 @@
+{
+  "id": "backend-day-trader-timeframe-mode-api-followups",
+  "title": "Day-trader mode: wire GET /api/stocks/{ticker}/indicators and GET /api/portfolio/GET /api/portfolio/risk once their prerequisites land",
+  "area": "backend/api",
+  "skill": "add-api-endpoint",
+  "state": "planned",
+  "depends_on": [
+    "backend-day-trader-timeframe-mode-api",
+    "backend-day-trader-timeframe-mode-history",
+    "backend-day-trader-timeframe-mode-portfolio-risk"
+  ],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-api.json",
+    "docs/tasks/backend-day-trader-timeframe-mode-history.json",
+    "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json",
+    "docs/architecture/API.md",
+    "docs/architecture/Backend.md#10-day-trader-timeframe-mode-foundational-model--settings-in-progress"
+  ],
+  "description": "backend-day-trader-timeframe-mode-api's own PR scoped down to just `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` (+`GET /api/watchlist/breadth`, which shares the same helper) given the number of endpoints in its original checklist and the regression risk on swing mode -- see that task's `decisions` entry for the full scoping rationale. This task tracks the two endpoints it deferred:\n\n- `GET /api/stocks/{ticker}/indicators` -- structurally blocked on `backend-day-trader-timeframe-mode-history` landing first: this endpoint is powered by `app.signals.engine.analyse_history()`'s walk-forward per-bar replay, which has no day-trader-mode support yet (confirmed in docs/architecture/Backend.md's own 'Not yet landed' list at the time this task was filed).\n- `GET /api/portfolio` / `GET /api/portfolio/risk` -- `GET /api/portfolio`'s own per-position `signal`/`confidence`/`confidence_band` fields could in principle be wired the same way `GET /api/watchlist` was (via `app.api.day_trader_signal.compute_day_trader_signal`), but `GET /api/portfolio/risk`'s `protective_stop`/`profit_target`/exit-flag fields need `backend-day-trader-timeframe-mode-portfolio-risk`'s own genericization of `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits` first (still hard-coded weekly/daily today, confirmed unaffected by backend-day-trader-timeframe-mode-api's own PR) -- wiring `GET /api/portfolio`'s signal field alone, ahead of `GET /api/portfolio/risk`, would leave the two portfolio endpoints inconsistently day-trader-aware for the same position, which this task's own checklist should decide whether to do anyway or wait and land both together. `GET /api/portfolio`'s per-position day-trader-mode fetch also means one IBKR round-trip per held position per request -- worth a dedicated latency/design pass (e.g. concurrent per-position fetches, matching `GET /api/stocks/{ticker}/indicators`'s existing daily/weekly `ThreadPoolExecutor` pattern) rather than a naive sequential loop, given `app.data.day_trader_intraday`'s own already-noted 'sequential-not-concurrent 3-leg IBKR fetch latency' non-blocking finding (backend-day-trader-timeframe-mode-signal-engine-followups.json).",
+  "checklist": [
+    { "step": "Decide (and record via `decisions`) whether GET /api/portfolio's signal field is wired ahead of GET /api/portfolio/risk landing, or whether both wait for backend-day-trader-timeframe-mode-portfolio-risk to land together.", "done": false },
+    { "step": "Wire GET /api/stocks/{ticker}/indicators to use analyse_history's day-trader-mode support (once backend-day-trader-timeframe-mode-history lands) when day-trader mode is active, with swing mode's existing behavior preserved exactly (regression tests).", "done": false },
+    { "step": "Wire GET /api/portfolio and GET /api/portfolio/risk to use the generic day-trader-mode signal/risk computation (once backend-day-trader-timeframe-mode-portfolio-risk lands) per the decision above, with swing mode's existing behavior preserved exactly (regression tests) -- decide whether concurrent per-position IBKR fetches are needed for acceptable latency.", "done": false },
+    { "step": "Regenerate backend/openapi.json and frontend/src/api/types.ts.", "done": false },
+    { "step": "Unit/integration tests for the updated endpoints under both swing and day-trader mode.", "done": false },
+    { "step": "Update docs/architecture/Backend.md §10 and docs/architecture/API.md accordingly.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}

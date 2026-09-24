@@ -1923,8 +1923,15 @@
       "id": "backend-day-trader-timeframe-mode-api",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-day-trader-timeframe-mode-api.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-api-followups",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-api-followups.json"
     },
     {
       "id": "frontend-day-trader-timeframe-mode-settings",

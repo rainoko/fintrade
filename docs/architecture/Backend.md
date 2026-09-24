@@ -307,24 +307,62 @@ documents what exists **today**, not the full eventual feature.
   timeframe-agnostic once Screen 3 is genericized (verify-elder-signal pass, this task's own
   `decisions` entry).
 
-**Not yet landed** (tracked as dependent follow-up tasks, `depends_on` this task):
+- `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist` (+ `GET /api/watchlist/breadth`,
+  which shares the same underlying helper) (`backend-day-trader-timeframe-mode-api`) --
+  `app.api.day_trader_signal.compute_day_trader_signal` resolves the active
+  `app.trading_mode.get_trading_mode_setting` into fetched OHLCV frames (via
+  `app.data.day_trader_intraday`, for a **fully-intraday triple only** -- see below) and calls
+  `analyse_day_trader`, wired into both routers; swing mode's own behavior for every endpoint
+  is unchanged (verified via the existing, unmodified regression test suite continuing to pass
+  bar-for-bar). `AnalysisResponse.trading_mode`/`WatchlistResponse.trading_mode`
+  (`TradingModeOut`) echo the active mode on both responses. **Field-naming decision** (this
+  task's `decisions` entry): existing field names (`screens.tide.trend`,
+  `weekly_macd_histogram_slope`, etc.) are deliberately NOT renamed to generic long-term/
+  intermediate/short-term equivalents -- they're reinterpreted as "whichever timeframe
+  currently fills that role" while day-trader mode is active, since a rename would be a
+  breaking change to this app's only production frontend today for a still-incomplete feature
+  (no settings UI yet). `GET /api/stocks/{ticker}/analysis` raises `503` (reusing its existing
+  "market data provider unavailable" contract) rather than ever returning a partial/degraded
+  body when day-trader data isn't available; `GET /api/watchlist` nulls the affected item's
+  `signal`/`confidence`/`confidence_band` instead, matching its own pre-existing per-ticker
+  degrade-gracefully convention.
 
-- Any API-schema/frontend surface for the generically-computed signal
-  (`backend-day-trader-timeframe-mode-api`/`frontend-day-trader-timeframe-mode-settings`) --
-  `analyse_day_trader()` above has no caller yet; nothing resolves the active `TimeframeTriple`
-  into fetched OHLCV frames end to end through an actual HTTP route.
+**Not yet landed** (tracked as dependent follow-up tasks):
+
+- `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk`
+  (`backend-day-trader-timeframe-mode-api-followups`) -- deferred from
+  `backend-day-trader-timeframe-mode-api`'s own PR: `/indicators` needs `analyse_history()`'s
+  own day-trader-mode support (see below, itself not yet landed); `/portfolio`/`/portfolio/risk`
+  need the portfolio/risk-layer hard-coded weekly/daily split (next bullet) resolved first, and
+  `/portfolio`'s per-position day-trader-mode fetch would mean one IBKR round-trip per held
+  position per request -- a latency concern worth its own design pass rather than folding into
+  this already-large task. See that task's own `decisions` entry for the full scoping
+  rationale.
+- A day-trader triple with any non-`MINUTE`-unit leg (a mixed triple, e.g. `long_term="1d"`) --
+  `backend-day-trader-timeframe-mode-api`'s own `compute_day_trader_signal` only supports a
+  **fully-intraday** triple (every leg `MINUTE`-unit, ch. 39's own canonical day-trading
+  examples); a mixed triple degrades to the same "day-trader data unavailable" outcome as any
+  other unavailable case, since `app.data.day_trader_intraday` has no fetch path for a
+  `DAY`/`WEEK`-unit leg with an arbitrary (not literally daily/weekly) count, and building one
+  is a distinct, unscoped data-fetching design problem.
 - `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits`'s own hard-coded
   weekly/daily split (the 6% Rule/protective-stop's `_SWING_LOW_WINDOW_DAYS`, the weekly-chart
   profit-target channel, `evaluate_exit_flags`'s `tide_flipped_bearish` flag) -- explicitly out
   of scope for `backend-day-trader-timeframe-mode-signal-engine` (see its own `decisions`
   entry); these portfolio-level rules only ever run against swing-mode's own daily/weekly data
-  today regardless of which `TradingMode` is active.
+  today regardless of which `TradingMode` is active. `GET /api/stocks/{ticker}/analysis`'s own
+  `profit_target`/`support_resistance_zones`/`extended_data` fields are likewise unaffected by
+  trading mode for the same reason (`backend-day-trader-timeframe-mode-api`'s own decision).
 - `analyse_history()`'s own day-trader-mode support (a walk-forward historical replay over
   intraday bars, for a future day-trader-mode chart overlay) -- `_long_term_through_bar_date`'s
   new `DAY`/`MINUTE` branch is ready for this, but `app.data.day_trader_intraday`'s current
   shape only ever fetches "recent bars as of now" (a signal-computation snapshot), not a
   growing walk-forward history; that's a distinct IBKR historical-fetch design problem, not yet
   solved.
+- Frontend settings UI to view/switch the global trading mode and configure the day-trader
+  timeframe triple (`frontend-day-trader-timeframe-mode-settings`) -- until this lands, every
+  endpoint above is only reachable via `PUT /api/settings/trading-mode` directly (no UI control
+  exists yet to switch into day-trader mode in the first place).
 
 ## Testing Notes
 

@@ -173,6 +173,7 @@ function mockIndicators(response: IndicatorHistoryResponse) {
 const baseAnalysis: AnalysisResponse = {
   ticker: 'AAPL',
   as_of: '2026-09-02',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   signal: 'HOLD',
   confidence: 50,
   confidence_band: 'Medium',

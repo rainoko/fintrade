@@ -9,20 +9,25 @@ The `db_session` fixture lives in tests/integration/conftest.py; this module kee
 `client` fixture because it additionally needs the `get_data_provider` override below.
 """
 
+from datetime import UTC, datetime, timedelta
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.data.ibkr_provider import GatewayStatus, IBKRBar
 from app.db.models import PositionORM, WatchlistItemORM
 from app.db.session import get_db
 from app.main import app
+from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
+from app.trading_mode import set_trading_mode_setting
 
 
 def _hold_daily_ohlcv() -> pd.DataFrame:
@@ -152,7 +157,10 @@ class TestGetWatchlistEmpty:
         response = client.get("/api/watchlist")
 
         assert response.status_code == 200
-        assert response.json() == {"items": []}
+        assert response.json() == {
+            "items": [],
+            "trading_mode": {"mode": "swing", "day_trader_timeframe_triple": None},
+        }
 
 
 class TestAddWatchlistItem:
@@ -308,7 +316,10 @@ class TestDeleteWatchlistItem:
 
         client.delete("/api/watchlist/AAPL")
 
-        assert client.get("/api/watchlist").json() == {"items": []}
+        assert client.get("/api/watchlist").json() == {
+            "items": [],
+            "trading_mode": {"mode": "swing", "day_trader_timeframe_triple": None},
+        }
 
     def test_delete_ticker_is_normalized_to_uppercase(self, client: TestClient) -> None:
         client.post("/api/watchlist", json={"ticker": "AAPL"})
@@ -424,3 +435,219 @@ class TestGetWatchlistBreadth:
         assert body["bullish_pct"] == pytest.approx(33.3)
         assert body["bearish_pct"] == pytest.approx(33.3)
         assert body["neutral_pct"] == pytest.approx(33.3)
+
+
+def _ibkr_bars(
+    closes: list[float],
+    highs: list[float],
+    lows: list[float],
+    volumes: list[float],
+    *,
+    start: datetime,
+    step_minutes: int,
+) -> list[IBKRBar]:
+    return [
+        IBKRBar(
+            timestamp=start + timedelta(minutes=step_minutes * i),
+            open=close,
+            high=highs[i],
+            low=lows[i],
+            close=close,
+            volume=volumes[i],
+        )
+        for i, close in enumerate(closes)
+    ]
+
+
+def _day_trader_long_term_bars() -> list[IBKRBar]:
+    closes = [100 * (1.05**i) for i in range(40)]
+    highs = [c * 1.01 for c in closes]
+    lows = [c * 0.99 for c in closes]
+    volumes = [1_000_000.0] * 40
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60)
+
+
+def _day_trader_intermediate_bars() -> list[IBKRBar]:
+    closes = [100 + i * 0.5 for i in range(20)]
+    closes += [closes[-1] - 3 * i for i in range(1, 6)]
+    closes.append(closes[-1] + 8.0)
+    closes.append(closes[-1] - 1.0)
+    highs = [c + 0.3 for c in closes]
+    lows = [c - 0.3 for c in closes]
+    volumes = [1_000_000.0] * 25 + [9_000_000.0, 3_000_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
+
+
+def _day_trader_short_term_bars() -> list[IBKRBar]:
+    closes = [95.5, 99.5]
+    highs = [96.0, 100.0]
+    lows = [94.0, 98.5]
+    volumes = [500_000.0, 500_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2)
+
+
+_FULLY_INTRADAY_TRIPLE = TimeframeTriple(
+    long_term=TimeframeInterval.parse("60m"),
+    intermediate=TimeframeInterval.parse("10m"),
+    short_term=TimeframeInterval.parse("2m"),
+)
+
+
+class _StubIBKRProvider:
+    """Same convention as tests/integration/test_stocks_analysis.py's own `_StubIBKRProvider`
+    (itself matching tests/integration/test_ibkr_scanner.py's)."""
+
+    def __init__(
+        self,
+        *,
+        resolve_conid_result: int | None | Exception = 999,
+        get_hourly_bars_by_bar_size: dict[str, list[IBKRBar] | Exception] | None = None,
+        gateway_status: GatewayStatus | None = None,
+    ) -> None:
+        self._resolve_conid_result = resolve_conid_result
+        self._get_hourly_bars_by_bar_size = get_hourly_bars_by_bar_size or {}
+        self._gateway_status = gateway_status or GatewayStatus(state="available")
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if isinstance(self._resolve_conid_result, Exception):
+            raise self._resolve_conid_result
+        return self._resolve_conid_result
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        result = self._get_hourly_bars_by_bar_size[bar_size]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return self._gateway_status
+
+
+def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
+    return _StubIBKRProvider(
+        get_hourly_bars_by_bar_size={
+            "1h": _day_trader_long_term_bars(),
+            "10min": _day_trader_intermediate_bars(),
+            "2min": _day_trader_short_term_bars(),
+        }
+    )
+
+
+def _client_with_ibkr(
+    db_session: Session, provider: _StubProvider, ibkr_provider: object | None
+) -> TestClient:
+    test_client = _make_client(db_session, provider)
+    app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
+    return test_client
+
+
+class TestDayTraderMode:
+    """`GET /api/watchlist`/`GET /api/watchlist/breadth` while the global trading mode is
+    `day_trader` (`backend-day-trader-timeframe-mode-api`) -- exercises `_compute_signal`'s
+    `compute_day_trader_signal` branch end to end through both routes, via the shared
+    `app.api.day_trader_signal` orchestration `GET /api/stocks/{ticker}/analysis` also uses
+    (see tests/integration/test_stocks_analysis.py's own `TestDayTraderMode` for the
+    unavailable-data-case coverage; this class focuses on this router's own
+    null-signal-not-failed-request contract)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_ibkr_override(self):
+        yield
+        app.dependency_overrides.pop(get_ibkr_provider, None)
+
+    def test_watchlist_item_gets_a_real_day_trader_mode_signal(self, db_session: Session) -> None:
+        db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        test_client = _client_with_ibkr(
+            db_session, _StubProvider(), _all_legs_available_ibkr_provider()
+        )
+
+        response = test_client.get("/api/watchlist")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        item = body["items"][0]
+        assert item["ticker"] == "AAPL"
+        assert item["signal"] == "BUY"
+        assert 0 <= item["confidence"] <= 100
+
+    def test_watchlist_item_nulls_out_signal_when_ibkr_disabled(self, db_session: Session) -> None:
+        db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        test_client = _client_with_ibkr(db_session, _StubProvider(), ibkr_provider=None)
+
+        response = test_client.get("/api/watchlist")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        item = body["items"][0]
+        assert item["signal"] is None
+        assert item["confidence"] is None
+        assert item["confidence_band"] is None
+
+    def test_watchlist_item_nulls_out_signal_for_non_fully_intraday_triple(
+        self, db_session: Session
+    ) -> None:
+        mixed_triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1d"),
+            intermediate=TimeframeInterval.parse("30m"),
+            short_term=TimeframeInterval.parse("5m"),
+        )
+        db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=mixed_triple
+        )
+        db_session.commit()
+        test_client = _client_with_ibkr(
+            db_session, _StubProvider(), _all_legs_available_ibkr_provider()
+        )
+
+        response = test_client.get("/api/watchlist")
+
+        assert response.json()["items"][0]["signal"] is None
+
+    def test_breadth_counts_a_day_trader_mode_ticker_as_unavailable_when_ibkr_disabled(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        test_client = _client_with_ibkr(db_session, _StubProvider(), ibkr_provider=None)
+
+        response = test_client.get("/api/watchlist/breadth")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["tracked_ticker_count"] == 1
+        assert body["unavailable_count"] == 1
+        assert body["bullish_count"] == 0
+
+    def test_breadth_counts_a_day_trader_mode_ticker_as_bullish_when_available(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        test_client = _client_with_ibkr(
+            db_session, _StubProvider(), _all_legs_available_ibkr_provider()
+        )
+
+        response = test_client.get("/api/watchlist/breadth")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["tracked_ticker_count"] == 1
+        assert body["bullish_count"] == 1
+        assert body["unavailable_count"] == 0

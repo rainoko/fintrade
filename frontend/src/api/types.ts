@@ -738,6 +738,25 @@ export interface paths {
          *     clusters task's `decisions` entry for why this lives as its own top-level response field
          *     (a computed detection result, like `support_resistance_zones`/`divergence`/`kangaroo_tail`)
          *     rather than nested inside the raw `extended_data` object.
+         *
+         *     `trading_mode`/`signal`/`confidence`/`confidence_band`/`screens`/`indicators`/
+         *     `confidence_breakdown` (`backend-day-trader-timeframe-mode-api`): while the global trading
+         *     mode (`app.trading_mode.get_trading_mode_setting`) is `'swing'` (this app's default, and
+         *     every behavior before this task existed), these are computed exactly as described above --
+         *     `analyse(ticker, daily_ohlcv, weekly_ohlcv)`, unchanged bar-for-bar. While it's
+         *     `'day_trader'`, they're instead computed by `app.api.day_trader_signal
+         *     .compute_day_trader_signal` -- fetching the active `TimeframeTriple`'s three legs via IBKR
+         *     (`app.data.day_trader_intraday`) and running `app.signals.engine.analyse_day_trader` over
+         *     them -- and this handler raises `503` instead of returning a partial/degraded response if
+         *     that data isn't available right now (see this function's own `responses={}` 503 entry and
+         *     `compute_day_trader_signal`'s own docstring for every reason that can happen), rather than
+         *     ever returning `AnalysisResponse` with a `signal`/`confidence`/`screens`/`indicators` that
+         *     don't reflect real market data -- this endpoint's `signal`/`confidence`/etc. fields are
+         *     non-nullable specifically so a `200` always means a real, fully-computed result, in either
+         *     mode. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters`/`as_of`
+         *     are unaffected either way -- always derived from `daily_ohlcv`/`weekly_ohlcv` regardless of
+         *     trading mode, per this task's own decision to defer the portfolio/profit-target layer's
+         *     hard-coded weekly/daily split to a follow-up (docs/architecture/Backend.md §10).
          */
         get: operations["get_stock_analysis"];
         put?: never;
@@ -841,18 +860,22 @@ export interface paths {
          * List every watched ticker with its current signal
          * @description Every ticker on the watchlist, each annotated with its current BUY/SELL/HOLD signal
          *     and confidence by re-running the same Triple Screen signal engine
-         *     `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`,
+         *     `GET /api/stocks/{ticker}/analysis` uses (`app.signals.engine.analyse`/`analyse_day_trader`,
          *     docs/Analyse.md §5) -- so "does the watchlist signal a buy" always agrees with what a
          *     direct lookup of that ticker's analysis page would say, with no second implementation of
-         *     the buy check to drift out of sync.
+         *     the buy check to drift out of sync. `trading_mode` echoes the global trading mode active
+         *     for this whole response (`backend-day-trader-timeframe-mode-api`) -- every item's
+         *     `signal`/`confidence`/`confidence_band` reflect that same mode, resolved once per request
+         *     (not once per ticker) so every item in the list is evaluated against the same mode even if
+         *     the global setting were changed by a concurrent request mid-list.
          *
          *     `signal`/`confidence`/`confidence_band` are null together on an entry whose signal
-         *     couldn't be computed right now (unknown/delisted ticker, insufficient history, or the
-         *     data provider being unavailable) -- this endpoint never fails or drops an entry just
-         *     because one watched ticker's data is temporarily/permanently unavailable; see this
-         *     task's `decisions` entry. Ordered by `added_at` (oldest first), then `ticker` as a
-         *     tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s deterministic
-         *     ordering convention (`app.api.routers.portfolio._ordered_positions`).
+         *     couldn't be computed right now -- see `WatchlistItemOut.signal`'s own field description
+         *     for every reason that can happen in either trading mode -- this endpoint never fails or
+         *     drops an entry just because one watched ticker's data is temporarily/permanently
+         *     unavailable; see this task's `decisions` entry. Ordered by `added_at` (oldest first), then
+         *     `ticker` as a tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s
+         *     deterministic ordering convention (`app.api.routers.portfolio._ordered_positions`).
          */
         get: operations["get_watchlist"];
         put?: never;
@@ -914,6 +937,12 @@ export interface paths {
          *     null-signal-on-failure convention. An empty watchlist+portfolio (or one where every
          *     tracked ticker is currently unavailable) returns all-zero counts and 0.0 percentages,
          *     not an error.
+         *
+         *     Also reflects the active global trading mode (`backend-day-trader-timeframe-mode-api`),
+         *     resolved once per request via the same `_tide_trend`/`_compute_signal` helpers
+         *     `GET /api/watchlist` uses -- a tracked ticker whose day-trader-mode data isn't available
+         *     right now (see `WatchlistItemOut.signal`'s field description) is counted in
+         *     `unavailable_count` here too, the same as any other unavailable-signal reason.
          */
         get: operations["get_watchlist_breadth"];
         put?: never;
@@ -1017,6 +1046,8 @@ export interface components {
             support_resistance_zones: components["schemas"]["SupportResistanceZone"][];
             /** Ticker */
             ticker: string;
+            /** @description The global trading mode active when this response was computed (docs/tasks/backend-day-trader-timeframe-mode-api.json). `signal`/`confidence`/`screens`/`indicators` below always reflect whichever mode this is: while 'swing' (this app's default and, until now, only mode), `screens.tide` is Screen 1 over weekly data, `screens.wave`/`indicators`/the Impulse gate are over daily data, and `screens.trigger` is the documented daily-bar EOD approximation of Screen 3, exactly as before this field existed; while 'day_trader', those same fields are recomputed generically over the active `trading_mode.day_trader_timeframe_triple`'s long-term/intermediate/short-term legs instead (`app.signals.engine.analyse_day_trader`) -- see this task's `decisions` entry for why the field *names* themselves (e.g. `weekly_macd_histogram_slope`) are deliberately NOT renamed to generic long-term/intermediate/short-term equivalents even in that case. `support_resistance_zones`/`profit_target`/`extended_data`/`insider_clusters` below are unaffected by this field either way -- they're always computed from the ticker's ordinary daily/weekly chart data, per this task's own decision to defer the portfolio/profit-target layer's hard-coded weekly/daily split to a follow-up task (docs/architecture/Backend.md §10). */
+            trading_mode: components["schemas"]["TradingModeOut"];
         };
         /** BreadthResponse */
         BreadthResponse: {
@@ -2403,7 +2434,7 @@ export interface components {
             day_trader_timeframe_triple?: components["schemas"]["TimeframeTripleIn"] | null;
             /**
              * Mode
-             * @description The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json) -- 'swing' (this app's long-standing weekly/daily/daily-Trigger-approximation behavior, unchanged) or 'day_trader' (the user-configured `day_trader_timeframe_triple`, once a future task wires it into actual signal computation -- see this endpoint's own docstring for today's scope).
+             * @description The global, app-wide active trading mode (docs/tasks/backend-day-trader-timeframe-mode.json) -- 'swing' (this app's long-standing weekly/daily/daily-Trigger-approximation behavior, unchanged) or 'day_trader' (the user-configured `day_trader_timeframe_triple`; wired into actual signal computation for GET /api/stocks/{ticker}/analysis and GET /api/watchlist by backend-day-trader-timeframe-mode-api -- see AnalysisResponse.trading_mode/WatchlistResponse.trading_mode and this endpoint's own docstring for what still isn't wired up yet).
              * @enum {string}
              */
             mode: "swing" | "day_trader";
@@ -2496,7 +2527,7 @@ export interface components {
             confidence_band?: ("Low" | "Medium" | "High") | null;
             /**
              * Signal
-             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis uses (docs/Analyse.md §5) -- not a separately-implemented buy check. Null only if the signal couldn't be computed for this ticker right now (unknown/delisted ticker, insufficient history, or the data provider being unavailable), mirroring PositionOut's current_price null-on-failure pattern -- see the api-watchlist task's `decisions`.
+             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis uses (docs/Analyse.md §5) -- not a separately-implemented buy check; reflects whichever `WatchlistResponse.trading_mode` is currently active (docs/tasks/backend-day-trader-timeframe-mode-api.json), same as AnalysisResponse.signal. Null if the signal couldn't be computed for this ticker right now -- while 'swing', an unknown/delisted ticker, insufficient history, or the data provider being unavailable (mirroring PositionOut's current_price null-on-failure pattern -- see the api-watchlist task's `decisions`); while 'day_trader', those same reasons plus the IBKR gateway being disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active day-trader timeframe triple not being fully intraday (see AnalysisResponse.trading_mode and backend-day-trader-timeframe-mode-api's `decisions` entry) -- this endpoint never fails the whole list over one ticker's signal being unavailable, in either mode.
              */
             signal?: ("BUY" | "SELL" | "HOLD") | null;
             /** Ticker */
@@ -2509,6 +2540,8 @@ export interface components {
              * @description Every watched ticker, ordered by when it was added (oldest first).
              */
             items: components["schemas"]["WatchlistItemOut"][];
+            /** @description The global trading mode active when this response was computed -- same field/semantics as AnalysisResponse.trading_mode, but reported once here (not per-item) since it's one global setting shared by every item in `items`. */
+            trading_mode: components["schemas"]["TradingModeOut"];
         };
         /** WaveScreen */
         WaveScreen: {
@@ -3179,7 +3212,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description Market data provider unavailable */
+            /** @description Market data provider unavailable -- either the ordinary yfinance/Stooq daily/weekly fetch failed, or (day-trader mode only, see AnalysisResponse.trading_mode) the active day-trader timeframe triple's IBKR intraday data couldn't be fetched right now (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active triple having a non-intraday leg -- see backend-day-trader-timeframe-mode-api's `decisions` entry). */
             503: {
                 headers: {
                     [name: string]: unknown;
