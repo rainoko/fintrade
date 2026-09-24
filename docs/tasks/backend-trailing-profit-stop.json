@@ -3,7 +3,7 @@
   "title": "Trailing/profit-protecting stop ('Don't Let a Winning Trade Turn into a Loss', ch. 54)",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [],
   "references": [
     "backend/app/portfolio/risk.py",
@@ -68,7 +68,7 @@
     "branch": "task/backend-trailing-profit-stop",
     "pr_number": 240,
     "pr_url": "https://github.com/rainoko/fintrade/pull/240",
-    "pushed_at": "2026-09-21T23:21:41Z"
+    "pushed_at": "2026-09-24T06:40:12Z"
   },
   "review": {
     "reviewed_at": "2026-09-21T23:36:11Z",
