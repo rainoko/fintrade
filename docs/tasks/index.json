@@ -1895,8 +1895,8 @@
       "id": "backend-day-trader-timeframe-mode-signal-engine",
       "area": "backend/signals",
       "skill": "verify-elder-signal",
-      "state": "done",
-      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine.json"
+      "state": "implementing",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-signal-engine-followups",
