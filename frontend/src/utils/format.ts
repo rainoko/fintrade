@@ -158,3 +158,35 @@ export function formatDate(value: string): string {
     timeZone: 'UTC',
   })
 }
+
+/**
+ * Formats `a - b` with an explicit leading '+' for a positive result (e.g.
+ * `120` -> `"+120"`, `-40` stays `"-40"` since `String()` already supplies
+ * that sign), rendering the given `fallback` string instead when either
+ * input is `null`/`undefined`. Added (frontend-market-breadth-widget-
+ * followups.json) to consolidate what were two independent copies of this
+ * exact computation: `features/ibkr/components/MarketBreadthCard.tsx`'s
+ * local `formatSpread` (rendering the shared '—' no-value placeholder
+ * `formatNullableNumber` above also uses, for a `StatCard` value) and
+ * `features/ibkr/components/marketBreadthHelp.ts`'s separate `formatSpread`
+ * (rendering the prose fallback `"not enough history yet"` for a sentence in
+ * the help balloon's `valueInterpretation` text, where a bare '—' would read
+ * oddly embedded mid-sentence). The `fallback` parameter is deliberately
+ * kept as a required caller-supplied string rather than baked in as '—' —
+ * unlike `formatNullableNumber`/`formatNullableCurrency` above, whose single
+ * call sites all want the same placeholder — because this helper's two real
+ * call sites need genuinely different fallback text for their different
+ * display contexts (a compact stat value vs. a full sentence); see this
+ * task's `decisions` entry for the full reasoning.
+ */
+export function formatSignedSpread(
+  a: number | null | undefined,
+  b: number | null | undefined,
+  fallback: string,
+): string {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return fallback
+  }
+  const diff = a - b
+  return diff > 0 ? `+${diff}` : String(diff)
+}

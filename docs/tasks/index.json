@@ -1916,8 +1916,15 @@
       "id": "frontend-market-breadth-widget-followups",
       "area": "frontend/pages/watchlist",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget-followups.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget-followups-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-market-breadth-widget-followups.json"
+      "path": "docs/tasks/frontend-market-breadth-widget-followups-followups.json"
     },
     {
       "id": "backend-ibkr-symbol-resolution-followups",

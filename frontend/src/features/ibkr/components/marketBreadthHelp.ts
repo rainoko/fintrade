@@ -1,5 +1,5 @@
 import type { MarketBreadthData } from '../hooks/useMarketBreadth'
-import { formatNullableNumber } from '../../../utils/format'
+import { formatNullableNumber, formatSignedSpread } from '../../../utils/format'
 
 /**
  * `common/MetricHelp` content for `MarketBreadthCard` (Elder ch. 34-36's
@@ -28,14 +28,6 @@ export interface MarketBreadthHelpContent {
   valueInterpretation: string | null
 }
 
-function formatSpread(advance: number | null, decline: number | null): string {
-  if (advance === null || decline === null) {
-    return 'not enough history yet'
-  }
-  const spread = advance - decline
-  return spread > 0 ? `+${spread}` : String(spread)
-}
-
 export function marketBreadthHelp(data: MarketBreadthData | null): MarketBreadthHelpContent {
   const definition =
     "A same-day count of IBKR-scanner \"Top % Gainers\" vs. \"Top % Losers\" matches, used as a crude proxy for Elder's Advance/Decline line, plus 5-day/20-day rolling sums of that count."
@@ -49,8 +41,8 @@ export function marketBreadthHelp(data: MarketBreadthData | null): MarketBreadth
   const { advance, decline } = data
   const valueInterpretation =
     `Today: ${formatNullableNumber(advance.count)} top-gainer matches vs. ${formatNullableNumber(decline.count)} top-loser matches. ` +
-    `5-day spread: ${formatSpread(advance.rolling_5d ?? null, decline.rolling_5d ?? null)}. ` +
-    `20-day spread: ${formatSpread(advance.rolling_20d ?? null, decline.rolling_20d ?? null)}.`
+    `5-day spread: ${formatSignedSpread(advance.rolling_5d, decline.rolling_5d, 'not enough history yet')}. ` +
+    `20-day spread: ${formatSignedSpread(advance.rolling_20d, decline.rolling_20d, 'not enough history yet')}.`
 
   return {
     metricLabel: 'Market Breadth (IBKR Scanner)',

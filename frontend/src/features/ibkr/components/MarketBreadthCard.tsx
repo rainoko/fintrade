@@ -8,7 +8,7 @@ import IbkrStatusBadge, {
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import StatCard from '../../../components/common/StatCard/StatCard'
-import { formatNullableNumber } from '../../../utils/format'
+import { formatNullableNumber, formatSignedSpread } from '../../../utils/format'
 import { useMarketBreadth, type MarketBreadthData } from '../hooks/useMarketBreadth'
 import { marketBreadthHelp } from './marketBreadthHelp'
 
@@ -27,14 +27,6 @@ function resolveUnavailableState(data: MarketBreadthData): IbkrGatewayState | nu
     return data.decline.state
   }
   return null
-}
-
-function formatSpread(advance: number | null | undefined, decline: number | null | undefined): string {
-  if (advance === null || advance === undefined || decline === null || decline === undefined) {
-    return '—'
-  }
-  const spread = advance - decline
-  return spread > 0 ? `+${spread}` : String(spread)
 }
 
 /**
@@ -127,11 +119,11 @@ export default function MarketBreadthCard() {
             <StatCard label="Top % Losers (today)" value={formatNullableNumber(data.decline.count)} />
             <StatCard
               label="Spread (5d)"
-              value={formatSpread(data.advance.rolling_5d, data.decline.rolling_5d)}
+              value={formatSignedSpread(data.advance.rolling_5d, data.decline.rolling_5d, '—')}
             />
             <StatCard
               label="Spread (20d)"
-              value={formatSpread(data.advance.rolling_20d, data.decline.rolling_20d)}
+              value={formatSignedSpread(data.advance.rolling_20d, data.decline.rolling_20d, '—')}
             />
           </Stack>
           {caption && (
