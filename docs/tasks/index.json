@@ -1811,8 +1811,15 @@
       "id": "frontend-market-scanner-page",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-scanner-page.json"
+    },
+    {
+      "id": "frontend-market-scanner-page-followups",
+      "area": "frontend/pages",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-market-scanner-page.json"
+      "path": "docs/tasks/frontend-market-scanner-page-followups.json"
     },
     {
       "id": "backend-market-breadth-indicators",

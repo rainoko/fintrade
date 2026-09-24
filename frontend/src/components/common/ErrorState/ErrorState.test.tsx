@@ -31,6 +31,25 @@ describe('ErrorState', () => {
     expect(screen.getByText('Market data provider unavailable')).toBeInTheDocument()
   })
 
+  it('renders a distinct message plus the retry delay for a 429 rate-limited error', () => {
+    render(
+      <ErrorState
+        error={new ApiError(429, 'Scanner run rate limit exceeded.', 1)}
+      />,
+    )
+
+    expect(screen.getByText('Too many requests')).toBeInTheDocument()
+    expect(screen.getByText('Scanner run rate limit exceeded.')).toBeInTheDocument()
+    expect(screen.getByText('Try again in 1s.')).toBeInTheDocument()
+  })
+
+  it('renders a 429 error with no retry-delay line when retryAfterSeconds is null', () => {
+    render(<ErrorState error={new ApiError(429, 'Scanner run rate limit exceeded.')} />)
+
+    expect(screen.getByText('Too many requests')).toBeInTheDocument()
+    expect(screen.queryByText(/Try again in/)).not.toBeInTheDocument()
+  })
+
   it('renders a distinct message for a network failure (status 0)', () => {
     render(
       <ErrorState
