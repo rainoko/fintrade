@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from PR #229 review (backend-trade-journal-followup-review-followups-followups-followups)",
   "area": "backend/db",
   "skill": null,
-  "state": "waiting_input",
+  "state": "done",
   "depends_on": ["backend-trade-journal-followup-review-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-trade-journal-followup-review-followups-followups-followups.json",
@@ -14,7 +14,7 @@
   "checklist": [
     {
       "step": "PR #229's task-worker amended CLAUDE.md itself (a governance/process document, not application code) unilaterally, via the task's own ordinary task-worker -> pr-reviewer -> pr-decision -> pr-merger pipeline, with no distinct human sign-off gate for governance-document changes specifically. This particular instance was low-risk and appropriate (the parent task's checklist item explicitly asked for this convention to be decided and documented, and the repo has an established, long-running precedent of CLAUDE.md evolving through exactly this same automated pipeline -- see e.g. commits #5, #8, #15, #24, #59, #60, #93, #95, #105, #113 in `git log -- CLAUDE.md`), so this is not a blocking objection to PR #229 itself. But the general question -- whether a change to the project's own governing rulebook (as opposed to ordinary application code or task-board bookkeeping) should require an explicit human touchpoint before merging, rather than being fully agent-authored/agent-reviewed/agent-merged end to end -- has never been explicitly decided and documented anywhere in CLAUDE.md or the agent docs. Worth an explicit decision (e.g. a CLAUDE.md meta-note on whether CLAUDE.md/`.claude/` changes need a human review step, or an explicit statement that the existing pipeline is intentionally sufficient) so the next occurrence doesn't have to re-litigate this from scratch, the same rationale that motivated PR #229's own convention bullet.",
-      "done": false
+      "done": true
     }
   ],
   "questions": [
@@ -23,6 +23,14 @@
       "raised_by": "orchestrate-tasks",
       "question": "Should a change to CLAUDE.md or .claude/ (the project's governing rulebook for this autonomous pipeline) require an explicit human touchpoint before merging, separate from the ordinary task-worker -> pr-reviewer -> pr-decision -> pr-merger flow that ordinary code/task-board changes go through end to end without a human in the loop? Or is the existing pipeline (two independent agent passes, since GitHub blocks self-approval and main requires 0 native reviews anyway) intentionally sufficient for governance-document changes too, same as everything else?",
       "context": "This is a question about the pipeline's own trust model over the document that defines the pipeline itself -- asking a worker to decide it would be circular (the same pipeline whose authority is in question would be the one settling how much authority it has). PR #229 already made one such edit (adding a house convention bullet) through the ordinary pipeline, and pr-reviewer/pr-decision both judged that specific instance low-risk and let it through, matching a decade of prior CLAUDE.md history evolving the same way -- so this isn't reporting a problem with what already happened, just asking whether to make the policy explicit going forward, and if so what it should say."
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T14:27:12Z",
+      "recorded_by": "manual",
+      "decision": "A PR touching CLAUDE.md or anything under .claude/ requires an explicit human merge going forward -- task-worker/pr-reviewer/pr-decision may still author and review such a PR through the ordinary pipeline, but pr-merger must not run `gh pr merge` on it. Documented as a new bullet in CLAUDE.md's Autonomous pipeline section, and pr-merger.md updated to check `gh pr diff --name-only` before merging and refuse (reporting the PR as ready, not as a failure) if either path appears.",
+      "rationale": "The user was asked directly whether the existing two-independent-agent-pass pipeline is sufficient for governance-document changes (the same trust model as ordinary code) or whether this specific class of change -- edits to the document that defines the pipeline's own authority -- needed a stricter, human-in-the-loop gate. Chose the stricter rule: letting the pipeline merge changes to its own governing rules with no human touchpoint is the one case where two agent passes reviewing each other isn't a sufficient check, since both passes still operate under whatever authority the document currently grants them. This doesn't retroactively object to PR #229 (correctly judged low-risk at the time, consistent with a decade of prior history) -- it's a new rule for future changes, and the PR implementing this very rule is itself being merged by the user directly, not by pr-merger, as the first real-world application of it."
     }
   ]
 }
