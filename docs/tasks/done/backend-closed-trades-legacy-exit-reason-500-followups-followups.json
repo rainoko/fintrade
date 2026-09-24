@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #282's review (aggregate drop log + exit_reason warning de-dup)",
   "area": "backend/api",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-closed-trades-legacy-exit-reason-500-followups"],
   "references": [
     "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups.json",
@@ -40,5 +40,28 @@
     "pr_number": 291,
     "pr_url": "https://github.com/rainoko/fintrade/pull/291",
     "pushed_at": "2026-09-24T02:05:52Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T02:09:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/291",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed the diff is comment-only: every added line in backend/app/api/routers/portfolio.py is a `#` comment (git diff filtered for added/removed non-comment lines shows zero), matching the PR description exactly. Both new comments were checked against the actual code they describe and are accurate: the concurrency claim (get_closed_trades is a sync `def` route run in FastAPI/Starlette's thread-pool executor, so the check-then-act on `_warned_exit_reason_values` can race) and the write-path enum-validation claim (`exit_reason: ExitReason = Query(...)` at line 547) both hold.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 226
+      },
+      {
+        "summary": "Full backend suite: 1203 passed, 100% line/branch coverage (well above the 90% gate). ruff/mypy clean on the changed file and repo-wide; frontend eslint/tsc clean (untouched by this PR, re-verified anyway); scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. A dedicated code-review skill pass (medium effort) found zero findings. No API route/schema change, so backend/openapi.json regeneration is correctly not needed (confirmed no diff would result). Both checklist items are addressed with corresponding `decisions` entries recording the judgment calls (why a lock/cap wasn't added), per CLAUDE.md's decision-memory rule. No UI surface -- backend comment-only change -- so the browser walkthrough and e2e suite steps are correctly skipped.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 0
+      },
+      {
+        "summary": "Minor, non-blocking: the two new `decisions` entries use suspiciously round timestamps (2026-09-24T00:00:00Z and T00:00:01Z, exactly one second apart) rather than what looks like a genuinely captured wall-clock time. Doesn't affect the substance of either decision. Tracked as a follow-up task rather than left only in this PR comment.",
+        "file": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups.json",
+        "line": 26
+      }
+    ],
+    "notes": "Low-risk, comment/documentation-only change verified with a full review pass: independent re-run of backend tests+coverage (1203 passed, 100% coverage), static-verify (backend ruff+mypy, frontend eslint+tsc, profit-target wording guard), validate_tasks.py, and a code-review skill pass, plus manual diff inspection confirming no logic changed and that both new comments' factual claims about the code are accurate. One non-blocking finding (round decision timestamps) filed as docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json."
   }
 }
