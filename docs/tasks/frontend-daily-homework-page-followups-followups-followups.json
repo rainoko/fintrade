@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #273's round-2 review (DailyHomeworkForm suggestion-gate fix)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "frontend-daily-homework-page-followups-followups"
   ],
@@ -45,5 +45,11 @@
       "decision": "Reviewed checklist item 3 (the `todayQuery.isSuccess`-gating tradeoff, sequencing `/today` and the suggestion request for every cold load with no existing entry) and confirmed no code change is warranted here -- this is purely a documentation/tracking item, not a new finding. The tradeoff was already deliberately accepted and fully rationalized in `frontend-daily-homework-page-followups-followups`'s own second `decisions` entry (the `enabled: todayQuery.isSuccess && !existingEntry` gate change), and re-litigating it, or speculatively starting the backend-suggestion-composition work the checklist item itself flags as a possible future direction, is explicitly out of this task's scope per its own checklist wording ('tracked here as a design point worth reconsidering later'). Re-confirmed the tradeoff is still accurate against the current code: `DailyHomeworkForm.tsx`'s `suggestionQuery` is still gated on `enabled: todayQuery.isSuccess && !existingEntry`, unchanged by this task's other two fixes.",
       "rationale": "Marking this checklist item done with this confirming entry (rather than leaving it open indefinitely, or doing speculative backend work) matches CLAUDE.md's guidance that a documentation-only tracking item already resolved as an accepted tradeoff via a prior `decisions` entry should be closed with a fresh confirming entry, not re-litigated or expanded into new scope. No backend or `HomeworkQuestionsForm`-initializer change was made as part of this task."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-page-followups-followups-followups",
+    "pr_number": 288,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/288",
+    "pushed_at": "2026-09-24T00:26:43Z"
+  }
 }
