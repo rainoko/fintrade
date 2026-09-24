@@ -90,5 +90,11 @@
       "question": "Should this be a global app-wide setting (the whole app switches mode) or a per-analysis-request parameter (a ticker can be viewed in either mode)?",
       "context": "This changes the shape of the API contract change significantly -- a global setting is a much smaller, less breaking change than a per-request parameter threaded through every signal/analysis endpoint. ANSWERED (2026-09-24T15:13:24Z, by the user directly): global app-wide setting -- see the decisions entry above."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode",
+    "pr_number": 309,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/309",
+    "pushed_at": "2026-09-24T16:55:22Z"
+  }
 }
