@@ -2042,7 +2042,7 @@
       "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json"
     }
   ]

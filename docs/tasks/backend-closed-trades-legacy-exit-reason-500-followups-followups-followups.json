@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #291's review (round decisions timestamps)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-closed-trades-legacy-exit-reason-500-followups-followups"],
   "references": [
     "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups.json",
@@ -14,7 +14,21 @@
   "checklist": [
     {
       "step": "The two new `decisions` entries recorded by task-worker on `backend-closed-trades-legacy-exit-reason-500-followups-followups.json` use suspiciously round timestamps -- `2026-09-24T00:00:00Z` and `2026-09-24T00:00:01Z` (exactly on the second, one second apart) -- rather than what looks like a genuinely captured wall-clock time (e.g. the output of `date -u +%Y-%m-%dT%H:%M:%SZ` at the moment each entry was written, as CLAUDE.md's decision-memory guidance and the pr-reviewer verdict-timestamping rule both expect). This doesn't affect the substance of either decision (both are well-reasoned and accurately describe the accepted code comments), and it's not currently checked by `scripts/validate_tasks.py` or any other automated gate, but a fabricated-looking timestamp undermines the value of the timestamp as a genuine record of when a judgment call was actually made -- worth a reminder (in `task-worker`'s own instructions, or a `validate_tasks.py` sanity check for implausibly round `decisions`/`review`/`test` timestamps) that decision-entry timestamps should reflect real capture time, not a placeholder.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T05:02:10Z",
+      "recorded_by": "task-worker",
+      "decision": "Added an explicit timestamp-capture reminder to `.claude/agents/task-worker.md` step 5 (where `decisions` entries get written): any timestamp written into a task JSON -- `decisions[].timestamp` explicitly called out, `git.pushed_at` also named since task-worker writes that field too -- must come from running `date -u +%Y-%m-%dT%H:%M:%SZ` in a Bash call immediately before writing it, used verbatim, never estimated or rounded. Did not add an equivalent edit to `.claude/agents/pr-reviewer.md` or `.claude/agents/pr-decision.md`: both already carry this exact instruction for the timestamp fields they actually write (`review.reviewed_at` and `pr_decision.confirmed_at` respectively, each with its own explicit 'always get the real current time by running `date -u ...`' sentence), and neither agent's documented workflow has it writing a `decisions` entry of its own -- `pr-reviewer` records findings in `review.comments`/follow-up-task checklists, `pr-decision` in `pr_decision`/an overriding `review.comments` entry, never `decisions`. Editing those two files for a gap that doesn't exist in them would be a no-op edit that adds review noise without fixing anything.",
+      "rationale": "The round timestamps this task tracks (2026-09-24T00:00:00Z / T00:00:01Z on PR #291) were written by task-worker under the pre-existing instructions, which told it to append a `decisions` entry but never told it how to timestamp one -- unlike pr-reviewer/pr-decision, whose files already had the 'real date -u capture, never estimate' rule for their own timestamp fields at the time PR #291 was worked. Fixing the actual gap (task-worker's missing instruction) is the targeted, minimal-diff fix; duplicating an already-present instruction into the other two files would not change their behavior and risks looking like the fix was applied without checking whether it was actually needed there."
+    },
+    {
+      "timestamp": "2026-09-24T05:02:22Z",
+      "recorded_by": "task-worker",
+      "decision": "Decided not to add a `scripts/validate_tasks.py` sanity check for implausibly round `decisions`/`review`/`test`/`pr_decision` timestamps (exact `:00:00Z`, or sequential entries exactly N seconds apart). Checked how common an exact `T00:00:00Z` timestamp already is across the real board: `grep -rhoE '\"timestamp\": *\"[^\"]+\"' docs/tasks/*.json docs/tasks/done/*.json | sort | uniq -c | sort -rn` shows dozens of distinct dates each with 20-50+ entries sharing the exact same `T00:00:00Z` stamp (e.g. 50 entries at `2026-09-20T00:00:00Z`, 48 at `2026-09-19T00:00:00Z`, 47 at `2026-09-22T00:00:00Z`) out of 748 total timestamped entries on the board -- i.e. this exact-midnight pattern has been the de facto norm across most of the board's history, not a one-off. A validator check that flags it -- even framed as a soft, non-blocking, informational-only warning that doesn't affect the exit code -- would fire on a large fraction of every existing done task on every run, producing overwhelming noise with no way to distinguish a genuinely-fabricated recent timestamp from years of pre-existing entries that already used this style (whether those were themselves genuinely captured at midnight UTC by coincidence, or written before this convention existed, is unknowable after the fact and not this task's place to adjudicate retroactively). A per-task consecutive-seconds-apart check would have the same problem in miniature and is also a plausible outcome for entries genuinely written back-to-back in the same session. The false-positive risk clearly outweighs the value for a check with no automated way to confirm ground truth either way.",
+      "rationale": "The task's own checklist step frames the validator check as optional ('consider ... if you add this, make sure it doesn't produce false positives ... or skip it if you judge the false-positive risk too high -- document your reasoning either way'). The empirical grep above is the concrete evidence for that judgment: this isn't a hypothetical edge case, it's already the majority pattern on the board, so a check aimed at catching a rare recent lapse would instead relitigate the entire task-board history every time `validate_tasks.py` runs. The forward-looking fix (task-worker's own instructions, addressed in the prior decision entry) is the one with a real chance of preventing recurrence without this cost; a validator check's marginal benefit over that doesn't justify the noise."
     }
   ]
 }
