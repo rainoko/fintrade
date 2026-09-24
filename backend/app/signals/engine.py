@@ -126,15 +126,21 @@ def drop_malformed_daily_bars(
     left for the caller's own column check, same as above); every earlier bar still needs full
     OHLC validity exactly as when this parameter is ``True``. Pass ``False`` only from a caller
     whose downstream computation never reads the latest bar's own open/high/low at all --
-    currently just ``app.api.routers.portfolio.get_risk``'s exit-flag pipeline (``app.portfolio
-    .exits.evaluate_exit_flags`` and everything it calls -- ``protective_stop``, ``autoenvelope``,
+    ``app.api.routers.portfolio.get_risk``'s exit-flag pipeline (``app.portfolio.exits
+    .evaluate_exit_flags`` and everything it calls -- ``protective_stop``, ``autoenvelope``,
     ``evaluate_impulse`` -- read the latest bar's ``close`` only; the *older* bars' ``low`` still
-    feeds ``protective_stop``'s swing-low window, which is why they still need full validity).
-    Using the default (``True``) there would silently desync ``position.current_price``
-    (``app.portfolio.pricing.latest_close``, which only ever checks the latest bar's ``close``
-    for NaN) from ``daily_ohlcv``'s own last row once filtered -- a real stop-hit could then be
-    missed by testing a stale prior close instead of today's -- see the
-    api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
+    feeds ``protective_stop``'s swing-low window, which is why they still need full validity),
+    and, for the identical reason, ``add_position``'s same-ticker-merge branch before it calls
+    ``app.portfolio.risk.trailing_stop_floor_before_merge`` (``ratchet_trailing_profit_stop``
+    only ever reads each row's ``close``; ``protective_stop`` there is called on
+    ``daily_ohlcv.iloc[:-1]``, i.e. never sees the latest bar at all -- see PR #240's round-3
+    review finding for why an unfiltered latest-bar-only exclusion isn't enough on its own: the
+    older-bar full-OHLC filtering this same call still does is what actually matters for that
+    persisted-floor computation). Using the default (``True``) there would silently desync
+    ``position.current_price`` (``app.portfolio.pricing.latest_close``, which only ever checks
+    the latest bar's ``close`` for NaN) from ``daily_ohlcv``'s own last row once filtered -- a
+    real stop-hit could then be missed by testing a stale prior close instead of today's -- see
+    the api-stocks-analysis-nullable-indicators-followups task's `decisions` entry for the full
     reasoning and the regression this reconciles.
     """
     required_columns = ["open", "high", "low", "close"]

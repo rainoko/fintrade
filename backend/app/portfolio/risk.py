@@ -393,17 +393,25 @@ def trailing_stop_floor_before_merge(
     pre-trigger pass-through value a real `GET /api/portfolio/risk` call would have used for
     this position at this exact moment, folded against `persisted_high_water_mark` the same way.
 
-    `daily_ohlcv` is this ticker's latest available daily history (full, unfiltered is fine --
-    the same shape `app.data.base.DataProvider.get_daily_ohlcv` returns everywhere else in this
-    app), most recent row last. Returns `None` (meaning: leave `persisted_high_water_mark`
-    exactly as it was) when `daily_ohlcv` is `None` (the caller's own price fetch already
-    failed) or has fewer than 2 rows, or when `protective_stop`/`ratchet_trailing_profit_stop`
-    raise `ValueError` for it (a malformed/incomplete frame) -- a data-provider hiccup at merge
-    time must never block adding a position, and an un-advanced floor is still safe (it can only
-    ever be too conservative, never so low it lets the ratchet actually decrease later), just
-    possibly stale until a later merge succeeds in advancing it. Otherwise always returns a
-    value `>= persisted_high_water_mark` (whichever is higher), since
-    `ratchet_trailing_profit_stop` itself guarantees that.
+    `daily_ohlcv` is this ticker's latest available daily history, most recent row last, and
+    -- like every other daily-OHLCV consumer in `app.api.routers.portfolio` (`get_portfolio`,
+    `get_risk`) -- must already be filtered through `app.signals.engine
+    .drop_malformed_daily_bars` (with `require_full_ohlc_on_latest_bar=False`, since the most
+    recent bar here can legitimately be today's still-settling one) by the caller before it
+    reaches this function; this function itself doesn't filter, matching `protective_stop`'s own
+    "caller's responsibility" convention. This matters specifically because
+    `persisted_high_water_mark` is a permanent MAX-floor: a single malformed bar (NaN
+    open/high/low, a garbage/partial close) fed in unfiltered could lock in an arbitrarily wrong
+    value that no future correct computation could ever bring back down -- see the PR #240
+    round-3 review finding this docstring update accompanies. Returns `None` (meaning: leave
+    `persisted_high_water_mark` exactly as it was) when `daily_ohlcv` is `None` (the caller's own
+    price fetch already failed) or has fewer than 2 rows, or when
+    `protective_stop`/`ratchet_trailing_profit_stop` raise `ValueError` for it (a malformed/
+    incomplete frame) -- a data-provider hiccup at merge time must never block adding a
+    position, and an un-advanced floor is still safe (it can only ever be too conservative,
+    never so low it lets the ratchet actually decrease later), just possibly stale until a later
+    merge succeeds in advancing it. Otherwise always returns a value `>= persisted_high_water_mark`
+    (whichever is higher), since `ratchet_trailing_profit_stop` itself guarantees that.
     """
     if daily_ohlcv is None or len(daily_ohlcv) < 2:
         return None

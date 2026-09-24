@@ -36,6 +36,7 @@ from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import Position
 from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop
+from app.signals.engine import drop_malformed_daily_bars
 
 
 def _daily_frame(closes: list[float], lows: list[float]) -> pd.DataFrame:
@@ -915,3 +916,64 @@ class TestAddPositionCapturesTrailingStopFloorAtMerge:
         row = db_session.get(PositionORM, position_id)
         assert row.trailing_stop_high_water_mark >= floor_after_first_merge
         assert row.trailing_stop_high_water_mark == pytest.approx(floor_after_first_merge)
+
+    def test_merge_ignores_a_malformed_bar_when_capturing_the_pre_merge_floor(
+        self, db_session: Session
+    ) -> None:
+        """PR #240 round-3 regression: a single malformed bar (NaN open/high, a garbage
+        close -- the same real yfinance "not yet settled" shape `drop_malformed_daily_bars`'s
+        own docstring describes) anywhere in this ticker's history must not be allowed to feed
+        the pre-merge floor computation unfiltered. Since `trailing_stop_high_water_mark` is a
+        permanent MAX-floor, one bad bar left unfiltered could otherwise lock in an arbitrarily
+        wrong value that no future correct computation could ever bring back down. `add_position`
+        's merge branch must run `daily_ohlcv` through `drop_malformed_daily_bars` (mirroring
+        `get_risk`'s own `require_full_ohlc_on_latest_bar=False` call) before computing the
+        floor, exactly like every other daily-OHLCV consumer in this router."""
+        flat_closes = [100.0] * 20
+        flat_lows = [99.0] * 20
+        daily = _daily_frame(flat_closes, flat_lows)
+        # Corrupt one interior bar (a few days before the end, matching a real settling-data
+        # glitch shape) with NaN open/high and a garbage close -- everything else stays a flat,
+        # never-crosses-the-10%-trigger $100 series, so the malformed bar is the *only* thing
+        # that could possibly move the floor.
+        daily.iloc[14, daily.columns.get_loc("open")] = float("nan")
+        daily.iloc[14, daily.columns.get_loc("high")] = float("nan")
+        daily.iloc[14, daily.columns.get_loc("close")] = 5000.0
+
+        test_client = _make_client(db_session, _StubProvider(daily={"AAPL": daily}))
+        try:
+            first = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+            )
+            assert first.status_code == 201
+            position_id = first.json()["id"]
+
+            second = test_client.post(
+                "/api/portfolio/positions",
+                json={"ticker": "AAPL", "quantity": 1, "avg_cost_basis": 100.0, "entry_date": "2026-01-01"},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+
+        assert second.status_code == 201
+
+        old_position = Position(
+            id=position_id, ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1)
+        )
+        filtered = drop_malformed_daily_bars(daily, require_full_ohlc_on_latest_bar=False)
+        expected_stop = protective_stop(old_position, filtered.iloc[:-1])
+        expected_floor = ratchet_trailing_profit_stop(old_position, filtered, expected_stop)
+
+        # Sanity check that this fixture really does reproduce the bug when left unfiltered
+        # (mirroring the reviewer's own 1730.0-vs-97.0 repro): the malformed bar's garbage
+        # $5000 close would, if it reached the ratchet fold unfiltered, itself cross the 10%
+        # breakeven trigger and permanently lock the floor in at an absurd value.
+        unfiltered_stop = protective_stop(old_position, daily.iloc[:-1])
+        unfiltered_floor = ratchet_trailing_profit_stop(old_position, daily, unfiltered_stop)
+        assert unfiltered_floor > expected_floor + 100
+
+        row = db_session.get(PositionORM, position_id)
+        assert row.trailing_stop_high_water_mark == pytest.approx(expected_floor)
+        assert row.trailing_stop_high_water_mark != pytest.approx(unfiltered_floor)

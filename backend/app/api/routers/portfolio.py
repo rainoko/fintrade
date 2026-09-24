@@ -440,7 +440,12 @@ def add_position(
         # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
         # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
         # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
-        # than blocking this merge on live market data being reachable.
+        # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
+        # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
+        # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
+        # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
+        # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
+        # value no later correct computation could ever bring back down (PR #240 round-3 finding).
         old_position = Position(
             id=existing.id,
             ticker=existing.ticker,
@@ -452,6 +457,10 @@ def add_position(
             daily_ohlcv = provider.get_daily_ohlcv(ticker)
         except DataProviderError:
             daily_ohlcv = None
+        if daily_ohlcv is not None:
+            daily_ohlcv = drop_malformed_daily_bars(
+                daily_ohlcv, require_full_ohlc_on_latest_bar=False
+            )
         floor = trailing_stop_floor_before_merge(
             old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
         )
