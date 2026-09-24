@@ -355,6 +355,83 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         self.assertEqual(len(violations), 1)
         self.assertIn("example_multiple_escapes.py:2", violations[0])
 
+    def test_same_line_implicit_concatenation_is_flagged(self) -> None:
+        # PR #226 review finding (round 6): the run-adjacency check used to require
+        # the two STRING tokens to be on *different* physical lines, silently
+        # assuming a same-line split was already caught by the per-line scan -- but
+        # it isn't, since the raw closing-quote/space/opening-quote characters
+        # between the two literals break the banned-pattern regexes' own `\s+`.
+        # This whole example sits on one physical line.
+        path = self.repo.write(
+            "backend/app/api/example_same_line.py",
+            "description = \"Current price + 30% of today's \" \"Autoenvelope/channel height.\"\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_same_line.py:1", violations[0])
+        self.assertIn("split across an implicit string concatenation", violations[0])
+
+    def test_mismatched_quote_style_concatenation_is_flagged(self) -> None:
+        # PR #226 review finding (round 6): the run-adjacency check used to also
+        # require the first token's closing quote character to equal the second
+        # token's opening quote character -- a carryover from the original
+        # regex-based join that Python's own grammar never actually requires.
+        # `"a" 'b'` is ordinary, valid implicit concatenation.
+        path = self.repo.write(
+            "backend/app/api/example_mixed_quotes.py",
+            "description = (\n"
+            "    \"Current price + 30% of today's \"\n"
+            "    'Autoenvelope/channel height.'\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_mixed_quotes.py:2", violations[0])
+
+    def test_fstring_run_member_is_safely_skipped_not_falsely_invisible(self) -> None:
+        # PR #226 review finding (round 6): on this project's required Python 3.12,
+        # an f-string tokenizes via PEP 701 into FSTRING_START/MIDDLE/END rather than
+        # a single STRING token, so it used to reset the whole run-adjacency chain,
+        # silently missing a genuine implicit-concatenation run involving it. This
+        # guard now recognizes the f-string as a real (opaque) run member rather than
+        # invisibly resetting the chain, but -- since an f-string's value generally
+        # isn't statically knowable -- deliberately never decodes it, which safely
+        # skips the whole run rather than reporting anything for it (a documented
+        # scope choice, not a crash or a false positive; see this task's own
+        # `decisions` entry). This differs from a plain per-line scan miss: the run
+        # is genuinely recognized and evaluated, just skipped once undecodable.
+        path = self.repo.write(
+            "backend/app/api/example_fstring_run.py",
+            "description = (\n"
+            "    f\"Current price + 30% of today's \"\n"
+            "    \"Autoenvelope/channel height.\"\n"
+            ")\n",
+        )
+        # Doesn't crash, and (documented limitation) doesn't report a violation --
+        # confirms the run was recognized-and-skipped, not silently perturbed into a
+        # wrong result.
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_fstring_between_two_real_strings_does_not_bridge_across_it(self) -> None:
+        # PR #226 review finding (round 6) follow-through: an f-string sitting
+        # between two real string literals must not be incorrectly bridged over as
+        # if it weren't there -- that would falsely concatenate the string *before*
+        # it directly to the string *after* it (a false-positive risk, since real
+        # content -- the f-string's own value -- sits between them in the actual
+        # source). Here "today's " and "Autoenvelope" would form the exact banned
+        # phrase if wrongly bridged across the f-string in between; the run
+        # (correctly recognized as spanning all three pieces) must instead be
+        # entirely skipped, not falsely flagged.
+        path = self.repo.write(
+            "backend/app/api/example_fstring_between.py",
+            "description = (\n"
+            "    \"today's \"\n"
+            "    f\"middle {1}\"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",

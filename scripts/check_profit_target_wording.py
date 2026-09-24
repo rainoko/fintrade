@@ -198,23 +198,34 @@ def _iter_scanned_files() -> list[Path]:
     return sorted(matched)
 
 
-# Two adjacent string literals separated only by whitespace across a line break --
-# Python's own implicit string concatenation, a style already used throughout
-# schemas.py's own long Field descriptions -- join into one logical string at parse
-# time, but a naive per-line scan sees two separate, shorter lines and can miss a
-# banned phrase split across the join. Only genuine .py files can even contain this
-# syntax, so runs are only ever looked for in those (see check_banned_patterns);
-# within a .py file, a run is scoped to real implicit concatenation (not merely "any
-# two quoted strings across a line break") by using the stdlib `tokenize` module to
-# find adjacent STRING tokens with nothing but whitespace/comments between them.
-# This distinction matters because Python's own grammar only allows two string
-# literals to be adjacent *tokens* (as opposed to two separate statements) across a
-# physical line break when they're inside an open bracket or a backslash
-# continuation -- outside of one, the tokenizer emits a logical-line-ending NEWLINE
-# token between them instead of the non-logical NL token used inside brackets, and a
-# NEWLINE always breaks a run below. That's precisely how this also rejects two
-# unrelated, individually valid bare string-literal statements that merely happen to
-# sit on adjacent lines.
+# Two adjacent string literals separated only by whitespace/comments -- Python's own
+# implicit string concatenation, a style already used throughout schemas.py's own
+# long Field descriptions -- join into one logical string at parse time, but a naive
+# per-line scan sees two separate, shorter lines and can miss a banned phrase split
+# across the join (or, if the two literals sit on the very same physical line, miss
+# it even without any per-line split at all -- the raw closing-quote/space/
+# opening-quote characters between them already break the banned-pattern regexes'
+# own `\s+`). Only genuine .py files can even contain this syntax, so runs are only
+# ever looked for in those (see check_banned_patterns); within a .py file, a run is
+# scoped to real implicit concatenation (not merely "any two quoted strings near each
+# other") by using the stdlib `tokenize` module to find adjacent candidate members
+# (STRING tokens, or a whole f-string -- see below) with nothing but
+# whitespace/comments between them. This distinction matters because Python's own
+# grammar only allows two string literals to be adjacent *tokens* (as opposed to two
+# separate statements) across a physical line break when they're inside an open
+# bracket or a backslash continuation -- outside of one, the tokenizer emits a
+# logical-line-ending NEWLINE token between them instead of the non-logical NL token
+# used inside brackets, and a NEWLINE always breaks a run below. That's precisely how
+# this also rejects two unrelated, individually valid bare string-literal statements
+# that merely happen to sit on adjacent lines.
+#
+# Because _NON_BREAKING_TOKEN_TYPES below are the *only* token types ever skipped
+# without altering run state, reaching a candidate member with the previous one still
+# on record is *itself* sufficient proof of genuine adjacency -- Python's grammar
+# imposes no further requirement (in particular, nothing about the two literals
+# sharing a physical line, or one's closing quote character matching the other's
+# opening one -- `"a" 'b'` is ordinary, valid implicit concatenation, mismatched
+# quote style and all).
 #
 # Crucially, a run is never flattened into a shared "joined" text buffer that the
 # banned-pattern regexes then scan across an arbitrary physical line break: the
@@ -244,9 +255,26 @@ def _iter_scanned_files() -> list[Path]:
 # splits the match, even though the whole match sits in one piece of the run). A
 # match sitting entirely on one physical line within a single piece is left to the
 # per-line scan (see `_find_run_violations`'s own docstring for why).
+#
+# An f-string is its own case: on this project's required Python 3.12, PEP 701 means
+# an f-string tokenizes into FSTRING_START/FSTRING_MIDDLE/.../FSTRING_END rather than
+# a single STRING token, and its *value* generally isn't statically knowable at all
+# (an interpolated `{expr}` can only be resolved at runtime). Rather than attempting
+# to evaluate or partially reconstruct that value, `_iter_implicit_concat_runs` below
+# treats the whole FSTRING_START..FSTRING_END span as one opaque candidate member
+# (using the FSTRING_START token itself, whose raw `.string` always starts with an
+# `f`-containing prefix, as its stand-in). This still participates correctly in
+# adjacency -- a plain string immediately before or after a run-forming f-string is
+# recognized as genuinely part of the same run -- but `_decode_string_token_with_offsets`
+# already, unconditionally, declines to decode anything with an `f` in its prefix,
+# which safely skips the *entire* run it's a member of (never a partial or incorrect
+# decode) via `_find_run_violations`'s own existing
+# any-member-undecodable-skips-the-whole-run contract, the same behavior already
+# established for byte-strings. This is a deliberate scope choice, not an oversight --
+# see this task's own `decisions` entry for the (a)-vs-(b) tradeoff considered.
 
 # Token types that never end a logical line/expression on their own and so don't
-# break a run of otherwise-adjacent STRING tokens: comments, non-logical newlines
+# break a run of otherwise-adjacent candidate members: comments, non-logical newlines
 # (only emitted inside an open bracket or continuation), and the synthetic
 # indentation/encoding markers. Anything else -- crucially including a real
 # `tokenize.NEWLINE` -- resets the adjacency below.
@@ -259,10 +287,31 @@ _NON_BREAKING_TOKEN_TYPES = {
 }
 
 
+def _find_fstring_end_index(tokens: list[tokenize.TokenInfo], start_index: int) -> int:
+    """Given the index of an FSTRING_START token, return the index of its own
+    matching FSTRING_END, tracking nesting depth so a nested f-string (PEP 701
+    allows the same quote character to nest inside a format expression on this
+    project's Python 3.12) doesn't terminate the outer one early."""
+    depth = 0
+    for index in range(start_index, len(tokens)):
+        tok_type = tokens[index].type
+        if tok_type == tokenize.FSTRING_START:
+            depth += 1
+        elif tok_type == tokenize.FSTRING_END:
+            depth -= 1
+            if depth == 0:
+                return index
+    # Shouldn't happen for a token stream tokenize.generate_tokens itself produced
+    # without raising -- defensive fallback treats the FSTRING_START alone as the
+    # whole member, spanning no further.
+    return start_index
+
+
 def _iter_implicit_concat_runs(text: str) -> list[list[tokenize.TokenInfo]]:
-    """Return every maximal run of 2+ genuinely-adjacent Python STRING tokens (real
-    implicit string concatenation, per the module-level comment above). Returns an
-    empty list if `text` doesn't parse as Python at all."""
+    """Return every maximal run of 2+ genuinely-adjacent Python implicit-concatenation
+    members -- real STRING tokens, or a whole f-string treated as one opaque member
+    (see the module-level comment above). Returns an empty list if `text` doesn't
+    parse as Python at all."""
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
@@ -270,34 +319,55 @@ def _iter_implicit_concat_runs(text: str) -> list[list[tokenize.TokenInfo]]:
 
     runs: list[list[tokenize.TokenInfo]] = []
     current_run: list[tokenize.TokenInfo] = []
-    prev_string_token: tokenize.TokenInfo | None = None
-    for tok in tokens:
+    prev_member: tokenize.TokenInfo | None = None
+
+    index = 0
+    n = len(tokens)
+    while index < n:
+        tok = tokens[index]
         if tok.type in _NON_BREAKING_TOKEN_TYPES:
+            index += 1
             continue
+
+        member: tokenize.TokenInfo | None
         if tok.type == tokenize.STRING:
-            adjacent = (
-                prev_string_token is not None
-                and prev_string_token.end[0] != tok.start[0]
-                and prev_string_token.string[-1:] in ("'", '"')
-                and prev_string_token.string[-1:] == tok.string[:1]
-            )
-            if adjacent:
-                if not current_run:
-                    current_run.append(prev_string_token)  # type: ignore[arg-type]
-                current_run.append(tok)
-            elif current_run:
-                runs.append(current_run)
-                current_run = []
-            prev_string_token = tok
+            member = tok
+            index += 1
+        elif tok.type == tokenize.FSTRING_START:
+            end_index = _find_fstring_end_index(tokens, index)
+            # An opaque stand-in for the whole f-string, however many internal
+            # MIDDLE/expression tokens it contains: `.end` is extended to the
+            # f-string's own real end position so a following plain string's
+            # adjacency check compares against where the f-string actually ends,
+            # not just where its opening delimiter does.
+            member = tok._replace(end=tokens[end_index].end)
+            index = end_index + 1
         else:
-            # Any other real token (crucially tokenize.NEWLINE) between two string
-            # literals means they're not part of the same expression -- e.g. two
-            # unrelated bare string-literal statements on adjacent lines -- so the
-            # adjacency run resets.
+            member = None
+            index += 1
+
+        if member is None:
+            # Any other real token (crucially tokenize.NEWLINE) between two
+            # candidate members means they're not part of the same expression --
+            # e.g. two unrelated bare string-literal statements on adjacent lines --
+            # so the adjacency run resets.
             if current_run:
                 runs.append(current_run)
                 current_run = []
-            prev_string_token = None
+            prev_member = None
+            continue
+
+        # Reaching a candidate member with `prev_member` still on record is itself
+        # sufficient proof of genuine adjacency (see _NON_BREAKING_TOKEN_TYPES's own
+        # comment above) -- no same-physical-line or matching-quote-character
+        # requirement, neither of which Python's grammar actually imposes on
+        # implicit concatenation.
+        if prev_member is not None:
+            if not current_run:
+                current_run.append(prev_member)
+            current_run.append(member)
+        prev_member = member
+
     if current_run:
         runs.append(current_run)
     return runs
