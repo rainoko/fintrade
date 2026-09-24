@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #294's review (identical timestamps on two sequential decisions entries)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups.json",
@@ -13,13 +13,26 @@
   "checklist": [
     {
       "step": "The two `decisions` entries PR #294 added to `backend-cftc-cot-data-followups-followups-followups-followups.json` (the evidence-trail reconciliation and the maxWorkers bisection) both carry the identical timestamp `2026-09-24T03:00:00Z`, despite describing two sequential investigations that by their own reported run counts (7 full-suite runs, then a separate 20 full-suite runs across four worker counts) took many minutes of wall-clock vitest runtime and could not actually have both been recorded at the same instant. Low severity on its own, but notable given this exact task lineage exists to fix evidence-trail sloppiness -- whoever next edits that task's decisions array (e.g. when addressing the blocking maxWorkers-portability finding) should correct or annotate the timestamps to reflect the actual sequence, per CLAUDE.md's decision-memory convention that a decisions entry should let a future reader trust the record without re-deriving it from scratch.",
-      "done": false
+      "done": true
     },
     {
       "step": "Non-blocking finding from pr-reviewer's round-2 re-review of PR #294 (backend-cftc-cot-data-followups-followups-followups-followups, now merged/done at `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json`): the PR's third `decisions` entry (the `maxWorkers: '50%'` fix) and its matching `frontend/vite.config.ts` code comment give two different wall-clock numbers for the same unrestricted-24-core-host confirmation re-run -- the decisions entry says '~23s (in line with the previous fixed-12 wall-clock)' while the code comment says '~30s, matching the fixed-12 wall-clock'. Neither matches the other, and '~23s' doesn't actually match its own cross-reference: the fixed-12 baseline recorded earlier in the same decisions array (the second entry) is '~29-31s', not ~23s, so the code comment's '~30s' is the figure actually consistent with that baseline. An independent re-measurement during the round-2 review got 27.34s -- within range of both claims but exactly matching neither, so this looks like an ordinary rounding/transcription slip rather than a wrong empirical result, but it's the same class of self-inconsistency ('0/7' vs '0/4') this exact task lineage already exists to fix once. Reconcile the two records to one actual number (or note that some variance run-to-run is expected and pick a representative range) the next time that task's decisions array or vite.config.ts comment is touched.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T05:48:53Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the two identical `2026-09-24T03:00:00Z` timestamps on `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json`'s first and second `decisions` entries in place (this checklist item explicitly calls out those entries' own timestamp text as the thing to fix, satisfying CLAUDE.md's narrow carve-out for amending an existing entry rather than only appending a new one). Set the first entry (the '0/7' vs '0/4' evidence-trail reconciliation, 7 full-suite runs at the then-committed `maxWorkers: 4`, each observed elsewhere in that same array to run ~54s) to `2026-09-24T02:52:00Z`, and the second entry (the 6/8/10/12 bisection, 20 full-suite runs at ~30-45s each) to `2026-09-24T03:05:00Z` -- roughly a 13-minute gap, reflecting that the first investigation's 7 runs alone take ~6-7 minutes of raw vitest wall-clock before any analysis/write-up, and that both investigations had to complete, in that order, before the PR's `git.pushed_at` of `2026-09-24T03:15:00Z`. The exact original capture times cannot be recovered (no other record of when each investigation actually ran survives); only the relative sequencing and a plausible spacing derived from the runs' own reported wall-clock durations have been corrected, not a reconstruction of the true historical instants.",
+      "rationale": "Editing the timestamps in place (rather than only adding a new decisions entry pointing at the problem) was the right call here because the checklist item's whole complaint is that the existing entries' own timestamp field is unusable evidence -- a bare pointer entry wouldn't have fixed that, only annotated around it, and CLAUDE.md's own carve-out example (PR #274's `cftc_contract_market_code` correction) is precisely this shape: the checklist item names the existing text as the thing to fix. The 13-minute spacing was derived from the entries' own internally reported run counts/wall-clock figures rather than invented arbitrarily, so it's a defensible lower-bound estimate rather than a guess dressed up as precision; explicitly flagging that the original instants are unrecoverable (this note, plus that the original text remains visible via git history) avoids the new timestamps looking more authoritative than they are."
+    },
+    {
+      "timestamp": "2026-09-24T05:48:53Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled the '~23s' vs '~30s' wall-clock mismatch (PR #294's third `decisions` entry vs. `frontend/vite.config.ts`'s matching comment, both describing the same unrestricted-24-core-host confirmation re-run of `maxWorkers: '50%'`) by changing the `decisions` entry's '~23s (in line with the previous fixed-12 wall-clock)' to '~30s, matching the previous fixed-12 wall-clock (the ~29-31s range recorded in this array's second entry)', and lightly expanded the `vite.config.ts` comment's existing '~30s, matching the fixed-12 wall-clock' to spell out that same '~29-31s' range explicitly, so both records now state the same figure and the same cross-reference. Picked '~30s' over re-measuring a fresh number myself, since '~30s' is the figure independently corroborated by three separate records already in evidence -- the second `decisions` entry's own ~29-31s bisection baseline, the `vite.config.ts` comment as originally written, and pr-reviewer's/pr-decision's independently measured 27.30-30.55s range on this same PR's round-2 review/merge-decision passes -- whereas '~23s' is the outlier with no corroboration anywhere else in the record.",
+      "rationale": "Re-measuring myself would only have produced a fourth number on a comment-only change with no code-behavior difference to verify, and this task's evidence base already triangulates cleanly on ~30s from three independent sources spanning two different PR review rounds; treating that convergence as the more reliable answer avoids adding noise. Editing both the decisions-entry text and the code comment in place (rather than appending a new decisions entry only) matches this checklist item's explicit instruction to reconcile 'both the decisions entry text and the vite.config.ts comment', which is this task's own narrow-carve-out trigger just as the first checklist item's timestamp fix was."
+    }
+  ],
   "questions": []
 }
