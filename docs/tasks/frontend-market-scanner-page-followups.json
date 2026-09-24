@@ -55,5 +55,11 @@
       "decision": "Added `data-testid=\"error-state\"` to common/ErrorState.tsx's root element, and rewrote ScannerResultsTable.test.tsx's 'not the full ErrorState block' assertion to `queryByTestId('error-state')` instead of `queryByRole('alert')`, as part of switching ScannerAddToWatchlistButton's failure-announcement live region from role=\"status\" to role=\"alert\" (this task's checklist item on that role).",
       "rationale": "Once the per-row live region itself uses role=\"alert\" (always mounted, per-row, even when empty), `queryByRole('alert')` can no longer distinguish 'no full ErrorState block rendered' (what the round-3 regression test was actually built to guard) from 'the row's own now-always-present live region exists but is empty' -- the two rows in that test's fixture data mean `queryByRole('alert')` would in fact throw (multiple matches) rather than silently pass, catching this immediately. The checklist item's own suggested fix named 'a heading/testid' as the alternative; ErrorState has no unique heading (its heading text varies per HTTP status, and per-status text already has its own passing assertions in ErrorState.test.tsx), so a stable data-testid on the block's own root -- matching the existing data-testid convention already used by WatchlistTable/FundamentalDataPanel/HomeworkScoreBanner and others in this codebase -- was the more precise, status-code-independent choice over asserting on any specific heading string."
     }
-  ]
+  ],
+  "git": {
+    "branch": "task/frontend-market-scanner-page-followups",
+    "pr_number": 302,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/302",
+    "pushed_at": "2026-09-24T10:52:32Z"
+  }
 }
