@@ -1,0 +1,40 @@
+{
+  "id": "backend-trailing-profit-stop-followups-followups-followups",
+  "title": "Non-blocking finding from PR #303's review (backend-trailing-profit-stop-followups-followups)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trailing-profit-stop-followups-followups"],
+  "references": [
+    "docs/tasks/backend-trailing-profit-stop-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/303",
+    "backend/app/portfolio/risk.py"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer/code-review pass on PR #303 (backend-trailing-profit-stop-followups-followups). PR #303 was accepted with no blocking findings: it (1) corrected three identically-timestamped `decisions` entries on the already-done `backend-trailing-profit-stop-followups.json` (PR #301) to distinct, plausibly-sequenced timestamps preceding that PR's own `pushed_at`, a narrow in-place edit within CLAUDE.md's carve-out since the checklist item explicitly named those timestamps as the thing to fix; and (2) updated a code comment inside `ratchet_trailing_profit_stop`'s vectorized fold (`backend/app/portfolio/risk.py`) to note that its NaN-close-handling reasoning is now defense-in-depth given the function's own unconditional `drop_malformed_daily_bars` filtering earlier in the same function -- verified accurate against the actual code (the filter call at the top of the function does run unconditionally, before the fold). No logic changed. Full backend suite (1244 passed, 100% coverage), ruff/mypy, and validate_tasks.py all passed clean. No API/schema change, so no openapi.json regeneration was needed; no frontend/UI surface was touched, so the browser walkthrough and e2e suite steps were explicitly skipped rather than silently omitted.",
+  "checklist": [
+    {
+      "step": "PR #303 fixed the 'dead NaN-close' reasoning in the inline comment inside `ratchet_trailing_profit_stop`'s vectorized fold (backend/app/portfolio/risk.py, around the `.cummax().ffill()` fold), but left an near-duplicate stale claim in the same function's docstring a few lines earlier (around line 321-323: \"``position.entry_date`` rows with a NaN close (whether original or a byproduct of this filtering) are skipped (can't inform the ratchet either way)\"), which still frames NaN-close-row skipping as a live case rather than noting -- like the now-updated inline comment does -- that the function's own unconditional `drop_malformed_daily_bars` call makes this unreachable in practice (defense-in-depth only). A future reader consulting only the docstring (without noticing the inline comment's updated framing) could reintroduce NaN-close handling elsewhere under the mistaken impression it's still a live, load-bearing path here, or file a duplicate 'stale comment' finding against the same function since the fix was only applied in one of the two places describing the same behavior. Harmless (no behavior change either way), but worth reconciling next time this function's docstring/comments are touched.",
+      "done": true
+    }
+  ],
+  "decisions": [],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-trailing-profit-stop-followups-followups-followups",
+    "pr_number": 304,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/304",
+    "pushed_at": "2026-09-24T11:34:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T11:38:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/304",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Genuinely comment/docstring-only change: confirmed via `git diff main...HEAD --stat` that only backend/app/portfolio/risk.py (docstring text, no executable lines), this task's own JSON, and docs/tasks/index.json changed. The reworded docstring passage (lines 321-326) accurately mirrors the 'defense-in-depth documentation, not a live code path' framing PR #303 already applied to the nearby inline fold comment (lines 398-403) -- cross-checked both against the actual code: `drop_malformed_daily_bars` is called unconditionally at line 359, before the since-entry slicing and the fold, so a NaN-close row at position.entry_date genuinely cannot reach the fold today, matching what both the old and new docstring text always claimed about the outcome (still 'skipped'/excluded); only the *why* framing changed, correctly. No logic touched. Full backend suite (1244 passed), 100% coverage, ruff + mypy clean, check_profit_target_wording.py clean, validate_tasks.py clean (297 tasks, no violations) -- all re-run on the actual checked-out PR branch (task/backend-trailing-profit-stop-followups-followups-followups), not just read from the diff. No API/schema touched, so no openapi.json regeneration required. No frontend/UI surface touched, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are explicitly skipped, not silently omitted. area is backend/portfolio, so verify-elder-signal was loaded per CLAUDE.md's trigger list; the change has no bearing on Triple Screen/confidence/risk-rule methodology (it's data-cleaning defensiveness prose, not a computation), so no methodology mismatch is possible here. No checklist item is phrased as 'decide X', so no decisions-entry gap. No pr_decision field was present to clear. I looked for a further non-blocking finding in this same docstring/comment area and did not find one worth manufacturing -- this finding chain (PR #301 -> #303 -> #304) has reached its natural end: the docstring and inline comment now say the same thing, and I found no third near-duplicate stale claim describing this behavior elsewhere in the file."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T11:42:58Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...HEAD --name-status` confirms only backend/app/portfolio/risk.py, this task's JSON (moved to docs/tasks/done/), and docs/tasks/index.json changed, and the risk.py diff is docstring-text-only (lines 321-326), no executable code touched. Read the surrounding function body directly and confirmed `drop_malformed_daily_bars` is called unconditionally (line 361) before the since_entry slice and the cummax/ffill fold, so the reworded docstring's 'defense-in-depth, not a live path' framing is accurate and now matches the inline fold comment PR #303 already fixed. Re-ran the full backend suite myself on this branch: 1244 passed, 100% line/branch coverage; also re-ran ruff (clean), mypy (no issues, 62 files), check_profit_target_wording.py (clean), and validate_tasks.py (297 tasks, no violations). Task bookkeeping is correct: state=done, path=docs/tasks/done/..., index.json mirror matches. skill is null (not add-indicator), so no hand-computed reference-value spot-check applies. Accept holds."
+  }
+}

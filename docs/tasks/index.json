@@ -1510,8 +1510,8 @@
       "id": "backend-trailing-profit-stop-followups-followups-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trailing-profit-stop-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trailing-profit-stop-followups-followups-followups.json"
     },
     {
       "id": "backend-profit-target-weekly-channel",
