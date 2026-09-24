@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #295's review (watchlist.spec.ts serial-block failure-window)",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": [
     "frontend-market-breadth-widget-followups-followups"
   ],
@@ -15,9 +15,16 @@
   "checklist": [
     {
       "step": "PR #295's new PersonalBreadthCard e2e assertion ('adding a ticker updates the personal breadth card...', frontend/tests/e2e/watchlist.spec.ts) is spliced into the middle of the existing `describe.serial` add/remove block, between the add step and the removal step. playwright.config.ts sets `retries: 0`, and under `describe.serial` a failing test skips every subsequent test in that block -- so if this new assertion ever flakes or times out (e.g. a slow `GET /api/watchlist/breadth` under load), the 'removing the ticker takes it out of the table' cleanup step never runs, leaving GOOGL stranded in the watchlist for the rest of that suite run. The file's own top-of-file comment already tolerates a pre-existing GOOGL entry from an earlier interrupted run, so this isn't catastrophic, but the new test does measurably widen the window in which that tolerated-but-undesirable state can occur, and it's avoidable: e.g. a `test.afterAll` cleanup that removes GOOGL regardless of which test in the block failed, or restructuring so this assertion's own failure can't gate the removal step. Worth reconsidering if this pattern is repeated for future card-specific assertions spliced into this or other serial blocks.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T05:25:58Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a `test.afterAll` safety-net cleanup (direct `DELETE /api/watchlist/GOOGL`, tolerating both 204 and 404) inside watchlist.spec.ts's `describe.serial` block, rather than restructuring/reordering the existing tests, to guarantee GOOGL is removed after the block regardless of which test failed.",
+      "rationale": "Reordering was rejected: the personal-breadth assertion needs the ticker present, so it can't run after the removal step without breaking that step's own precondition, and merging it into the 'adding a ticker' test wouldn't help either -- describe.serial still skips the remaining removal test on any failure in the merged test. An afterAll-based API cleanup is a proven pattern already used in this suite (portfolio.spec.ts's clearPreexistingDueFollowUpTrades before a beforeAll seed) and needs no UI interaction, so it can't itself be blocked by whatever UI state a mid-block failure left behind. Verified by temporarily throwing inside the personal-breadth assertion: the removal test then reported 'did not run' (skipped by describe.serial) but the afterAll hook still ran and returned 204, confirming GOOGL was removed; reverted immediately after."
+    }
+  ],
   "questions": []
 }
