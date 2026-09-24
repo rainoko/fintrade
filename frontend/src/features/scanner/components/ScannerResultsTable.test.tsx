@@ -4,9 +4,11 @@ import { delay, http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { IBKRScannerResultOut } from '../../../api/ibkr'
+import type { WatchlistItemOut } from '../../../api/watchlist'
 import { resetWatchlistStore } from '../../../../tests/mocks/handlers'
 import { server } from '../../../../tests/mocks/server'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
+import WatchlistTable from '../../watchlist/components/WatchlistTable'
 import ScannerResultsTable from './ScannerResultsTable'
 
 function renderResultsTable(results: IBKRScannerResultOut[]) {
@@ -142,11 +144,20 @@ describe('ScannerResultsTable', () => {
     )
   })
 
-  it('moves focus to the retry control on a failed add (regression, PR #243 round 4)', async () => {
-    // The round-3 fix (compact inline retry icon) swaps <Button> for a
+  it('keeps focus on the same control through a failed add and a successful retry (regression, PR #243 rounds 4-5)', async () => {
+    // Round 3's fix (compact inline retry icon) swapped <Button> for a
     // different <IconButton> element on failure -- React unmounts the
-    // focused node and mounts a new one, which drops keyboard focus to
-    // document.body unless it's moved programmatically.
+    // focused node and mounts a new one, dropping keyboard focus to
+    // document.body. Round 4 patched that isError false->true transition
+    // with a useEffect, but the *reverse* isError true->false transition --
+    // which fires on every retry click, since mutate() resets isError
+    // synchronously -- reintroduced the exact same bug on the common,
+    // successful-retry path (round-4 review finding). This test asserts on
+    // both transitions and on the *same* underlying DOM node throughout, not
+    // just "focus isn't on document.body" -- the fix here renders exactly
+    // one persistent <Button> across every state instead of two different
+    // element types, so `addButton`/`retryButton`/`addedButton` below are all
+    // required to be the exact same node.
     server.use(
       http.post('/api/watchlist', () =>
         HttpResponse.json({ detail: 'Something went wrong.' }, { status: 422 }),
@@ -162,7 +173,22 @@ describe('ScannerResultsTable', () => {
     const retryButton = await screen.findByRole('button', {
       name: 'Retry adding AAPL to watchlist',
     })
+    expect(retryButton).toBe(addButton)
     await waitFor(() => expect(document.activeElement).toBe(retryButton))
+
+    server.use(
+      http.post('/api/watchlist', () =>
+        HttpResponse.json(
+          { ticker: 'AAPL', added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          { status: 201 },
+        ),
+      ),
+    )
+    await user.click(retryButton)
+
+    const addedButton = await screen.findByRole('button', { name: 'Added' })
+    expect(addedButton).toBe(retryButton)
+    await waitFor(() => expect(document.activeElement).toBe(addedButton))
   })
 
   it('announces a failed add via a live region, even for a user not focused on that row (regression, PR #243 round 4)', async () => {
@@ -188,5 +214,56 @@ describe('ScannerResultsTable', () => {
         'Failed to add AAPL to watchlist: Something went wrong.',
       )
     })
+  })
+
+  it('does not bleed a pending Scanner-page add into WatchlistTable as a phantom skeleton row (regression, PR #243 round 4)', async () => {
+    // WatchlistTable's own useMutationState reads useAddWatchlistItem's
+    // shared mutation-cache entry (keyed by watchlistKeys.add) to render a
+    // pending-add skeleton row for its own AddTickerForm. Both components are
+    // mounted here under one shared QueryClient -- mirroring the real app's
+    // single app-wide QueryClient (main.tsx) spanning every page/route, not
+    // two independent per-test clients -- so a Scanner-dispatched add that
+    // reuses the same mutation key would otherwise be indistinguishable, from
+    // WatchlistTable's point of view, from an add dispatched by its own
+    // AddTickerForm sibling.
+    let resolvePost: (value: WatchlistItemOut) => void = () => {}
+    server.use(
+      http.post('/api/watchlist', async () => {
+        const created = await new Promise<WatchlistItemOut>((resolve) => {
+          resolvePost = resolve
+        })
+        return HttpResponse.json(created, { status: 201 })
+      }),
+    )
+    const queryClient = createTestQueryClient()
+    const user = userEvent.setup()
+
+    renderWithProviders(
+      <MemoryRouter>
+        <ScannerResultsTable results={results} />
+        <WatchlistTable items={[]} />
+      </MemoryRouter>,
+      { queryClient },
+    )
+
+    await user.click(screen.getAllByRole('button', { name: 'Add to watchlist' })[0])
+
+    // Confirms the add is genuinely pending (not yet settled) before
+    // asserting the negative below -- the Scanner row's own button renders a
+    // CircularProgress icon while addWatchlistItem.isPending is true.
+    await waitFor(() => expect(screen.getByRole('progressbar')).toBeInTheDocument())
+    expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument()
+
+    resolvePost({
+      ticker: 'AAPL',
+      added_at: new Date().toISOString(),
+      signal: null,
+      confidence: null,
+      confidence_band: null,
+    })
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(1),
+    )
+    expect(screen.queryByTestId('watchlist-skeleton')).not.toBeInTheDocument()
   })
 })
