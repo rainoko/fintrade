@@ -1503,7 +1503,7 @@
       "id": "backend-trailing-profit-stop-followups-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-trailing-profit-stop-followups-followups.json"
     },
     {
