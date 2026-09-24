@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #311's review (backend-day-trader-timeframe-mode-ibkr-intraday)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-ibkr-intraday"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json",
@@ -54,5 +54,53 @@
     "pr_number": 314,
     "pr_url": "https://github.com/rainoko/fintrade/pull/314",
     "pushed_at": "2026-09-24T21:26:31Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T21:40:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/314",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Thread-safety check: `IBKRProvider.get_hourly_bars`'s call path (`_require_available` -> `get_gateway_status` -> `_request` -> `self._client.request`) touches only `self._base_url`/`self._client` (read-only for this path) -- it never reads/writes the two genuinely mutable instance attributes (`_scanner_params_cache`, `_last_scanner_run_at`), which belong exclusively to `get_scanner_params`/`run_scanner`, not `get_hourly_bars`. `httpx.Client` is documented safe for concurrent use from multiple threads. Combined with `IntradayLegResult`/`DayTraderIntradayBars` being frozen dataclasses and `_fetch_leg` never mutating outside its own local scope, the 3-way `ThreadPoolExecutor` fan-out has no shared-mutable-state hazard. Confirmed, not just assumed.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 313
+      },
+      {
+        "summary": "Exception handling under concurrency: `_fetch_leg` catches `IBKRUnavailableError` itself and returns a result value rather than raising, so the only way `get_intraday_bars_for_triple` propagates an exception is a genuinely unexpected one, which surfaces normally through `future.result()`; the `ThreadPoolExecutor` context manager's `__exit__` calls `shutdown(wait=True)` regardless of whether the `with` block exits via an exception, so every submitted future (including ones still running when the first exception is raised during the fan-in dict comprehension) is waited on before the exception propagates to the caller -- no orphaned/leaked background threads. Confirmed by reading `concurrent.futures`' documented context-manager semantics, not assumed.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 296
+      },
+      {
+        "summary": "`resample_ohlcv` extraction verified behavior-preserving for `StooqProvider._resample_weekly`: full `tests/unit/data/test_stooq_provider.py` suite (19 tests) re-run and passes unchanged, and the diff shows the extracted function is a byte-for-byte match of the original inline aggregation (including the `index.name = \"date\"` line, which the pre-extraction `_resample_to_target` never set but which is a no-op there since `_bars_to_frame` already names its `DatetimeIndex` `\"date\"`).",
+        "file": "backend/app/data/base.py",
+        "line": 55
+      },
+      {
+        "summary": "The one weakened test assertion (`test_non_composable_interval_resamples_from_finest_evenly_dividing_bar_size`, position -> membership check) doesn't lose meaningful coverage: given the test's own triple (long_term=1d, intermediate=100m -> \"10min\", short_term=25m -> \"5min\"), \"5min\" is only ever requested by the short_term leg, so `\"5min\" in bar_sizes_requested` is equivalent in practice to the original position-based check, and the very next assertion (`result.short_term.ibkr_bar_size == \"5min\"`) independently re-confirms the selection logic from the leg-result field regardless of what HTTP calls happened.",
+        "file": "backend/tests/unit/data/test_day_trader_intraday.py",
+        "line": 175
+      },
+      {
+        "summary": "Independently re-ran the full backend suite (1341 passed, 100% line/branch coverage, `--cov-fail-under=90`), `ruff check .`, `mypy` (both clean), `python3 scripts/check_profit_target_wording.py` and `python3 scripts/validate_tasks.py` (both clean), `frontend` `yarn lint`/`yarn tsc -b --noEmit` (clean; frontend untouched by this PR, last-known state confirmed unaffected), and `backend/scripts/export_openapi.py` (no diff -- no API surface touched by this PR, matching the PR description). Also ran `tests/unit/data/test_day_trader_intraday.py` 15 additional times (10 solo + 5 as part of the earlier full-suite reruns) with no flake.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (tracked as a follow-up, not filed here as blocking): two remaining tests (`test_two_of_three_minute_unit_legs_are_fetched`, `test_all_three_legs_fetched_for_a_fully_intraday_triple`) assert on `provider.get_hourly_bars.call_count` under the new genuinely-concurrent fetch path. `unittest.mock.Mock.call_count`'s increment is a non-atomic read-modify-write that can lose updates under real thread concurrency (empirically confirmed: reliably undercounts at high call volume in the same test process, while `len(call_args_list)` stayed exact in every trial at every volume tested) -- but at this test's actual 2-3-calls-per-run scale, 0/20,000 trials reproduced a mismatch, so this is a theoretical robustness gap, not an observed or likely-in-practice flake.",
+        "file": "backend/tests/unit/data/test_day_trader_intraday.py",
+        "line": 88
+      },
+      {
+        "summary": "Non-blocking (tracked as a follow-up, not filed here as blocking): `get_intraday_bars_for_triple`'s new `ThreadPoolExecutor` fan-out/fan-in block duplicates the same shape already used by `app/api/routers/stocks.py`'s indicator-history endpoint, with no shared helper -- the same class of duplication this PR's own `resample_ohlcv` extraction fixed elsewhere, though the two sites differ in one respect (stocks.py deliberately preserves a fixed error-priority resolution order that day_trader_intraday.py's version has no equivalent need for).",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 296
+      },
+      {
+        "summary": "Non-blocking (tracked as a follow-up, not filed here as blocking): the newly-extracted `app.data.base.resample_ohlcv` has no direct unit test of its own -- only indirect coverage via its two current callers' existing tests.",
+        "file": "backend/app/data/base.py",
+        "line": 55
+      }
+    ],
+    "notes": "All four checklist items resolved correctly: (1) concurrent leg fetching is genuinely thread-safe (verified against IBKRProvider's real implementation, not assumed) and exceptions/futures are handled correctly by ThreadPoolExecutor's own context-manager semantics; (2) the docstring fix is accurate and resolves the prior self-contradiction; (3) the long_term-leg-already-fetched claim is correct, confirmed by diffing against the pre-PR-#312 code; (4) the resample_ohlcv extraction is behavior-preserving, confirmed by an isolated re-run of the Stooq provider's own test suite rather than trusting the full-suite pass alone. Full backend suite (1341 tests, 100% coverage), static analysis (ruff/mypy/eslint/tsc), profit-target wording guard, and task-board validation all independently re-run and clean; no API surface touched so no OpenAPI snapshot regeneration was needed (confirmed via a no-diff re-export). No UI surface in this PR (pure backend data-layer change) -- browser walkthrough and e2e suite steps don't apply, noted explicitly rather than silently skipped. Two non-blocking findings surfaced during independent verification beyond the PR's own stated scope (a subtle mock.call_count non-atomicity under concurrency, and a fan-out/fan-in pattern duplicated with app/api/routers/stocks.py) plus one from this reviewer's own pass (resample_ohlcv's lack of a direct unit test); all three filed on docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups.json rather than left only in this PR's comments."
   }
 }
