@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #301's review (backend-trailing-profit-stop-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trailing-profit-stop-followups"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop-followups.json",
@@ -35,5 +35,28 @@
     "pr_number": 303,
     "pr_url": "https://github.com/rainoko/fintrade/pull/303",
     "pushed_at": "2026-09-24T11:19:03Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T11:24:43Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/303",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Timestamp correction verified: the three `decisions` entries on the already-done `backend-trailing-profit-stop-followups.json` (PR #301) were amended from an identical `2026-09-24T10:14:28Z` to distinct, plausibly-sequenced `09:47:12Z`/`09:58:36Z`/`10:08:51Z`, all preceding that PR's own `git.pushed_at` of `10:17:44Z`, in the same order as the parent task's checklist. This is a genuine in-place-edit carve-out case per CLAUDE.md: the checklist item explicitly named the existing timestamps as the thing to fix, the original text remains recoverable via git history, a fresh `decisions` entry with rationale was also recorded, and no code/merge state was touched."
+      },
+      {
+        "summary": "Comment update verified accurate: `ratchet_trailing_profit_stop` (backend/app/portfolio/risk.py) does unconditionally call `drop_malformed_daily_bars(..., require_full_ohlc_on_latest_bar=False)` before the vectorized fold, so no row reaching the fold can have a NaN close -- confirming the updated comment's 'now defense-in-depth' framing is correct. No logic changed (comment-only diff)."
+      },
+      {
+        "summary": "Full backend suite (1244 passed, 100% coverage, `app/portfolio/risk.py` at 100%), ruff, mypy, and validate_tasks.py all pass clean on the PR branch. No blocking findings.",
+        "file": "backend/app/portfolio/risk.py"
+      },
+      {
+        "summary": "Non-blocking (filed as a follow-up task, backend-trailing-profit-stop-followups-followups-followups): the PR fixed the stale NaN-close reasoning in the fold's inline comment but left a near-duplicate stale claim a few lines earlier in the same function's docstring, which still frames NaN-close-row skipping as a live case rather than defense-in-depth.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 322
+      }
+    ],
+    "notes": "Low-risk, tightly-scoped PR (task-board bookkeeping in-place correction plus a one-paragraph code comment update, no logic change). No API/schema change (no openapi.json regeneration needed) and no frontend/UI surface touched, so the browser walkthrough and e2e suite steps were explicitly skipped rather than silently omitted. area is backend/portfolio, so verify-elder-signal's lens was applied; since no signal/confidence/risk logic actually changed (only a comment describing already-existing, unchanged behavior), there was nothing to check against docs/Analyse.md beyond confirming the comment's factual claim is accurate, which it is."
   }
 }
