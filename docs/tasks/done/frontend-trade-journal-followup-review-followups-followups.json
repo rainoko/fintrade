@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-trade-journal-followup-review-followups PR #249 review",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["frontend-trade-journal-followup-review-followups"],
   "references": [
     "docs/tasks/frontend-trade-journal-followup-review-followups.json",
@@ -47,5 +47,25 @@
     "pr_number": 290,
     "pr_url": "https://github.com/rainoko/fintrade/pull/290",
     "pushed_at": "2026-09-24T01:47:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T01:46:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/290",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified `isoDateWeeksAgo` extraction into `frontend/tests/dateFixtures.ts` is byte-for-byte behavior-identical to both prior copies; both `tests/mocks/handlers.ts` and `tests/e2e/portfolio.spec.ts` now import from it and no other file references the old local declarations (grepped repo-wide).",
+        "file": "frontend/tests/dateFixtures.ts"
+      },
+      {
+        "summary": "Traced `clearPreexistingDueFollowUpTrades` against the backend's actual `due_for_follow_up` filter semantics (follow_up_reviewed_at IS NULL and exit_date in the 8-10-week window) and `POST .../follow-up-review` (sets follow_up_reviewed_at, unconditionally overwritable) in backend/app/api/routers/portfolio.py -- the filter-by-FOLLOW_UP_TICKER (TSLA) step means it structurally can't touch another ticker's due trade even if one existed. Independently reproduced the exact interactive-rerun scenario against a real fixture-mode backend (seeded a stray unreviewed due TSLA trade plus an unrelated stray due AAPL trade, ran the clear-then-reseed sequence): result was exactly one TSLA due row afterward (no duplicate, so no Playwright strict-mode violation) and the AAPL due row was left untouched, confirming the fix works as claimed and is correctly scoped.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts"
+      },
+      {
+        "summary": "Re-ran full backend suite (100% coverage, 1203 passed) and frontend suite (99.76%/99.31%/99.78%/99.82% stmt/branch/fn/line coverage, 841 passed) -- both well above the 90% gate and consistent with the PR's own reported numbers. Backend and frontend ruff/mypy/eslint/tsc and the profit-target stale-wording guard all clean. Full persisted e2e suite (`make e2e`) passed 23/23. code-review skill (medium effort) found zero issues on the diff.",
+        "file": null
+      }
+    ],
+    "notes": "Full review per pr-reviewer process: task lookup via index.json, PR #290 checked out, backend+frontend tests/coverage re-run independently (matches PR's claimed numbers), static analysis (ruff/mypy/eslint/tsc/profit-target-wording) all clean, code-review skill found no findings, e2e-test skill run (23/23 passed) plus an independent manual simulation of the interactive-rerun scenario against a real fixture-mode backend confirming the cleanup fix actually prevents the duplicate-row strict-mode violation it targets and doesn't touch unrelated tickers' due trades. No UI-facing application code is touched by this PR (test-infrastructure only: dateFixtures.ts, handlers.ts, portfolio.spec.ts, task JSON), so the exploratory browser-walkthrough step (review step 9) doesn't apply here -- explicitly noted rather than silently skipped; the e2e-suite run plus the manual backend-level simulation serve as this PR's functional verification instead. No API/schema changes, so no OpenAPI snapshot check needed. No new module/dependency/layer, so architecture-review wasn't loaded. area is frontend/pages/portfolio (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No frontend components added/changed (test files only), so the common/-vs-feature-specific placement check doesn't apply. No checklist item phrased as 'decide X' was left undecided -- both decisions entries for this PR's two checklist items are present with decision+rationale. No pr_decision was present on this task prior to this review, so nothing to clear. Zero findings, blocking or non-blocking -- no follow-up task filed."
   }
 }
