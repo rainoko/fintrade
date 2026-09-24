@@ -3,7 +3,7 @@
   "title": "Switchable day-trader timeframe mode (ch. 39) -- fully configurable, global setting",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [],
   "references": [
     "docs/ideas.md#switchable-trading-mode-positionswing-trader-vs-day-trader--different-triple-screen-timeframe-scales",
@@ -96,5 +96,38 @@
     "pr_number": 309,
     "pr_url": "https://github.com/rainoko/fintrade/pull/309",
     "pushed_at": "2026-09-24T16:55:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T17:06:09Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/309",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: PUT /api/settings/trading-mode doesn't ignore day_trader_timeframe_triple when mode='swing' -- update_trading_mode parses and persists any supplied triple regardless of mode, contradicting TradingModeIn.day_trader_timeframe_triple's own documented 'ignored ... when mode is swing' contract and silently overwriting a previously-preserved day-trader triple. Reproduced directly against a live TestClient: PUT day_trader with triple A, then PUT swing with triple B, then GET -- the stored triple becomes B, not preserved A. No test exercises mode='swing' + a supplied triple.",
+        "file": "backend/app/api/routers/settings.py",
+        "line": 87
+      },
+      {
+        "summary": "Non-blocking: factor_of_five_warnings()'s returned message text, TimeframeTripleOut's OpenAPI field description, and a test comment all still say the guideline band is '3-8x'/'3x-8x', but the actually-implemented band (_FACTOR_OF_FIVE_MIN_RATIO/_MAX_RATIO) is 2x-10x -- stale wording left over from the earlier 3x-8x draft the task's own decisions entry says was widened.",
+        "file": "backend/app/signals/timeframe.py",
+        "line": 195
+      },
+      {
+        "summary": "Non-blocking: app/api/routers/settings.py's module docstring references a follow-up task id 'backend-day-trader-timeframe-mode-intraday-signal-engine' that doesn't exist; the actual split created two separate tasks (backend-day-trader-timeframe-mode-ibkr-intraday and backend-day-trader-timeframe-mode-signal-engine).",
+        "file": "backend/app/api/routers/settings.py",
+        "line": 15
+      },
+      {
+        "summary": "Non-blocking: docs/architecture/Backend.md's new section is numbered '## 11.' immediately after the existing '## 9.', skipping 10.",
+        "file": "docs/architecture/Backend.md",
+        "line": 227
+      },
+      {
+        "summary": "Non-blocking: TestFactorOfFiveWarnings has no test pinning the factor-of-five band's exact boundary ratios (2.0x / 10.0x) -- only interior and clearly-exterior ratios are covered.",
+        "file": "backend/tests/unit/signals/test_timeframe.py",
+        "line": 122
+      }
+    ],
+    "notes": "Independently re-ran: pytest --cov=app (1287 passed, 100% line/branch coverage), ruff check + mypy (clean), yarn tsc -b --noEmit + yarn eslint (clean), alembic upgrade head / downgrade -1 against a throwaway DB (clean), scripts/export_openapi.py + yarn generate:api-types re-run and diffed byte-for-byte against committed backend/openapi.json + frontend/src/api/types.ts (no diff), scripts/validate_tasks.py (no violations). No UI surface in this PR (settings UI deferred to frontend-day-trader-timeframe-mode-settings) -- browser walkthrough and e2e suite both explicitly skipped. TimeframeTriple model, migration, and the 4-way task split are all sound; the one blocking finding is the swing-mode triple-overwrite bug above."
   }
 }

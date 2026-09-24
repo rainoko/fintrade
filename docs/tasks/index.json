@@ -1874,7 +1874,7 @@
       "id": "backend-day-trader-timeframe-mode",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
+      "state": "implementing",
       "path": "docs/tasks/backend-day-trader-timeframe-mode.json"
     },
     {
@@ -2128,6 +2128,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-followups.json"
     }
   ]
 }
