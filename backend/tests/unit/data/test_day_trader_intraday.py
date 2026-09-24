@@ -62,13 +62,36 @@ class TestGetIntradayBarsForTripleUnitScoping:
         result = get_intraday_bars_for_triple(triple, provider=provider, conid=12345, lookback_days=5)
 
         assert isinstance(result, DayTraderIntradayBars)
+        assert result.long_term is None  # "1w" -- not MINUTE, doesn't need IBKR
         assert result.intermediate is None  # "1d" -- not MINUTE, doesn't need IBKR
         assert result.short_term is not None
         assert result.short_term.state == "available"
         assert result.short_term.ibkr_bar_size == "2min"
         assert list(result.short_term.ohlcv["close"]) == [100.5, 101.5]
 
-    def test_both_minute_unit_legs_are_fetched(self, mocker) -> None:
+    def test_two_of_three_minute_unit_legs_are_fetched(self, mocker) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.get_hourly_bars.return_value = [_bar(0, 100.0)]
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1w"),
+            intermediate=TimeframeInterval.parse("5m"),
+            short_term=TimeframeInterval.parse("2m"),
+        )
+
+        result = get_intraday_bars_for_triple(triple, provider=provider, conid=1, lookback_days=5)
+
+        assert result.long_term is None  # "1w" -- not MINUTE, doesn't need IBKR
+        assert result.short_term is not None
+        assert result.intermediate is not None
+        assert result.short_term.state == "available"
+        assert result.intermediate.state == "available"
+        assert provider.get_hourly_bars.call_count == 2
+
+    def test_all_three_legs_fetched_for_a_fully_intraday_triple(self, mocker) -> None:
+        """ch. 39's own day-trading examples (25-min/5-min/2-min, 39-min/8-min) are fully
+        intraday on all three legs, not just short_term/intermediate -- `long_term` needs
+        fetching too in that case, not just when it happens to be DAY/WEEK-unit (see this
+        module's own docstring on the `long_term`-fetching extension)."""
         provider = mocker.create_autospec(IBKRProvider, instance=True)
         provider.get_hourly_bars.return_value = [_bar(0, 100.0)]
         triple = TimeframeTriple(
@@ -79,13 +102,16 @@ class TestGetIntradayBarsForTripleUnitScoping:
 
         result = get_intraday_bars_for_triple(triple, provider=provider, conid=1, lookback_days=5)
 
+        assert result.long_term is not None
         assert result.short_term is not None
         assert result.intermediate is not None
+        assert result.long_term.state == "available"
+        assert result.long_term.ibkr_bar_size == "5min"
         assert result.short_term.state == "available"
         assert result.intermediate.state == "available"
-        assert provider.get_hourly_bars.call_count == 2
+        assert provider.get_hourly_bars.call_count == 3
 
-    def test_neither_leg_needs_ibkr_when_neither_is_minute_unit(self, mocker) -> None:
+    def test_no_leg_needs_ibkr_when_none_is_minute_unit(self, mocker) -> None:
         provider = mocker.create_autospec(IBKRProvider, instance=True)
         triple = TimeframeTriple(
             long_term=TimeframeInterval.parse("2w"),
@@ -95,6 +121,7 @@ class TestGetIntradayBarsForTripleUnitScoping:
 
         result = get_intraday_bars_for_triple(triple, provider=provider, conid=1)
 
+        assert result.long_term is None
         assert result.short_term is None
         assert result.intermediate is None
         provider.get_hourly_bars.assert_not_called()
@@ -229,6 +256,8 @@ class TestGracefulDegradation:
 
         result = get_intraday_bars_for_triple(triple, provider=None, conid=1)
 
+        assert result.long_term.state == "disabled"
+        assert result.long_term.ohlcv is None
         assert result.short_term.state == "disabled"
         assert result.short_term.ohlcv is None
         assert result.intermediate.state == "disabled"
@@ -323,6 +352,7 @@ class TestGetActiveDayTraderIntradayBars:
         result = get_active_day_trader_intraday_bars(session, provider=provider, conid=999)
 
         assert result is not None
+        assert result.long_term.state == "available"
         assert result.short_term.state == "available"
         assert result.intermediate.state == "available"
         for call in provider.get_hourly_bars.call_args_list:

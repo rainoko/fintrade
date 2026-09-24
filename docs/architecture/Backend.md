@@ -94,6 +94,8 @@ Implement each indicator directly against its Analyse.md §4 definition and para
 
 `signals/engine.py` is the orchestration point: pulls indicator outputs, evaluates Screen 1/2/3 (`triple_screen.py`), applies the Impulse gate (`impulse.py`), and produces `(signal, confidence, breakdown)` via `confidence.py`. The `breakdown` (per-component scores from Analyse.md §6) is returned to the API so the frontend can show *why* a confidence score is what it is, not just the number.
 
+`analyse()`/`triple_screen.evaluate_tide`/`evaluate_wave`/`evaluate_trigger` are generic over whichever OHLCV data represents the currently active long-term/intermediate/short-term timeframe (`backend-day-trader-timeframe-mode-signal-engine`, §10 below) -- swing mode (this app's default/only mode in production) still feeds them weekly/daily data exactly as before, unchanged bar-for-bar. `analyse_day_trader()` is the day-trader-mode entry point: a thin wrapper over `analyse()` that also supplies `short_term_ohlcv`, so Screen 3 (Trigger) evaluates Elder's literal short-term-timeframe rule instead of swing mode's documented daily-bar approximation (docs/Analyse.md §2) -- the Impulse gate, Screen 2/Wave, and every indicator in `indicators` are unaffected, since they still read whichever frame plays the *intermediate* role, exactly as `evaluate_impulse`'s own "timeframe-agnostic" contract already documented before this task.
+
 ## 6. Portfolio & Risk Engine
 
 `portfolio/risk.py` implements the 2%/6% rules and protective-stop calculation from Analyse.md §7, operating on `Position` + `Account` models. `portfolio/exits.py` evaluates the existing-position exit conditions independently of `signals/engine.py`'s fresh-entry logic — a held position can be flagged SELL purely on risk grounds even when the technical signal is HOLD.
@@ -247,7 +249,9 @@ documents what exists **today**, not the full eventual feature.
   (25/5 = 5x, but 5/2 = only 2.5x). See that module's own docstrings and this task's
   `decisions` entry for the full reasoning, including why `WEEK` is kept as its own unit
   (rather than collapsing everything to a minute count) to preserve the calendar-anchored
-  weekly-resampling semantic `app.signals.engine._weekly_through_bar_date` already depends on.
+  weekly-resampling semantic `app.signals.engine._long_term_through_bar_date` (renamed from
+  `_weekly_through_bar_date` by `backend-day-trader-timeframe-mode-signal-engine`, see below)
+  already depends on.
 - `app.trading_mode` + `TradingModeSettingORM` (`app/db/models.py`) -- global, app-wide
   settings persistence (a single settings row, same singleton-row convention as `AccountORM`
   §7 above) for the active `TradingMode` (`swing`/`day_trader`) and, once ever configured, the
@@ -258,34 +262,69 @@ documents what exists **today**, not the full eventual feature.
   setting above. `PUT` rejects (422) a `day_trader` mode request with no triple, or a triple
   violating the hard ordering rule; a factor-of-five-guideline violation is echoed back as a
   non-blocking `factor_of_five_warnings` list on the response instead.
-- `app.data.day_trader_intraday` (`docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json`)
-  -- fetches IBKR intraday bars for whichever `MINUTE`-unit leg(s) of the active day-trader
-  triple need them (`short_term` always in the common case, `intermediate` too if it's also
-  configured in minutes; a `DAY`/`WEEK`-unit leg needs no IBKR call at all, since it's already
-  served by the existing yfinance/Stooq daily/weekly pipeline). Reconciles IBKR's fixed,
-  non-composable `bar` value set (`IBKRProvider._VALID_BAR_INTERVALS` -- §8 above) against the
-  triple's fully-configurable minute counts by fetching the *largest IBKR-supported minute/hour
-  bar size that evenly divides the requested interval* and resampling client-side into the
-  exact requested width (same open/high/low/close/volume aggregation as
-  `StooqProvider._resample_weekly`'s own daily-to-weekly precedent, generalized to an arbitrary
-  minute count) -- e.g. a `"25m"` leg fetches IBKR's native `"5min"` bars and resamples 5:1,
-  since `"25min"` isn't itself one of IBKR's valid `bar` values. Degrades every applicable leg
-  to a typed, never-raised state (`available`/`disabled`/`gateway_unreachable`/
-  `not_authenticated`/`unavailable`) exactly like every other IBKR-dependent feature in this
-  app (§8's `GatewayStatus`, `app.api.routers.ibkr`'s existing pattern) -- `provider=None`
-  (`Settings.ibkr_enabled=False`) means day-trader mode being *configured* never itself
-  requires IBKR to be reachable. See that task's `decisions` entry for the full reconciliation
-  writeup and the rejected alternative (restricting the triple's IBKR-backed legs to only
-  IBKR-supported values).
+- `app.data.day_trader_intraday` (`docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json`,
+  extended by `backend-day-trader-timeframe-mode-signal-engine` to also fetch `long_term`) --
+  fetches IBKR intraday bars for whichever `MINUTE`-unit leg(s) of the active day-trader triple
+  need them, now uniformly across all three legs (`long_term`/`intermediate`/`short_term`) --
+  not just `short_term`/`intermediate` as originally landed, since ch. 39's own fully-intraday
+  day-trading examples (25-min/5-min/2-min, 39-min/8-min) need `long_term` fetched too, not just
+  the common "long_term stays on a slower timeframe" case. A `DAY`/`WEEK`-unit leg still needs
+  no IBKR call at all, since it's already served by the existing yfinance/Stooq daily/weekly
+  pipeline. Reconciles IBKR's fixed, non-composable `bar` value set
+  (`IBKRProvider._VALID_BAR_INTERVALS` -- §8 above) against the triple's fully-configurable
+  minute counts by fetching the *largest IBKR-supported minute/hour bar size that evenly divides
+  the requested interval* and resampling client-side into the exact requested width (same
+  open/high/low/close/volume aggregation as `StooqProvider._resample_weekly`'s own
+  daily-to-weekly precedent, generalized to an arbitrary minute count) -- e.g. a `"25m"` leg
+  fetches IBKR's native `"5min"` bars and resamples 5:1, since `"25min"` isn't itself one of
+  IBKR's valid `bar` values. Degrades every applicable leg to a typed, never-raised state
+  (`available`/`disabled`/`gateway_unreachable`/`not_authenticated`/`unavailable`) exactly like
+  every other IBKR-dependent feature in this app (§8's `GatewayStatus`,
+  `app.api.routers.ibkr`'s existing pattern) -- `provider=None` (`Settings.ibkr_enabled=False`)
+  means day-trader mode being *configured* never itself requires IBKR to be reachable. See that
+  task's `decisions` entry for the full reconciliation writeup and the rejected alternative
+  (restricting the triple's IBKR-backed legs to only IBKR-supported values).
+- Generic Screen 1/2/3 (Tide/Wave/Trigger) evaluation
+  (`backend-day-trader-timeframe-mode-signal-engine`) -- `app.signals.triple_screen
+  .evaluate_tide`/`evaluate_wave`/`evaluate_trigger` already operated generically on whatever
+  `pd.DataFrame` they're handed (no code path branches on "is this weekly/daily"), so the real
+  work here was `app.signals.engine`'s orchestration layer: `analyse()` gained an optional
+  `short_term_ohlcv` parameter (default `None`, reproducing the exact pre-existing behavior --
+  Screen 3 evaluated on `daily_ohlcv` -- so swing mode, verified by regression tests asserting
+  identical numeric output, is completely unaffected) that, when supplied, evaluates Screen 3
+  against a genuinely distinct short-term-timeframe series instead of the daily-bar
+  approximation. `analyse_day_trader()` is the day-trader-mode entry point: a thin wrapper
+  supplying `long_term_ohlcv`/`intermediate_ohlcv`/`short_term_ohlcv` explicitly, still a pure
+  domain function (no DB/IBKR dependency of its own -- resolving *which* frames to fetch for the
+  active triple is left to `backend-day-trader-timeframe-mode-api`). The private
+  `_weekly_through_bar_date` helper (`analyse_history`'s per-bar Tide truncation) was renamed to
+  `_long_term_through_bar_date` and given a `long_term_unit` parameter (`WEEK`'s existing
+  Friday-anchored logic unchanged/default; a new direct `<= bar_date` branch for `DAY`/`MINUTE`,
+  covered by dedicated unit tests but not yet exercised by any real caller -- see below).
+  Verified end to end with a mocked IBKR provider: `app.trading_mode` settings ->
+  `app.data.day_trader_intraday` (all three legs) -> `analyse_day_trader` producing a real
+  BUY/SELL/HOLD signal, confirming the Impulse gate/confidence scoring/Screen 1-2 remain
+  timeframe-agnostic once Screen 3 is genericized (verify-elder-signal pass, this task's own
+  `decisions` entry).
 
 **Not yet landed** (tracked as dependent follow-up tasks, `depends_on` this task):
 
-- Generic Screen 1/2/3 (Tide/Wave/Trigger) evaluation in `app.signals.triple_screen`/
-  `app.signals.engine` over whichever triple is active -- both still unconditionally use the
-  hard-coded weekly/daily scheme regardless of `TradingMode`; `app.data.day_trader_intraday`
-  above fetches the data but nothing yet consumes it.
-- Any API-schema/frontend surface for the generically-computed signal (item 6/7 of the task's
-  original checklist).
+- Any API-schema/frontend surface for the generically-computed signal
+  (`backend-day-trader-timeframe-mode-api`/`frontend-day-trader-timeframe-mode-settings`) --
+  `analyse_day_trader()` above has no caller yet; nothing resolves the active `TimeframeTriple`
+  into fetched OHLCV frames end to end through an actual HTTP route.
+- `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits`'s own hard-coded
+  weekly/daily split (the 6% Rule/protective-stop's `_SWING_LOW_WINDOW_DAYS`, the weekly-chart
+  profit-target channel, `evaluate_exit_flags`'s `tide_flipped_bearish` flag) -- explicitly out
+  of scope for `backend-day-trader-timeframe-mode-signal-engine` (see its own `decisions`
+  entry); these portfolio-level rules only ever run against swing-mode's own daily/weekly data
+  today regardless of which `TradingMode` is active.
+- `analyse_history()`'s own day-trader-mode support (a walk-forward historical replay over
+  intraday bars, for a future day-trader-mode chart overlay) -- `_long_term_through_bar_date`'s
+  new `DAY`/`MINUTE` branch is ready for this, but `app.data.day_trader_intraday`'s current
+  shape only ever fetches "recent bars as of now" (a signal-computation snapshot), not a
+  growing walk-forward history; that's a distinct IBKR historical-fetch design problem, not yet
+  solved.
 
 ## Testing Notes
 

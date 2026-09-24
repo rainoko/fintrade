@@ -543,7 +543,7 @@ def get_indicator_history(
     lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
     `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
     task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
-    docstring (plus `app.signals.engine._weekly_through_bar_date`) for how Screen 1/Tide is
+    docstring (plus `app.signals.engine._long_term_through_bar_date`) for how Screen 1/Tide is
     itself recomputed per bar from only the weekly data available as of that bar's own
     calendar week -- not held fixed at today's value.
 

@@ -31,13 +31,15 @@ import pandas as pd
 from app.signals.confidence import ConfidenceComponent
 from app.signals.engine import (
     _determine_signal,
+    _long_term_through_bar_date,
     _wave_lookback,
-    _weekly_through_bar_date,
     analyse,
+    analyse_day_trader,
     analyse_history,
     drop_malformed_daily_bars,
 )
-from app.signals.triple_screen import TideResult, evaluate_tide
+from app.signals.timeframe import TimeframeUnit
+from app.signals.triple_screen import TideResult, evaluate_tide, evaluate_trigger
 
 
 def _nan_tolerant_equal(a: object, b: object) -> bool:
@@ -1038,6 +1040,280 @@ class TestAnalyseEndToEnd:
         assert all(pd.isna(v) for v in result.indicators["trend_strength"].values())
 
 
+class TestAnalyseShortTermOhlcvGenericTrigger:
+    """`short_term_ohlcv` (`backend-day-trader-timeframe-mode-signal-engine`): regression-plus-
+    new-behavior coverage for `analyse()`'s Screen 3/Trigger genericization -- see
+    `analyse()`'s own docstring paragraph and `evaluate_trigger`'s docstring for the full
+    rationale.
+
+    Both fixtures below share the same daily/weekly data: a BULLISH weekly tide, a real daily
+    oversold-pullback-then-rally sequence (BLUE daily Impulse, so it doesn't itself gate a
+    BUY), but with the daily frame's own next-to-last bar's ``high`` deliberately raised far
+    above the final day's close -- so Screen 3 never fires on ``daily_ohlcv`` alone, and the
+    fixture reaches HOLD purely on "Trigger didn't fire", not on Tide/Impulse/Wave. This
+    isolates exactly the one thing `short_term_ohlcv` is meant to change.
+    """
+
+    @staticmethod
+    def _bullish_daily_and_weekly_with_trigger_suppressed() -> tuple[pd.DataFrame, pd.DataFrame]:
+        closes = [100 + i * 0.5 for i in range(20)]
+        closes += [closes[-1] - 3 * i for i in range(1, 6)]
+        closes.append(closes[-1] + 8.0)
+        volumes = [1_000_000] * 24 + [9_000_000, 3_000_000]
+        highs = [c + 0.3 for c in closes]
+        # The prior bar's own high, deliberately raised far above anything the final bar's
+        # close could cross -- daily_ohlcv's own Screen 3 can never fire here, regardless of
+        # how sharp the final day's rally is, isolating "Trigger didn't fire on daily_ohlcv"
+        # from every other Screen/gate.
+        highs[-2] = closes[-2] + 50.0
+        daily_ohlcv = pd.DataFrame(
+            {
+                "open": closes,
+                "high": highs,
+                "low": [c - 0.3 for c in closes],
+                "close": closes,
+                "volume": volumes,
+            }
+        )
+        weekly_closes = pd.Series([100 * (1.05**i) for i in range(40)], dtype=float)
+        weekly_ohlcv = pd.DataFrame(
+            {
+                "open": weekly_closes,
+                "high": weekly_closes * 1.01,
+                "low": weekly_closes * 0.99,
+                "close": weekly_closes,
+                "volume": 1_000_000,
+            }
+        )
+        return daily_ohlcv, weekly_ohlcv
+
+    @staticmethod
+    def _short_term_ohlcv_that_fires_a_bullish_trigger() -> pd.DataFrame:
+        # A genuinely distinct (2-row) series from daily_ohlcv's own bars -- close crosses
+        # above the prior bar's high, so evaluate_trigger(this, "BULLISH") fires True.
+        return pd.DataFrame(
+            {
+                "open": [95.0, 99.0],
+                "high": [96.0, 100.0],
+                "low": [94.0, 98.5],
+                "close": [95.5, 99.5],
+                "volume": [500_000, 500_000],
+            }
+        )
+
+    def test_regression_omitting_short_term_ohlcv_matches_a_direct_daily_trigger_call(self) -> None:
+        """Regression: `analyse()`'s default (`short_term_ohlcv=None`) is byte-identical to
+        this function's pre-existing behavior -- Trigger evaluated on `daily_ohlcv` itself,
+        matching a standalone `evaluate_trigger(daily_ohlcv, tide)` call exactly. This is
+        swing mode's own code path -- every existing caller in this app leaves
+        `short_term_ohlcv` unset."""
+        daily_ohlcv, weekly_ohlcv = self._bullish_daily_and_weekly_with_trigger_suppressed()
+
+        result = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+
+        direct_trigger = evaluate_trigger(daily_ohlcv, result.screens["tide"]["trend"])
+        assert result.screens["trigger"] == direct_trigger
+        assert bool(result.screens["trigger"]["fired"]) is False
+        assert result.signal == "HOLD"
+
+    def test_short_term_ohlcv_none_and_short_term_ohlcv_omitted_produce_identical_results(
+        self,
+    ) -> None:
+        """`short_term_ohlcv=None` (the explicit value) and omitting the keyword entirely
+        must be indistinguishable -- confirms the parameter's default really is `None`, not
+        merely documented as such."""
+        daily_ohlcv, weekly_ohlcv = self._bullish_daily_and_weekly_with_trigger_suppressed()
+
+        omitted = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+        explicit_none = analyse("TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=None)
+
+        assert omitted.signal == explicit_none.signal
+        assert omitted.confidence == explicit_none.confidence
+        assert omitted.screens == explicit_none.screens
+
+    def test_short_term_ohlcv_overrides_trigger_evaluation(self) -> None:
+        """New behavior: when `short_term_ohlcv` is supplied and fires a Trigger that
+        `daily_ohlcv` alone wouldn't, `analyse()`'s `screens["trigger"]` (and therefore the
+        overall signal) follows `short_term_ohlcv`, not `daily_ohlcv` -- proving genuine
+        parameter wiring into Screen 3, not just documentation."""
+        daily_ohlcv, weekly_ohlcv = self._bullish_daily_and_weekly_with_trigger_suppressed()
+        short_term_ohlcv = self._short_term_ohlcv_that_fires_a_bullish_trigger()
+
+        without_short_term = analyse("TEST", daily_ohlcv, weekly_ohlcv)
+        with_short_term = analyse(
+            "TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=short_term_ohlcv
+        )
+
+        assert without_short_term.signal == "HOLD"
+        assert bool(with_short_term.screens["trigger"]["fired"]) is True
+        assert with_short_term.signal == "BUY"
+        # Nothing else (Tide/Impulse/Wave, hence the confidence breakdown's other four
+        # components) changes just because Trigger's own input series changed.
+        assert with_short_term.screens["tide"] == without_short_term.screens["tide"]
+        assert with_short_term.screens["impulse"] == without_short_term.screens["impulse"]
+        assert with_short_term.screens["wave"] == without_short_term.screens["wave"]
+
+    def test_short_term_ohlcv_is_cleaned_of_malformed_bars(self) -> None:
+        """`short_term_ohlcv` gets the same `drop_malformed_daily_bars` treatment as
+        `daily_ohlcv` -- a malformed (NaN-OHLC) latest bar is excluded rather than corrupting
+        the Trigger comparison with a NaN close."""
+        daily_ohlcv, weekly_ohlcv = self._bullish_daily_and_weekly_with_trigger_suppressed()
+        short_term_ohlcv = self._short_term_ohlcv_that_fires_a_bullish_trigger()
+        malformed_short_term_ohlcv = pd.concat(
+            [
+                short_term_ohlcv,
+                pd.DataFrame(
+                    {
+                        "open": [float("nan")],
+                        "high": [float("nan")],
+                        "low": [float("nan")],
+                        "close": [float("nan")],
+                        "volume": [500_000],
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
+
+        clean_result = analyse(
+            "TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=short_term_ohlcv
+        )
+        malformed_result = analyse(
+            "TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=malformed_short_term_ohlcv
+        )
+
+        # The malformed trailing bar is dropped, leaving the same 2 real rows -- identical
+        # Trigger outcome to the already-clean series.
+        assert malformed_result.screens["trigger"] == clean_result.screens["trigger"]
+        assert malformed_result.signal == clean_result.signal == "BUY"
+
+
+class TestAnalyseDayTrader:
+    """Tests for `analyse_day_trader()` (`backend-day-trader-timeframe-mode-signal-engine`) --
+    the day-trader-mode entry point that plumbs a `TimeframeTriple`'s three legs through the
+    exact same pipeline `analyse()` runs for swing mode."""
+
+    def test_delegates_to_analyse_with_the_three_legs_correctly_remapped(self) -> None:
+        daily_ohlcv, weekly_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._bullish_daily_and_weekly_with_trigger_suppressed()
+        )
+        short_term_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._short_term_ohlcv_that_fires_a_bullish_trigger()
+        )
+
+        direct = analyse(
+            "TEST", daily_ohlcv, weekly_ohlcv, short_term_ohlcv=short_term_ohlcv
+        )
+        via_day_trader = analyse_day_trader(
+            "TEST",
+            long_term_ohlcv=weekly_ohlcv,
+            intermediate_ohlcv=daily_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        # NaN-tolerant (not plain `==`) for the same reason as every other cross-check in this
+        # module -- `indicators["channel_upper"/"channel_lower"]` is NaN here (this fixture is
+        # far shorter than the Autoenvelope channel's ~100-bar warm-up), and IEEE 754 NaN != NaN.
+        assert _nan_tolerant_equal(via_day_trader, direct)
+
+    def test_produces_a_real_buy_from_a_fully_intraday_style_triple(self) -> None:
+        """End-to-end (no mocking) sanity check with three genuinely distinct OHLCV frames
+        (not literally intraday-frequency timestamps -- the Screen 1/2/3 math itself doesn't
+        care what wall-clock interval separates bars, only their count/ordering, per
+        `evaluate_tide`/`evaluate_wave`/`evaluate_trigger`'s own "generic over the active
+        timeframe" docstring paragraphs) -- proving `analyse_day_trader` produces a coherent,
+        real signal end to end, not just a pass-through shape check."""
+        daily_ohlcv, weekly_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._bullish_daily_and_weekly_with_trigger_suppressed()
+        )
+        short_term_ohlcv = (
+            TestAnalyseShortTermOhlcvGenericTrigger._short_term_ohlcv_that_fires_a_bullish_trigger()
+        )
+
+        result = analyse_day_trader(
+            "TEST",
+            long_term_ohlcv=weekly_ohlcv,
+            intermediate_ohlcv=daily_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+
+        assert result.screens["tide"]["trend"] == "BULLISH"
+        assert bool(result.screens["trigger"]["fired"]) is True
+        assert result.signal == "BUY"
+        assert 0 <= result.confidence <= 100
+        assert len(result.breakdown) == 5
+
+
+class TestLongTermThroughBarDateGenericUnits:
+    """`_long_term_through_bar_date`'s `long_term_unit` parameter
+    (`backend-day-trader-timeframe-mode-signal-engine`) -- the ``WEEK`` branch (the default,
+    unchanged) is already covered by ``TestAnalyseHistoryTideLookAhead`` below; this covers
+    the new ``DAY``/``MINUTE`` branch, not yet exercised by any real `analyse_history` caller
+    (see this task's `decisions` entry on why that caller doesn't exist yet)."""
+
+    def test_week_unit_default_matches_the_pre_existing_friday_anchored_behavior(self) -> None:
+        # W-FRI-labeled weekly bars, same convention app.data.stooq_provider.StooqProvider
+        # ._resample_weekly builds (each label is that bin's own Friday).
+        weekly_ohlcv = pd.DataFrame(
+            {"close": [100.0, 101.0, 102.0, 103.0, 104.0]},
+            index=pd.date_range("2026-01-02", periods=5, freq="W-FRI", name="date"),
+        )
+        # pd.DateOffset, not pd.Timedelta -- see _long_term_through_bar_date's own comment on
+        # the same NumPy/pandas DeprecationWarning pd.Timedelta(days=...) alone trips here.
+        bar_date = weekly_ohlcv.index[2] - pd.DateOffset(days=2)  # mid-week, before that Friday
+
+        explicit_default = _long_term_through_bar_date(weekly_ohlcv, bar_date)
+        explicit_week = _long_term_through_bar_date(
+            weekly_ohlcv, bar_date, long_term_unit=TimeframeUnit.WEEK
+        )
+
+        assert explicit_default.equals(explicit_week)
+        # The mid-week bar_date's own week Friday is weekly_ohlcv's 3rd row (index 2) -- see
+        # _long_term_through_bar_date's own docstring for why the *containing* week's Friday,
+        # not a literal `<= bar_date`, is the correct cutoff.
+        assert len(explicit_week) == 3
+
+    def test_day_unit_uses_a_direct_less_than_or_equal_filter(self) -> None:
+        long_term_ohlcv = pd.DataFrame(
+            {"close": [float(i) for i in range(10)]},
+            index=pd.date_range("2026-01-05", periods=10, freq="D", name="date"),
+        )
+        bar_date = long_term_ohlcv.index[4]
+
+        result = _long_term_through_bar_date(
+            long_term_ohlcv, bar_date, long_term_unit=TimeframeUnit.DAY
+        )
+
+        assert list(result.index) == list(long_term_ohlcv.index[:5])
+
+    def test_minute_unit_uses_a_direct_less_than_or_equal_filter(self) -> None:
+        long_term_ohlcv = pd.DataFrame(
+            {"close": [1.0, 2.0, 3.0, 4.0]},
+            index=pd.date_range("2026-01-05 09:30", periods=4, freq="25min", name="date"),
+        )
+        bar_date = long_term_ohlcv.index[1]
+
+        result = _long_term_through_bar_date(
+            long_term_ohlcv, bar_date, long_term_unit=TimeframeUnit.MINUTE
+        )
+
+        assert list(result.index) == list(long_term_ohlcv.index[:2])
+
+    def test_day_and_minute_units_never_look_ahead_past_bar_date(self) -> None:
+        long_term_ohlcv = pd.DataFrame(
+            {"close": [float(i) for i in range(10)]},
+            index=pd.date_range("2026-01-05", periods=10, freq="D", name="date"),
+        )
+        bar_date = long_term_ohlcv.index[3]
+
+        result = _long_term_through_bar_date(
+            long_term_ohlcv, bar_date, long_term_unit=TimeframeUnit.DAY
+        )
+
+        assert all(idx <= bar_date for idx in result.index)
+        assert long_term_ohlcv.index[4] not in result.index
+
+
 class TestConfidenceComponentPassthrough:
     """A focused check that compute_confidence()'s ConfidenceComponent objects (not just
     plain dicts/floats) are what analyse() returns in `breakdown`, matching
@@ -1371,7 +1647,7 @@ class TestAnalyseHistoryPerformance:
 
         daily_ohlcv = _dated_buy_daily_ohlcv()
         # 1 row -- below evaluate_tide's own 2-row minimum -- while still keeping a real
-        # DatetimeIndex (_weekly_through_bar_date requires one to compare against bar dates).
+        # DatetimeIndex (_long_term_through_bar_date requires one to compare against bar dates).
         weekly_ohlcv = _dated_buy_weekly_ohlcv().iloc[:1]
 
         with patch("app.signals.engine.ema", wraps=engine_module.ema) as mock_ema:
@@ -1398,7 +1674,7 @@ class TestAnalyseHistoryPerformance:
             expected = analyse(
                 "TEST",
                 daily_ohlcv.iloc[: i + 1],
-                _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[i]),
+                _long_term_through_bar_date(weekly_ohlcv, daily_ohlcv.index[i]),
             )
             assert bar_date == daily_ohlcv.index[i]
             assert result.signal == expected.signal
@@ -1476,7 +1752,7 @@ class TestAnalyseHistoryTideLookAhead:
     finding on docs/tasks/api-stocks-indicator-history.json): ``analyse_history`` must gate
     each historical point against the Tide *as of that bar's own date*, not against whatever
     Tide the full (today's) weekly series currently shows -- see
-    ``app.signals.engine._weekly_through_bar_date``.
+    ``app.signals.engine._long_term_through_bar_date``.
     """
 
     def test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value(self) -> None:
@@ -1517,8 +1793,8 @@ class TestAnalyseHistoryTideLookAhead:
         weekly_ohlcv = _flipping_tide_weekly_ohlcv()
         daily_ohlcv = _flat_daily_ohlcv_spanning(weekly_ohlcv)
 
-        early_window = _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[10])
-        late_window = _weekly_through_bar_date(weekly_ohlcv, daily_ohlcv.index[-1])
+        early_window = _long_term_through_bar_date(weekly_ohlcv, daily_ohlcv.index[10])
+        late_window = _long_term_through_bar_date(weekly_ohlcv, daily_ohlcv.index[-1])
 
         assert len(early_window) < len(late_window)
         assert len(late_window) == len(weekly_ohlcv)

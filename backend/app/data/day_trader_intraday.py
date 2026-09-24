@@ -19,10 +19,23 @@ Only `MINUTE`-unit legs of the triple need this module at all: a `DAY`/`WEEK`-un
 an intermediate leg configured as `"1d"`) is already served by the existing always-on
 yfinance/Stooq daily/weekly pipeline (`app.data.base.DataProvider`), the same as every leg of
 swing mode's own weekly/daily triple -- IBKR is only needed for genuinely intraday bars no
-other provider in this app can supply. `get_intraday_bars_for_triple` below reflects this:
-it returns `None` for the `intermediate` leg (never for `short_term`, which day-trader mode's
-whole premise makes the leg most likely, though not strictly guaranteed by `TimeframeTriple`'s
-own validation, to always be intraday) whenever that leg's unit isn't `MINUTE`.
+other provider in this app can supply. `get_intraday_bars_for_triple` below reflects this: it
+returns `None` for a leg whenever that leg's own unit isn't `MINUTE`, for all three legs
+(`long_term`/`intermediate`/`short_term`) -- never guaranteed for any particular leg by
+`TimeframeTriple`'s own validation, though `short_term` being intraday is day-trader mode's
+usual/expected case.
+
+**`long_term` fetching** (`backend-day-trader-timeframe-mode-signal-engine`, resolving a gap
+this task's own PR #311 review flagged as a non-blocking finding -- see
+`backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s checklist and this task's
+own `decisions` entry): the original version of this module (PR #311) only ever fetched
+`short_term`/`intermediate`, on the reasoning that day-trader mode's "usual case" keeps
+`long_term` on a slower, non-intraday timeframe. That's true for a mixed triple (e.g.
+`long_term="1d"`), but **not** for ch. 39's own canonical day-trading examples -- 25-min/
+5-min/2-min and 39-min/8-min are both *fully intraday* triples, where `long_term` is just as
+much a `MINUTE`-unit leg as the other two. `get_intraday_bars_for_triple` now fetches all
+three legs uniformly via the same `_fetch_leg` helper, so a fully-intraday triple is fully
+supported, not silently missing its Tide/Screen-1 data.
 """
 
 from __future__ import annotations
@@ -69,7 +82,7 @@ _DISABLED_DETAIL = "IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not s
 # there's no HTTP layer here to raise a 503 from, so it's surfaced as a fourth state instead.
 IntradayAvailability = Literal["available", "disabled", "gateway_unreachable", "not_authenticated", "unavailable"]
 
-DayTraderLeg = Literal["intermediate", "short_term"]
+DayTraderLeg = Literal["long_term", "intermediate", "short_term"]
 
 
 @dataclass(frozen=True)
@@ -101,10 +114,15 @@ class IntradayLegResult:
 class DayTraderIntradayBars:
     """The result of fetching intraday bars for whichever leg(s) of a `TimeframeTriple`
     need IBKR data. Each field is `None` when that leg's unit isn't `MINUTE` (it doesn't need
-    IBKR at all -- see this module's own docstring); `short_term` is `None` under exactly the
-    same condition as `intermediate`, even though day-trader mode's usual case has
-    `short_term` always be intraday -- `TimeframeTriple` itself doesn't enforce that."""
+    IBKR at all -- see this module's own docstring); all three fields are `None` under exactly
+    the same per-leg condition (that leg's own unit isn't `MINUTE`), even though day-trader
+    mode's usual case has `short_term` (and often `intermediate`) always be intraday while
+    `long_term` more often isn't -- `TimeframeTriple` itself doesn't enforce any of that, and a
+    fully-intraday triple (ch. 39's own 25-min/5-min/2-min or 39-min/8-min examples, generalized
+    to a third fully-configurable leg) needs `long_term` fetched here too -- see this module's
+    own docstring."""
 
+    long_term: IntradayLegResult | None
     short_term: IntradayLegResult | None
     intermediate: IntradayLegResult | None
 
@@ -245,7 +263,9 @@ def get_intraday_bars_for_triple(
     lookback_days: int = 30,
 ) -> DayTraderIntradayBars:
     """Fetches intraday bars for whichever leg(s) of `triple` are `MINUTE`-unit (checklist
-    item 2) -- `provider=None` (matching `app.api.dependencies.get_ibkr_provider`'s own
+    item 2 of `backend-day-trader-timeframe-mode-ibkr-intraday`; extended to also fetch
+    `long_term` by `backend-day-trader-timeframe-mode-signal-engine` -- see this module's own
+    docstring) -- `provider=None` (matching `app.api.dependencies.get_ibkr_provider`'s own
     `Settings.ibkr_enabled=False` contract) degrades every applicable leg to
     `state="disabled"` rather than raising, so day-trader mode being *configured* never
     itself requires IBKR to be reachable (checklist item 3).
@@ -256,6 +276,9 @@ def get_intraday_bars_for_triple(
     nothing meaningful to pass here and shouldn't call this function at all for that ticker.
     """
     return DayTraderIntradayBars(
+        long_term=_fetch_leg(
+            "long_term", triple.long_term, provider=provider, conid=conid, lookback_days=lookback_days
+        ),
         short_term=_fetch_leg(
             "short_term", triple.short_term, provider=provider, conid=conid, lookback_days=lookback_days
         ),

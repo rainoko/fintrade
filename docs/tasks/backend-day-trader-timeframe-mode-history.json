@@ -1,0 +1,26 @@
+{
+  "id": "backend-day-trader-timeframe-mode-history",
+  "title": "Day-trader mode: walk-forward historical signal replay (analyse_history) over intraday data",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": [
+    "backend-day-trader-timeframe-mode-signal-engine",
+    "backend-day-trader-timeframe-mode-ibkr-intraday"
+  ],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json",
+    "docs/architecture/Backend.md#5-signal-engine",
+    "docs/architecture/Backend.md#8-optional-ibkr-client-portal-web-api-provider"
+  ],
+  "description": "Follow-up split out of backend-day-trader-timeframe-mode-signal-engine's own `decisions` entry: that task genericized `app.signals.engine.analyse()`'s single-point-in-time evaluation (via the new `analyse_day_trader()` entry point) and gave `_long_term_through_bar_date` (renamed from `_weekly_through_bar_date`) a `long_term_unit` parameter with a working `DAY`/`MINUTE` branch, but deliberately did not build day-trader-mode support for `app.signals.engine.analyse_history()` -- the walk-forward, per-bar historical replay that powers `GET /api/stocks/{ticker}/indicators`'s chart overlay for swing mode.\n\n`app.data.day_trader_intraday.get_intraday_bars_for_triple`/`get_active_day_trader_intraday_bars` only ever fetch 'the most recent N days of bars, as of now' -- the right shape for a live signal computation, but not for a growing walk-forward replay over historical intraday data the way `analyse_history` does for swing mode (precomputing indicator series once over the full history, then slicing per bar). Building this needs a genuinely new IBKR historical-fetch design: paginating backward through a much longer intraday history window while still respecting `IBKRProvider`'s own per-call pagination bounds (`_MAX_PAGINATION_PAGES`/`_MAX_BARS_PER_PAGE`), and deciding what 'look-ahead' means for a bar-by-bar replay across three intraday legs resampled at different multiples of the same underlying feed.\n\nThis is genuinely optional/lower-priority relative to the other day-trader-mode follow-ups: a day-trader-mode chart-overlay history view is a real feature gap, but the live single-signal computation (`analyse_day_trader`, already built) is the more fundamental capability, and `backend-day-trader-timeframe-mode-api` doesn't strictly need this to expose a live day-trader-mode analysis endpoint.",
+  "checklist": [
+    { "step": "Design the IBKR historical-fetch shape needed for a growing walk-forward replay over intraday bars (pagination strategy, how far back to fetch, how to respect IBKR's own pagination bounds) -- record the design and rejected alternatives via `decisions`.", "done": false },
+    { "step": "Decide what 'no look-ahead' means for a per-bar replay across three intraday legs resampled at different multiples of the same underlying feed, and how `_long_term_through_bar_date`'s `MINUTE`/`DAY` branch (already built) fits into it.", "done": false },
+    { "step": "Wire day-trader-mode support into `analyse_history()` (or a new day-trader-mode-specific equivalent), with the same precompute-and-slice performance discipline the swing-mode implementation already uses.", "done": false },
+    { "step": "Unit/integration tests, including a mocked IBKR intraday provider exercising a real multi-bar walk-forward replay end to end (no live network call).", "done": false },
+    { "step": "Update docs/architecture/Backend.md §10's 'Not yet landed' list accordingly.", "done": false }
+  ],
+  "decisions": [],
+  "questions": []
+}
