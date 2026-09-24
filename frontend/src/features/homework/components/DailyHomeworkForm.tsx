@@ -12,6 +12,7 @@ import type { ApiError } from '../../../api/client'
 import type { DailyHomeworkIn, DailyHomeworkOut } from '../../../api/homework'
 import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
+import { useOnValueChange } from '../../portfolio/hooks/useResetOnSubjectChange'
 import { useDailyHomeworkToday } from '../hooks/useDailyHomeworkToday'
 import { useRecordDailyHomework } from '../hooks/useRecordDailyHomework'
 import { useYesterdayTradingSuggestion } from '../hooks/useYesterdayTradingSuggestion'
@@ -136,13 +137,6 @@ function HomeworkQuestionsForm({
   // `react-hooks/refs`) disallows reading a ref's `current` during render --
   // only in effects/handlers, neither of which this needs.
   const [hasEditedYesterdayScore, setHasEditedYesterdayScore] = useState(false)
-  // Tracks the last `suggestedScore` this component has already reacted to,
-  // so the adjustment below only fires once per actual change, the same
-  // guarded pattern `useResetOnSubjectChange`/`AddPositionDialog` use for
-  // "adjust state when a prop changes" (React's own documented alternative
-  // to a `useEffect` for this: https://react.dev/learn/you-might-not-need-an-effect,
-  // also avoids the lint-enforced `react-hooks/set-state-in-effect` rule).
-  const [prevSuggestedScore, setPrevSuggestedScore] = useState(suggestedScore)
 
   // Prefills `yesterday_trading_score` once the suggestion resolves, for a
   // genuinely new entry only. Deliberately done during render rather than in
@@ -152,20 +146,23 @@ function HomeworkQuestionsForm({
   // no existing entry (see `DailyHomeworkForm`), so on a cold load it hasn't
   // started fetching -- let alone resolved -- by the time this component
   // first mounts; an initializer can only ever capture what's known at that
-  // first mount. Adjusting state during render (rather than in an effect)
-  // means the prefilled value lands in the very same render `suggestedScore`
-  // changes in, with no extra committed frame showing the stale value first.
-  if (suggestedScore !== prevSuggestedScore) {
-    setPrevSuggestedScore(suggestedScore)
+  // first mount. `useOnValueChange` (the same guarded "adjust state when a
+  // prop changes" pattern `useResetOnSubjectChange`/`AddPositionDialog` use,
+  // generalized to hand the new value to the callback) does the
+  // compare-and-react-during-render bookkeeping this needs, so the prefilled
+  // value lands in the very same render `suggestedScore` changes in, with no
+  // extra committed frame showing the stale value first -- and also avoids
+  // the lint-enforced `react-hooks/set-state-in-effect` rule.
+  useOnValueChange(suggestedScore, (newSuggestedScore) => {
     // An existing entry's own recorded answer always wins -- never
     // overwritten by a same-day suggestion recomputed after the fact (the
     // parent also never enables the suggestion query in this case, but the
     // check stays here too since this adjustment owns the write to
     // `scores`).
-    if (!initialResult && !hasEditedYesterdayScore && suggestedScore !== null) {
-      setScores((current) => ({ ...current, yesterday_trading_score: suggestedScore }))
+    if (!initialResult && !hasEditedYesterdayScore && newSuggestedScore !== null) {
+      setScores((current) => ({ ...current, yesterday_trading_score: newSuggestedScore }))
     }
-  }
+  })
 
   const handleChange = (key: ScoreKey) => (event: SelectChangeEvent) => {
     if (key === 'yesterday_trading_score') {
