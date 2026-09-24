@@ -3,7 +3,7 @@
   "title": "Day-trader mode: genericize Triple Screen (Tide/Wave/Trigger) evaluation over the active timeframe triple",
   "area": "backend/signals",
   "skill": "verify-elder-signal",
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-day-trader-timeframe-mode",
     "backend-day-trader-timeframe-mode-ibkr-intraday"
@@ -55,5 +55,32 @@
     "pr_number": 312,
     "pr_url": "https://github.com/rainoko/fintrade/pull/312",
     "pushed_at": "2026-09-24T18:52:35Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T19:05:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/312",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: `app.signals.confidence.score_volume_confirmation`'s \"trigger bar volume\" arm reads `daily_ohlcv[\"volume\"]` (the intermediate leg) unconditionally in `analyse()`, even when `short_term_ohlcv` is supplied and Trigger fires against a genuinely distinct short-term series -- so in day-trader mode the volume-confirmation component checks the intermediate bar's volume, not the actual triggering short-term bar's volume, a real (narrow, OR'd-with-Force-Index-spike) drift from docs/Analyse.md §6's \"trigger bar volume\" language once Screen 3 no longer shares Wave's timeframe. No live impact today since nothing in app/api/routers or app/portfolio references TradingMode/analyse_day_trader yet, but the PR's own self-review overstates full confidence-scoring timeframe-agnosticism on this one point. Tracked as backend-day-trader-timeframe-mode-signal-engine-followups.",
+        "file": "backend/app/signals/engine.py",
+        "line": 620
+      },
+      {
+        "summary": "Non-blocking: `TimeframeUnit`'s class docstring still references `app.signals.engine._weekly_through_bar_date`, which this PR itself renamed to `_long_term_through_bar_date` -- a stale identifier left behind by the rename (every other reference in docs/architecture/Backend.md and engine.py/tests was updated correctly). Tracked as backend-day-trader-timeframe-mode-signal-engine-followups.",
+        "file": "backend/app/signals/timeframe.py",
+        "line": 46
+      },
+      {
+        "summary": "Non-blocking/bookkeeping: this PR resolves backend-day-trader-timeframe-mode-ibkr-intraday-followups.json's checklist item 3 (fetching the long_term leg for a fully-intraday triple) in substance, but that followup task's own checklist entry was never marked done to reflect it. Tracked as backend-day-trader-timeframe-mode-signal-engine-followups.",
+        "file": "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json"
+      },
+      {
+        "summary": "Non-blocking: `get_intraday_bars_for_triple` now issues three sequential synchronous IBKR round-trips (extended from two by this PR) instead of fetching the independent per-leg data concurrently -- for a fully-intraday triple this now costs 3x sequential latency instead of 2x. The same concern is already tracked (for the two-leg case) on backend-day-trader-timeframe-mode-ibkr-intraday-followups.json's checklist item 1; also confirmed independently by a code-review (effort: high) pass over this diff. Tracked as backend-day-trader-timeframe-mode-signal-engine-followups.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 278
+      }
+    ],
+    "notes": "Full review of PR #312 (task/backend-day-trader-timeframe-mode-signal-engine). Tests: backend 1319 passed, 100% line/branch coverage; frontend 882 passed, 99.77%/99.08%/99.79%/99.82% stmt/branch/func/line coverage -- both well above the 90% gate, no regression. Static analysis: ruff, mypy, eslint, tsc -b --noEmit, and scripts/check_profit_target_wording.py all clean. backend/openapi.json re-generated locally and diffed byte-identical against the committed snapshot (the only backend/API-facing change in this PR is a docstring comment in stocks.py, correctly mirrored into openapi.json/types.ts). Swing-mode byte-identical regression independently re-verified (not just trusting the PR's own claim): wrote a standalone script computing analyse()/analyse_history() over 4 independent scenarios (a 300-bar random walk, a 200-bar bullish trend, a 5-bar short-history edge case, and a 100-bar analyse_history walk-forward range) once on main (via a throwaway git worktree) and once on this branch, dumping every field (signal/confidence/confidence_band/breakdown/screens/indicators/divergence/kangaroo_tail) to JSON and diffing -- zero differences. elder-signal-reviewer pass (verify-elder-signal skill, applied rigorously): Screen 1/Tide is still exactly the weekly-Impulse-color methodology correction (unchanged, confirmed via evaluate_tide's own code, not just its docstring); the Impulse gate's two-independent-timeframe decoupling (weekly Tide-driving color vs. daily entry-gate color, both via the same evaluate_impulse call) is intact; _determine_signal's BUY/SELL/HOLD gating logic is byte-for-byte unchanged; confidence weights (30/20/25/15/10) and every component's derivation are unchanged except the volume-confirmation gap noted above. Confirmed the portfolio/risk.py deferral creates no live inconsistency today: grepped app/api/routers and app/portfolio for TradingMode/analyse_day_trader references and found none -- day-trader mode has zero wiring anywhere in the API/portfolio layer yet, so nothing can silently combine a day-trader-mode signal with swing-mode-only risk/profit-target math through any real endpoint; the deferral to backend-day-trader-timeframe-mode-portfolio-risk (created by this PR) is a sound scope call, not a half-working state. Read the new integration test (tests/integration/test_day_trader_mode_signal_engine.py) critically: it exercises trading_mode settings -> mocked-IBKR intraday fetching (all 3 legs, matching ch. 39's fully-intraday canonical examples) -> analyse_day_trader end to end, genuinely proves the short-term leg (not the intermediate leg) drives the Trigger result via a fixture where only the 2-minute short_term series can fire the trigger, and asserts a real BUY with a valid confidence/breakdown shape -- sound, not just a green check. Reviewed the two new follow-up tasks this PR created (backend-day-trader-timeframe-mode-portfolio-risk, backend-day-trader-timeframe-mode-history): both well-scoped, correctly reference this task and each other's dependencies, and correctly frame the genuine open design questions (bar-count-window generalization, weekly-chart profit-target scope decision, IBKR historical-fetch pagination design) rather than presenting them as solved. Decision-memory cross-check: the one 'decide X' checklist item (checklist item 1, genericization scope) has a full decisions entry with rationale; the other three decisions entries (parameter-rename scope, short_term_ohlcv wiring, analyse_history deferral) are also properly recorded, not left implicit in code. No new module/dependency/layer added (only existing modules extended), so architecture-review was not run -- not applicable. No UI-facing work: this PR touches only backend/app/signals, backend/app/data/day_trader_intraday.py, and docs -- no API route, schema, or frontend component changed (the one frontend/backend touch is a byte-for-byte docstring-comment mirror in openapi.json/types.ts) -- so the browser walkthrough (step 9) and the persisted e2e suite (step 9a) were both explicitly skipped as not applicable, not silently omitted. git worktree used for the main-branch regression comparison was removed after use; the pre-existing 'not mine, do not discard' stash entry was left completely untouched throughout (git stash was never invoked). Also ran a full code-review (skill, effort high) pass over the diff as a corroborating check: it independently traced every renamed symbol to all call sites, verified the analyse_day_trader/short_term_ohlcv wiring and the DayTraderIntradayBars long_term extension against every constructor/call site, found no correctness bugs, and independently surfaced the same stale timeframe.py docstring reference plus the sequential-IBKR-fetch-latency point noted above. Four non-blocking findings total recorded above and filed as backend-day-trader-timeframe-mode-signal-engine-followups (checklist items, not yet done)."
   }
 }

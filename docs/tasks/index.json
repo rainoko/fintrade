@@ -1895,8 +1895,15 @@
       "id": "backend-day-trader-timeframe-mode-signal-engine",
       "area": "backend/signals",
       "skill": "verify-elder-signal",
-      "state": "testing",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-signal-engine.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-signal-engine-followups",
+      "area": "backend/signals",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-portfolio-risk",

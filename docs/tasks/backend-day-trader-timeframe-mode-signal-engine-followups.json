@@ -1,0 +1,33 @@
+{
+  "id": "backend-day-trader-timeframe-mode-signal-engine-followups",
+  "title": "Non-blocking findings from PR #312's review (backend-day-trader-timeframe-mode-signal-engine)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-signal-engine"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json",
+    "https://github.com/rainoko/fintrade/pull/312"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #312 (backend-day-trader-timeframe-mode-signal-engine), which accepted the PR -- tests (1319 backend / 882 frontend) pass, 100%/99.8% coverage, ruff/mypy/eslint/tsc/profit-target-wording-guard all clean, swing-mode's `analyse()`/`analyse_history()` output independently re-verified byte-identical pre/post-diff (not just the PR's own claim), and the new `analyse_day_trader()`/extended `day_trader_intraday.py` end-to-end integration test read as sound. This task collects the review's non-blocking findings so they aren't lost once PR #312 merges.",
+  "checklist": [
+    {
+      "step": "`app.signals.confidence.score_volume_confirmation`'s \"trigger bar volume\" arm (docs/Analyse.md §6, 10% weight, wired in `app.signals.engine.analyse` as `volume = daily_ohlcv[\"volume\"]` around the confidence-scoring branch) unconditionally reads `daily_ohlcv`'s latest bar -- i.e. the *intermediate*-timeframe leg -- even when `short_term_ohlcv` is supplied and Screen 3/Trigger genuinely fires against a distinct short-term series. In day-trader mode this means the \"trigger bar volume\" check evaluates the intermediate bar's volume, not the actual short-term bar where the trigger fired -- a real (narrow, single 10%-weighted, OR'd-with-Force-Index-spike) drift from docs/Analyse.md §6's own \"trigger bar volume\" language once Trigger no longer shares Wave's timeframe. No live impact today (`analyse_day_trader()` has no API/UI caller yet -- confirmed nothing in `app/api/routers/` or `app/portfolio/` references `TradingMode`/`analyse_day_trader` at all), but PR #312's own self-review claim that confidence scoring is fully timeframe-agnostic once Screen 3 is genericized overstates this one component. Decide (and record via `decisions`) whether day-trader mode's volume-confirmation component should read `short_term_ohlcv`'s own latest bar instead, or whether staying on the intermediate leg is the intended interpretation (matching how Force Index spike, the other half of this OR, also stays on the intermediate leg) -- ideally resolved alongside `backend-day-trader-timeframe-mode-api` once day-trader mode has a real caller to test against.",
+      "done": false
+    },
+    {
+      "step": "`app/signals/timeframe.py`'s `TimeframeUnit` class docstring still references `app.signals.engine._weekly_through_bar_date`, which PR #312 itself renamed to `_long_term_through_bar_date` -- a stale identifier reference this PR's own rename should have caught (every other reference across `docs/architecture/Backend.md`/`engine.py`/tests was updated correctly). Fix: update that one docstring line to the new name.",
+      "done": false
+    },
+    {
+      "step": "`docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s checklist item 3 (deciding how `get_intraday_bars_for_triple` should handle a fully-intraday triple where `long_term` is also `MINUTE`-unit) is effectively resolved by PR #312 (`app.data.day_trader_intraday` now fetches all three legs uniformly), but that followup task's own checklist entry was never marked `done` to reflect it -- a task-board bookkeeping gap, not a code issue. Mark that checklist item `done` (with a note pointing at PR #312) once picked up.",
+      "done": false
+    },
+    {
+      "step": "`get_intraday_bars_for_triple` now issues three sequential synchronous `provider.get_hourly_bars` calls (extended from two by PR #312, one per MINUTE-unit leg) instead of running the independent per-leg fetches concurrently -- for a fully-intraday triple (ch. 39's own 25-min/5-min/2-min motivating case), a day-trader-mode analysis now pays three sequential IBKR round-trip latencies instead of two. `docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s own checklist item 1 already tracks this same concern for the original two-leg version (\"worth revisiting once a real caller exists and the actual latency impact can be measured\") -- update that item's wording to reflect the now-three-leg case (or fold this entry into it) rather than tracking the same concurrency question in two places once a real caller (`backend-day-trader-timeframe-mode-api`) exists to measure against.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
