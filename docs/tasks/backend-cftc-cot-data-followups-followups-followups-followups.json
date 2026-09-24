@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #276's review (vitest maxWorkers cap: evidence-trail consistency and cap-value tuning)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-cftc-cot-data-followups-followups-followups"
   ],
@@ -20,7 +20,7 @@
     },
     {
       "step": "The chosen `maxWorkers: 4` cap may be more conservative than necessary. During this review, `--maxWorkers=8` passed cleanly across 8 total runs on the same 24-core devcontainer that reproduces the flake at `--maxWorkers=23` (mimicking the old uncapped default), while completing the full suite in ~33s versus ~57s at the committed `maxWorkers: 4` -- a ~42% wall-clock improvement that would apply to every future CI/local run, not just these two files. The task's `decisions` entry states 4 was chosen 'as the smallest value that produced zero flakes across every rerun,' but nothing in the record shows intermediate values (6, 8, 10, 12, ...) were actually tried before settling on 4. Worth a follow-up investigation (a proper multi-run bisection, ideally across more than one host) to see whether a less conservative cap can recoup some of the added wall-clock cost without reintroducing the timeout flake, given this is now a hard-coded value affecting the whole suite indefinitely.",
-      "done": true
+      "done": false
     }
   ],
   "git": {
@@ -43,5 +43,23 @@
       "rationale": "12 (rather than pushing further toward 23, or picking an untested intermediate/higher value) keeps a healthy safety margin against the known flake-reproducing worker count on this host class while still recovering most of the wall-clock the original conservative cap of 4 gave up (~54s to ~30s, a ~44% improvement, close to the ~42% the pr-reviewer's spot-check at 8 had already suggested was available). The task's own suggested test values (6, 8, 10, 12) were used as-is rather than continuing to bisect upward past 12 toward 23, since going that close to the reproduced-flake threshold would trade away the safety margin the whole investigation exists to preserve for a further wall-clock gain that's shrinking anyway (12 to hypothetical higher values showed diminishing returns: 10 to 12 was already only ~2-3s). Only tested on this one 24-core host (not multiple hosts, which the original task's finding suggested would be ideal) -- a lower-core-count CI host would only ever cap `os.availableParallelism() - 1` lower than 12 in the first place, so a value of 12 can't overshoot on such a host; a much-higher-core-count host untested here is the only direction this margin could theoretically not hold, which the comment's revisit note flags."
     }
   ],
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-24T03:34:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/294",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the PR's central safety claim -- that a lower-core-count host 'can't overshoot' `maxWorkers: 12` because vitest clamps an explicit numeric `maxWorkers` down to `os.availableParallelism() - 1` -- is factually wrong, and the config regresses the exact bug this whole task lineage exists to fix once that's accounted for. Confirmed two independent ways: (1) vitest's own source (`getEffectiveMaxWorkers()`/`resolveMaxWorkers()` in `vitest/dist/chunks/index.DzobfTyw.js`) returns `project.config.maxWorkers` verbatim with zero clamping whenever it's a positive number -- the `Math.max(1, availableParallelism() - 1)` fallback only applies when `maxWorkers` is unset; (2) empirically, running the full suite under `taskset -c 0-1` (a real 2-core restriction, confirmed via `os.availableParallelism()` reporting 2 inside that taskset) with the committed `maxWorkers: 12` reproduced 15/841 'Test timed out in 5000ms' failures identically across all 3 runs (100% reproduction, not a rare flake), while the previous `maxWorkers: 4` passed cleanly 2/2 under the identical 2-core restriction. This repo has no CI workflow configured yet (`docs/architecture/Testing.md` explicitly defers 'Exact CI platform/workflow file' as a separate, uncovered decision) and `.devcontainer/devcontainer.json` pins no CPU count, so a future CI runner or a differently-provisioned devcontainer with materially fewer than 12 usable cores is a real, not hypothetical, possibility -- and this config would then deterministically reintroduce the timeout flake, not just risk it. On the 24-core host itself, the chosen value has a comfortable margin (12 and even 16/20 all passed cleanly, 3/3 runs each, well short of the ~23-worker count that reproduces the original flake there) -- the problem is entirely the fixed absolute count not scaling down on other hosts, not the value 12 being unsafe on this one host. Suggested fixes (any one addresses this): (a) use vitest's percentage-based `maxWorkers` (e.g. `'50%'`), which vitest computes from `os.availableParallelism()` at run time via `getWorkersCountByPercentage()`, so it scales safely with whatever host actually runs it instead of hardcoding an absolute count; (b) bisect a value proven safe under an artificially core-constrained run (e.g. via `taskset`) in addition to the high-core host, and pick a value safe at both ends; or (c) explicitly document a minimum-core assumption this config now requires and accept that as a scoped, deliberate risk. Independently corroborated by a `code-review` skill pass, which reached the same root cause via the same vitest source lines and additionally flagged that the task's new decisions entry gets the risk direction backwards (a higher-core host is strictly safer under an unclamped fixed cap -- more headroom for the same 12 processes -- while a lower/mid-core host is the actually risky, unaddressed direction, not the 'much-higher-core-count host' the comment's revisit note names).",
+        "file": "frontend/vite.config.ts",
+        "line": 66
+      },
+      {
+        "summary": "Non-blocking: the two new `decisions` entries added by this PR (reconciliation and bisection) share the identical timestamp `2026-09-24T03:00:00Z` despite describing two sequential investigations (a 7-run reconciliation, then a separate 20-run bisection across four worker counts) that by their own numbers took many minutes of full-suite vitest runtime and could not actually have happened in the same instant. Low severity, but notable given this task exists specifically to fix evidence-trail sloppiness -- filed as a tracked follow-up rather than only left here since it's independent of the blocking maxWorkers finding and could otherwise be lost once this PR's discussion is superseded by the next revision.",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 34
+      }
+    ],
+    "notes": "Backend: ruff/mypy clean, pytest 1203 passed, 100.00% coverage. Frontend: eslint/tsc clean, profit-target wording guard clean, `scripts/validate_tasks.py` clean (289 files). Full frontend suite at the committed config (maxWorkers: 12, unrestricted 24-core host): 841/841 passed, coverage 99.76%/99.31%/99.78%/99.82% (statements/branches/functions/lines), all above the 90% gate. Independently re-ran the bisection at 12/16/20 on the unrestricted host (3 clean runs each) -- comfortable margin below the flake-reproducing ~23 on this host, confirming the PR's own-host numbers. The blocking issue is entirely about the fixed cap's portability to hosts with materially fewer cores than this one, not about 12 being an unsafe choice on this specific 24-core devcontainer. No API/schema touched (openapi.json check n/a). No new module/dependency/layer (architecture-review n/a). Not backend/signals or backend/portfolio (verify-elder-signal n/a). No UI surface -- browser walkthrough and the persisted e2e suite (step 9/9a) were explicitly skipped rather than silently omitted, since only `frontend/vite.config.ts` test config and task-board JSON changed. No prior human PR comments/reviews found on #294."
+  }
 }
