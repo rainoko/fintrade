@@ -18,9 +18,11 @@ docs/tasks/backend-profit-target-weekly-channel-followups.json's checklist item 
 from __future__ import annotations
 
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
+import tokenize
 import unittest
 from pathlib import Path
 from typing import Any, ClassVar
@@ -430,6 +432,127 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
             "    \"Autoenvelope\"\n"
             ")\n",
         )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_byte_string_only_run_is_safely_skipped_not_misreported(self) -> None:
+        # Round 6 review follow-up finding (this task's own checklist item 6):
+        # `_decode_string_token_with_offsets` returns None for a byte-string literal
+        # (correct -- a byte string holds bytes, not text), but a run made ENTIRELY
+        # of byte-string literals is also valid Python (only *mixing* bytes and
+        # non-bytes literals in one run is forbidden, not multiple bytes literals
+        # together) and shares the same any-member-undecodable-skips-the-whole-run
+        # contract as an f-string run. Must not crash or mis-report -- just skip the
+        # whole run, matching the already-correct single-byte-string-piece behavior.
+        path = self.repo.write(
+            "backend/app/api/example_bytes_only_run.py",
+            "description = (\n"
+            "    b\"today's \"\n"
+            "    b\"Autoenvelope\"\n"
+            ")\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_two_different_patterns_matching_same_run_line_are_both_reported(self) -> None:
+        # This task's own checklist item 5: _find_run_violations's dedup key must
+        # match the per-line scan's own (pattern_index, lineno) granularity, not
+        # lineno alone -- two different _BANNED_PATTERNS entries both matching
+        # within the same run and resolving to the same reported start line must be
+        # counted as two distinct violations, not undercounted to one. All four
+        # pieces sit on one physical line (each match crosses a piece boundary
+        # without crossing a physical line, so both matches' start_line is the same
+        # line) -- the shape that specifically exercises the run's own `reported`
+        # dedup set, not the separate per-line-scan dedup set.
+        path = self.repo.write(
+            "backend/app/api/example_two_patterns_one_run_line.py",
+            "description = \"today's \" \"Autoenvelope and that \" \"day's \" \"Autoenvelope\"\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 2)
+        self.assertIn("example_two_patterns_one_run_line.py:1", violations[0])
+        self.assertIn("example_two_patterns_one_run_line.py:1", violations[1])
+
+    # Shared nested-f-string source for the two tests below: an outer f-string
+    # containing a genuinely nested inner f-string (PEP 701, this project's
+    # required Python 3.12), implicitly concatenated to a leading and a trailing
+    # plain string.
+    _NESTED_FSTRING_SOURCE = (
+        "description = (\n"
+        "    \"today's \"\n"
+        "    f\"outer {f'inner {1}'} middle \"\n"
+        "    \"Autoenvelope\"\n"
+        ")\n"
+    )
+
+    def test_find_fstring_end_index_tracks_nesting_depth(self) -> None:
+        # Direct unit test of _find_fstring_end_index itself (checklist item 8),
+        # rather than through the full check_banned_patterns pipeline: this
+        # function's own tokenize-index-arithmetic return value is what
+        # _iter_implicit_concat_runs uses to decide how many tokens to skip past a
+        # run-forming f-string (see that function's own comment), so this is the
+        # narrowest place a depth-tracking regression would actually originate --
+        # going through the full pipeline instead lets a later short-circuit
+        # (_find_run_violations bailing out to `[]` the instant it hits any
+        # undecodable member) mask the difference between correct and
+        # naive/non-depth-tracking behavior, which is exactly the gap PR #307's
+        # review found in the pipeline-level version of this test.
+        tokens = list(tokenize.generate_tokens(io.StringIO(self._NESTED_FSTRING_SOURCE).readline))
+        outer_start_index = next(
+            i for i, tok in enumerate(tokens) if tok.type == tokenize.FSTRING_START and tok.string == 'f"'
+        )
+        inner_end_index = next(
+            i
+            for i, tok in enumerate(tokens)
+            if i > outer_start_index and tok.type == tokenize.FSTRING_END and tok.string == "'"
+        )
+        outer_end_index = next(
+            i
+            for i, tok in enumerate(tokens)
+            if i > inner_end_index and tok.type == tokenize.FSTRING_END and tok.string == '"'
+        )
+        # Sanity-check the fixture's own token shape first, so a future tokenizer
+        # change that reshuffles indices fails loudly here rather than silently
+        # making the real assertion below vacuous.
+        self.assertNotEqual(inner_end_index, outer_end_index)
+
+        found_index = cptw._find_fstring_end_index(tokens, outer_start_index)
+
+        # The naive, non-depth-tracking bug this guards against returns the FIRST
+        # FSTRING_END encountered scanning forward -- the INNER one -- terminating
+        # the outer f-string early. The correct, depth-tracking behavior must
+        # return the outer f-string's own matching FSTRING_END instead.
+        self.assertEqual(found_index, outer_end_index)
+        self.assertNotEqual(found_index, inner_end_index)
+
+    def test_nested_fstring_run_includes_trailing_string(self) -> None:
+        # Integration-level companion to the direct unit test above: verifies that
+        # _iter_implicit_concat_runs' actual consumer of _find_fstring_end_index's
+        # return value (`index = end_index + 1`, skipping past the whole f-string
+        # as one opaque member) behaves correctly end to end -- the trailing
+        # "Autoenvelope" string must still join the same run as the leading
+        # "today's " string, on either side of the nested f-string. Under the
+        # naive/broken version, the wrong (inner) end index leaves the outer
+        # f-string's own remaining MIDDLE/OP/FSTRING_END tokens unconsumed; those
+        # then each fail the STRING/FSTRING_START check and reset the run before
+        # the trailing string is ever reached, producing a shorter, incomplete run
+        # instead of raising -- confirmed by reproducing PR #307's own
+        # monkeypatch-to-naive probe against this exact test before writing it.
+        runs = cptw._iter_implicit_concat_runs(self._NESTED_FSTRING_SOURCE)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(len(runs[0]), 3)
+        self.assertEqual(runs[0][0].string, "\"today's \"")
+        self.assertEqual(runs[0][1].type, tokenize.FSTRING_START)
+        self.assertEqual(runs[0][1].string, 'f"')
+        self.assertEqual(runs[0][2].string, '"Autoenvelope"')
+
+    def test_nested_fstring_is_not_falsely_flagged(self) -> None:
+        # Pipeline-level sanity check that the nested-f-string run above is safely
+        # skipped end to end (never mis-decoded, never falsely flagged) -- a
+        # DIFFERENT property than the two tests above, which is what actually
+        # discriminates correct depth tracking from broken: check_banned_patterns
+        # returns `[]` for this source under BOTH correct and naive/broken
+        # _find_fstring_end_index behavior (see PR #307's review finding), so this
+        # test alone cannot and does not stand in for the direct tests above.
+        path = self.repo.write("backend/app/api/example_nested_fstring.py", self._NESTED_FSTRING_SOURCE)
         self.assertEqual(cptw.check_banned_patterns([path]), [])
 
     def test_weekly_wording_is_not_flagged(self) -> None:

@@ -160,10 +160,7 @@ def _is_test_file(path: Path) -> bool:
 
 
 def _is_excluded_path(path: Path) -> bool:
-    for excluded in _EXCLUDED_PATHS:
-        if path == excluded or excluded in path.parents:
-            return True
-    return False
+    return any(path == excluded or excluded in path.parents for excluded in _EXCLUDED_PATHS)
 
 
 def _should_scan_for_banned_patterns(path: Path) -> bool:
@@ -256,6 +253,21 @@ def _iter_scanned_files() -> list[Path]:
 # match sitting entirely on one physical line within a single piece is left to the
 # per-line scan (see `_find_run_violations`'s own docstring for why).
 #
+# Scope boundary, stated explicitly so it isn't mistaken for a bug: a banned phrase
+# split by a real embedded newline *within a single* multi-line string literal that
+# is NOT implicitly concatenated to anything else (e.g. one triple-quoted docstring
+# whose own line wrap happens to split the phrase, with no adjacent second STRING
+# token forming a run at all) is caught by NEITHER check here -- the per-line scan
+# never crosses a real newline by design, and `_iter_implicit_concat_runs` only ever
+# yields a run for 2+ genuinely-adjacent candidate members, so a single, unconcatenated
+# literal never becomes part of one. This is a deliberate, accepted scope boundary
+# (see `test_ordinary_line_break_in_a_py_docstring_is_not_flagged`), not a gap in the
+# run-detection logic above -- the alternative (joining across any real newline
+# regardless of whether real implicit concatenation is involved) is exactly what
+# produced an earlier round's false-positive regression on ordinary prose that merely
+# wraps mid-sentence. It narrows what this module's own "catches a literal regression
+# anywhere in the repo" docstring claim actually covers.
+#
 # An f-string is its own case: on this project's required Python 3.12, PEP 701 means
 # an f-string tokenizes into FSTRING_START/FSTRING_MIDDLE/.../FSTRING_END rather than
 # a single STRING token, and its *value* generally isn't statically knowable at all
@@ -336,11 +348,17 @@ def _iter_implicit_concat_runs(text: str) -> list[list[tokenize.TokenInfo]]:
         elif tok.type == tokenize.FSTRING_START:
             end_index = _find_fstring_end_index(tokens, index)
             # An opaque stand-in for the whole f-string, however many internal
-            # MIDDLE/expression tokens it contains: `.end` is extended to the
-            # f-string's own real end position so a following plain string's
-            # adjacency check compares against where the f-string actually ends,
-            # not just where its opening delimiter does.
-            member = tok._replace(end=tokens[end_index].end)
+            # MIDDLE/expression tokens it contains: the FSTRING_START token itself
+            # is used as-is (no position extension needed) since the adjacency
+            # check below no longer compares member positions at all -- reaching a
+            # candidate member with `prev_member` still on record is itself
+            # sufficient proof of adjacency (see the comment on that check).
+            # `_decode_string_token_with_offsets` also never reads this member's
+            # `.end`: it unconditionally declines to decode an f-string, which
+            # safely skips the whole run via `_find_run_violations`'s
+            # any-member-undecodable-skips-the-whole-run contract before any
+            # span/position math involving this member ever runs.
+            member = tok
             index = end_index + 1
         else:
             member = None
@@ -616,8 +634,12 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     display_text = " ".join(display_lines)
 
     violations: list[str] = []
-    reported: set[int] = set()
-    for pattern in _BANNED_PATTERNS:
+    # Keyed by (pattern_index, lineno), matching the per-line scan's own dedup
+    # granularity in check_banned_patterns -- two different _BANNED_PATTERNS entries
+    # both matching within this run and resolving to the same reported line are two
+    # distinct violations, not one.
+    reported: set[tuple[int, int]] = set()
+    for pattern_index, pattern in enumerate(_BANNED_PATTERNS):
         for match in pattern.finditer(concatenated):
             start_index = _span_index_for_offset(match.start(), spans)
             end_index = _span_index_for_offset(match.end() - 1, spans)
@@ -628,9 +650,10 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
                 # not actually split across anything the per-line scan can't already
                 # see there directly, see the docstring above.
                 continue
-            if start_line in reported:
+            key = (pattern_index, start_line)
+            if key in reported:
                 continue
-            reported.add(start_line)
+            reported.add(key)
             violations.append(
                 f"{rel}:{start_line}: stale daily-channel wording found "
                 f"(split across an implicit string concatenation): {display_text!r}"

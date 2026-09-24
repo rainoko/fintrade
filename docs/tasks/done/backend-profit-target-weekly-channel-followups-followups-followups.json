@@ -1,0 +1,131 @@
+{
+  "id": "backend-profit-target-weekly-channel-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups-followups PR #226 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-profit-target-weekly-channel-followups-followups"],
+  "references": [
+    "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/226",
+    "scripts/check_profit_target_wording.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #226 (backend-profit-target-weekly-channel-followups-followups, hardening check_profit_target_wording.py's 6 robustness gaps). All 6 fixes in PR #226 were verified as genuinely working (direct pre-fix-vs-post-fix repro for the implicit-string-concatenation join, the plural-weeks regex, the hyphenated profit-target context regex, and the end-anchor symmetry fix; a real before/after file-set diff on the actual repo tree -- 217 files, byte-for-byte identical sorted paths -- for the rglob->os.walk refactor; ruff confirming the named SIM103 finding is gone), so none of these are correctness bugs in the fixes themselves -- just small residual gaps worth tracking so they aren't lost once PR #226 merges.",
+  "checklist": [
+    {
+      "step": "When check_banned_patterns() catches a violation via the new implicit-string-concatenation join (_join_implicit_string_concatenation), the printed 'found' text excerpt for that line has its boundary quote character stripped -- an artifact of the join step only removing quote characters, not newlines. E.g. a violation on a schemas.py-style split description prints `\"Current price + 30% of today's` without its trailing `\"`. The line number is still correct and the phrase is still identifiable, but the printed excerpt no longer exactly matches the original source line, which could confuse a maintainer eyeballing the message against the file. Worth reporting the original (pre-join) line text for the excerpt while still using the joined text's positions for matching/line-number computation.",
+      "done": true
+    },
+    {
+      "step": "_STRING_CONCAT_JOIN_RE (`([\\\"'])(\\s*\\n\\s*)\\1`) only recognizes implicit string concatenation between two literals using the *same* quote character (the backreference `\\1` requires an exact match). Python also permits mixed-quote-style concatenation (e.g. `\"foo\" 'bar'`), which this join won't catch -- not exercised by the current codebase's actual Field-description wrapping style (schemas.py is consistently double-quoted), so no live false-negative today, but the module's own doc comment claim of 'recognizing Python's own implicit-string-concatenation syntax' is slightly broader than what's implemented. Worth broadening the join regex to accept either quote character on each side independently (not tied by backreference) if this is meant to be a general-purpose join rather than narrowly scoped to the observed schemas.py style.",
+      "done": true
+    },
+    {
+      "step": "`ruff check` still reports one finding on scripts/check_profit_target_wording.py: `_is_excluded_path`'s SIM110 (a `for`/`if`/`return True` loop that could be `return any(path == excluded or excluded in path.parents for excluded in _EXCLUDED_PATHS)`). This finding pre-dates PR #226 (present on `main` before that PR too) and is not part of the enforced `ruff check app/` gate, so it's non-blocking either way -- but PR #226's own checklist item 6 rationale for fixing the sibling SIM103 finding was explicitly 'worth tidying up to match' scripts/validate_tasks.py's fully ruff-clean state, and that parity still isn't fully achieved with this SIM110 finding left in place. Worth fixing for the same consistency reason.",
+      "done": true
+    },
+    {
+      "step": "(Round 4 review, PR #226) The round-3->round-4 redesign (per-line negative scan + separate tokenize-based `_iter_implicit_concat_runs`/`_find_run_violations` for genuine implicit string concatenation) was verified thorough -- including a new probe specifically constructed for this review round (a banned phrase split exactly at the join point between two implicitly-concatenated string literals, e.g. `\"today's \" \"Autoenvelope\"`, plus mid-word and three-way-join variants) -- all correctly still caught via `_find_run_violations`'s decode-and-concatenate approach, which is insensitive to exactly where the phrase is split. However, the redesign only recognizes a split via genuine *implicit concatenation between two or more separate STRING tokens*; a banned phrase split by a real embedded newline *within a single* multi-line string (e.g. a triple-quoted docstring using one string literal, not two concatenated ones) is caught by neither the per-line scan (crosses no real newline by design) nor the run-based check (no second STRING token exists to form a run) -- confirmed directly (a single triple-quoted docstring wrapping the banned phrase across two lines is silently unflagged). This is an inherent, deliberately-accepted tradeoff of the current design (the alternative -- joining across any real newline -- is exactly what produced round 3's false-positive regression), not a bug in this round's fix, but it narrows what the module docstring's 'catches a literal regression anywhere in the repo' claim actually covers. Worth a short doc-comment addition (near `_iter_implicit_concat_runs` or the module docstring) making this scope boundary explicit, so a future contributor doesn't assume broader coverage than what's actually implemented.",
+      "done": true
+    },
+    {
+      "step": "(Round 4 review, PR #226) `_find_run_violations`'s `reported` dedup set is keyed only by `lineno` (`if lineno in reported: continue`), unlike the per-line scan's own dedup key of `(pattern_index, lineno)`. If two different `_BANNED_PATTERNS` entries both match within the same implicit-concatenation run and resolve to the same reported line, only one violation is now emitted instead of two -- a minor undercount (cosmetic reporting only; the guard still fails the check and points at the right line), not a missed regression, but worth aligning with the per-line scan's dedup granularity for consistency.",
+      "done": true
+    },
+    {
+      "step": "(Round 6 review, PR #226) `_decode_string_token_with_offsets` returns `None` for a byte-string literal (`\"b\" in prefix_lower`), which is the correct, safe choice for a single byte-string piece -- but a run made entirely of byte-string literals (e.g. `b\"today's \" b\"Autoenvelope\"`, valid since Python only forbids mixing bytes and non-bytes literals in one run, not multiple bytes literals) shares the exact same cross-line-miss structural gap as round 6's three BLOCKING f-string/same-line/mixed-quote findings: `_find_run_violations` returns `[]` for the whole run the moment any one piece fails to decode, so a banned phrase split across a byte-string-only run is silently missed too. Verified directly. Not filed as blocking alongside the other three because byte literals holding this kind of descriptive prose (Field descriptions, docstrings) is not a realistic pattern anywhere in this codebase's actual style -- but whichever fix addresses the round-6 f-string finding (which requires broadening what `_iter_implicit_concat_runs`/`_find_run_violations` treat as a recognizable-but-inert piece rather than an entirely run-breaking token) should double-check it doesn't leave this byte-string case newly reachable-but-still-silently-wrong, and ideally add a regression test pinning that a byte-string-only run is still safely skipped (not mis-reported) after that fix.",
+      "done": true
+    },
+    {
+      "step": "(Round 7 review, PR #226) In `_iter_implicit_concat_runs`'s f-string branch, `member = tok._replace(end=tokens[end_index].end)` extends the FSTRING_START stand-in's `.end` to the f-string's real end position, with an accompanying comment claiming this is so 'a following plain string's adjacency check compares against where the f-string actually ends.' But round 7's own adjacency-check simplification (dropping the different-physical-line and matching-quote-character requirements) removed every position-based comparison from the adjacency check entirely -- reaching a candidate member with `prev_member` still on record is now the sole condition. Confirmed by a repo-wide grep for `.end`/`span.tok.end` usage that nothing downstream (`_find_run_violations`, `_physical_line_for_offset`, `_span_index_for_offset`) ever reads a run member's `.end` for an f-string (decode always returns `None` for it before any span/position math involving it runs). This is now dead computation with a stale, misleading comment -- independently confirmed by a backgrounded `code-review` (effort high) pass against the same round-7 diff, which found the identical gap via its own from-scratch grep. Worth dropping the `_replace` (using the FSTRING_START token as-is) or correcting the comment, so a future reader doesn't infer a position-based adjacency check that no longer exists.",
+      "done": true
+    },
+    {
+      "step": "(Round 7 review, PR #226) None of the 4 new round-7 regression tests exercise `_find_fstring_end_index`'s nesting-depth-tracking branch (a genuinely nested f-string, e.g. `f\"outer {f'inner'}\"`) or its defensive fallback return -- confirmed via `coverage run --branch -m unittest discover -s scripts/tests` against `scripts/check_profit_target_wording.py`: lines 302->296 (the depth-increment branch on a nested FSTRING_START) and 307 (the fallback) are never hit by the existing 63 tests. Manually verified directly (outside the test suite) that a nested f-string is handled correctly -- `_find_fstring_end_index` correctly returns the *outer* FSTRING_END's index, not the inner one, confirmed via a depth-tracking dump -- so this is a coverage gap for correctly-behaving code, not a live bug. But given this exact function's history (three separate axes of bugs across 6 rounds before this one), and that nested f-strings were explicitly one of the round-7 dispatch's named stress-test scenarios, it's worth locking this in with an actual regression test (e.g. `f\"outer {f'inner {1}'} today's Autoenvelope\"` implicitly concatenated to a trailing real string) rather than relying on a one-off manual review check. PR #307 REVIEW FINDING (blocking): the `test_nested_fstring_end_index_is_found_correctly` test PR #307 added for this item does not actually verify `_find_fstring_end_index`'s depth-tracking correctness -- see this task's `review.comments` for the reproduced evidence (monkey-patching a depth-tracking-free `_find_fstring_end_index` still passes this exact test and the full 66-test suite). Left `done: false` until a genuinely discriminating regression test replaces it. RESOLVED: replaced that one tautological test with `test_find_fstring_end_index_tracks_nesting_depth` (a direct unit test calling `_find_fstring_end_index` on a real tokenized nested-f-string source and asserting it returns the outer FSTRING_END's index, not the inner one) plus `test_nested_fstring_run_includes_trailing_string` (an integration-level check that `_iter_implicit_concat_runs`'s actual consumer of that return value produces the correct 3-member run), keeping a third, honestly-recommented pipeline-level test (`test_nested_fstring_is_not_falsely_flagged`) that explicitly documents it does NOT discriminate on its own. Verified both new tests actually fail (as pr-reviewer's own probe predicted) when `_find_fstring_end_index` is monkeypatched to the naive, non-depth-tracking version (returns the first FSTRING_END encountered) -- reproduced pr-reviewer's exact check before considering this done.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T15:24:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (quote-stripped 'found' excerpt) is stale/already resolved -- no code change made. Verified directly: `_find_run_violations`'s current `display_text` construction (`tok.line.strip()` per distinct start line, deduplicated and joined with a space) already reports the untouched original raw source line(s), quote characters included -- confirmed with a probe reproducing the exact schemas.py-style split-description example the checklist item names, which prints the full `'\"Current price + 30% of today\\'s \" \"Autoenvelope/channel height.\"'` excerpt intact. `git log` confirms `_join_implicit_string_concatenation`/the quote-stripping join this item names never existed in any commit that landed on `main` (checked both PR #223's and PR #226's merged diffs) -- it was an intermediate, never-merged draft from an earlier review round of PR #226 that was superseded by the tokenize-based `_iter_implicit_concat_runs`/`_find_run_violations` redesign before merging.",
+      "rationale": "Amending the checklist text in place (rather than appending this note) would hide that a real finding was reported at review time against a draft that was legitimately still evolving -- the append-only decisions convention lets a future reader see both what was found and when it stopped applying, without needing to diff PR review history."
+    },
+    {
+      "timestamp": "2026-09-24T15:24:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 2 (_STRING_CONCAT_JOIN_RE's same-quote-character backreference) is likewise stale/already resolved -- no code change made. `grep -n \"_STRING_CONCAT_JOIN_RE\\|STRING_CONCAT\"` against the current script returns nothing; this regex-based join was superseded by the tokenize-based `_iter_implicit_concat_runs`, whose adjacency check (per its own module-level comment) explicitly imposes no matching-quote-character requirement at all -- `\"a\" 'b'` is recognized as ordinary, valid implicit concatenation, confirmed by the existing `test_mismatched_quote_style_concatenation_is_flagged` regression test. Same `git log` check as item 1 confirms this regex never existed in a merged commit either.",
+      "rationale": "The task's own checklist text already flagged this item as 'likely already resolved by PR #226's later rounds -- verify first,' so this decision records that verification's outcome rather than re-implementing a fix against code that no longer has the described gap."
+    },
+    {
+      "timestamp": "2026-09-24T15:24:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the SIM110 finding (checklist item 3) by rewriting `_is_excluded_path`'s `for`/`if`/`return True`/`return False` loop as `return any(path == excluded or excluded in path.parents for excluded in _EXCLUDED_PATHS)`, exactly as ruff's own suggested rewrite proposed. Confirmed `ruff check scripts/` is now fully clean (previously the sole finding).",
+      "rationale": "No alternative considered -- ruff's suggested rewrite is behavior-preserving and directly matches the consistency goal the checklist item names (parity with scripts/validate_tasks.py's fully ruff-clean state)."
+    },
+    {
+      "timestamp": "2026-09-24T15:24:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Added the doc comment for checklist item 4 as a new paragraph inside the existing module-level comment block above `_NON_BREAKING_TOKEN_TYPES` (immediately after the paragraph describing when a run-based match is reported), rather than in the top-of-file module docstring or as a docstring addition on `_iter_implicit_concat_runs` itself.",
+      "rationale": "That comment block is already where the run-detection/run-reporting design's scope tradeoffs are documented (the f-string-as-opaque-member choice sits in the very next paragraph) and is the location a future contributor reading `_iter_implicit_concat_runs`'s implementation would already be reading; duplicating the same explanation in the module docstring risked the two drifting out of sync, and `_iter_implicit_concat_runs`'s own docstring is deliberately kept short (describing what it returns, not every scope boundary of the overall guard design)."
+    },
+    {
+      "timestamp": "2026-09-24T15:24:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Removed the dead `member = tok._replace(end=tokens[end_index].end)` position-extension entirely (checklist item 7) -- now `member = tok` (the FSTRING_START token as-is) -- and rewrote the stale comment to explain why no position extension is needed, rather than keeping the `_replace` call and only fixing the comment.",
+      "rationale": "Confirmed via grep (`\\.end\\b`) that nothing downstream ever reads a run member's tokenize `.end` attribute for an f-string member specifically (the only other `.end`-shaped names in the file are `_PieceSpan.end`, a distinct field, and `re.Match.end()`, an unrelated method) -- keeping the `_replace` call would have left a functioning-but-pointless allocation on every f-string member with no reader depending on it, whereas dropping it is strictly simpler and the risk (some future change re-introducing a position-based adjacency check that then silently regresses for f-strings) is exactly what the corrected comment now calls out explicitly."
+    },
+    {
+      "timestamp": "2026-09-24T15:46:21Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed pr-reviewer's blocking finding on PR #307 by replacing the single tautological `test_nested_fstring_end_index_is_found_correctly` test with (a) a direct unit test of `_find_fstring_end_index` itself, tokenizing a real nested-f-string source and asserting the returned index is the outer FSTRING_END's, not the inner FSTRING_END's it would return if depth tracking were removed, and (b) an integration-level test asserting `_iter_implicit_concat_runs` -- the function that actually consumes `_find_fstring_end_index`'s return value via `index = end_index + 1` -- produces the correct 3-member run (leading string, f-string, trailing string) rather than a truncated 2-member one. Kept the original pipeline-level `check_banned_patterns(...) == []` assertion too, renamed to `test_nested_fstring_is_not_falsely_flagged` with its docstring now explicitly stating it does NOT discriminate correct from broken depth tracking on its own (since it verified a real, still-worth-having property -- no false positive on this source -- just not the one checklist item 8 asked for).",
+      "rationale": "Chose option (a)+(c) together (both a direct unit test and an integration-level one) over (a) alone, because the direct unit test alone verifies `_find_fstring_end_index` in isolation but not that its caller actually uses the return value correctly, while the run-shape test verifies the real consumer's behavior without needing to go through the full pipeline's decode-short-circuit that masked the original gap. Verified both new tests actually fail against a monkeypatched naive version of `_find_fstring_end_index` (returns the first FSTRING_END scanning forward, ignoring nesting depth) before considering this resolved -- reproducing pr-reviewer's own probe exactly, per its explicit instruction not to just trust the new assertions 'look like' they test the right thing."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel-followups-followups-followups",
+    "pr_number": 307,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/307",
+    "pushed_at": "2026-09-24T15:26:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T15:59:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/307",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "(Round 2) RESOLVED. Round 1's blocking finding (the `test_nested_fstring_end_index_is_found_correctly` test not discriminating correct from broken `_find_fstring_end_index` depth-tracking) is genuinely fixed. Independently reproduced pr-reviewer's own monkeypatch probe from scratch: loaded the test module, replaced `_find_fstring_end_index` with a naive version that returns the first `FSTRING_END` encountered (ignoring nesting depth), and ran the full 44-test module. `test_find_fstring_end_index_tracks_nesting_depth` fails under the naive version (returns index 14, the inner FSTRING_END, instead of 17, the outer one) and `test_nested_fstring_run_includes_trailing_string` fails too (run truncates to 2 members instead of 3) -- while the renamed pipeline-level `test_nested_fstring_is_not_falsely_flagged` and the other 41 tests in the module still pass, confirming it genuinely doesn't discriminate on its own, exactly as its corrected docstring now says. Under the real function, all 44 tests in the module pass and the full 68-test scripts/tests/ suite passes clean.",
+        "file": "scripts/tests/test_check_profit_target_wording.py",
+        "line": 472
+      },
+      {
+        "summary": "(Round 2) Non-blocking, new: checklist item 8 was marked done:true/'RESOLVED' but that note only closes half of what item 8's own text asked for -- the nesting-depth-tracking branch (now genuinely covered, see above) and `_find_fstring_end_index`'s defensive fallback `return start_index`. Confirmed via `coverage run --branch --include=\"*/check_profit_target_wording.py\" -m unittest discover -s scripts/tests`: line 319 (the fallback) is still in the Missing set after this PR, unchanged from before it. Not a live bug (the fallback only triggers on an unbalanced FSTRING_START/FSTRING_END stream that tokenize itself 'shouldn't' produce), and trivially testable directly (a hand-built unbalanced token list, same technique as the new direct unit test) so not genuinely-unreachable code either. Independently found by both my own coverage run and a backgrounded `code-review` (effort high) pass dispatched against this same commit, which surfaced it via its own from-scratch coverage check. Not blocking this PR since the actual round-1 blocking finding is resolved and this residual gap is inert defensive code -- filed as a new checklist entry on `backend-profit-target-weekly-channel-followups-followups-followups-followups` (the existing, still-planned follow-up task) instead of a duplicate task.",
+        "file": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json",
+        "line": 44
+      },
+      {
+        "summary": "(Round 1, confirmed still accurate) checklist items 1 and 2 (the quote-stripped 'found' excerpt, and _STRING_CONCAT_JOIN_RE's same-quote-character backreference) genuinely describe dead/superseded code, verified via `git log --all -p`.",
+        "file": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json",
+        "line": 16
+      },
+      {
+        "summary": "(Round 1, confirmed still accurate) the dedup-key change from `lineno`-only to `(pattern_index, lineno)` is safe; the narrower pre-existing across-runs dedup gap it doesn't fix is tracked non-blocking on the `-followups` follow-up task.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 653
+      },
+      {
+        "summary": "(Round 1, confirmed still accurate) the dead `member = tok._replace(end=tokens[end_index].end)` removal (checklist item 7) is genuinely safe -- no downstream code reads a run member's tokenize `.end` for an f-string member.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 349
+      }
+    ],
+    "notes": "Round 2 re-review after round 1's needs_work. Backend: ruff/mypy clean, pytest 1244 passed, 100% coverage. Frontend: eslint/tsc clean, vitest 882 passed (91 files), coverage 99.77%/99.08%/99.79%/99.82% (stmts/branches/funcs/lines), well above the 90% gate. scripts/tests/: full 68-test suite passes; live guard run (`python3 scripts/check_profit_target_wording.py`) clean against the real repo tree; `scripts/validate_tasks.py` reports a structurally valid 299-file board. No frontend/UI surface touched by this PR (scripts/ + docs/tasks/ only) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as not applicable. No API/schema change -- openapi.json snapshot check not applicable. No new module/dependency/layer -- architecture-review not applicable. `area: backend/signals` per task metadata but the diff doesn't touch app/signals or app/portfolio. Checked for a human PR comment overriding the automated verdict -- none found. This round's dispatch explicitly asked to reproduce the round-1 monkeypatch probe independently rather than trust the fix's claim, which was done from scratch (not by re-running the fix's own script) and confirmed both new tests genuinely discriminate. One new non-blocking finding surfaced along the way (checklist item 8's done-claim overstating what was actually locked in with a test) -- tracked on the existing follow-up task, not blocking."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T16:06:28Z",
+    "verdict": "merge",
+    "notes": "Independently reproduced pr-reviewer's monkeypatch probe from scratch (naive, non-depth-tracking _find_fstring_end_index): exactly test_find_fstring_end_index_tracks_nesting_depth and test_nested_fstring_run_includes_trailing_string fail (44-test module, 42 pass/2 fail), matching the review's claim precisely. Re-ran everything myself: scripts/tests full suite 68/68 pass, ruff check scripts/ clean, live guard clean against the real tree; backend pytest --cov=app 1244 passed at 100% coverage, ruff+mypy clean; frontend yarn lint/tsc clean, vitest 882/882 passed (91 files) at 99.77/99.08/99.79/99.82% stmts/branches/funcs/lines; scripts/validate_tasks.py reports the 299-file board structurally valid. Skimmed the full diff (check_profit_target_wording.py + test file + task board bookkeeping) -- matches the PR description's claims, no undersold findings. Confirmed the follow-up task backend-profit-target-weekly-channel-followups-followups-followups-followups already carries the fallback-branch non-blocking gap. No human PR comments/reviews found on #307 (both reviews are the shared automation account, plain COMMENTED, never approve/request-changes)."
+  }
+}

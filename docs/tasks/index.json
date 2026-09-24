@@ -1902,8 +1902,15 @@
       "id": "backend-profit-target-weekly-channel-followups-followups-followups",
       "area": "backend/signals",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-profit-target-weekly-channel-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-profit-target-weekly-channel-followups-followups-followups-followups",
+      "area": "backend/signals",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json"
+      "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups-followups.json"
     },
     {
       "id": "frontend-trade-journal-followup-review-followups",
