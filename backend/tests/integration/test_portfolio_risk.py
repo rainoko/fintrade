@@ -466,7 +466,7 @@ class TestGetRisk:
         outright for -- is dropped via `drop_malformed_daily_bars` before
         `protective_stop`/`evaluate_exit_flags` ever see it, so the response is identical to
         what it would be had that malformed bar simply never been fetched. Inserting it inside
-        the `_SWING_LOW_WINDOW_DAYS`/EMA(13) lookback window (rather than at the very front,
+        the `_SWING_LOW_WINDOW_BARS`/EMA(13) lookback window (rather than at the very front,
         the oldest position) of the same quiet history
         `test_oversized_position_breaches_two_percent_rule_only` uses confirms the filtered
         frame reduces to exactly that reference scenario.

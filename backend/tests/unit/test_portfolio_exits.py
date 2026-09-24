@@ -445,6 +445,63 @@ class TestEvaluateExitFlagsEndToEnd:
             evaluate_exit_flags(position, account, daily, weekly, portfolio_open_risk_pct=0.0)
 
 
+class TestTideFlippedBearishIsTimeframeAgnostic:
+    """`backend-day-trader-timeframe-mode-portfolio-risk`'s checklist item 2: confirms
+    `tide_flipped_bearish` genuinely reads whatever `pd.DataFrame` is passed as `weekly_ohlcv`
+    (real, unmocked `evaluate_tide`) -- including a day-trader-mode-shaped long-term-role frame
+    with a minute-spaced `DatetimeIndex` -- rather than only being exercised against a literal
+    weekly-frequency frame. `evaluate_tide`/`evaluate_impulse` never read the index at all (see
+    `evaluate_impulse`'s own "timeframe-agnostic" docstring paragraph), so this must flip the
+    same way a literal weekly frame would.
+    """
+
+    def _long_term_role_ohlcv_flipping_bullish_to_bearish(self) -> pd.DataFrame:
+        """30 bars of accelerating 5%-per-bar growth (a real BULLISH weekly Impulse/Tide, per
+        this trend having both EMA(13) and MACD-Histogram rising bar-over-bar), followed by one
+        sharp bar that halves price -- large enough to flip BOTH EMA(13) and MACD-Histogram to
+        falling, making the full series BEARISH while the series excluding that last bar is
+        still BULLISH. Verified directly against `evaluate_tide` while building this fixture
+        (a milder drop only flips one of the two indicators, landing on NEUTRAL/BLUE instead --
+        see this task's `decisions` entry)."""
+        closes = [100.0 * (1.05**i) for i in range(30)]
+        closes.append(closes[-1] * 0.5)
+        return pd.DataFrame(
+            {
+                "open": closes,
+                "high": [c * 1.01 for c in closes],
+                "low": [c * 0.99 for c in closes],
+                "close": closes,
+                "volume": [1_000_000.0] * len(closes),
+            },
+            index=pd.date_range("2026-01-05 09:30", periods=len(closes), freq="25min"),
+        )
+
+    def test_intraday_long_term_role_frame_flips_the_real_flag(self) -> None:
+        long_term_role_ohlcv = self._long_term_role_ohlcv_flipping_bullish_to_bearish()
+        daily = _daily_ohlcv([100.0, 100.0])
+        position = _position()
+        account = _account()
+
+        flags = evaluate_exit_flags(position, account, daily, long_term_role_ohlcv, 0.0)
+
+        assert "tide_flipped_bearish" in flags
+
+    def test_removing_the_final_flip_bar_no_longer_flags(self) -> None:
+        """Discriminating counterpart: dropping just the final (flip-causing) bar leaves the
+        remaining history BULLISH throughout (no flip to detect), so the flag must NOT fire --
+        confirming the flag above is genuinely driven by this fixture's own data reaching a real
+        BEARISH state, not a bug that fires unconditionally."""
+        long_term_role_ohlcv = self._long_term_role_ohlcv_flipping_bullish_to_bearish()
+        no_flip_ohlcv = long_term_role_ohlcv.iloc[:-1]
+        daily = _daily_ohlcv([100.0, 100.0])
+        position = _position()
+        account = _account()
+
+        flags = evaluate_exit_flags(position, account, daily, no_flip_ohlcv, 0.0)
+
+        assert "tide_flipped_bearish" not in flags
+
+
 class TestSharedIndicatorComputation:
     """Regression coverage for the portfolio-exit-rules-followups task: evaluate_exit_flags
     must compute the daily EMA(13) and the weekly MACD-Histogram/EMA(13)/EMA(26) each exactly

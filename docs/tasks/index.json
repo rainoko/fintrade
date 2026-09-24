@@ -1923,7 +1923,7 @@
       "id": "backend-day-trader-timeframe-mode-portfolio-risk",
       "area": "backend/portfolio",
       "skill": "verify-elder-signal",
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json"
     },
     {

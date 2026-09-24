@@ -10,8 +10,11 @@ channel-timeframe correction below, and the `backend-profit-target-open-position
 `suggest_profit_target` enforces internally.
 
 Two of Elder's three style-dependent target techniques are implemented here (the third -- a
-day-trade's first-sign-of-opposing-divergence exit -- is explicitly out of this app's scope,
-same as docs/ideas.md's own note, since this app has no intraday/day-trade use case):
+day-trade's first-sign-of-opposing-divergence exit -- is explicitly out of this module's own
+scope, same as docs/ideas.md's own note; this app's day-trader *timeframe* mode, added later by
+`backend-day-trader-timeframe-mode` and friends, still uses the same two techniques below, not
+this third one -- see the `backend-day-trader-timeframe-mode-portfolio-risk` task's `decisions`
+entry for why a distinct third technique wasn't added for day-trader mode specifically):
 
 - **Swing-style**: ch. 58's own explicit Tradebill formula for an "A" target -- current price
   + 30% of a channel height (`app.indicators.autoenvelope`, docs/Analyse.md §4) -- the same 30%
@@ -28,7 +31,18 @@ same as docs/ideas.md's own note, since this app has no intraday/day-trade use c
   Row 6, and is a fully independent computation from what this module derives here). The
   protective stop below stays on daily data per that same ch. 39 rule -- it is the
   intermediate-timeframe half of the split and was already correct before this distinction was
-  drawn out explicitly.
+  drawn out explicitly. Neither this module's own code nor `app.portfolio.risk.protective_stop`
+  actually special-cases "daily"/"weekly" anywhere internally -- both just operate on whatever
+  `pd.DataFrame` they're handed (see `_long_term_channel_bounds`'s and `protective_stop`'s own
+  docstrings) -- so ch. 39's rule generalizes cleanly to day-trader mode's own
+  intermediate/long-term legs the same way `app.signals.engine.analyse_day_trader` already
+  generalizes Screen 1/2/3: `weekly_ohlcv` plays whichever data fills the long-term role,
+  `daily_ohlcv` (via `protective_stop`) whichever plays the intermediate role. Neither of this
+  module's two real callers (`GET /api/stocks/{ticker}/analysis`, `GET /api/portfolio/risk`)
+  actually passes day-trader-mode data here yet -- both still always pass literal daily/weekly
+  bars regardless of the active trading mode (`docs/architecture/Backend.md` §10's "Not yet
+  landed" list) -- so this is a statement about what this module's own functions are *capable
+  of* given the right inputs, not a claim that day-trader mode is fully wired end to end today.
 - **Position-style**: the nearest prior support/resistance level above current price
   (`app.signals.support_resistance`, docs/Analyse.md §4 row 9) -- stays daily; ch. 39's
   long-term-chart rule is specifically about the "value zone" (channel) target, not this
@@ -142,20 +156,35 @@ def _nearest_resistance_price(zones: list[Zone], current_price: float) -> float 
     return min(above) if above else None
 
 
-def _weekly_channel_bounds(weekly_ohlcv: pd.DataFrame) -> tuple[float, float] | None:
+def _long_term_channel_bounds(weekly_ohlcv: pd.DataFrame) -> tuple[float, float] | None:
     """The latest upper/lower Autoenvelope channel bounds computed from `weekly_ohlcv`'s own
     `close` series -- Elder ch. 39 p.161's "the value zone on a weekly chart presents a good
     target" (see this module's own docstring for the full timeframe rationale). Computed fresh
     here rather than reusing `app.signals.engine.analyse`'s `result.indicators["channel_upper"/
-    "channel_lower"]`, since that pair is a DAILY Autoenvelope pass (feeds the price-chart
-    overlay and entry-day trade grading, both explicitly daily) -- a different computation from
-    what this weekly target needs, not an interchangeable one.
+    "channel_lower"]`, since that pair is a DAILY (or, in day-trader mode, intermediate-leg)
+    Autoenvelope pass (feeds the price-chart overlay and entry-day trade grading, both
+    explicitly tied to that role) -- a different computation from what this long-term-role
+    target needs, not an interchangeable one.
+
+    Renamed from `_weekly_channel_bounds` by `backend-day-trader-timeframe-mode-portfolio-risk`
+    -- a pure rename, no functional change: this function has never assumed anything
+    calendar-week-specific (it's a plain `autoenvelope` pass over whatever `close` series it's
+    handed), so "weekly" in the old name was only ever describing *swing mode's own* usage, not
+    a real constraint. `weekly_ohlcv` is Screen 1/Tide's own data -- literal weekly bars for
+    swing mode, or `app.signals.timeframe.TimeframeTriple.long_term`'s bars for day-trader
+    mode, per ch. 39 p.161's generic "long-term chart" framing (this module's own docstring,
+    and the task's `decisions` entry, for why day-trader mode reads its `long_term` leg here
+    rather than this rule being scoped to swing mode only) -- kept unrenamed at the parameter
+    level, matching `app.signals.engine.analyse`'s own `weekly_ohlcv` parameter (see that
+    task's `decisions` entry for why the parameter names themselves aren't renamed even once
+    their contract is generic).
 
     Returns `None` (treated as "channel unavailable", the candidate simply skipped, not
     fabricated) if `weekly_ohlcv` is empty, lacks a `close` column, or the Autoenvelope's own
-    ~100-WEEK average-deviation warm-up window isn't yet full at the latest bar (a `nan` band,
+    ~100-bar average-deviation warm-up window isn't yet full at the latest bar (a `nan` band,
     same warm-up condition `app.signals.engine.analyse` already documents for the daily
-    channel, just measured in weeks here instead of days).
+    channel, just measured in ~100 weeks for swing mode's literal weekly bars, or ~100 bars of
+    whatever unit day-trader mode's own `long_term` leg uses instead).
     """
     if weekly_ohlcv.empty or "close" not in weekly_ohlcv.columns:
         return None
@@ -205,7 +234,7 @@ def suggest_profit_target(
     `weekly_ohlcv` is this same ticker's weekly OHLCV (most-recent bar last, the same frame
     passed to `app.signals.engine.analyse`'s own `weekly_ohlcv` parameter) -- used here ONLY to
     compute the weekly Autoenvelope channel this target's "Tradebill" candidate is derived from
-    (`_weekly_channel_bounds`, above), per ch. 39 p.161's explicit long-term-chart rule (see
+    (`_long_term_channel_bounds`, above), per ch. 39 p.161's explicit long-term-chart rule (see
     this module's own docstring). This is a fresh computation, not a passthrough of any other
     already-computed value -- unlike `zones` below, nothing else in this app currently needs a
     weekly Autoenvelope pass to share it with. An empty or too-short `weekly_ohlcv` (rare in
@@ -213,6 +242,20 @@ def suggest_profit_target(
     history to reach this call at all) degrades the same way a `nan`/unavailable channel always
     has here: the channel-based candidate is simply skipped, not fabricated from a partial
     window.
+
+    Despite the name, `weekly_ohlcv` is not literally required to be calendar-weekly bars --
+    like `daily_ohlcv` (see `app.portfolio.risk.protective_stop`'s own equivalent note), this
+    parameter is timeframe-agnostic: `_long_term_channel_bounds` is a plain `autoenvelope` pass
+    over whatever `close` series it's handed, with no calendar-week-specific logic anywhere in
+    it. Every real caller today (`GET /api/stocks/{ticker}/analysis`, `GET
+    /api/portfolio/risk`) still always passes literal weekly bars regardless of the active
+    `app.trading_mode.TradingModeSetting` -- day-trader mode isn't wired into either caller yet
+    (`docs/architecture/Backend.md` §10's "Not yet landed" list) -- but nothing about this
+    function's own implementation would need to change for a future caller to pass day-trader
+    mode's own `long_term`-leg OHLCV here instead, per ch. 39 p.161's generic "long-term chart"
+    framing (see the `backend-day-trader-timeframe-mode-portfolio-risk` task's `decisions`
+    entry for why this rule generalizes to "whichever data plays the long-term role" rather
+    than staying scoped to swing mode's literal weekly chart only).
 
     `zones` should be `app.signals.support_resistance.detect_support_resistance_zones`'s
     already-computed output for this same `daily_ohlcv` -- the caller (`get_analysis`) already
@@ -264,7 +307,7 @@ def suggest_profit_target(
     current_price = float(daily_ohlcv["close"].iloc[-1])
 
     candidates: list[tuple[float, TargetSource]] = []
-    channel_bounds = _weekly_channel_bounds(weekly_ohlcv)
+    channel_bounds = _long_term_channel_bounds(weekly_ohlcv)
     if channel_bounds is not None:
         channel_upper, channel_lower = channel_bounds
         channel_height = channel_upper - channel_lower

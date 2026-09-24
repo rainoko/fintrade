@@ -356,6 +356,34 @@ documents what exists **today**, not the full eventual feature.
   wired into any HTTP route yet -- that's the next bullet's job. See this task's `decisions`
   entry for the full writeup.
 
+- `app.portfolio.risk.protective_stop`/`app.portfolio.profit_target.suggest_profit_target`/
+  `app.portfolio.exits.evaluate_exit_flags`'s own hard-coded weekly/daily assumption
+  (`backend-day-trader-timeframe-mode-portfolio-risk`) -- generalized the same way Screen 1-3
+  were: none of these three functions ever actually special-cased "daily"/"weekly" internally
+  (each just operates on whatever `pd.DataFrame`/bar-count window it's handed), so this was
+  primarily a documentation-and-testing task confirming that genericity is real, plus two
+  genuine methodology decisions (see this task's `decisions` entry for both, including the
+  alternatives considered and rejected): the SafeZone stop's `_SWING_LOW_WINDOW_BARS` (renamed
+  from `_SWING_LOW_WINDOW_DAYS`, value unchanged at 10) stays a fixed **bar** count rather than
+  a wall-clock-duration-derived one, since a day trader's own holding period is itself
+  intraday -- "10 bars of whichever timeframe is actually being traded on" (ch. 39 p.161: stops
+  live on the intermediate timeframe's own chart in either mode) tracks that far better than a
+  fixed multi-week wall-clock span; and `suggest_profit_target`'s weekly-chart channel
+  candidate (renamed internal helper `_long_term_channel_bounds`) generalizes to read the
+  active triple's `long_term` leg in day-trader mode rather than staying scoped to swing mode
+  only, per ch. 39 p.161's own generic "long-term chart" framing -- `evaluate_exit_flags`'s
+  `tide_flipped_bearish` flag (a direct `evaluate_tide` call) generalizes the identical way.
+  Swing mode's own behavior is unchanged bar-for-bar (regression-tested), and new discriminating
+  tests (including a mocked-IBKR integration test mirroring the signal-engine task's own)
+  confirm the genericized functions actually read whichever intermediate/long-term-role data
+  they're handed, intraday-shaped or not, rather than silently defaulting to swing-mode-only
+  behavior. **Not yet wired into either real caller**: `GET /api/stocks/{ticker}/analysis`'s
+  `profit_target` and `GET /api/portfolio/risk` (which calls all three of these functions) still
+  always pass literal daily/weekly bars regardless of the active `TradingMode` -- that wiring is
+  `backend-day-trader-timeframe-mode-api-followups`'s job (next bullet), same as before this
+  task, since it also raises the separate per-position-day-trader-mode-fetch latency question
+  that task's own scoping already deferred.
+
 **Not yet landed** (tracked as dependent follow-up tasks):
 
 - `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk`
@@ -363,11 +391,12 @@ documents what exists **today**, not the full eventual feature.
   `backend-day-trader-timeframe-mode-api`'s own PR: `/indicators` now has
   `analyse_history_day_trader`/`get_intraday_history_bars_for_triple` (previous bullet) ready
   to wire in, but that wiring itself (the route, its own `range`-to-`lookback_days` translation,
-  caching) is still not built; `/portfolio`/`/portfolio/risk` need the portfolio/risk-layer
-  hard-coded weekly/daily split (next bullet) resolved first, and
-  `/portfolio`'s per-position day-trader-mode fetch would mean one IBKR round-trip per held
-  position per request -- a latency concern worth its own design pass rather than folding into
-  this already-large task. See that task's own `decisions` entry for the full scoping
+  caching) is still not built; `/portfolio`/`/portfolio/risk` now has a genericized
+  `app.portfolio.risk`/`profit_target`/`exits` layer ready to wire in too
+  (`backend-day-trader-timeframe-mode-portfolio-risk`, previous bullet), but
+  `/portfolio`'s per-position day-trader-mode fetch would still mean one IBKR round-trip per
+  held position per request -- a latency concern worth its own design pass rather than folding
+  into this already-large task. See that task's own `decisions` entry for the full scoping
   rationale.
 - A day-trader triple with any non-`MINUTE`-unit leg (a mixed triple, e.g. `long_term="1d"`) --
   `backend-day-trader-timeframe-mode-api`'s own `compute_day_trader_signal` only supports a
@@ -376,14 +405,6 @@ documents what exists **today**, not the full eventual feature.
   other unavailable case, since `app.data.day_trader_intraday` has no fetch path for a
   `DAY`/`WEEK`-unit leg with an arbitrary (not literally daily/weekly) count, and building one
   is a distinct, unscoped data-fetching design problem.
-- `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits`'s own hard-coded
-  weekly/daily split (the 6% Rule/protective-stop's `_SWING_LOW_WINDOW_DAYS`, the weekly-chart
-  profit-target channel, `evaluate_exit_flags`'s `tide_flipped_bearish` flag) -- explicitly out
-  of scope for `backend-day-trader-timeframe-mode-signal-engine` (see its own `decisions`
-  entry); these portfolio-level rules only ever run against swing-mode's own daily/weekly data
-  today regardless of which `TradingMode` is active. `GET /api/stocks/{ticker}/analysis`'s own
-  `profit_target`/`support_resistance_zones`/`extended_data` fields are likewise unaffected by
-  trading mode for the same reason (`backend-day-trader-timeframe-mode-api`'s own decision).
 - Frontend settings UI to view/switch the global trading mode and configure the day-trader
   timeframe triple (`frontend-day-trader-timeframe-mode-settings`) -- until this lands, every
   endpoint above is only reachable via `PUT /api/settings/trading-mode` directly (no UI control

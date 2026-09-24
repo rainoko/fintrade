@@ -4,10 +4,22 @@ from app.indicators.ema import ema
 from app.portfolio.models import Account, Position
 from app.signals.engine import drop_malformed_daily_bars
 
-# "Recent" swing low + volatility-buffer lookback, in trading days (~2 weeks).
-# docs/Analyse.md §7 specifies the SafeZone-style concept but not exact
-# parameters -- see this task's `decisions` entry in docs/tasks/portfolio-risk-rules.json.
-_SWING_LOW_WINDOW_DAYS = 10
+# "Recent" swing low + volatility-buffer lookback, as a BAR count (originally documented as
+# "trading days (~2 weeks)" back when this app's only caller ever fed it daily bars). docs/
+# Analyse.md §7 specifies the SafeZone-style concept but not exact parameters -- see this
+# task's `decisions` entry in docs/tasks/portfolio-risk-rules.json for the original 10-bar
+# choice, and the `backend-day-trader-timeframe-mode-portfolio-risk` task's `decisions` entry
+# for why this stays a fixed BAR count (not a wall-clock-duration-derived one) now that this
+# same function also serves day-trader mode's intermediate leg (per ch. 39 p.161, stops live
+# on the intermediate timeframe's own chart regardless of trading mode) -- in short: the
+# lookback is meant to be "N bars of whichever timeframe the trader is actually working on",
+# scaling down naturally as that timeframe gets finer, not a fixed multi-week wall-clock span
+# that would span dozens of intraday sessions for a fine-grained leg. Renamed from
+# `_SWING_LOW_WINDOW_DAYS` accordingly -- purely a rename, `.tail(N)` was already a positional
+# (bar-count) slice, not a calendar-day one, so this is documentation catching up to behavior
+# that was already timeframe-agnostic, not a functional change (swing mode's own daily-bar
+# behavior is unchanged bar-for-bar).
+_SWING_LOW_WINDOW_BARS = 10
 
 # The "short EMA" referenced by §7's stop-loss definition. The book's own SafeZone
 # formula (Elder ch. 54, per docs/ideas.md) uses a 22-day EMA; this app instead reuses
@@ -81,7 +93,7 @@ def stop_from_price_action(
     else:
         validate_daily_ohlcv_columns(daily_ohlcv)
 
-    window = daily_ohlcv.tail(_SWING_LOW_WINDOW_DAYS)
+    window = daily_ohlcv.tail(_SWING_LOW_WINDOW_BARS)
     swing_low = float(window["low"].min())
 
     if short_ema is None:
@@ -96,7 +108,7 @@ def stop_from_price_action(
         # docs/tasks/backend-profit-target-followups.json's `decisions` entry.
         short_ema = ema(daily_ohlcv["close"], _VOLATILITY_EMA_PERIOD)
     downside_penetration = (short_ema - daily_ohlcv["low"]).clip(lower=0.0)
-    volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_DAYS).mean())
+    volatility_buffer = float(downside_penetration.tail(_SWING_LOW_WINDOW_BARS).mean())
 
     return swing_low - (_SAFEZONE_COEFFICIENT * volatility_buffer)
 
@@ -116,11 +128,18 @@ def protective_stop(
 
     Long-only: this is the stop-loss for a long position.
 
-    - Swing low: the lowest ``low`` over the most recent ``_SWING_LOW_WINDOW_DAYS``
-      trading days.
+    - Swing low: the lowest ``low`` over the most recent ``_SWING_LOW_WINDOW_BARS`` bars of
+      ``daily_ohlcv`` -- a fixed *bar* count, not a calendar-day one (``.tail(N)``, a
+      positional slice), so this degrades naturally when ``daily_ohlcv`` is day-trader mode's
+      intraday intermediate leg instead of swing mode's literal daily bars: "recent" is always
+      "the last 10 bars of whichever timeframe is actually driving the current stop", per ch.
+      39 p.161's own rule that stops live on the *intermediate* timeframe's chart regardless of
+      what that timeframe is -- see the `backend-day-trader-timeframe-mode-portfolio-risk`
+      task's `decisions` entry for why this (not a wall-clock-duration-derived bar count) was
+      chosen.
     - Volatility buffer (Average Downside Penetration): the average "downside
       penetration" of a short EMA (EMA(13) of ``close``) over that same window -- i.e.
-      for each day, how far the day's low fell *below* the EMA that day (0 on days it
+      for each bar, how far that bar's low fell *below* the EMA at that bar (0 on bars it
       didn't), averaged across the window. A choppier/more volatile recent history
       produces a wider buffer; a quiet uptrend with no penetrations produces a buffer
       near 0.
@@ -138,7 +157,15 @@ def protective_stop(
     variant doesn't need a signature change.
 
     ``daily_ohlcv`` must have ``low`` and ``close`` columns (lowercase, matching
-    ``app.db.models.OHLCVCacheORM``), most recent row last.
+    ``app.db.models.OHLCVCacheORM``), most recent row last. Despite the name (kept for the
+    same reason `app.signals.engine.analyse`'s own `daily_ohlcv` parameter wasn't renamed --
+    see that task's `decisions` entry), this function is timeframe-agnostic: it's never been
+    passed anything but literal daily bars in production so far, but nothing in its
+    implementation assumes calendar days specifically (the window is a bar count -- see
+    above), so it works identically if a future caller passes day-trader mode's own
+    intermediate-leg OHLCV instead (ch. 39 p.161: stops live on the intermediate timeframe's
+    chart in either mode) -- see the `backend-day-trader-timeframe-mode-portfolio-risk` task's
+    `decisions` entry.
 
     ``short_ema``, if given, is used as the already-computed EMA(13) of
     ``daily_ohlcv['close']`` instead of recomputing it here -- it must be

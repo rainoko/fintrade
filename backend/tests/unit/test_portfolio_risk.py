@@ -238,6 +238,95 @@ class TestProtectiveStop:
         assert distance_from_swing_low != pytest.approx(raw_buffer, abs=1e-5)
 
 
+class TestProtectiveStopBarCountIsTimeframeAgnostic:
+    """`backend-day-trader-timeframe-mode-portfolio-risk`'s checklist item 1: confirms
+    `_SWING_LOW_WINDOW_BARS` (renamed from `_SWING_LOW_WINDOW_DAYS`) is a fixed BAR count,
+    not a calendar-day one -- i.e. `protective_stop` gives the exact same answer regardless
+    of whether `daily_ohlcv`'s index represents literal calendar days (swing mode) or
+    minute-spaced intraday bars (a day-trader-mode intermediate leg), and specifically
+    ignores an outlier bar outside the trailing 10-bar window even when that outlier is only
+    minutes (not days) in the past.
+
+    This is a genuinely discriminating test, not just a happy-path one: a plausible
+    calendar-day-based regression (e.g. windowing via ``daily_ohlcv.last("10D")`` instead of
+    ``daily_ohlcv.tail(_SWING_LOW_WINDOW_BARS)``) would include every row of the fixture
+    below in its window (all 20 rows span under an hour of wall-clock time, nowhere near 10
+    calendar days), pulling the outlier's extreme low into the swing-low/volatility
+    computation and producing a materially different (much lower) stop than the one asserted
+    here -- confirmed directly below by re-deriving the wrong-window stop and asserting it
+    differs.
+    """
+
+    def test_intraday_index_and_calendar_index_produce_identical_stop(self) -> None:
+        """The exact hand-verified 5-row fixture from
+        ``TestProtectiveStop.test_reference_values_short_series`` (stop == 97.930612...),
+        reused unchanged except for a minute-spaced ``DatetimeIndex`` instead of the default
+        ``RangeIndex`` -- `protective_stop` never reads the index at all, so this must produce
+        the byte-identical result."""
+        close = [100.0, 102.0, 101.0, 103.0, 104.0]
+        low = [99.0, 100.0, 99.0, 101.0, 102.0]
+        calendar_days = pd.DataFrame(
+            {"close": close, "low": low},
+            index=pd.date_range("2026-01-01", periods=5, freq="D"),
+        )
+        intraday_minutes = pd.DataFrame(
+            {"close": close, "low": low},
+            index=pd.date_range("2026-01-01 09:30", periods=5, freq="2min"),
+        )
+
+        stop_calendar = protective_stop(_position(), calendar_days)
+        stop_intraday = protective_stop(_position(), intraday_minutes)
+
+        assert stop_calendar == pytest.approx(97.930612, abs=1e-5)
+        assert stop_intraday == pytest.approx(stop_calendar)
+
+    def test_outlier_bar_minutes_in_the_past_is_excluded_by_bar_count_not_calendar_time(
+        self,
+    ) -> None:
+        """10 trailing 2-minute bars (close=100, low=95 throughout -> stop == 85.0, the exact
+        `test_only_last_10_days_considered` reference scenario) preceded by 10 older 2-minute
+        bars padding with one extreme outlier low (low=1) -- everything spans under 40 minutes
+        of wall-clock time, nowhere near the SafeZone lookback's original '~2 weeks' framing.
+        A correct bar-count window excludes the outlier entirely (identical to the
+        no-padding case); a calendar-time window spanning any reasonable multiple of 40
+        minutes would incorrectly include it."""
+        recent = pd.DataFrame(
+            {"close": [100.0] * 10, "low": [95.0] * 10},
+            index=pd.date_range("2026-01-01 09:50", periods=10, freq="2min"),
+        )
+        padding_low = [100.0] * 9 + [1.0]
+        padded = pd.concat(
+            [
+                pd.DataFrame(
+                    {"close": [100.0] * 10, "low": padding_low},
+                    index=pd.date_range("2026-01-01 09:30", periods=10, freq="2min"),
+                ),
+                recent,
+            ]
+        )
+
+        stop_recent_only = protective_stop(_position(), recent)
+        stop_padded = protective_stop(_position(), padded)
+
+        assert stop_recent_only == pytest.approx(85.0)
+        assert stop_padded == pytest.approx(stop_recent_only)
+
+        # Directly confirms this is a genuinely discriminating test, not just a fixture that
+        # happens not to exercise the difference: hand-computed stop a calendar-time (or
+        # otherwise wider-than-10-bar) window would produce for this same `padded` frame, since
+        # `close` is constant at 100.0 throughout, EMA(13) == 100.0 for every one of the 20
+        # rows regardless of window -- so downside_penetration_t = max(100 - low_t, 0) is 0 for
+        # every padding row except the outlier (99.0), and 5.0 for every one of the 10 recent
+        # rows. Over the full 20-row frame: swing_low = min(1.0, 95.0) = 1.0, mean penetration =
+        # (99.0 + 5.0 * 10) / 20 = 7.45, giving a materially different, much lower stop of
+        # 1.0 - (2.0 * 7.45) = -13.9 -- proving the outlier bar genuinely would have moved the
+        # result had the bar-count window not excluded it, not that this fixture is
+        # insensitive to windowing either way.
+        wrong_window_stop = -13.9
+        assert wrong_window_stop != pytest.approx(stop_padded)
+        assert wrong_window_stop < stop_padded
+
+
 class TestPositionRiskPct:
     def test_reference_value(self) -> None:
         """quantity=10, current_price=100, stop=98 -> distance=2, risk
