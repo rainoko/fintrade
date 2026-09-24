@@ -2,9 +2,10 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, delay, http } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
 import { resetDailyHomeworkStore } from '../../../../tests/mocks/handlers'
 import { server } from '../../../../tests/mocks/server'
+import { homeworkKeys } from '../hooks/queryKeys'
 import DailyHomeworkForm from './DailyHomeworkForm'
 
 async function selectOption(user: ReturnType<typeof userEvent.setup>, label: string, option: string) {
@@ -61,15 +62,20 @@ describe('DailyHomeworkForm', () => {
       }),
     )
 
-    renderWithProviders(<DailyHomeworkForm />)
+    const queryClient = createTestQueryClient()
+    renderWithProviders(<DailyHomeworkForm />, { queryClient })
 
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toBeInTheDocument(),
     )
     await waitFor(() => expect(suggestionRequestCount).toBe(1))
-    // Give the now-settled query's re-render (and DailyHomeworkForm's
-    // render-time state adjustment) a chance to have run.
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Wait on the query's own settled status (not just the request having
+    // been dispatched) so this also covers DailyHomeworkForm's re-render
+    // (and HomeworkQuestionsForm's render-time state adjustment) that
+    // follows it settling, without a fixed sleep standing in for that wait.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(homeworkKeys.yesterdaySuggestion)?.status).toBe('success'),
+    )
     expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toHaveTextContent(
       '1 — Neutral / no trades',
     )
@@ -86,14 +92,18 @@ describe('DailyHomeworkForm', () => {
       }),
     )
 
-    renderWithProviders(<DailyHomeworkForm />)
+    const queryClient = createTestQueryClient()
+    renderWithProviders(<DailyHomeworkForm />, { queryClient })
 
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toBeInTheDocument(),
     )
     await waitFor(() => expect(suggestionRequestCount).toBe(1))
-    // Give the now-settled (errored) query's re-render a chance to have run.
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Wait on the query's own settled (errored) status, same reasoning as
+    // the success case above.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(homeworkKeys.yesterdaySuggestion)?.status).toBe('error'),
+    )
     expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toHaveTextContent(
       '1 — Neutral / no trades',
     )
@@ -378,7 +388,8 @@ describe('DailyHomeworkForm', () => {
         ),
       )
 
-      renderWithProviders(<DailyHomeworkForm />)
+      const queryClient = createTestQueryClient()
+      renderWithProviders(<DailyHomeworkForm />, { queryClient })
 
       await waitFor(() =>
         expect(
@@ -396,9 +407,13 @@ describe('DailyHomeworkForm', () => {
       // The suggestion resolving afterwards must not clobber that answer.
       await waitFor(() => expect(resolvers).toHaveLength(1))
       resolvers[0]()
-      // Give the (now-resolved) suggestion's render-time adjustment a
-      // chance to have run.
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      // Wait on the query's own settled status (not a fixed sleep) so this
+      // genuinely covers the now-resolved suggestion's render-time
+      // adjustment having had a chance to run before asserting it didn't
+      // clobber the user's own answer.
+      await waitFor(() =>
+        expect(queryClient.getQueryState(homeworkKeys.yesterdaySuggestion)?.status).toBe('success'),
+      )
       expect(screen.getByRole('combobox', { name: /How did I trade yesterday/ })).toHaveTextContent(
         '0 — Poorly',
       )

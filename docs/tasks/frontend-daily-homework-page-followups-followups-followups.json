@@ -3,8 +3,10 @@
   "title": "Non-blocking findings from PR #273's round-2 review (DailyHomeworkForm suggestion-gate fix)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "planned",
-  "depends_on": ["frontend-daily-homework-page-followups-followups"],
+  "state": "implementing",
+  "depends_on": [
+    "frontend-daily-homework-page-followups-followups"
+  ],
   "references": [
     "docs/tasks/done/frontend-daily-homework-page-followups-followups.json#review",
     "https://github.com/rainoko/fintrade/pull/273"
@@ -13,15 +15,35 @@
   "checklist": [
     {
       "step": "`HomeworkQuestionsForm`'s new render-time state adjustment (`prevSuggestedScore`/`hasEditedYesterdayScore`/the `if (suggestedScore !== prevSuggestedScore) { ... }` block in `DailyHomeworkForm.tsx`) hand-rolls the same 'compare a prop to its previously-seen value, adjust state during render' shape that `useResetOnSubjectChange` (`frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts`) already generalizes -- the new code's own comments cite that hook as prior art but don't reuse or extend it. Consider extracting a small shared hook (or generalizing `useResetOnSubjectChange` itself) so a future fix to this pattern (e.g. a React version change affecting mid-render setState) only needs to land in one place instead of two independently-maintained copies.",
-      "done": false
+      "done": true
     },
     {
       "step": "The new test `does not overwrite a user's own answer to \"yesterday\" if the suggestion resolves after they have already changed it themselves` (and similarly the two strengthened pre-existing tests) synchronize on a fixed `await new Promise((resolve) => setTimeout(resolve, 20))` after manually resolving the mocked suggestion request, instead of a `waitFor`-based poll for the actual expected UI state. Confirmed via `yarn vitest run ... --reporter=verbose` that this specific test genuinely produces React 'An update to DailyHomeworkForm inside a test was not wrapped in act(...)' / 'ForwardRef(FormControl) ... not wrapped in act(...)' warnings (not just a hypothetical concern) -- a real signal that the fixed-timeout synchronization is racing the actual render rather than reliably waiting for it, which is a latent flakiness risk under CI resource contention even though it passes reliably today. Switch these to `waitFor`-based assertions on the expected DOM state instead of a bare timeout.",
-      "done": false
+      "done": true
     },
     {
       "step": "Gating `useYesterdayTradingSuggestion` on `todayQuery.isSuccess` (this task's fix) sequences `/api/daily-homework/today` and `/api/daily-homework/yesterday-trading-suggestion` for *every* cold load with no existing entry, not just the existing-entry case the fix targets -- confirmed via a live browser network trace: the suggestion request no longer starts until the `/today` response has already landed, versus firing concurrently before this fix. This tradeoff is already documented and accepted in this task's own `decisions` entry (second entry), so it's not a new finding requiring rework -- but it's tracked here as a design point worth reconsidering later, e.g. by having the backend return the suggestion alongside `/today`'s response (or another data-layer composition), which would also let `HomeworkQuestionsForm` go back to capturing `yesterday_trading_score` in its plain `useState` initializer and remove the render-time-adjustment machinery (checklist item 1 above) entirely.",
-      "done": false
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T00:23:14Z",
+      "recorded_by": "task-worker",
+      "decision": "Generalized `useResetOnSubjectChange` itself (kept in its existing home, `frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts`) into a new exported `useOnValueChange<T>(value, onChange)` -- same compare-prev-value-during-render shape, but `onChange` receives the new value instead of taking no arguments. `useResetOnSubjectChange(subjectId, onReset)` is now a one-line wrapper (`useOnValueChange(subjectId, onReset)`) preserving its existing `onReset: () => void` call shape for its three existing call sites (`TradeApgarDialog`, `FollowUpReviewDialog`, `ClosePositionDialog`), unchanged. `DailyHomeworkForm.tsx`'s `HomeworkQuestionsForm` now calls `useOnValueChange(suggestedScore, (newSuggestedScore) => { ... })` in place of its hand-rolled `prevSuggestedScore`/`if (suggestedScore !== prevSuggestedScore)` block, deleting that duplicated state variable and comparison entirely.",
+      "rationale": "Considered moving the hook to a new shared location (e.g. a `frontend/src/utils/` or a new top-level `hooks/` folder) since it's now used across two features (portfolio and homework) and `docs/architecture/Frontend.md`'s hooks-placement rule ('live under the feature they serve... not in a single catch-all hooks/ folder') is explicitly scoped to API-concern hooks, which this isn't. Rejected introducing a new folder-placement precedent the architecture docs don't already establish, in favor of the smaller, more surgical change explicitly offered as an option by this task's own checklist item ('generalize `useResetOnSubjectChange` itself'): keeping it in place means the diff is scoped to exactly the two files that needed to change (`useResetOnSubjectChange.ts`'s new export, `DailyHomeworkForm.tsx`'s call site), the three existing portfolio call sites are untouched (no import-path churn, verified via a full pass of `TradeApgarDialog.test.tsx`/`FollowUpReviewDialog.test.tsx`/`ClosePositionDialog.test.tsx`, all 31 passing), and `frontend/src/features/homework/components/DailyHomeworkForm.tsx` importing `useOnValueChange` from `../../portfolio/hooks/useResetOnSubjectChange` is a one-line cross-feature import, not a structural violation of any documented rule. If a third, unrelated feature ever needs this same pattern, that would be the natural trigger to revisit a genuinely shared location -- premature to do so for exactly two call sites. Verified via the full `DailyHomeworkForm.test.tsx` suite (13/13 passing) plus the three portfolio dialog test files (31/31 passing) after the change, `eslint`/`tsc` clean."
+    },
+    {
+      "timestamp": "2026-09-24T00:23:14Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced the three fixed `await new Promise((resolve) => setTimeout(resolve, 20))` waits in `DailyHomeworkForm.test.tsx` (the two strengthened pre-existing 'falls back to the neutral default' tests, and the new 'does not overwrite a user's own answer' test) with `waitFor(() => expect(queryClient.getQueryState(homeworkKeys.yesterdaySuggestion)?.status).toBe('success' | 'error'))`, using an explicit `queryClient` passed to `renderWithProviders` in each of the three tests (via `createTestQueryClient()`) so the query's own settled status is directly observable from the test, not inferred from a fixed elapsed time.",
+      "rationale": "This is the same established pattern already used elsewhere in this codebase for exactly this class of problem -- asserting a UI state that doesn't visibly change once a query settles, so a plain `waitFor` on the DOM text alone would pass trivially without ever actually waiting for the settle to happen (see `SellFlaggedPositionsCard.test.tsx`'s and `StockDetailPage.test.tsx`'s `queryClient.getQueryState(...)?.status` waits). Rejected leaving the tests as-is (a fixed 20ms sleep): confirmed via `yarn vitest run src/features/homework/components/DailyHomeworkForm.test.tsx --reporter=verbose` before this fix that this pattern genuinely produced React 'not wrapped in act(...)' warnings (matching the finding this checklist item recorded), and after the fix the same command produces a clean run with no such warnings and all 13 tests still passing. Also rejected converting these to a bare second `waitFor` on the expected DOM text (with no `queryClient` involved) for the two 'falls back to neutral' tests specifically, since (per this task's own inherited comment in that test) the expected text is identical before and after the suggestion resolves, so that `waitFor` would resolve on its very first synchronous check without ever waiting for the settle -- the same triviality problem the request-count wait was already added to avoid, just moved one step further out."
+    },
+    {
+      "timestamp": "2026-09-24T00:23:14Z",
+      "recorded_by": "task-worker",
+      "decision": "Reviewed checklist item 3 (the `todayQuery.isSuccess`-gating tradeoff, sequencing `/today` and the suggestion request for every cold load with no existing entry) and confirmed no code change is warranted here -- this is purely a documentation/tracking item, not a new finding. The tradeoff was already deliberately accepted and fully rationalized in `frontend-daily-homework-page-followups-followups`'s own second `decisions` entry (the `enabled: todayQuery.isSuccess && !existingEntry` gate change), and re-litigating it, or speculatively starting the backend-suggestion-composition work the checklist item itself flags as a possible future direction, is explicitly out of this task's scope per its own checklist wording ('tracked here as a design point worth reconsidering later'). Re-confirmed the tradeoff is still accurate against the current code: `DailyHomeworkForm.tsx`'s `suggestionQuery` is still gated on `enabled: todayQuery.isSuccess && !existingEntry`, unchanged by this task's other two fixes.",
+      "rationale": "Marking this checklist item done with this confirming entry (rather than leaving it open indefinitely, or doing speculative backend work) matches CLAUDE.md's guidance that a documentation-only tracking item already resolved as an accepted tradeoff via a prior `decisions` entry should be closed with a fresh confirming entry, not re-litigated or expanded into new scope. No backend or `HomeworkQuestionsForm`-initializer change was made as part of this task."
     }
   ]
 }
