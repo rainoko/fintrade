@@ -1183,9 +1183,16 @@ class TestDayTraderMode:
         )
         # daily/weekly are still fetched for support_resistance_zones/profit_target/
         # extended_data/as_of (this task's own decision to defer that layer's day-trader
-        # wiring) -- a HOLD-shaped fixture is enough since this test only cares about the
-        # day-trader-mode signal/screens/indicators fields.
-        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+        # wiring). Deliberately HOLD-shaped (not `_buy_daily_ohlcv()`/`_buy_weekly_ohlcv()`):
+        # those independently produce this exact same BUY/BULLISH/fired result under plain
+        # swing `analyse()` too (confirmed via mutation testing -- forcing the day-trader
+        # branch off left this test passing), so they provide no real discrimination between
+        # a genuine day-trader-mode computation and a silent fallback to swing-mode data.
+        # `_hold_daily_ohlcv()`/`_hold_weekly_ohlcv()` give HOLD/NEUTRAL/no-trigger under
+        # swing `analyse()` (see `TestGetAnalysis.test_hold_signal_has_zero_confidence_and_
+        # empty_breakdown`), so the BUY/BULLISH/fired asserted below can only come from the
+        # intraday IBKR legs going through `analyse_day_trader`.
+        provider = _StubProvider(daily={"AAPL": _hold_daily_ohlcv()}, weekly={"AAPL": _hold_weekly_ohlcv()})
 
         response = self._get(_isolated_db, provider, _all_legs_available_ibkr_provider())
 
@@ -1201,8 +1208,10 @@ class TestDayTraderMode:
             },
         }
         # Screen 3 fires from the genuinely distinct short-term leg (2-minute bars), not the
-        # daily fixture `_StubProvider` supplies -- proving this really went through
-        # analyse_day_trader, not a silent fallback to the swing-mode path.
+        # HOLD-shaped daily fixture `_StubProvider` supplies -- proving this really went
+        # through analyse_day_trader, not a silent fallback to the swing-mode path (which
+        # would instead produce the HOLD/NEUTRAL/not-fired result this same fixture pair
+        # gives under plain swing `analyse()`).
         assert body["screens"]["tide"]["trend"] == "BULLISH"
         assert body["screens"]["trigger"]["fired"] is True
         assert body["signal"] == "BUY"
@@ -1210,7 +1219,7 @@ class TestDayTraderMode:
         # extended_data/as_of are still derived from the ordinary daily/weekly fixture,
         # unaffected by day-trader mode (this task's own decision, see AnalysisResponse
         # .trading_mode's field description).
-        assert body["as_of"] == _buy_daily_ohlcv().index[-1].date().isoformat()
+        assert body["as_of"] == _hold_daily_ohlcv().index[-1].date().isoformat()
 
     def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
         self, _isolated_db: Session
