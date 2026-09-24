@@ -1,35 +1,63 @@
 {
   "id": "backend-day-trader-timeframe-mode",
-  "title": "Switchable day-trader timeframe mode (ch. 39) -- tracked, blocked on product decisions",
+  "title": "Switchable day-trader timeframe mode (ch. 39) -- fully configurable, global setting",
   "area": "backend/signals",
   "skill": null,
-  "state": "waiting_input",
+  "state": "planned",
   "depends_on": [],
   "references": [
     "docs/ideas.md#switchable-trading-mode-positionswing-trader-vs-day-trader--different-triple-screen-timeframe-scales"
   ],
-  "description": "Ch. 39, 'Choosing Timeframes--the Factor of Five': Triple Screen doesn't hard-code weekly/daily/intraday -- it's built around whatever three timeframes the trader picks, each related to its neighbor by roughly a factor of five. This app currently hard-codes the swing/position-trader pairing (weekly/daily/intraday). Day-trading is the book's other explicit example (25-min/5-min/2-min, or a 39-min/8-min pairing). This is a genuinely large feature -- new intraday data dependency (needs IBKR live, unlike everything else in this app which works via always-on yfinance), and a real architecture change everywhere the app currently assumes 'weekly'/'daily' as fixed concepts (schema field names, cache table interval columns, calendar-week truncation logic) rather than a generic long-term/intermediate/short-term triple. Deliberately left in waiting_input rather than planned -- the open questions below are genuine product decisions, not judgment calls a worker can make and record on its own.",
+  "description": "Ch. 39, 'Choosing Timeframes--the Factor of Five': Triple Screen doesn't hard-code weekly/daily/intraday -- it's built around whatever three timeframes the trader picks, each related to its neighbor by roughly a factor of five. This app currently hard-codes the swing/position-trader pairing (weekly/daily/intraday). Day-trading is the book's other explicit example (25-min/5-min/2-min, or a 39-min/8-min pairing). This is a genuinely large feature -- a new intraday data dependency (needs IBKR live, unlike everything else in this app which works via always-on yfinance), and a real architecture change everywhere the app currently assumes 'weekly'/'daily' as fixed concepts (schema field names, cache table interval columns, calendar-week truncation logic) rather than a generic long-term/intermediate/short-term triple. Product decisions (2026-09-24, by the user directly, see `decisions` below): build it; ship a fully user-configurable timeframe triple (not one of the book's fixed examples); make it a single global app-wide setting, not a per-request parameter. The checklist below is a first-pass breakdown of the work this implies -- given the scope, whoever picks this up should feel free to further split it into dependent sub-tasks (recording that as its own `decisions` entry) rather than trying to land it all in one PR.",
   "checklist": [
-    { "step": "Answer the questions below and move this task to 'planned' before any implementation work starts.", "done": false }
+    { "step": "Answer the questions below and move this task to 'planned' before any implementation work starts.", "done": true },
+    { "step": "Design the generic timeframe-triple model that replaces the app's current hard-coded weekly/daily/intraday assumption: a long-term/intermediate/short-term triple of intervals, validated to roughly follow ch. 39's factor-of-five spacing (decide and record how strictly to enforce this -- a hard validation error vs. a soft warning vs. no enforcement at all, since ch. 39 itself frames the exact ratio as a guideline, not a hard rule). This needs to reach every place the app currently assumes 'weekly'/'daily' as fixed concepts: schema field names (app/api/schemas.py), the OHLCV cache table's interval column (app/data/cache.py), calendar-week truncation logic, and the signal engine's tide/wave/ripple evaluation (app/signals/engine.py).", "done": false },
+    { "step": "Add a global app-wide setting (persisted, not per-request) storing the active trading mode (swing/position-trader vs. day-trader) and, when day-trader mode is active, the user-configured timeframe triple. Design the storage (a new settings table/row vs. extending an existing one) and the API surface to read/write it.", "done": false },
+    { "step": "Wire IBKR live intraday data fetching for the short-term (and, if the configured triple's intermediate timeframe is also intraday, that one too) leg of the day-trader triple. Must degrade gracefully to a clear disabled/unavailable state (not an error) when IBKR isn't connected or FINTRADE_IBKR_ENABLED is false, consistent with every other IBKR-dependent feature's contract in this app (see backend-market-scanner/backend-market-breadth-indicators for the established pattern).", "done": false },
+    { "step": "Adapt the signal engine's Triple Screen evaluation (tide/wave/ripple) to operate generically over whichever three timeframes are currently configured, instead of hard-coded weekly/daily/intraday -- this is the core methodology change; needs an elder-signal-reviewer pass given ch. 39's own framing of what changes and what stays invariant when timeframes shift (the Impulse System, confidence scoring, and 6% Rule risk logic should all remain timeframe-agnostic in principle -- confirm this holds, don't assume it).", "done": false },
+    { "step": "Update API schemas/endpoints to expose the active mode and the generically-computed signals, decide whether existing weekly/daily-named response fields need renaming or can stay as aliases for whichever timeframe currently fills that role, and regenerate backend/openapi.json + frontend/src/api/types.ts.", "done": false },
+    { "step": "Frontend: add a settings UI to view/switch the global trading mode and configure the day-trader timeframe triple.", "done": false },
+    { "step": "Unit/integration tests for the generic timeframe evaluation (including a mocked IBKR intraday provider -- no test may make a live network call), the settings persistence/API, and frontend tests for the settings UI.", "done": false },
+    { "step": "elder-signal-reviewer pass before merge (this changes core signal/methodology logic, not just plumbing).", "done": false }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T15:13:24Z",
+      "recorded_by": "manual",
+      "decision": "Build day-trader timeframe mode.",
+      "rationale": "The user was asked directly whether to build this given its scope (a real architecture change, not a UI toggle) and its hard IBKR-live dependency (unlike every other feature in this app). Chose to build it."
+    },
+    {
+      "timestamp": "2026-09-24T15:13:24Z",
+      "recorded_by": "manual",
+      "decision": "Ship a fully user-configurable timeframe triple, not one of the book's fixed example triples (25-min/5-min/2-min or 39-min/8-min).",
+      "rationale": "The user was asked to choose between the book's two fixed examples or a fully configurable triple. Chose configurable, matching ch. 39's own framing that timeframe choice is inherently personal to the trader, despite the higher implementation cost relative to a fixed pairing."
+    },
+    {
+      "timestamp": "2026-09-24T15:13:24Z",
+      "recorded_by": "manual",
+      "decision": "Day-trader mode is a single global app-wide setting, not a per-analysis-request parameter.",
+      "rationale": "The user was asked whether the whole app should switch mode at once (global) or whether a ticker could be viewed in either mode independently (per-request). Chose global -- a much smaller, less breaking API contract change than threading a mode parameter through every signal/analysis endpoint."
+    }
   ],
   "questions": [
     {
       "timestamp": "2026-09-21T00:00:00Z",
       "raised_by": "manual",
       "question": "Should day-trader timeframe mode be built at all, given its scope (a real architecture change, not just a UI toggle) and its hard dependency on IBKR being live (unlike every other feature in this app, which works with no IBKR setup)?",
-      "context": "This is a product/scope call, not something a worker can decide and record on its own -- it commits the app to maintaining a second, materially different data pipeline and a generic long/intermediate/short-term timeframe model throughout the signal engine and API schema."
+      "context": "This is a product/scope call, not something a worker can decide and record on its own -- it commits the app to maintaining a second, materially different data pipeline and a generic long/intermediate/short-term timeframe model throughout the signal engine and API schema. ANSWERED (2026-09-24T15:13:24Z, by the user directly): yes, build it -- see the decisions entry above."
     },
     {
       "timestamp": "2026-09-21T00:00:00Z",
       "raised_by": "manual",
       "question": "If built, which timeframe triple should ship first -- the book's 25-min/5-min/2-min example, its 39-min/8-min pairing (chosen because 39 minutes divides the 390-minute US trading day into a clean 10 bars), or a fully user-configurable triple?",
-      "context": "Each has different implementation cost: a fixed triple is far simpler than a configurable one, but ch.39 itself frames the timeframe choice as inherently personal to the trader."
+      "context": "Each has different implementation cost: a fixed triple is far simpler than a configurable one, but ch.39 itself frames the timeframe choice as inherently personal to the trader. ANSWERED (2026-09-24T15:13:24Z, by the user directly): fully user-configurable -- see the decisions entry above."
     },
     {
       "timestamp": "2026-09-21T00:00:00Z",
       "raised_by": "manual",
       "question": "Should this be a global app-wide setting (the whole app switches mode) or a per-analysis-request parameter (a ticker can be viewed in either mode)?",
-      "context": "This changes the shape of the API contract change significantly -- a global setting is a much smaller, less breaking change than a per-request parameter threaded through every signal/analysis endpoint."
+      "context": "This changes the shape of the API contract change significantly -- a global setting is a much smaller, less breaking change than a per-request parameter threaded through every signal/analysis endpoint. ANSWERED (2026-09-24T15:13:24Z, by the user directly): global app-wide setting -- see the decisions entry above."
     }
   ]
 }
