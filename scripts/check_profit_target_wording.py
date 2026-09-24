@@ -54,7 +54,9 @@ import os
 import re
 import sys
 import tokenize
+import unicodedata
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -218,17 +220,30 @@ def _iter_scanned_files() -> list[Path]:
 # banned-pattern regexes then scan across an arbitrary physical line break: the
 # ordinary per-line scan below never crosses a real newline at all (so it can't
 # false-positive on prose that just happens to wrap mid-sentence), and a run's own
-# *decoded string values* (via ast.literal_eval, i.e. what Python's runtime would
-# actually concatenate -- no injected whitespace, no leftover newline) are matched
-# separately, scoped to just that run. This also means no other line's numbering is
-# ever perturbed by a run found earlier in the file, since nothing here mutates or
-# re-derives line numbers from a modified buffer -- every reported line number comes
-# from the untouched original text (or, for a run, the real source line the matched
-# text itself starts on, accounting for any embedded newlines within a multi-line
-# token -- never just that token's own opening line). A run-based match is only
-# reported at all when it genuinely crosses from one member literal into another;
-# one sitting entirely within a single member literal is left to the per-line scan
-# (see `_find_run_violations`'s own docstring for why).
+# *decoded string values* (via a custom, offset-tracking decoder --
+# `_decode_string_token_with_offsets` -- cross-checked against `ast.literal_eval`,
+# i.e. what Python's runtime would actually concatenate -- no injected whitespace, no
+# leftover newline) are matched separately, scoped to just that run. This also means
+# no other line's numbering is ever perturbed by a run found earlier in the file,
+# since nothing here mutates or re-derives line numbers from a modified buffer.
+#
+# A reported match's line number is always computed by mapping the match's offset
+# within a piece's *decoded* value back to a raw offset in that piece's own *raw
+# source text* (`tok.string`), then counting real '\n' bytes in that untouched raw
+# text up to the mapped position -- never by counting '\n' characters in the decoded
+# value itself, which can diverge from a real physical line break whenever a piece
+# contains an escape sequence that decodes to a newline character (e.g. a literal
+# `\n` escape) that isn't itself a line break in the source. This keeps line
+# attribution anchored in the tokenizer's own physical source coordinates end to end,
+# never a heuristic character count on re-decoded text.
+#
+# A run-based match is only reported here when the ordinary per-line scan couldn't
+# already see it directly in the untouched original text: when it crosses a piece
+# boundary (spans two member literals), OR when it crosses a *real* embedded newline
+# within a single multi-line piece (a triple-quoted string whose own line break
+# splits the match, even though the whole match sits in one piece of the run). A
+# match sitting entirely on one physical line within a single piece is left to the
+# per-line scan (see `_find_run_violations`'s own docstring for why).
 
 # Token types that never end a logical line/expression on their own and so don't
 # break a run of otherwise-adjacent STRING tokens: comments, non-logical newlines
@@ -288,25 +303,200 @@ def _iter_implicit_concat_runs(text: str) -> list[list[tokenize.TokenInfo]]:
     return runs
 
 
-def _decode_string_token(tok: tokenize.TokenInfo) -> str | None:
-    """Return the real runtime value of a STRING token (what Python's own parser
-    would produce), or None if it can't be evaluated as a plain string literal (e.g.
-    an f-string, or a byte-string -- rare in practice for this guard's purpose, and
-    safer to skip than to approximate)."""
+def _parse_string_literal(raw: str) -> tuple[str, str, str] | None:
+    """Split a STRING token's raw source text into `(prefix, quote, body)`, where
+    `quote` is the exact opening/closing delimiter (`'`, `"`, `'''`, or `\"\"\"`) and
+    `body` is the literal's own text between those delimiters. Returns `None` if
+    `raw` doesn't look like a well-formed, quote-delimited literal (shouldn't happen
+    for a real tokenize STRING token, but defensive)."""
+    prefix_match = re.match(r"^[A-Za-z]*", raw)
+    prefix = prefix_match.group(0) if prefix_match else ""
+    rest = raw[len(prefix) :]
+    # Triple-quote delimiters are checked first: a triple-quoted literal's `rest`
+    # also starts and ends with the single-character quote, so checking single
+    # quotes first would mis-split it.
+    for quote in ('"""', "'''", '"', "'"):
+        if rest.startswith(quote) and rest.endswith(quote) and len(rest) >= 2 * len(quote):
+            return prefix, quote, rest[len(quote) : len(rest) - len(quote)]
+    return None
+
+
+# What `\c` decodes to for each single-character escape defined by the language
+# reference (docs.python.org/3/reference/lexical_analysis.html#string-and-bytes-literals).
+_SIMPLE_ESCAPES = {
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "a": "\a",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+}
+
+
+def _decode_body_with_offsets(body: str, is_raw: bool) -> tuple[str, list[int]] | None:
+    """Decode a string literal's body (the text between its quote delimiters) the
+    same way Python's own parser would, while recording, for every decoded character
+    produced, the raw offset within `body` it came from -- plus one trailing
+    sentinel offset (`len(body)`) for a position exactly at the end of the decoded
+    value. This lets a position in the decoded output be mapped back to real source
+    coordinates without ever counting characters in the decoded text itself.
+
+    Returns `None` on anything this decoder doesn't recognize (an escape sequence
+    outside the documented table, or a malformed one) -- the caller cross-checks the
+    result against `ast.literal_eval` and treats any mismatch the same way, so a gap
+    in this decoder's own coverage can only ever cause a run to be safely skipped,
+    never a wrong line number reported."""
+    if is_raw:
+        # A raw string's body is copied verbatim into its decoded value -- no escape
+        # processing at all (backslashes remain literal even before a quote), so the
+        # mapping back to raw offsets is simply the identity.
+        return body, list(range(len(body) + 1))
+
+    decoded: list[str] = []
+    offsets: list[int] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        char = body[i]
+        if char != "\\":
+            decoded.append(char)
+            offsets.append(i)
+            i += 1
+            continue
+        if i + 1 >= n:
+            return None  # Malformed -- shouldn't happen for a token ast already accepted.
+        nxt = body[i + 1]
+        if nxt == "\n":
+            # Backslash-newline line continuation: consumes both raw characters,
+            # produces no decoded character at all.
+            i += 2
+            continue
+        if nxt in _SIMPLE_ESCAPES:
+            decoded.append(_SIMPLE_ESCAPES[nxt])
+            offsets.append(i)
+            i += 2
+            continue
+        if nxt in "01234567":
+            end = i + 2
+            digits = 1
+            while end < n and body[end] in "01234567" and digits < 3:
+                end += 1
+                digits += 1
+            decoded.append(chr(int(body[i + 1 : end], 8)))
+            offsets.append(i)
+            i = end
+            continue
+        if nxt in ("x", "u", "U"):
+            width = {"x": 2, "u": 4, "U": 8}[nxt]
+            end = i + 2 + width
+            if end > n:
+                return None
+            try:
+                decoded.append(chr(int(body[i + 2 : end], 16)))
+            except ValueError:
+                return None
+            offsets.append(i)
+            i = end
+            continue
+        if nxt == "N" and i + 2 < n and body[i + 2] == "{":
+            close = body.find("}", i + 3)
+            if close == -1:
+                return None
+            try:
+                decoded.append(unicodedata.lookup(body[i + 3 : close]))
+            except KeyError:
+                return None
+            offsets.append(i)
+            i = close + 1
+            continue
+        # An unrecognized escape: Python's own parser keeps the backslash and the
+        # following character literally (with a DeprecationWarning) rather than
+        # raising -- mirror that instead of guessing.
+        decoded.append("\\")
+        offsets.append(i)
+        decoded.append(nxt)
+        offsets.append(i + 1)
+        i += 2
+    offsets.append(n)
+    return "".join(decoded), offsets
+
+
+def _decode_string_token_with_offsets(
+    tok: tokenize.TokenInfo,
+) -> tuple[str, list[int], int] | None:
+    """Return `(decoded_value, offsets, body_start)` for a STRING token, where
+    `offsets[i]` is the raw offset *within the literal's body* (its text between its
+    quote delimiters) that decoded character `i` came from -- with one trailing
+    sentinel entry for a position exactly at the end of the value -- and `body_start`
+    is that body's own starting offset within `tok.string` (`len(prefix) +
+    len(quote)`). Together, these are enough to map any position in the decoded
+    value back to a raw offset within the token's own untouched source text.
+
+    Returns `None` for anything not worth hand-decoding (an f-string, a
+    byte-string), or whenever this decoder's own output doesn't exactly match
+    `ast.literal_eval`'s -- i.e. real ground truth for what Python's own runtime
+    would produce. That cross-check means a gap in this decoder's own escape-sequence
+    coverage can only ever result in the run being skipped, never a wrong line
+    number silently reported."""
+    parsed = _parse_string_literal(tok.string)
+    if parsed is None:
+        return None
+    prefix, quote, body = parsed
+    prefix_lower = prefix.lower()
+    if "f" in prefix_lower or "b" in prefix_lower:
+        return None
+    decoded = _decode_body_with_offsets(body, is_raw="r" in prefix_lower)
+    if decoded is None:
+        return None
+    value, offsets = decoded
     try:
-        value = ast.literal_eval(tok.string)
+        ground_truth = ast.literal_eval(tok.string)
     except (ValueError, SyntaxError):
         return None
-    return value if isinstance(value, str) else None
+    if ground_truth != value:
+        return None
+    return value, offsets, len(prefix) + len(quote)
 
 
-def _span_index_for_offset(offset: int, spans: list[tuple[int, int, tokenize.TokenInfo, str]]) -> int:
+class _PieceSpan(NamedTuple):
+    """One member literal of an implicit-concatenation run, located within the
+    run's concatenated decoded value at `[start, end)`, together with everything
+    needed to map a position in that range back to the literal's own real source
+    coordinates (see `_physical_line_for_offset`)."""
+
+    start: int
+    end: int
+    tok: tokenize.TokenInfo
+    offsets: list[int]
+    body_start: int
+
+
+def _span_index_for_offset(offset: int, spans: list[_PieceSpan]) -> int:
     """Return the index into `spans` of the member-literal piece that contains
     `offset` (a character position within the run's concatenated decoded value)."""
-    for index, (start, end, _tok, _value) in enumerate(spans):
-        if start <= offset < end:
+    for index, span in enumerate(spans):
+        if span.start <= offset < span.end:
             return index
     return len(spans) - 1
+
+
+def _physical_line_for_offset(offset: int, span: _PieceSpan) -> int:
+    """Return the real physical source line the decoded-value offset `offset`
+    (already known to fall within `span`) actually appears on.
+
+    Computed purely from the tokenizer's own coordinates: map `offset` back to a raw
+    offset within `span.tok.string` (the token's own untouched source text) via
+    `span.offsets`/`span.body_start`, then count real `\\n` bytes in that raw text up
+    to the mapped position. Never derived from counting newlines in re-decoded text,
+    so an escape-produced newline character (e.g. a literal `\\n` escape) can never
+    be mistaken for a physical line break."""
+    raw_offset_in_body = span.offsets[offset - span.start]
+    raw_offset_in_token = span.body_start + raw_offset_in_body
+    return span.tok.start[0] + span.tok.string[:raw_offset_in_token].count("\n")
 
 
 def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
@@ -314,30 +504,33 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     value (no injected whitespace or leftover newlines -- exactly what Python's own
     runtime would produce) for banned patterns.
 
-    Only a match that genuinely crosses from one member literal into another is
-    reported here -- a match sitting entirely within a single member literal isn't
-    actually split across the join at all, so it's either already caught by the
-    ordinary per-line scan in `check_banned_patterns` (if it's on one physical line),
-    or it's split only by a literal embedded newline within one multi-line token
-    with no concatenation involved (a separately-tracked, deliberately-accepted
-    gap -- see the module docstring). Reporting either of those here too would just
-    duplicate-and-mislabel a finding as "split across an implicit string
-    concatenation" when nothing was actually split across a join.
+    A match is only reported here when the ordinary per-line scan in
+    `check_banned_patterns` couldn't already see it directly in the untouched
+    original text -- i.e. when it crosses a piece boundary (spans two member
+    literals of the run), or when it crosses a *real* embedded newline within a
+    single multi-line piece (a triple-quoted string whose own line break splits the
+    match, even though the whole match sits within that one piece). A match that
+    sits entirely on one physical source line within a single piece is left to the
+    per-line scan; reporting it here too would duplicate-and-mislabel a finding as
+    "split across an implicit string concatenation" when nothing was actually split.
 
-    A reported match's line number is the real source line the matched text itself
-    starts on -- not the opening line of whichever token it starts in -- computed by
-    counting the token's own decoded newlines up to the match's offset within it, so
-    a match starting partway through a multi-line token (e.g. a triple-quoted string
-    concatenated to another literal) still reports correctly."""
+    A reported match's line number is always the real physical source line the
+    matched text itself starts on -- computed via `_physical_line_for_offset`, which
+    is anchored in the tokenizer's own physical coordinates end to end. It is never
+    derived from counting `\\n` characters in re-decoded text, which can diverge
+    from a real physical line break whenever a piece contains an escape sequence
+    (e.g. a literal `\\n` escape) that decodes to a newline character that isn't
+    itself a line break in the source."""
     pieces: list[str] = []
-    spans: list[tuple[int, int, tokenize.TokenInfo, str]] = []
+    spans: list[_PieceSpan] = []
     cursor = 0
     for tok in run:
-        value = _decode_string_token(tok)
-        if value is None:
+        decoded = _decode_string_token_with_offsets(tok)
+        if decoded is None:
             return []
+        value, offsets, body_start = decoded
         pieces.append(value)
-        spans.append((cursor, cursor + len(value), tok, value))
+        spans.append(_PieceSpan(cursor, cursor + len(value), tok, offsets, body_start))
         cursor += len(value)
     concatenated = "".join(pieces)
 
@@ -358,17 +551,18 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
         for match in pattern.finditer(concatenated):
             start_index = _span_index_for_offset(match.start(), spans)
             end_index = _span_index_for_offset(match.end() - 1, spans)
-            if start_index == end_index:
-                # Entirely within one member literal -- not actually split across
-                # the join, see the docstring above.
+            start_line = _physical_line_for_offset(match.start(), spans[start_index])
+            end_line = _physical_line_for_offset(match.end() - 1, spans[end_index])
+            if start_index == end_index and start_line == end_line:
+                # Entirely on one physical source line within one member literal --
+                # not actually split across anything the per-line scan can't already
+                # see there directly, see the docstring above.
                 continue
-            start, _end, tok, value = spans[start_index]
-            lineno = tok.start[0] + value[: match.start() - start].count("\n")
-            if lineno in reported:
+            if start_line in reported:
                 continue
-            reported.add(lineno)
+            reported.add(start_line)
             violations.append(
-                f"{rel}:{lineno}: stale daily-channel wording found "
+                f"{rel}:{start_line}: stale daily-channel wording found "
                 f"(split across an implicit string concatenation): {display_text!r}"
             )
     return violations

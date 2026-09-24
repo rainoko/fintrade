@@ -261,6 +261,100 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         self.assertIn("example_not_split.py:2", violations[0])
         self.assertNotIn("split across an implicit string concatenation", violations[0])
 
+    def test_escaped_newline_within_a_run_piece_reports_the_real_physical_line(self) -> None:
+        # PR #226 review finding (round 5): a member literal's line-number
+        # computation must count real physical source line breaks, not '\n'
+        # characters in its *decoded* value -- those diverge when the literal
+        # contains an escape sequence (here a literal `\n` escape) that decodes to
+        # a newline character that isn't itself a line break in the source. This
+        # piece is entirely on physical line 2 (confirmed via tokenize in the
+        # review finding this reproduces); the violation must be reported there,
+        # not on line 3 (where the escape-produced newline would wrongly place it
+        # if decoded newlines were counted instead of real ones).
+        path = self.repo.write(
+            "backend/app/api/example_escaped_newline.py",
+            "x = (\n"
+            "    \"line with escape\\nsequence today's \"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_escaped_newline.py:2", violations[0])
+
+    def test_multiline_piece_within_a_run_is_still_caught_not_missed(self) -> None:
+        # PR #226 review finding (round 5 addendum, found via a `code-review` pass):
+        # round 4's boundary-crossing guard silently dropped a match entirely when
+        # the *matching* piece was itself multi-line (split by its own real
+        # embedded newline) AND still participated in a run via concatenation to
+        # another piece -- a true false negative, since the per-line scan can't
+        # catch a match spanning two physical lines either. The whole banned phrase
+        # here sits inside one triple-quoted piece, split only by that piece's own
+        # real newline, then concatenated to "trailing" (forming a 2-token run) --
+        # this must still be caught (at line 2, where "today's" -- the matched
+        # text's start -- physically appears), not silently missed.
+        path = self.repo.write(
+            "backend/app/api/example_multiline_piece_in_run.py",
+            "x = (\n"
+            "    \"\"\"today's\n"
+            "    Autoenvelope\"\"\"\n"
+            "    \"trailing\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_multiline_piece_in_run.py:2", violations[0])
+
+    def test_tab_escape_before_the_match_does_not_perturb_its_reported_line(self) -> None:
+        # Escape-sequence edge case (round 5 follow-through): a non-newline escape
+        # (here `\t`) earlier in the same piece changes the raw-to-decoded offset
+        # mapping (2 raw characters producing 1 decoded character) but must never
+        # be mistaken for a physical line break.
+        path = self.repo.write(
+            "backend/app/api/example_tab_escape.py",
+            "x = (\n"
+            "    \"prefix\\ttoday's \"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_tab_escape.py:2", violations[0])
+
+    def test_raw_string_escaped_newline_is_not_miscounted(self) -> None:
+        # Escape-sequence edge case (round 5 follow-through): in a raw string
+        # literal, `\n` is two literal characters (backslash + n), never a decoded
+        # newline -- confirms the offset-tracking decoder's raw-string identity
+        # mapping doesn't misattribute a line break here either.
+        path = self.repo.write(
+            "backend/app/api/example_raw_string.py",
+            "x = (\n"
+            "    r\"blah\\nmore today's \"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_raw_string.py:2", violations[0])
+
+    def test_multiple_escape_sequences_in_one_piece_report_correct_line(self) -> None:
+        # Escape-sequence edge case (round 5 follow-through): several escape
+        # sequences of different raw/decoded lengths (a `\t` and a `\n`) before the
+        # match, all within one otherwise single-physical-line piece -- the
+        # cumulative raw-offset mapping must still land on the piece's own real
+        # starting line, not be thrown off by the decoded `\n`'s own extra
+        # (non-physical) newline character.
+        path = self.repo.write(
+            "backend/app/api/example_multiple_escapes.py",
+            "x = (\n"
+            "    \"a\\tb\\ntoday's \"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_multiple_escapes.py:2", violations[0])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",
