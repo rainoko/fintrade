@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.data.day_trader_intraday import get_active_day_trader_intraday_bars
 from app.data.ibkr_provider import IBKRBar, IBKRProvider
-from app.signals.engine import analyse_day_trader
+from app.signals.engine import analyse, analyse_day_trader
 from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
 from app.trading_mode import set_trading_mode_setting
 
@@ -64,13 +64,26 @@ def _intermediate_bars() -> list[IBKRBar]:
     tests/unit/signals/test_engine.py's `TestAnalyseEndToEnd
     .test_end_to_end_buy_after_pullback_and_trigger` uses for `daily_ohlcv`, relabeled as
     10-minute intraday bars (Screen 2/the Impulse gate's math is likewise timeframe-agnostic --
-    see `evaluate_wave`'s own docstring paragraph)."""
+    see `evaluate_wave`'s own docstring paragraph).
+
+    Deliberately ends with a sharp rally bar (index -2, +8.0) *followed by* one more, slightly
+    receding bar (index -1, -1.0) rather than ending on the rally bar itself: this makes the
+    intermediate leg's own last two bars (close -1 vs. high -2: 101.5 vs. 102.8) NOT
+    independently satisfy `evaluate_trigger`'s bullish crossing rule on their own, in contrast
+    to `_short_term_bars()` below, whose own last two bars genuinely do cross. Before this
+    fixture had the extra receding bar, PR #312's `pr-decision` review caught that the
+    intermediate leg would *also* independently fire a bullish trigger with an identical
+    end-to-end result either way -- meaning the test provided zero regression protection for
+    `short_term_ohlcv` actually driving Screen 3 in day-trader mode (see
+    `test_short_term_leg_genuinely_drives_the_trigger_not_the_intermediate_leg` below, which
+    proves the discrimination directly)."""
     closes = [100 + i * 0.5 for i in range(20)]
     closes += [closes[-1] - 3 * i for i in range(1, 6)]
     closes.append(closes[-1] + 8.0)
+    closes.append(closes[-1] - 1.0)
     highs = [c + 0.3 for c in closes]
     lows = [c - 0.3 for c in closes]
-    volumes = [1_000_000.0] * 24 + [9_000_000.0, 3_000_000.0]
+    volumes = [1_000_000.0] * 25 + [9_000_000.0, 3_000_000.0]
     return _bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
 
 
@@ -139,14 +152,96 @@ class TestDayTraderModeSignalEngineEndToEnd:
         assert result.screens["impulse"] != "RED"
         assert result.screens["wave"]["showed_pullback_in_lookback"] is True
         # The literal short-term-timeframe trigger fires -- driven by `short_term_ohlcv`
-        # (2-minute bars), not `intermediate_ohlcv` (10-minute bars), proving Screen 3
-        # genuinely reads the short-term leg in day-trader mode.
+        # (2-minute bars), not `intermediate_ohlcv` (10-minute bars). See
+        # `test_short_term_leg_genuinely_drives_the_trigger_not_the_intermediate_leg` below for
+        # the actual discriminating proof that this fixture's intermediate leg would NOT fire
+        # this same trigger on its own -- this assertion alone doesn't prove that.
         assert bool(result.screens["trigger"]["fired"]) is True
         assert result.screens["trigger"]["reference"] == "close_above_prior_high"
         assert result.signal == "BUY"
         assert 0 <= result.confidence <= 100
         assert result.confidence_band in ("Low", "Medium", "High")
         assert len(result.breakdown) == 5
+
+    def test_short_term_leg_genuinely_drives_the_trigger_not_the_intermediate_leg(
+        self, db_session: Session, mocker
+    ) -> None:
+        """Discriminating regression test for `backend-day-trader-timeframe-mode-signal-engine`
+        PR #312's `pr-decision` review finding: the sibling
+        `test_fully_intraday_triple_produces_a_real_buy_signal` test alone doesn't prove
+        `short_term_ohlcv` (not `intermediate_ohlcv`) drives Screen 3 in day-trader mode,
+        because (before this test was added) the fixtures' intermediate leg would *also*
+        independently fire the same bullish trigger -- so wiring `short_term_ohlcv` correctly
+        vs. dropping it entirely (a plausible regression: `engine.py`'s
+        ``trigger_ohlcv = daily_ohlcv if short_term_ohlcv is None else short_term_ohlcv``
+        silently falling back to the intermediate leg) produced byte-identical results on every
+        assertion.
+
+        This test uses the exact same fixtures as that sibling test but calls the engine two
+        different ways and asserts the results genuinely differ:
+
+        1. Correct wiring, `analyse_day_trader(..., short_term_ohlcv=short_term)` -- Screen 3
+           reads the real 2-minute leg, whose own last two bars cross (close 99.5 > prior high
+           96.0) -> trigger fires -> BUY.
+        2. Simulated regression, plain `analyse(ticker, intermediate_ohlcv, long_term_ohlcv)`
+           with no `short_term_ohlcv` at all -- Screen 3 falls back to the intermediate leg,
+           whose own last two bars do NOT cross (close 101.5 <= prior high 102.8, per
+           `_intermediate_bars()`'s own docstring) -> trigger does not fire -> HOLD (Tide/Wave/
+           Impulse are otherwise identical between the two calls, since only the trigger input
+           differs -- confirming this is a genuine causal effect of which leg drives Trigger,
+           not simply the two calls not lining up).
+        """
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("60m"),
+            intermediate=TimeframeInterval.parse("10m"),
+            short_term=TimeframeInterval.parse("2m"),
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=triple
+        )
+
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        bars_by_native_size = {
+            "1h": _long_term_bars(),
+            "10min": _intermediate_bars(),
+            "2min": _short_term_bars(),
+        }
+        provider.get_hourly_bars.side_effect = lambda conid, *, lookback_days, bar_size: (
+            bars_by_native_size[bar_size]
+        )
+
+        fetched = get_active_day_trader_intraday_bars(db_session, provider=provider, conid=999)
+        assert fetched is not None
+        assert fetched.long_term is not None
+        assert fetched.intermediate is not None
+        assert fetched.short_term is not None
+
+        # Sanity-check the discriminating premise directly against the fixture data itself,
+        # not just the engine's output -- if either of these ever flipped, the assertions below
+        # would no longer be proving what this test claims to prove.
+        intermediate_ohlcv = fetched.intermediate.ohlcv
+        assert intermediate_ohlcv["close"].iloc[-1] <= intermediate_ohlcv["high"].iloc[-2]
+        short_term_ohlcv = fetched.short_term.ohlcv
+        assert short_term_ohlcv["close"].iloc[-1] > short_term_ohlcv["high"].iloc[-2]
+
+        correct = analyse_day_trader(
+            "TEST",
+            long_term_ohlcv=fetched.long_term.ohlcv,
+            intermediate_ohlcv=intermediate_ohlcv,
+            short_term_ohlcv=short_term_ohlcv,
+        )
+        regressed = analyse("TEST", intermediate_ohlcv, fetched.long_term.ohlcv)
+
+        assert bool(correct.screens["trigger"]["fired"]) is True
+        assert bool(regressed.screens["trigger"]["fired"]) is False
+        assert correct.signal == "BUY"
+        assert regressed.signal == "HOLD"
+        # Tide/Wave/Impulse are unaffected by which leg drives Trigger -- confirms the two
+        # results differ *only* because of the trigger-input wiring, not some unrelated
+        # divergence between the two calls.
+        assert correct.screens["tide"] == regressed.screens["tide"]
+        assert correct.screens["wave"] == regressed.screens["wave"]
+        assert correct.screens["impulse"] == regressed.screens["impulse"]
 
     def test_swing_mode_is_unaffected_by_day_trader_wiring(self, db_session: Session) -> None:
         """The default global setting is `swing`, with no configured triple -- confirms this
