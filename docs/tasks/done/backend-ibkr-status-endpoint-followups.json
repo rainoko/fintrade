@@ -1,0 +1,76 @@
+{
+  "id": "backend-ibkr-status-endpoint-followups",
+  "title": "Non-blocking follow-ups from backend-ibkr-status-endpoint review (PR #212)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-status-endpoint"],
+  "references": [
+    "docs/tasks/done/backend-ibkr-status-endpoint.json",
+    "https://github.com/rainoko/fintrade/pull/212"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #212 (GET /api/ibkr/status), tracked here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "IBKRStatusResponse.detail's schema description (backend/app/api/schemas.py) claims detail is \"Always null for 'disabled'\", but app/api/routers/ibkr.py's handler always sets a non-null explanatory string for that state (confirmed by backend/tests/integration/test_ibkr_status.py::test_status_disabled asserting `detail is not None`). The same wrong claim is duplicated into backend/openapi.json, frontend/src/api/types.ts, and docs/architecture/API.md (all generated/derived from the schema source). Fix by correcting the description text to match actual behavior (detail is populated, not null, for 'disabled') and regenerating openapi.json/types.ts -- purely a documentation-accuracy fix, no behavior change needed.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T20:24:02Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded IBKRStatusResponse.detail's description to say detail is always populated (a fixed explanatory string) for 'disabled', rather than just deleting the false 'always null' claim entirely.",
+      "rationale": "The old text was actively wrong (claimed always-null), not merely vague, so the fix states the real behavior (a fixed non-null string, `_DISABLED_DETAIL` in app/api/routers/ibkr.py) rather than just removing the claim -- callers reading the schema benefit from knowing detail is reliably populated for 'disabled', which is useful for e.g. displaying it in a UI. Only IBKRStatusResponse's own description carried the wrong claim; IBKRScannerParamsResponse/IBKRScannerRunResponse/IBKRBreadthSnapshotResponse's detail fields already just said 'same convention as GET /api/ibkr/status's `detail`' without repeating the false claim themselves, so fixing the one source description was sufficient without touching those three."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint-followups",
+    "pr_number": 234,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/234",
+    "pushed_at": "2026-09-21T20:24:22Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T20:29:07Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/234",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the handler genuinely always sets a non-null detail for the disabled state: backend/app/api/routers/ibkr.py line 86 returns `IBKRStatusResponse(state=\"disabled\", detail=_DISABLED_DETAIL)`, with `_DISABLED_DETAIL` a fixed non-empty string constant (line 58), and the existing integration test `test_status_disabled` asserts `detail is not None` for this path. The corrected schema description matches this exactly.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 86
+      },
+      {
+        "summary": "New description wording ('Always populated (a fixed explanatory string) for 'disabled', and usually null for 'available'.') is accurate and clear, and reads naturally alongside the unchanged 'usually null for available' half.",
+        "file": "backend/app/api/schemas.py",
+        "line": 769
+      },
+      {
+        "summary": "Confirmed openapi.json/types.ts regen is clean: re-ran `python scripts/export_openapi.py` myself and got a byte-identical file (no diff), and the PR's actual diff on both files is exactly the one-line description-string change with no unrelated drift.",
+        "file": "backend/openapi.json",
+        "line": 1243
+      },
+      {
+        "summary": "Spot-checked IBKRScannerParamsResponse, IBKRScannerRunResponse, and IBKRBreadthSnapshotResponse's `detail` fields in backend/app/api/schemas.py -- all three only say 'same convention as GET /api/ibkr/status's `detail`' and never repeat the false 'always null' claim themselves, so no edit was needed there, confirming the task-worker's decision entry.",
+        "file": "backend/app/api/schemas.py",
+        "line": 787
+      },
+      {
+        "summary": "Full backend suite (1129 passed, 99.95% coverage, well above the 90% gate), ruff/mypy clean on the touched files (app/api/schemas.py, app/api/routers/ibkr.py) -- the 7 ruff findings present on this branch are pre-existing on main in unrelated test files, verified by diffing ruff output against main with this PR's files reverted -- and frontend `tsc --noEmit` clean after the types.ts regen. No UI surface touched (pure schema-description/docs change, no component or route-shape change), so the browser walkthrough and e2e suite (steps 9/9a) are explicitly skipped as not applicable.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: this task's own `decisions` entry carries a round-midnight placeholder timestamp (2026-09-21T00:00:00Z) rather than the real time the decision was recorded, reproducing the exact defect pattern PR #233 already fixed once in the sibling task backend-indicator-history-performance-followups-followups. The commit that made this decision (a9fb6cb) has authored/committer timestamp 2026-09-21T20:24:02Z. Tracked as a new follow-up task rather than fixed here since it's metadata bookkeeping, not application code.",
+        "file": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json",
+        "line": 21
+      }
+    ],
+    "notes": "Narrow, low-risk documentation-accuracy fix with no behavior change. Area is backend/api (not backend/signals or backend/portfolio, skill is null not verify-elder-signal), so verify-elder-signal was not applicable; no new module/dependency/layer, so architecture-review was not applicable; no frontend component touched (only the generated types.ts description string), so the 7a placement check was not applicable. openapi.json regeneration confirmed byte-identical to a fresh export. One non-blocking finding (placeholder decisions timestamp) filed as docs/tasks/backend-ibkr-status-endpoint-followups-followups.json per CLAUDE.md's follow-up convention, since a PR comment alone would be lost once this PR merges."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T20:33:28Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read backend/app/api/routers/ibkr.py line 86 myself, confirming get_ibkr_status always returns detail=_DISABLED_DETAIL (a fixed non-empty string) for state=\"disabled\", matching test_ibkr_status.py::test_status_disabled's `detail is not None` assertion and the corrected schema description. Diffed the PR against origin/main and confirmed the only changes are the one-line description string in schemas.py/openapi.json/API.md/types.ts plus the task-board bookkeeping files -- no unintended drift. Re-ran `python scripts/export_openapi.py` myself and diffed against the committed openapi.json: byte-identical. Re-ran the full backend suite myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly."
+  }
+}

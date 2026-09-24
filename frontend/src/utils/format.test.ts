@@ -4,6 +4,7 @@ import {
   formatDate,
   formatNullableCurrency,
   formatNullableNumber,
+  formatSignedSpread,
   humanizeSnakeCase,
 } from './format'
 
@@ -80,6 +81,30 @@ describe('formatNullableCurrency', () => {
 
   it("renders '—' for undefined", () => {
     expect(formatNullableCurrency(undefined)).toBe('—')
+  })
+})
+
+describe('formatSignedSpread', () => {
+  it('prefixes a positive difference with a leading +', () => {
+    expect(formatSignedSpread(210, 90, '—')).toBe('+120')
+  })
+
+  it('leaves a negative difference with its own leading -', () => {
+    expect(formatSignedSpread(50, 90, '—')).toBe('-40')
+  })
+
+  it('renders 0 as a plain "0", not "+0"', () => {
+    expect(formatSignedSpread(50, 50, '—')).toBe('0')
+  })
+
+  it('renders the given fallback when a is null', () => {
+    expect(formatSignedSpread(null, 90, '—')).toBe('—')
+  })
+
+  it('renders the given fallback when b is undefined', () => {
+    expect(formatSignedSpread(210, undefined, 'not enough history yet')).toBe(
+      'not enough history yet',
+    )
   })
 })
 

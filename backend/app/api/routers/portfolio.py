@@ -1,8 +1,9 @@
+import logging
 import math
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import cast, get_args
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -38,7 +39,7 @@ from app.db.session import get_db
 from app.indicators.autoenvelope import autoenvelope
 from app.portfolio.exits import evaluate_exit_flags
 from app.portfolio.grading import TradeGrade, grade_trade_from_filtered_history, trade_letter_grade
-from app.portfolio.models import Account, ExitReason
+from app.portfolio.models import Account, ExitReason, Position
 from app.portfolio.models import Equity as DomainEquity
 from app.portfolio.pricing import (
     EnrichedPosition,
@@ -50,14 +51,18 @@ from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
+    ratchet_trailing_profit_stop,
     realized_losses_pct,
     total_open_risk_pct,
+    trailing_stop_floor_before_merge,
 )
 from app.portfolio.trade_apgar import ImpulseColor, price_vs_value_zone, score_trade_apgar
 from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
 from app.signals.support_resistance import detect_support_resistance_zones
 from app.time_utils import today, utcnow
+
+logger = logging.getLogger(__name__)
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -201,7 +206,9 @@ def _grade_closed_trades(
                 channels[row.ticker] = autoenvelope(filtered_frame["close"])
         filtered_frame = filtered_frames[row.ticker]
         if filtered_frame is None:
-            grades[row.id] = TradeGrade(buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None)
+            grades[row.id] = TradeGrade(
+                buy_grade_pct=None, sell_grade_pct=None, trade_grade_pct=None
+            )
         else:
             grades[row.id] = grade_trade_from_filtered_history(
                 entry_price=row.entry_price,
@@ -212,6 +219,78 @@ def _grade_closed_trades(
                 channel=channels[row.ticker],
             )
     return grades
+
+
+_EXIT_REASON_VALUES: frozenset[str] = frozenset(get_args(ExitReasonOut))
+
+# Distinct out-of-taxonomy exit_reason values already warned about in this process's lifetime
+# (backend-closed-trades-legacy-exit-reason-500-followups) -- see _normalize_exit_reason's
+# docstring for why this is de-duplicated rather than logged on every request. No size cap:
+# it grows by one entry per distinct out-of-taxonomy value ever seen, for the process's whole
+# lifetime. Accepted as-is (not a defensive cap) because the write path enum-validates
+# exit_reason (see `exit_reason: ExitReason = Query(...)` below), so only pre-existing
+# legacy/hand-inserted rows can ever land here -- not something ordinary API usage or repeated
+# requests can grow unboundedly. See backend-closed-trades-legacy-exit-reason-500-followups-followups.
+_warned_exit_reason_values: set[str] = set()
+
+
+def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
+    """Coerces a `closed_trades` row's raw (unconstrained-`String`-column, see
+    `app.db.models.ClosedTradeORM.exit_reason`) `exit_reason` value to a valid `ExitReasonOut`
+    Literal, falling back to `'unspecified'` for anything outside the current 8-value taxonomy
+    instead of letting `ClosedTradeOut(...)` raise a `pydantic.ValidationError` for the whole
+    request -- see the backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry
+    for why a fallback was chosen over widening the taxonomy.
+
+    Logs a `logger.warning` the first time a given out-of-taxonomy value is seen in this
+    process, then stays silent for that same value on every subsequent request -- a
+    long-lived legacy row (e.g. hand-inserted dev data) would otherwise produce an identical
+    warning on every single `GET /api/portfolio/closed-trades` call indefinitely. See the
+    backend-closed-trades-legacy-exit-reason-500-followups task's `decisions` entry."""
+    if raw_exit_reason in _EXIT_REASON_VALUES:
+        return cast(ExitReasonOut, raw_exit_reason)
+    # Best-effort, not atomic: this check-then-act on a module-level set can race under
+    # concurrent requests (get_closed_trades is a sync `def` route, run in FastAPI/Starlette's
+    # thread-pool executor) and occasionally emit a duplicate warning for the same value --
+    # an accepted, known tradeoff, not a regression. See
+    # backend-closed-trades-legacy-exit-reason-500-followups-followups's decisions entry.
+    if raw_exit_reason not in _warned_exit_reason_values:
+        _warned_exit_reason_values.add(raw_exit_reason)
+        logger.warning(
+            "closed_trades row has out-of-taxonomy exit_reason %r -- reporting as "
+            "'unspecified' (further occurrences of this same value are suppressed for the "
+            "rest of this process's lifetime)",
+            raw_exit_reason,
+        )
+    return "unspecified"
+
+
+def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeOut:
+    """Builds the `ClosedTradeOut` for one `closed_trades` row + its already-computed
+    `TradeGrade` (from `_grade_closed_trades`). Shared by `get_closed_trades` and
+    `record_follow_up_review` so the two routes' identical field-by-field mapping -- every
+    field `ClosedTradeOut` has grown over time (grades, entry notes, strategy, the follow-up
+    review fields) -- has exactly one place to update, instead of two call sites that must be
+    kept in sync by hand -- see the backend-trade-journal-followup-review-followups task."""
+    return ClosedTradeOut(
+        id=row.id,
+        ticker=row.ticker,
+        quantity=row.quantity,
+        entry_price=row.entry_price,
+        entry_date=row.entry_date,
+        exit_price=row.exit_price,
+        exit_date=row.exit_date,
+        realized_pnl=row.realized_pnl,
+        exit_reason=_normalize_exit_reason(row.exit_reason),
+        buy_grade_pct=grade.buy_grade_pct,
+        sell_grade_pct=grade.sell_grade_pct,
+        trade_grade_pct=grade.trade_grade_pct,
+        trade_letter_grade=trade_letter_grade(grade.trade_grade_pct),
+        entry_notes=row.entry_notes,
+        strategy=row.strategy,
+        follow_up_notes=row.follow_up_notes,
+        follow_up_reviewed_at=row.follow_up_reviewed_at,
+    )
 
 
 # Route bodies are stubs (see the add-api-endpoint skill) — the signatures,
@@ -272,7 +351,9 @@ def get_portfolio(
                 unrealized_pnl_pct=e.position.unrealized_pnl_pct,
                 signal=signal_result.signal if signal_result is not None else None,
                 confidence=signal_result.confidence if signal_result is not None else None,
-                confidence_band=signal_result.confidence_band if signal_result is not None else None,
+                confidence_band=signal_result.confidence_band
+                if signal_result is not None
+                else None,
                 entry_notes=e.entry_notes,
                 strategy=e.strategy,
             )
@@ -310,7 +391,11 @@ def get_portfolio(
         },
     },
 )
-def add_position(position: PositionIn, db: Session = Depends(get_db)) -> PositionOut:
+def add_position(
+    position: PositionIn,
+    db: Session = Depends(get_db),
+    provider: DataProvider = Depends(get_data_provider),
+) -> PositionOut:
     """Creates a position from manual entry / CSV-import data. If a position for this ticker
     already exists it is merged rather than duplicated: quantities are summed and
     avg_cost_basis becomes the quantity-weighted average of the existing and incoming cost
@@ -326,12 +411,32 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
     `entry_notes`) so this field stays a single clean tag for future strategy-segmented
     grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
     merge with no incoming `strategy` leaves the existing one untouched -- see the
-    backend-trade-strategy-tagging task's `decisions`.
+    backend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is
+    stripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to
+    null at the schema layer; neither field is case-folded on write, so casing is preserved
+    exactly as typed for both -- the real asymmetry between the two is the merge behavior
+    above (`strategy` overwrites, `entry_notes` appends), not casing -- see the
+    backend-trade-strategy-tagging-followups task's `decisions`.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
     reason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring
-    POST /api/watchlist's identical null-on-write convention for the same fields."""
+    POST /api/watchlist's identical null-on-write convention for the same fields.
+
+    On a same-ticker merge, this is also the one write path for `PositionORM
+    .trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    persisted floor, Elder ch. 54's "Move Your Stop Only in the Direction of Your Trade" hard
+    ratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --
+    `trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for
+    this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're
+    overwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged
+    cost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET
+    /api/portfolio/risk` itself never writes to the database -- see that route's own docstring
+    and `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather
+    than being advanced/persisted from every GET. A `provider` fetch failure for this ticker
+    (unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched
+    rather than blocking the merge -- adding a position must never depend on live market data
+    being reachable."""
     ticker = position.ticker.upper()
     existing = db.query(PositionORM).filter(PositionORM.ticker == ticker).one_or_none()
 
@@ -381,25 +486,65 @@ def add_position(position: PositionIn, db: Session = Depends(get_db)) -> Positio
                 "quantity/avg_cost_basis or split the addition into smaller increments.",
             )
 
+        # Locks in `trailing_stop_high_water_mark` (app.portfolio.risk
+        # .trailing_stop_floor_before_merge) against this position's OLD avg_cost_basis/
+        # entry_date, BEFORE they're overwritten just below -- the one write path for this
+        # column now that GET /api/portfolio/risk is a pure read again. A `daily_ohlcv` fetch
+        # failure (unknown/delisted ticker, provider unavailable) degrades to `daily_ohlcv=None`
+        # -- trailing_stop_floor_before_merge itself then leaves the floor untouched -- rather
+        # than blocking this merge on live market data being reachable. `daily_ohlcv` is run
+        # through `drop_malformed_daily_bars` here, exactly like `get_portfolio`/`get_risk`'s own
+        # OHLCV consumption in this same file (`require_full_ohlc_on_latest_bar=False`, since the
+        # latest bar can legitimately be today's still-settling one) -- `trailing_stop_high_water
+        # _mark` is a permanent MAX-floor, so an unfiltered malformed bar here would lock in a
+        # value no later correct computation could ever bring back down (PR #240 round-3 finding).
+        old_position = Position(
+            id=existing.id,
+            ticker=existing.ticker,
+            quantity=existing.quantity,
+            avg_cost_basis=existing.avg_cost_basis,
+            entry_date=existing.entry_date,
+        )
+        try:
+            daily_ohlcv = provider.get_daily_ohlcv(ticker)
+        except DataProviderError:
+            daily_ohlcv = None
+        if daily_ohlcv is not None:
+            daily_ohlcv = drop_malformed_daily_bars(
+                daily_ohlcv, require_full_ohlc_on_latest_bar=False
+            )
+        floor = trailing_stop_floor_before_merge(
+            old_position, daily_ohlcv, existing.trailing_stop_high_water_mark
+        )
+        if floor is not None:
+            existing.trailing_stop_high_water_mark = floor
+
         existing.quantity = merged_quantity
         existing.avg_cost_basis = merged_avg_cost_basis
         existing.entry_date = min(existing.entry_date, position.entry_date)
         # entry_notes merges by appending rather than overwriting -- see this task's
         # `decisions` entry: an incoming note is never silently dropped just because a
         # position already existed, and a merge with no incoming note leaves the existing
-        # one untouched (there's nothing to append).
+        # one untouched (there's nothing to append). PositionIn's own field_validator already
+        # strips whitespace and normalizes a blank/whitespace-only note to None before this
+        # handler ever runs, so a whitespace-only incoming note is falsy here too -- see the
+        # backend-trade-journal-entry-notes-followups task's `decisions`.
         if position.entry_notes:
             existing.entry_notes = (
                 f"{existing.entry_notes}\n\n{position.entry_notes}"
                 if existing.entry_notes
                 else position.entry_notes
             )
-        # strategy merges by overwriting rather than appending -- see this task's `decisions`
-        # entry: unlike entry_notes' narrative text, strategy is meant to be grouped/
-        # aggregated on exactly (equity-curves-by-strategy, the future backend-trade-apgar
-        # task), so a merge with an incoming strategy replaces the existing tag outright. A
-        # merge with no incoming strategy leaves the existing one untouched (nothing to
-        # replace it with).
+        # strategy merges by overwriting rather than appending -- see the
+        # backend-trade-strategy-tagging task's `decisions` entry: unlike entry_notes'
+        # narrative text, strategy is meant to be grouped/aggregated on exactly
+        # (equity-curves-by-strategy, the future backend-trade-apgar task), so a merge with an
+        # incoming strategy replaces the existing tag outright. A merge with no incoming
+        # strategy leaves the existing one untouched (nothing to replace it with).
+        # PositionIn's own field_validator already strips whitespace and normalizes a blank/
+        # whitespace-only tag to None before this handler ever runs, so a whitespace-only
+        # incoming tag is falsy here too and never overwrites an existing tag with whitespace
+        # -- see the backend-trade-strategy-tagging-followups task's `decisions`.
         if position.strategy:
             existing.strategy = position.strategy
         row = existing
@@ -591,6 +736,16 @@ def get_risk(
     corresponding stock's fresh technical signal is HOLD — risk-driven exits are
     independent of entry-signal logic by design.
 
+    This is a pure read, like every other GET route in this app: computing each position's
+    `trailing_stop` (see below) only ever *reads* `PositionORM.trailing_stop_high_water_mark`
+    as a floor, never advances or persists it -- `POST /api/portfolio/positions`'s same-ticker-
+    merge branch is the one write path for that column (`app.portfolio.risk
+    .trailing_stop_floor_before_merge`, called there against the position's OLD, pre-merge cost
+    basis before it's overwritten) -- see `app.portfolio.risk.ratchet_trailing_profit_stop`'s
+    own docstring and this task's (backend-trailing-profit-stop) `decisions` entry for the
+    round-2 history of why an earlier revision that had this GET route do the writing (making it
+    this codebase's first side-effecting-write GET route) was reverted.
+
     `total_open_risk_pct` is the book's actual two-part 6% Rule total (docs/Analyse.md §7, per
     docs/ideas.md's ch. 51 cross-check): this calendar month's realized losses
     (`realized_losses_this_month_pct`, from the `closed_trades` table `DELETE
@@ -650,6 +805,23 @@ def get_risk(
     rather than excluding it from `positions` entirely, since a missing profit target is far
     less consequential than a missing stop/risk-pct/exit-flags.
 
+    `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder ch. 54 "Don't Let
+    a Winning Trade Turn into a Loss") is this position's separate trailing/profit-protecting
+    stop, computed from the same `daily_by_id[e.position.id]` frame `profit_target` above
+    already has in hand plus this same position's already-computed `stop`. Unlike
+    `protective_stop`, it's a hard ratchet: it never reports a lower value for a given position
+    than it has on any previous call -- a stateless re-fold of this position's own full price
+    history since entry every call, floored by `PositionORM.trailing_stop_high_water_mark`
+    (this position's own highest-ever *locked-in* value -- read here, never written; written
+    only by `POST /api/portfolio/positions`'s same-ticker-merge branch, see that route's own
+    docstring) -- see `ratchet_trailing_profit_stop`'s own docstring and this task's
+    (backend-trailing-profit-stop) `decisions` entry for the exact mechanics and why the
+    persisted floor turned out to be necessary after all (a same-ticker `POST
+    /api/portfolio/positions` merge that raises `avg_cost_basis` can invalidate the stateless
+    re-fold alone). A `ValueError` computing it excludes the position from `positions` entirely
+    (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
+    the independently-nullable `profit_target`).
+
     Known, accepted perf trade-off (not fixed here -- see the
     backend-profit-target-open-position-followups task's `decisions` entry): both
     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -664,7 +836,15 @@ def get_risk(
     account_row = db.get(AccountORM, 1)
     cash = account_row.cash if account_row is not None else 0.0
 
-    enriched = enrich_positions_with_price(_ordered_positions(db), provider)
+    # `position_rows` is kept alongside `enriched` (rather than re-querying by id later) so the
+    # trailing_stop persisted-high-water-mark floor read below (see
+    # ratchet_trailing_profit_stop's own docstring for why this is needed) has each position's
+    # ORM row in hand without a second query -- `enrich_positions_with_price` preserves
+    # `position_rows`' order and length 1:1 (one EnrichedPosition per input row), so this dict
+    # covers every id `enriched` can ever produce.
+    position_rows = _ordered_positions(db)
+    position_rows_by_id = {row.id: row for row in position_rows}
+    enriched = enrich_positions_with_price(position_rows, provider)
     value = positions_value(enriched)
     account = Account(
         equity=DomainEquity(cash=cash, positions_value=value, total=cash + value),
@@ -691,7 +871,9 @@ def get_risk(
     for e in enriched:
         if e.position.current_price is None or e.daily_ohlcv is None:
             continue
-        daily_ohlcv = drop_malformed_daily_bars(e.daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+        daily_ohlcv = drop_malformed_daily_bars(
+            e.daily_ohlcv, require_full_ohlc_on_latest_bar=False
+        )
         if len(daily_ohlcv) < 2:
             continue
         try:
@@ -731,7 +913,36 @@ def get_risk(
         try:
             risk_pct = position_risk_pct(e.position, stop, account)
             exit_flags = evaluate_exit_flags(
-                e.position, account, daily_by_id[e.position.id], weekly_by_id[e.position.id], total_risk
+                e.position,
+                account,
+                daily_by_id[e.position.id],
+                weekly_by_id[e.position.id],
+                total_risk,
+            )
+            # app.portfolio.risk.trailing_profit_stop/ratchet_trailing_profit_stop (Elder ch.
+            # 54 "Don't Let a Winning Trade Turn into a Loss") -- distinct from `stop` above
+            # (the static SafeZone protective_stop). `daily_by_id[e.position.id]` is the same
+            # drop_malformed_daily_bars-filtered, full-available-history frame `profit_target`
+            # below reuses (today's bar included, unlike the `.iloc[:-1]` slice `stop` itself
+            # was computed from) -- see ratchet_trailing_profit_stop's own docstring for why
+            # this endpoint doesn't need `daily_ohlcv.iloc[:-1]` here: the ratchet is a `max`
+            # over history, so including today's own bar can only ever raise it, never
+            # understate it the way `stop`'s own look-ahead-avoidance concern would apply.
+            #
+            # `persisted_high_water_mark` is this position's own `PositionORM
+            # .trailing_stop_high_water_mark` -- the floor that makes the ratchet genuinely
+            # never decrease even across a `POST /api/portfolio/positions` same-ticker merge
+            # that raises `avg_cost_basis` (see ratchet_trailing_profit_stop's own docstring
+            # for the exact bug this closes). Read-only here: this column is written only by
+            # that POST route's merge branch (app.portfolio.risk
+            # .trailing_stop_floor_before_merge), never by this GET route -- see this
+            # function's own docstring for the round-2 history of why.
+            position_row = position_rows_by_id[e.position.id]
+            trailing_stop = ratchet_trailing_profit_stop(
+                e.position,
+                daily_by_id[e.position.id],
+                stop,
+                persisted_high_water_mark=position_row.trailing_stop_high_water_mark,
             )
         except ValueError:
             continue
@@ -765,6 +976,7 @@ def get_risk(
                 id=e.position.id,
                 ticker=e.position.ticker,
                 protective_stop=stop,
+                trailing_stop=trailing_stop,
                 position_risk_pct=risk_pct,
                 two_percent_rule_breached=risk_pct > _TWO_PERCENT_RULE_THRESHOLD,
                 exit_flags=exit_flags,
@@ -838,30 +1050,38 @@ def get_closed_trades(
     rows = query.order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc()).all()
     grades = _grade_closed_trades(rows, provider)
 
-    return ClosedTradesResponse(
-        items=[
-            ClosedTradeOut(
-                id=row.id,
-                ticker=row.ticker,
-                quantity=row.quantity,
-                entry_price=row.entry_price,
-                entry_date=row.entry_date,
-                exit_price=row.exit_price,
-                exit_date=row.exit_date,
-                realized_pnl=row.realized_pnl,
-                exit_reason=cast(ExitReasonOut, row.exit_reason),
-                buy_grade_pct=grades[row.id].buy_grade_pct,
-                sell_grade_pct=grades[row.id].sell_grade_pct,
-                trade_grade_pct=grades[row.id].trade_grade_pct,
-                trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
-                entry_notes=row.entry_notes,
-                strategy=row.strategy,
-                follow_up_notes=row.follow_up_notes,
-                follow_up_reviewed_at=row.follow_up_reviewed_at,
-            )
-            for row in rows
-        ]
-    )
+    items: list[ClosedTradeOut] = []
+    dropped_row_ids: list[str] = []
+    for row in rows:
+        try:
+            items.append(_to_closed_trade_out(row, grades[row.id]))
+        except Exception:
+            # Defense in depth beyond the exit_reason-specific fallback above (which already
+            # covers the one failure mode actually observed): a single malformed row -- of any
+            # future/unanticipated kind, not just exit_reason -- is dropped and logged rather
+            # than 500ing every other trade in the list. See the
+            # backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry.
+            logger.exception("Skipping closed_trades row %s: failed to build API response", row.id)
+            dropped_row_ids.append(row.id)
+    if dropped_row_ids:
+        # Aggregate signal on top of the per-row logger.exception above (backend-closed-trades-
+        # legacy-exit-reason-500-followups' `decisions` entry): a handful of per-row tracebacks
+        # scattered through the log is easy to miss, and by itself can't distinguish "one bad
+        # legacy row" from a systemic bug affecting most/all of `rows` -- an on-call engineer
+        # watching only aggregate log volume/error-rate metrics (not tailing every traceback)
+        # needs a single line carrying the count and ratio to notice the latter. logger.error,
+        # not .warning, since every row here already failed unexpectedly (dropped_row_ids is
+        # only ever non-empty via the `except Exception` above, never the exit_reason fallback,
+        # which never drops a row).
+        logger.error(
+            "GET /api/portfolio/closed-trades dropped %d/%d row(s) (%.1f%%) due to unexpected "
+            "per-row failures: %s",
+            len(dropped_row_ids),
+            len(rows),
+            100.0 * len(dropped_row_ids) / len(rows),
+            dropped_row_ids,
+        )
+    return ClosedTradesResponse(items=items)
 
 
 @router.post(
@@ -904,25 +1124,7 @@ def record_follow_up_review(
     db.refresh(row)
 
     grades = _grade_closed_trades([row], provider)
-    return ClosedTradeOut(
-        id=row.id,
-        ticker=row.ticker,
-        quantity=row.quantity,
-        entry_price=row.entry_price,
-        entry_date=row.entry_date,
-        exit_price=row.exit_price,
-        exit_date=row.exit_date,
-        realized_pnl=row.realized_pnl,
-        exit_reason=cast(ExitReasonOut, row.exit_reason),
-        buy_grade_pct=grades[row.id].buy_grade_pct,
-        sell_grade_pct=grades[row.id].sell_grade_pct,
-        trade_grade_pct=grades[row.id].trade_grade_pct,
-        trade_letter_grade=trade_letter_grade(grades[row.id].trade_grade_pct),
-        entry_notes=row.entry_notes,
-        strategy=row.strategy,
-        follow_up_notes=row.follow_up_notes,
-        follow_up_reviewed_at=row.follow_up_reviewed_at,
-    )
+    return _to_closed_trade_out(row, grades[row.id])
 
 
 @router.post(
@@ -943,7 +1145,7 @@ def record_follow_up_review(
         503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
     },
 )
-def get_trade_apgar(
+def evaluate_trade_apgar(
     request: TradeApgarIn, provider: DataProvider = Depends(get_data_provider)
 ) -> TradeApgarOut:
     """Elder ch. 58's "Trade Apgar" (docs/Analyse.md §7 / docs/ideas.md ch. 58): a fixed

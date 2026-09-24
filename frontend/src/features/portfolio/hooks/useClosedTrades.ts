@@ -14,6 +14,22 @@ import { portfolioKeys } from './queryKeys'
 export function useClosedTrades() {
   return useQuery<ClosedTradesResponse, ApiError>({
     queryKey: portfolioKeys.closedTrades,
-    queryFn: getClosedTrades,
+    queryFn: () => getClosedTrades(),
+  })
+}
+
+/**
+ * The same `GET /api/portfolio/closed-trades` resource, narrowed to
+ * `?due_for_follow_up=true` — trades due right now for Elder's mandatory
+ * two-months-later follow-up review (ch. 59 Trade Journal Section E,
+ * docs/architecture/API.md). A separate query key
+ * (`portfolioKeys.dueForFollowUpTrades`) from `useClosedTrades` above since
+ * it's a genuinely different filtered response, not just a client-side
+ * re-slice of the same data.
+ */
+export function useDueForFollowUpTrades() {
+  return useQuery<ClosedTradesResponse, ApiError>({
+    queryKey: portfolioKeys.dueForFollowUpTrades,
+    queryFn: () => getClosedTrades({ dueForFollowUp: true }),
   })
 }

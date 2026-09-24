@@ -9,6 +9,7 @@ import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
+import IbkrStatusIndicator from '../../features/ibkr/components/IbkrStatusIndicator'
 import NavDrawer from './NavDrawer'
 
 const DRAWER_WIDTH = 240
@@ -56,9 +57,10 @@ export default function AppShell() {
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             fintrade
           </Typography>
+          <IbkrStatusIndicator />
         </Toolbar>
       </AppBar>
       {/* Plain layout wrapper only — the semantic <nav> landmark lives on

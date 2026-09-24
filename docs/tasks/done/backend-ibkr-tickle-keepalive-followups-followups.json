@@ -1,0 +1,57 @@
+{
+  "id": "backend-ibkr-tickle-keepalive-followups-followups",
+  "title": "Non-blocking finding from backend-ibkr-tickle-keepalive-followups's review (PR #268)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-tickle-keepalive-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-tickle-keepalive-followups.json",
+    "https://github.com/rainoko/fintrade/pull/268"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's code-review pass on PR #268 (backend-ibkr-tickle-keepalive-followups), tracked here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once that PR merges and its review comment scrolls out of view. The PR itself has no blocking findings -- full backend suite passes (1172 passed, 100% line/branch coverage), ruff/mypy clean on touched files, the asyncio cancellation claim was independently verified against CPython's asyncio.to_thread/Future.cancel() semantics and reproduced locally, the broadened except Exception matches an established repo-wide convention (stooq_provider.py, yfinance_provider.py), no live IBKR calls are made (FINTRADE_IBKR_ENABLED stays false), and the task has no UI surface (backend-only asyncio/docs change).",
+  "checklist": [
+    {
+      "step": "backend/app/main.py's lifespan() finally block comment (around the `await tickle_task` line) hardcodes the referenced task file's path as `docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json`, but at the time this comment was written and committed, that task's state was `testing` and its actual location (per docs/tasks/index.json's path field) was `docs/tasks/backend-ibkr-tickle-keepalive-followups.json` -- not yet under done/. This is the inverse of the anti-pattern CLAUDE.md's task-board section warns against (assuming a path from an id/state rather than resolving it via index.json) -- here assuming a not-yet-true done/ location in a committed code comment. It happens to become accurate once this task is accepted and moved to done/ by pr-reviewer, but the pattern of hardcoding an assumed-future path in source comments is fragile (would go stale again if the task were ever reopened/moved back). Consider rephrasing such comments to reference the task by id only (letting index.json resolve the actual path) rather than a literal path guess.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-tickle-keepalive-followups-followups",
+    "pr_number": 269,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/269",
+    "pushed_at": "2026-09-22T15:40:32Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reworded the lifespan() finally-block comment in backend/app/main.py to reference the source task by id only (\"task `backend-ibkr-tickle-keepalive-followups`\") plus an explicit instruction to resolve its current location via docs/tasks/index.json, instead of naming any literal file path (neither the stale docs/tasks/done/... path nor the then-current docs/tasks/... one).",
+      "rationale": "The checklist item flags hardcoding an assumed-future docs/tasks/done/ path as fragile because it goes stale again if the task is ever reopened/moved back. Naming a different literal path (e.g. the current non-done location) would just relocate the same staleness risk rather than removing it. Pointing at the id and telling the reader to resolve it via index.json is the one form that stays correct regardless of which state/location the referenced task is currently in."
+    }
+  ],
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-22T15:42:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/269",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Reworded lifespan() finally-block comment in backend/app/main.py correctly points at task backend-ibkr-tickle-keepalive-followups by id and instructs resolving its current location via docs/tasks/index.json rather than assuming a literal path -- matches the checklist item and the CLAUDE.md anti-pattern it cites, no new confusion introduced. Confirmed referenced task is state: done, path: docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json.",
+        "file": "backend/app/main.py",
+        "line": 103
+      },
+      {
+        "summary": "Non-blocking nit: the new comment's aside 'since it moves once the task is done' is slightly imprecise -- a task's file can also move back out of docs/tasks/done/ on a reopen, not only forward once done. Doesn't affect the comment's actual instruction or reintroduce the staleness bug being fixed. Tracked as a follow-up task (backend-ibkr-tickle-keepalive-followups-followups-followups).",
+        "file": "backend/app/main.py",
+        "line": 105
+      }
+    ],
+    "notes": "Comment-only, no-behavior-change PR. Full backend suite: 1172 passed, 100% line/branch coverage. ruff/mypy clean. scripts/check_profit_target_wording.py and scripts/validate_tasks.py clean. No frontend/UI surface, no API/schema change, no new module/dependency, not signals/portfolio code -- browser walkthrough, e2e, openapi check, architecture-review, and verify-elder-signal are all correctly out of scope and were skipped explicitly rather than silently omitted. Posted as a COMMENTED-type gh pr review (no approve/merge)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T15:48:14Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 1172 passed, 100% line/branch coverage, matching pr-reviewer's numbers exactly. Diffed origin/main...HEAD for backend/app/main.py: confirmed the only change is the lifespan() finally-block comment wording (now references task backend-ibkr-tickle-keepalive-followups by id + index.json resolution instead of a literal path); no other lines touched, so no behavior change. Verified the referenced task's actual current location via index.json (state: done, path: docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json), confirming the new comment's guidance is accurate. decisions entry has a concrete decision + rationale."
+  }
+}

@@ -173,6 +173,260 @@ def protective_stop(
     )
 
 
+# Ch. 54's "Don't Let a Winning Trade Turn into a Loss" subsection (docs/ideas.md's ch. 54
+# entry) -- unrealized profit, as a fraction of entry price, that must be reached before the
+# trailing/profit-protecting stop "cuffs the trade" to breakeven at all. Elder states the
+# *behavior* (move to breakeven once profit has grown enough to afford it, without giving a
+# number) but not a specific trigger threshold -- 10% is this app's own judgment call: large
+# enough that ordinary daily noise on a swing-timeframe position won't false-trigger it long
+# before a real trend move has developed, small enough that a genuinely winning trade isn't
+# left unprotected for too long. See this task's (backend-trailing-profit-stop) `decisions`
+# entry for the alternatives considered (a fixed dollar/point amount, or a multiple of the
+# position's own risk-to-stop distance -- both rejected as less simple to reason about/test
+# than a plain percent-of-entry-price figure).
+_TRAILING_STOP_BREAKEVEN_TRIGGER_PCT = 0.10
+
+# Elder's own worked example for the fraction of ADDITIONAL profit (the portion earned beyond
+# the breakeven trigger above) the stop protects once "cuffed" -- explicitly called out in the
+# book as an illustrative example, not a stated rule (docs/ideas.md's ch. 54 entry: "a growing
+# fraction (Elder's own example: a third)"). Reused verbatim rather than picked independently,
+# since it's the one concrete number the book actually gives for this mechanic.
+_TRAILING_STOP_PROFIT_PROTECTION_FRACTION = 1.0 / 3.0
+
+
+def trailing_profit_stop(entry_price: float, current_price: float, safezone_stop: float) -> float:
+    """Elder ch. 54 "Don't Let a Winning Trade Turn into a Loss": as unrealized profit grows,
+    move the stop to breakeven ("cuffing the trade") once profit crosses a threshold, then
+    keep protecting a growing fraction of profit earned beyond that point as it increases
+    further. A **single point-in-time** computation -- no memory of any earlier call -- see
+    `ratchet_trailing_profit_stop` below for the stateless hard-ratchet wrapper that's actually
+    wired into GET /api/portfolio/risk; this function is its per-day building block, factored
+    out for direct, hand-computable unit testing.
+
+    Long-only, mirroring `protective_stop`.
+
+    - Below `_TRAILING_STOP_BREAKEVEN_TRIGGER_PCT` unrealized profit (as a fraction of
+      ``entry_price``): returns ``safezone_stop`` verbatim -- this mechanic doesn't exist yet
+      for a trade that hasn't earned enough profit to be worth protecting; the ordinary
+      volatility-based SafeZone stop applies unchanged.
+    - At or above that threshold: returns
+      ``entry_price + _TRAILING_STOP_PROFIT_PROTECTION_FRACTION * (profit beyond the
+      threshold)`` -- exactly ``entry_price`` (breakeven) the instant the threshold is first
+      reached (zero profit beyond it yet), then rising continuously as profit grows further.
+      Applying the fraction to profit *beyond* the trigger (not total profit) is what makes
+      "crosses the threshold" and "moves to breakeven" the same event with no discontinuity --
+      see this task's `decisions` entry for the alternative (fraction of *total* profit)
+      considered and rejected because it would already be above breakeven at the moment of
+      crossing, contradicting the book's own "cuffing" framing.
+    - Deliberately does **not** re-involve ``safezone_stop`` once the threshold is crossed:
+      see `ratchet_trailing_profit_stop`'s own docstring for why a live, independently-
+      fluctuating SafeZone value can't safely participate in a value that has to never
+      decrease.
+
+    Raises:
+        ValueError: if ``entry_price`` isn't positive.
+    """
+    if entry_price <= 0:
+        raise ValueError("entry_price must be positive to compute a trailing profit stop")
+
+    profit = current_price - entry_price
+    threshold_profit = entry_price * _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT
+    if profit < threshold_profit:
+        return safezone_stop
+
+    profit_beyond_threshold = profit - threshold_profit
+    return entry_price + _TRAILING_STOP_PROFIT_PROTECTION_FRACTION * profit_beyond_threshold
+
+
+def ratchet_trailing_profit_stop(
+    position: Position,
+    daily_ohlcv: pd.DataFrame,
+    safezone_stop: float,
+    *,
+    persisted_high_water_mark: float | None = None,
+) -> float:
+    """The actual, stateful-in-effect trailing/profit-protecting stop wired into GET
+    /api/portfolio/risk (`RiskPosition.trailing_stop`) -- a **hard ratchet**: once returned,
+    never lower than any value this same function has ever returned for this position before
+    (Elder ch. 54's companion "Move Your Stop Only in the Direction of Your Trade").
+
+    Two layers work together to make that guarantee actually hold:
+
+    1. A **stateless recomputation over this position's full price history**: `daily_ohlcv` is
+       the same full-available-history frame every other caller in this endpoint already has in
+       hand (`app.data.base.DataProvider.get_daily_ohlcv` fetches "full available history", per
+       its own docstring), so folding `trailing_profit_stop` over every close from
+       ``position.entry_date`` through today and taking the running max reconstructs, on its
+       own, everything a persisted ratchet would have accumulated *for a fixed cost basis*: new
+       bars only ever get appended, never revised away, and the folded quantity depends only on
+       ``entry_price`` (== ``position.avg_cost_basis``) and immutable past closes, so extending
+       the fold with new bars alone can only hold the result steady or raise it.
+    2. A **persisted high-water mark floor** (``persisted_high_water_mark``, backed by
+       ``PositionORM.trailing_stop_high_water_mark``): the caller passes in the highest value
+       ever locked in for this position before, and this function returns
+       ``max(<freshly recomputed candidate>, persisted_high_water_mark)`` -- never lower than
+       that floor, regardless of what the fresh recompute alone would say.
+
+    Layer 2 exists because layer 1 *alone* is not actually safe against `POST
+    /api/portfolio/positions`'s same-ticker merge, which can raise `avg_cost_basis` (a
+    quantity-weighted average) with **no price movement at all**. That merge changes
+    ``entry_price`` for every future call, which changes `threshold_profit` (`entry_price *
+    _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT`) and the breakeven point itself (`entry_price` is
+    the additive base of `trailing_profit_stop`'s formula) -- so a historical close that
+    qualified (and set the high-water mark) under the OLD, lower cost basis can silently stop
+    qualifying (or produce a lower candidate) once recomputed under the NEW, higher one,
+    letting the *reported* value decrease even though the stateless fold, taken alone, never
+    mis-evaluates any individual call. This exact scenario (entered at $100, rallied to $115,
+    ratcheted to ~$101.667; then merged with a buy at $200 with no further price change,
+    raising `avg_cost_basis` to $150) was caught by PR review against this task's original
+    all-stateless design -- see this task's (backend-trailing-profit-stop) `decisions` entry
+    for the full history: a persisted column was considered and rejected there for exactly this
+    kind of avg_cost_basis-changing merge, without realizing the chosen stateless alternative
+    had the identical defect via a different mechanism.
+
+    ``PositionORM.trailing_stop_high_water_mark`` is written **only** by `POST
+    /api/portfolio/positions`'s same-ticker-merge branch (`trailing_stop_floor_before_merge`
+    below, called there against the position's OLD, pre-merge `avg_cost_basis`/`entry_date`
+    before they're overwritten) -- `GET /api/portfolio/risk` only ever *reads*
+    `persisted_high_water_mark` as a floor here, never advances or persists it itself. An
+    earlier revision of this fix had `GET /api/portfolio/risk` do that advancing/persisting
+    instead (on every call whose fresh recompute exceeded the stored value), making it this
+    codebase's first side-effecting-write GET route -- reverted after a second PR review round
+    correctly flagged that as violating HTTP GET's safe/idempotent contract (including on
+    ordinary TanStack Query window-refocus refetches) and this codebase's own established
+    "annotation happens on read, not on write" convention elsewhere (`POST
+    /api/portfolio/positions`/`POST /api/watchlist`'s null-on-write fields). Capturing the floor
+    at the one write path that can actually invalidate it (the merge itself) instead keeps GET
+    /api/portfolio/risk a pure read, matching every other GET in this app, while still closing
+    the exact gap layer 2 exists for -- see this task's `decisions` entry for the full round-2
+    history.
+
+    `safezone_stop` (today's live, independently -- and non-monotonically -- fluctuating
+    SafeZone value) is deliberately used only as a *pre-trigger* pass-through (matching
+    `trailing_profit_stop`'s own single-call contract) and never re-folded into the ratchet
+    once triggered -- letting a currently-lower live `safezone_stop` back into the post-trigger
+    max would reopen exactly the "could decrease later" gap this whole function exists to
+    close. A position whose profit has never crossed the trigger, and which has no persisted
+    high-water mark yet either, simply passes `safezone_stop` straight through unchanged,
+    matching `protective_stop`'s own free-to-move-either-way behavior -- there's no "winning
+    trade" yet for this mechanic to protect.
+
+    ``position.entry_date`` rows with a NaN close are skipped (can't inform the ratchet either
+    way). If no row in ``daily_ohlcv`` is on or after ``position.entry_date`` at all (a
+    malformed/incomplete history that doesn't reach back to entry -- see
+    `app.portfolio.grading.grade_trade_from_filtered_history`'s identical concern), the whole
+    frame is used instead of raising, since a stop somewhat too conservative (ignoring
+    genuinely-pre-entry bars can only ever be MORE conservative here, never less, given the
+    ratchet is a `max`) is preferable to excluding the position from `positions` entirely over
+    a data-completeness gap unrelated to whether a stop can be computed at all.
+
+    ``persisted_high_water_mark``, if given, floors the result at that value (see layer 2
+    above); omit it (the default, `None`) for a position with no persisted value yet (e.g. its
+    first-ever call, or a test exercising the stateless fold in isolation) -- behaves exactly as
+    the original all-stateless implementation did.
+
+    Raises:
+        ValueError: if ``daily_ohlcv`` is empty or missing a ``close`` column, or if
+            ``position.avg_cost_basis`` isn't positive (mirrors `trailing_profit_stop`'s own
+            precondition).
+    """
+    if daily_ohlcv.empty:
+        raise ValueError("daily_ohlcv must contain at least one row to compute a trailing stop")
+    if "close" not in daily_ohlcv.columns:
+        raise ValueError("daily_ohlcv is missing required column: 'close'")
+    if position.avg_cost_basis <= 0:
+        raise ValueError("entry_price must be positive to compute a trailing profit stop")
+
+    # `daily_ohlcv.index` is a real `pd.DatetimeIndex` for every genuine `DataProvider` frame
+    # (see `stop_from_price_action`'s own column-shape reference), but a caller-constructed
+    # test fixture can hand this a plain `RangeIndex` (e.g. a `pd.concat(..., ignore_index=
+    # True)`) -- comparing a non-datetime index against a `pd.Timestamp` raises `TypeError`
+    # rather than returning a useless-but-harmless all-False mask, so that case (like the "no
+    # row on/after entry_date at all" case below) falls back to using the whole frame instead
+    # of raising.
+    if isinstance(daily_ohlcv.index, pd.DatetimeIndex):
+        since_entry = daily_ohlcv.loc[daily_ohlcv.index >= pd.Timestamp(position.entry_date)]
+    else:
+        since_entry = daily_ohlcv
+    if since_entry.empty:
+        since_entry = daily_ohlcv
+
+    entry_price = position.avg_cost_basis
+    threshold_profit = entry_price * _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT
+    ratcheted: float | None = None
+    for close in since_entry["close"]:
+        if pd.isna(close):
+            continue
+        # Whether *this specific day* ever triggered is checked directly against the same
+        # profit/threshold comparison `trailing_profit_stop` itself makes -- not inferred by
+        # comparing its return value to `safezone_stop`, which could coincidentally match a
+        # genuinely post-trigger candidate and wrongly exclude it from the ratchet.
+        if (float(close) - entry_price) < threshold_profit:
+            continue
+        candidate = trailing_profit_stop(entry_price, float(close), safezone_stop)
+        ratcheted = candidate if ratcheted is None else max(ratcheted, candidate)
+
+    fresh_candidate = safezone_stop if ratcheted is None else ratcheted
+    if persisted_high_water_mark is None:
+        return fresh_candidate
+    return max(fresh_candidate, persisted_high_water_mark)
+
+
+def trailing_stop_floor_before_merge(
+    position: Position,
+    daily_ohlcv: pd.DataFrame | None,
+    persisted_high_water_mark: float | None,
+) -> float | None:
+    """The `PositionORM.trailing_stop_high_water_mark` value `POST /api/portfolio/positions`
+    must persist for `position` the moment BEFORE its same-ticker-merge branch overwrites
+    `avg_cost_basis`/`entry_date` -- the *only* write path for that column now that `GET
+    /api/portfolio/risk` is a pure read again (see `ratchet_trailing_profit_stop`'s own
+    docstring, and this task's `decisions` entry, for the round-2 history of why the write
+    moved here).
+
+    `position` must carry the OLD, pre-merge `avg_cost_basis`/`entry_date` -- i.e. the caller
+    (`app.api.routers.portfolio.add_position`) must call this *before* mutating
+    `existing.avg_cost_basis`/`existing.entry_date`, not after, or the captured floor would
+    already reflect the NEW cost basis and reopen the exact regression this function exists to
+    close. Internally, this is just `protective_stop` (position-independent, so safe to compute
+    from either the old or the new cost basis) feeding `ratchet_trailing_profit_stop` the same
+    pre-trigger pass-through value a real `GET /api/portfolio/risk` call would have used for
+    this position at this exact moment, folded against `persisted_high_water_mark` the same way.
+
+    `daily_ohlcv` is this ticker's latest available daily history, most recent row last, and
+    -- like every other daily-OHLCV consumer in `app.api.routers.portfolio` (`get_portfolio`,
+    `get_risk`) -- must already be filtered through `app.signals.engine
+    .drop_malformed_daily_bars` (with `require_full_ohlc_on_latest_bar=False`, since the most
+    recent bar here can legitimately be today's still-settling one) by the caller before it
+    reaches this function; this function itself doesn't filter, matching `protective_stop`'s own
+    "caller's responsibility" convention. This matters specifically because
+    `persisted_high_water_mark` is a permanent MAX-floor: a single malformed bar (NaN
+    open/high/low, a garbage/partial close) fed in unfiltered could lock in an arbitrarily wrong
+    value that no future correct computation could ever bring back down -- see the PR #240
+    round-3 review finding this docstring update accompanies. Returns `None` (meaning: leave
+    `persisted_high_water_mark` exactly as it was) when `daily_ohlcv` is `None` (the caller's own
+    price fetch already failed) or has fewer than 2 rows, or when
+    `protective_stop`/`ratchet_trailing_profit_stop` raise `ValueError` for it (a malformed/
+    incomplete frame) -- a data-provider hiccup at merge time must never block adding a
+    position, and an un-advanced floor is still safe (it can only ever be too conservative,
+    never so low it lets the ratchet actually decrease later), just possibly stale until a later
+    merge succeeds in advancing it. Otherwise always returns a value `>= persisted_high_water_mark`
+    (whichever is higher), since `ratchet_trailing_profit_stop` itself guarantees that.
+    """
+    if daily_ohlcv is None or len(daily_ohlcv) < 2:
+        return None
+    try:
+        safezone_stop = protective_stop(position, daily_ohlcv.iloc[:-1])
+        return ratchet_trailing_profit_stop(
+            position,
+            daily_ohlcv,
+            safezone_stop,
+            persisted_high_water_mark=persisted_high_water_mark,
+        )
+    except ValueError:
+        return None
+
+
 def position_risk_pct(position: Position, stop: float, account: Account) -> float:
     """Fraction of account equity at risk if `position` hits its protective stop (2% rule, docs/Analyse.md §7).
 

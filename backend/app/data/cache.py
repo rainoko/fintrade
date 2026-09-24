@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import date, timedelta
 
 import pandas as pd
@@ -54,12 +55,33 @@ _EXTENDED_DATA_CACHE_TTL = timedelta(days=3)
 
 
 class CachedDataProvider(DataProvider):
-    """Read-through OHLCV cache in front of a primary + fallback `DataProvider`."""
+    """Read-through OHLCV cache in front of a primary + fallback `DataProvider`.
+
+    Thread-safety: a single `CachedDataProvider` instance (and the request-scoped
+    `Session` it wraps -- `app.api.dependencies.get_data_provider`) can now be called
+    concurrently from more than one thread within the same request (see
+    `app.api.routers.stocks.get_indicator_history`'s concurrent daily+weekly OHLCV
+    fetch, docs/tasks/backend-indicator-history-performance.json's `review`/`decisions`
+    entries). SQLAlchemy's `Session` is *not* safe for two threads to touch at once --
+    two threads racing a real DB-backed instance on a cold cache reliably raised
+    `IllegalStateChangeError`/`ResourceClosedError`/a corrupted-state `AttributeError`/a
+    duplicate-insert `IntegrityError` in PR #231's review, none of which the caller's
+    except clauses caught. `self._lock` (one per instance, i.e. per request) serializes
+    every section of every public method that actually touches `self._db` -- the read
+    that checks freshness and the upsert that writes a refreshed/newly-fetched frame --
+    while deliberately leaving the (slow, network-bound) source fetch itself unlocked,
+    so two concurrent calls for different ticker/interval combinations still overlap on
+    the part of the work that's actually worth parallelizing; only the fast local SQLite
+    read/write sections are ever serialized. See this task's `decisions` entry for why a
+    lock was chosen over giving each concurrent fetch its own `Session`, or dropping the
+    concurrent fetch entirely.
+    """
 
     def __init__(self, primary: DataProvider, fallback: DataProvider, db: Session) -> None:
         self._primary = primary
         self._fallback = fallback
         self._db = db
+        self._lock = threading.Lock()
 
     def get_daily_ohlcv(self, ticker: str) -> pd.DataFrame:
         """Daily OHLCV bars for `ticker`, from cache if fresh, else fetched and cached.
@@ -90,12 +112,14 @@ class CachedDataProvider(DataProvider):
         get_extended_data`'s own docstring); it can still raise `DataProviderUnavailableError`
         if both providers fail on this specific call.
         """
-        cached_row = self._read_extended_cache(ticker)
-        if cached_row is not None and self._is_extended_fresh(cached_row):
-            return self._row_to_extended_data(cached_row)
+        with self._lock:
+            cached_row = self._read_extended_cache(ticker)
+            if cached_row is not None and self._is_extended_fresh(cached_row):
+                return self._row_to_extended_data(cached_row)
 
         fetched = self._fetch_extended_from_source(ticker)
-        self._upsert_extended(ticker, fetched)
+        with self._lock:
+            self._upsert_extended(ticker, fetched)
         return fetched
 
     def _read_extended_cache(self, ticker: str) -> ExtendedDataCacheORM | None:
@@ -188,9 +212,14 @@ class CachedDataProvider(DataProvider):
         )
 
     def _get(self, ticker: str, *, interval: str) -> pd.DataFrame:
-        cached_rows = self._read_cache(ticker, interval)
-        if cached_rows and self._is_fresh(cached_rows):
-            return self._rows_to_frame(cached_rows)
+        # Only the DB-touching sections (the freshness read below, and `_upsert` at the
+        # bottom) are held under `self._lock` -- see this class's own docstring for why
+        # `_fetch_from_source` (the actual network round trip) deliberately runs
+        # unlocked, so a concurrent daily+weekly fetch still overlaps on the slow part.
+        with self._lock:
+            cached_rows = self._read_cache(ticker, interval)
+            if cached_rows and self._is_fresh(cached_rows):
+                return self._rows_to_frame(cached_rows)
 
         fetched = self._fetch_from_source(ticker, interval)
         # Cast volume to float here so the cache-miss return value matches the
@@ -202,7 +231,8 @@ class CachedDataProvider(DataProvider):
         # code paths internally consistent for any future caller that
         # branches on dtype. See this task's `decisions` entry.
         fetched["volume"] = fetched["volume"].astype("float64")
-        self._upsert(ticker, interval, fetched)
+        with self._lock:
+            self._upsert(ticker, interval, fetched)
         return fetched
 
     def _read_cache(self, ticker: str, interval: str) -> list[OHLCVCacheORM]:

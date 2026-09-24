@@ -1,0 +1,46 @@
+{
+  "id": "backend-market-breadth-indicators-followups-followups-followups",
+  "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking finding from PR #283's round-2 review",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-market-breadth-indicators-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-market-breadth-indicators-followups-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/283"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's round-2 review of PR #283 (backend-market-breadth-indicators-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. Concerns the regression test added to fix round-1's raw-exception-leak finding.",
+  "checklist": [
+    {
+      "step": "`test_operational_error_with_no_same_key_winner_returns_503` (backend/tests/integration/test_ibkr_breadth.py:358-390) only asserts `\"nh\" in response.json()[\"detail\"]`, so it does not actually guard against the exact regression the round-2 fix addressed (the raw SQLAlchemy exception -- interpolated SQL statement, bound parameters, and a sqlalche.me docs link -- leaking into the client-facing 503 `detail` at backend/app/api/routers/ibkr.py:380-386). If a future edit re-adds `({type(exc).__name__}: {exc})` (or any other raw-exception interpolation) to that `HTTPException`'s `detail`, this test would still pass unchanged since `\"nh\"` remains present in the string -- the leak regression would ship silently with green CI. Worth strengthening the assertion to also check the exception-derived text is absent, e.g. `assert \"SQL\" not in response.json()[\"detail\"]` and/or `assert \"database is locked\" not in response.json()[\"detail\"]`, so the test actually fails if the interpolation is reintroduced.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Strengthened `test_operational_error_with_no_same_key_winner_returns_503` to assert the full expected `detail` string exactly (`\"Transient write conflict recording breadth snapshot for series_key='nh'; retry.\"`), plus separate negative assertions that known leak-indicator substrings (`OperationalError`, `database is locked`, `INSERT`, `sqlalche.me`) are absent from `detail`.",
+      "rationale": "An exact-match assertion is the strongest guard against the round-1 leak regression (raw exception text re-interpolated into the client-facing detail) reappearing, since any such interpolation changes the string and fails the equality check immediately. The extra explicit substring-absence assertions were kept alongside it (rather than relying on exact-match alone) because they self-document exactly which leaked tokens this test exists to catch, matching the task's own suggested approach; considered using substring-absence checks only (no exact match), but rejected that since a still-loose substring set risks missing some other exception-derived fragment that happens not to match the chosen substrings, whereas pinning the full literal string can't miss any change to it."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-market-breadth-indicators-followups-followups-followups",
+    "pr_number": 284,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/284",
+    "pushed_at": "2026-09-23T22:36:38Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T22:42:53Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/284",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Small, test-only change. Verified the core claim by spot-check: temporarily reintroduced the raw-exception-leak pattern PR #283 fixed (appending `({type(exc).__name__}: {exc})` to the 503 detail in backend/app/api/routers/ibkr.py) and re-ran test_operational_error_with_no_same_key_winner_returns_503 -- it failed loudly on the exact-match assertion (diff showed the leaked OperationalError text, SQL, and sqlalche.me link), confirming the strengthened test genuinely catches the regression the old `\"nh\" in detail` substring check would have missed (since \"nh\" remains present in the leaked string). Reverted the temporary edit afterward (git checkout --, working tree clean). Test is not tautological or overfit in a concerning way -- the exact-match string mirrors the actual production f-string, and the added negative substring assertions are intentional defense-in-depth (self-documenting which leak tokens matter), not dead checks, per the code-review skill's independent read of the diff. Backend: 1203 passed, 100% coverage (--cov-fail-under=90). Frontend: unchanged by this PR; ran anyway for completeness -- 825 passed, 84 files, 99.76%/99.31%/99.78%/99.82% stmt/branch/func/line coverage, all above the 90% gate. Static analysis clean: backend ruff + mypy, frontend eslint + tsc, and the profit-target stale-wording guard all pass with zero findings. No API route/schema touched (openapi.json check not applicable). No UI surface -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped; this PR only touches a backend integration test file. Task's own decisions entry (exact-match vs. substring-only tradeoff) is adequately recorded per CLAUDE.md. No new non-blocking findings from this review, so no additional follow-up task entry needed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-23T22:47:35Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the specific test and the full backend suite: pytest --cov=app --cov-report=term-missing -> 1203 passed, 100% line/branch coverage, matching pr-reviewer's numbers exactly. ruff check and mypy both clean. Skimmed the full diff (test file + task JSON/index.json bookkeeping) and confirmed the new exact-match string matches the production f-string in app/api/routers/ibkr.py verbatim. Independently reproduced pr-reviewer's spot-check: temporarily re-added `({type(exc).__name__}: {exc})` to the 503 detail in app/api/routers/ibkr.py and reran the strengthened test -- it failed loudly on the exact-match assertion, confirming the regression guard is real; reverted afterward, working tree clean. Task-board bookkeeping (git mv to docs/tasks/done/, index.json state+path mirror) verified correct. No human PR comments present. Accept holds up."
+  }
+}

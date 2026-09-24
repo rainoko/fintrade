@@ -171,6 +171,54 @@ describe('api/client', () => {
     expect((error as ApiError).detail).toBe('Request failed with status 422')
   })
 
+  it('parses a numeric Retry-After header into ApiError.retryAfterSeconds', async () => {
+    server.use(
+      http.post('/test/rate-limited', () =>
+        HttpResponse.json(
+          { detail: 'Rate limited' },
+          { status: 429, headers: { 'Retry-After': '3' } },
+        ),
+      ),
+    )
+
+    const error = await request('/test/rate-limited', { method: 'POST' }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(429)
+    expect((error as ApiError).retryAfterSeconds).toBe(3)
+  })
+
+  it('leaves retryAfterSeconds null when the response has no Retry-After header', async () => {
+    server.use(
+      http.get('/test/not-found', () =>
+        HttpResponse.json({ detail: 'Unknown ticker' }, { status: 404 }),
+      ),
+    )
+
+    const error = await request('/test/not-found').catch((caught: unknown) => caught)
+
+    expect((error as ApiError).retryAfterSeconds).toBeNull()
+  })
+
+  it('leaves retryAfterSeconds null when Retry-After is an HTTP-date rather than seconds', async () => {
+    server.use(
+      http.post('/test/rate-limited-date', () =>
+        HttpResponse.json(
+          { detail: 'Rate limited' },
+          { status: 429, headers: { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' } },
+        ),
+      ),
+    )
+
+    const error = await request('/test/rate-limited-date', { method: 'POST' }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect((error as ApiError).retryAfterSeconds).toBeNull()
+  })
+
   it('maps a network-level failure (fetch throws) to a status-0 ApiError', async () => {
     server.use(http.get('/test/network-error', () => HttpResponse.error()))
 

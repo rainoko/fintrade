@@ -16,8 +16,11 @@ from app.portfolio.models import Account, Equity, Position
 from app.portfolio.risk import (
     position_risk_pct,
     protective_stop,
+    ratchet_trailing_profit_stop,
     realized_losses_pct,
     total_open_risk_pct,
+    trailing_profit_stop,
+    trailing_stop_floor_before_merge,
 )
 
 
@@ -370,3 +373,392 @@ class TestRealizedLossesPct:
 
         with pytest.raises(ValueError, match="equity"):
             realized_losses_pct(account, 100.0)
+
+
+def _daily_frame_since(entry: date, closes: list[float]) -> pd.DataFrame:
+    """A minimal `close`-only daily frame, indexed by a real `pd.DatetimeIndex` starting at
+    `entry` (matching every genuine `DataProvider` frame's index shape -- see
+    `ratchet_trailing_profit_stop`'s own docstring for why this matters)."""
+    return pd.DataFrame(
+        {"close": closes},
+        index=pd.date_range(entry, periods=len(closes), freq="D", name="date"),
+    )
+
+
+class TestTrailingProfitStop:
+    """Elder ch. 54 "Don't Let a Winning Trade Turn into a Loss" -- single point-in-time
+    building block (see TestRatchetTrailingProfitStop below for the actual hard-ratchet
+    wrapper wired into GET /api/portfolio/risk). entry_price=100, breakeven trigger=10% (so
+    threshold_profit=10), profit-protection fraction=1/3 of profit BEYOND that threshold --
+    see this task's (backend-trailing-profit-stop) `decisions` entry for both numbers."""
+
+    def test_profit_below_threshold_returns_safezone_stop_unchanged(self) -> None:
+        # profit=5 (5%), below the 10% trigger -- must pass safezone_stop straight through,
+        # even though it's *below* entry_price (a real stop-loss, matching a plain SafeZone
+        # stop's usual position under an unprofitable-so-far trade).
+        assert trailing_profit_stop(
+            entry_price=100.0, current_price=105.0, safezone_stop=90.0
+        ) == pytest.approx(90.0)
+
+    def test_profit_exactly_at_threshold_moves_to_breakeven(self) -> None:
+        # profit=10 (exactly 10%) -> profit_beyond_threshold=0 -> entry_price + 0 == entry_price
+        # exactly ("cuffing the trade" to breakeven, per the book's own language).
+        assert trailing_profit_stop(
+            entry_price=100.0, current_price=110.0, safezone_stop=90.0
+        ) == pytest.approx(100.0)
+
+    def test_profit_growing_further_ratchets_up(self) -> None:
+        # profit=30 (30%) -> threshold_profit=10 -> profit_beyond_threshold=20 ->
+        # 100 + (1/3 * 20) = 106.666...
+        result = trailing_profit_stop(entry_price=100.0, current_price=130.0, safezone_stop=90.0)
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+        assert result > 100.0  # strictly past breakeven now, not just at it
+
+    def test_safezone_stop_not_reconsidered_once_triggered(self) -> None:
+        """A `safezone_stop` far ABOVE the profit-protection candidate must not leak into the
+        post-trigger result -- see `trailing_profit_stop`'s own docstring for why (a live,
+        non-monotonic safezone_stop could otherwise reopen the "could decrease later" gap
+        `ratchet_trailing_profit_stop` exists to close)."""
+        result = trailing_profit_stop(
+            entry_price=100.0, current_price=130.0, safezone_stop=999.0
+        )
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_non_positive_entry_price_raises(self) -> None:
+        with pytest.raises(ValueError, match="entry_price"):
+            trailing_profit_stop(entry_price=0.0, current_price=10.0, safezone_stop=5.0)
+
+
+class TestRatchetTrailingProfitStop:
+    """The actual hard-ratchet wrapper wired into GET /api/portfolio/risk
+    (`RiskPosition.trailing_stop`) -- a stateless recomputation over a position's full price
+    history since entry, floored by an optional caller-supplied `persisted_high_water_mark`
+    (see the function's own docstring for why the floor is needed: a same-ticker merge
+    raising `avg_cost_basis` can otherwise make the stateless recompute alone regress)."""
+
+    def test_never_triggered_matches_safezone_stop(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        # Every close stays under the 10% trigger (max close 108 -> 8% profit).
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 102.0, 105.0, 108.0])
+
+        assert ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0) == pytest.approx(
+            90.0
+        )
+
+    def test_crossing_threshold_moves_to_breakeven(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 105.0, 110.0])
+
+        assert ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0) == pytest.approx(
+            100.0
+        )
+
+    def test_ratchets_up_as_profit_grows_further(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        # Same reference value as TestTrailingProfitStop.test_profit_growing_further_ratchets_up
+        # (the 130.0 day's own candidate) -- the running max across the whole history.
+        assert ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0) == pytest.approx(
+            106.666667, abs=1e-5
+        )
+
+    def test_never_decreases_across_a_sequence_of_calls(self) -> None:
+        """The book's companion rule, "Move Your Stop Only in the Direction of Your Trade":
+        a rally to +30% profit (candidate 106.666...) followed by a pullback to +12% profit
+        (a lower candidate, 100 + 1/3*2 = 100.6667, if computed fresh from that day alone)
+        must still report the HIGHER value reached during the rally, not the lower
+        pulled-back one."""
+        position = _position(avg_cost_basis=100.0)
+        rally_then_pullback = _daily_frame_since(
+            date(2026, 1, 1), [100.0, 110.0, 130.0, 118.0, 112.0]
+        )
+
+        result = ratchet_trailing_profit_stop(position, rally_then_pullback, safezone_stop=90.0)
+
+        # 130.0's own candidate (106.666...) must still be the answer, not 112.0's own lower
+        # fresh candidate (100 + 1/3*(12-10) = 100.6667) -- confirming this isn't just "last
+        # row wins".
+        fresh_candidate_for_pulled_back_day = trailing_profit_stop(
+            entry_price=100.0, current_price=112.0, safezone_stop=90.0
+        )
+        assert fresh_candidate_for_pulled_back_day == pytest.approx(100.666667, abs=1e-5)
+        assert result == pytest.approx(106.666667, abs=1e-5)
+        assert result > fresh_candidate_for_pulled_back_day
+
+    def test_extending_history_with_more_calls_never_lowers_the_result(self) -> None:
+        """Simulates successive real GET /api/portfolio/risk calls as time passes -- each
+        later call's `daily_ohlcv` is a strict superset (one more day appended) of the
+        previous call's. The result across that growing sequence must never decrease, even
+        though the newly-appended days themselves pull back from the rally's peak and even
+        though `safezone_stop` (recomputed fresh "each call" here) genuinely drops too."""
+        position = _position(avg_cost_basis=100.0)
+        closes = [100.0, 110.0, 130.0, 118.0, 112.0, 105.0]
+        safezone_stops_per_call = [90.0, 91.0, 95.0, 88.0, 80.0, 75.0]  # deliberately non-monotonic
+
+        results = [
+            ratchet_trailing_profit_stop(
+                position,
+                _daily_frame_since(date(2026, 1, 1), closes[: i + 1]),
+                safezone_stops_per_call[i],
+            )
+            for i in range(len(closes))
+        ]
+
+        assert results == sorted(results)  # monotonically non-decreasing
+        assert results[-1] == pytest.approx(106.666667, abs=1e-5)  # still the rally's peak
+
+    def test_uses_position_entry_date_to_scope_history_not_the_whole_frame(self) -> None:
+        """A pre-entry rally (this position wasn't held for) must not count towards the
+        ratchet -- only rows on/after `position.entry_date` are considered."""
+        position = _position(avg_cost_basis=100.0)
+        # Rows before 2026-01-10 simulate a pre-entry rally to +50% (which this position never
+        # actually captured); the position's own held history (from 2026-01-10) never crosses
+        # the 10% trigger at all.
+        pre_entry_rally = _daily_frame_since(date(2026, 1, 1), [100.0] * 8 + [150.0])
+        held_history = _daily_frame_since(date(2026, 1, 10), [103.0, 104.0, 105.0])
+        combined = pd.concat([pre_entry_rally, held_history])
+        position_entered_later = Position(
+            id=position.id,
+            ticker=position.ticker,
+            quantity=position.quantity,
+            avg_cost_basis=position.avg_cost_basis,
+            entry_date=date(2026, 1, 10),
+            current_price=position.current_price,
+        )
+
+        result = ratchet_trailing_profit_stop(position_entered_later, combined, safezone_stop=90.0)
+
+        assert result == pytest.approx(90.0)  # never triggered -- pre-entry rally excluded
+
+    def test_entry_date_predating_frame_includes_the_whole_frame_via_the_filter(self) -> None:
+        """`position.entry_date` earlier than every row in `daily_ohlcv` (e.g. a merged
+        position whose `entry_date` moved earlier than this ticker's fetched history) leaves
+        every row `>=` entry_date -- the normal filter path, not the "no row matched at all"
+        fallback below."""
+        position = Position(
+            id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0,
+            entry_date=date(2020, 1, 1), current_price=130.0,
+        )
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_no_row_on_or_after_entry_date_falls_back_to_whole_frame(self) -> None:
+        """`position.entry_date` *later* than every row in `daily_ohlcv` (a data completeness
+        gap -- history hasn't caught up to entry yet) leaves the `>=` filter matching nothing
+        at all, degrading to the whole frame instead of an empty one (which would otherwise
+        silently make this function report `safezone_stop` unconditionally, mimicking "never
+        triggered" for a position that, per its own `current_price`, clearly has)."""
+        position = Position(
+            id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0,
+            entry_date=date(2030, 1, 1), current_price=130.0,
+        )
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_non_datetime_index_falls_back_to_whole_frame_rather_than_raising(self) -> None:
+        """A caller-constructed frame with a plain `RangeIndex` (not every fixture uses a real
+        `pd.DatetimeIndex` -- see e.g. the `ignore_index=True` frames in
+        tests/integration/test_portfolio_risk.py) must not raise a `TypeError` from comparing
+        a non-datetime index against `pd.Timestamp(position.entry_date)`."""
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame({"close": [100.0, 110.0, 130.0]})
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_nan_close_is_skipped(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, float("nan"), 130.0])
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_empty_dataframe_raises(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+
+        with pytest.raises(ValueError, match="at least one row"):
+            ratchet_trailing_profit_stop(position, pd.DataFrame(columns=["close"]), safezone_stop=90.0)
+
+    def test_missing_close_column_raises(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame({"low": [99.0]})
+
+        with pytest.raises(ValueError, match="missing required column"):
+            ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+    def test_non_positive_avg_cost_basis_raises(self) -> None:
+        position = _position(avg_cost_basis=0.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0])
+
+        with pytest.raises(ValueError, match="entry_price"):
+            ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+    def test_persisted_high_water_mark_floors_a_lower_fresh_recompute(self) -> None:
+        """PR #240 review repro (backend-trailing-profit-stop): a same-ticker merge raising
+        `avg_cost_basis` with no further price movement makes the FRESH stateless recompute
+        alone come out lower than it used to (see `ratchet_trailing_profit_stop`'s own
+        docstring) -- `persisted_high_water_mark` must floor the result at the previously
+        -reported value regardless."""
+        # Entered at $100, rallied to $115 (profit=15, threshold=10, profit_beyond=5) ->
+        # candidate = 100 + 1/3*5 = 101.666...
+        rallied_position = _position(avg_cost_basis=100.0)
+        rally_daily = _daily_frame_since(date(2026, 1, 1), [100.0, 108.0, 115.0])
+        previously_reported = ratchet_trailing_profit_stop(
+            rallied_position, rally_daily, safezone_stop=95.0
+        )
+        assert previously_reported == pytest.approx(101.666667, abs=1e-5)
+
+        # Merge in more shares at $200/share with NO further price change -> avg_cost_basis
+        # rises to $150 (reviewer's exact repro numbers). Recomputed fresh (no floor), this now
+        # never crosses the (higher) 10% trigger at all (current price 115 < entry 150), so the
+        # stateless-alone candidate collapses back to safezone_stop.
+        merged_position = _position(avg_cost_basis=150.0)
+        stale_candidate = ratchet_trailing_profit_stop(
+            merged_position, rally_daily, safezone_stop=95.0
+        )
+        assert stale_candidate == pytest.approx(95.0)  # the bug, if there were no floor
+
+        # With the floor supplied (as app.portfolio.risk.trailing_stop_floor_before_merge's own
+        # persisted floor, read back by GET /api/portfolio/risk, now supplies -- see this
+        # task's round-2 `decisions` entry for why the write moved to the merge path), the
+        # result must not drop below what was already reported.
+        floored_result = ratchet_trailing_profit_stop(
+            merged_position,
+            rally_daily,
+            safezone_stop=95.0,
+            persisted_high_water_mark=previously_reported,
+        )
+        assert floored_result == pytest.approx(previously_reported)
+        assert floored_result >= previously_reported
+
+    def test_persisted_high_water_mark_does_not_suppress_a_higher_fresh_candidate(self) -> None:
+        """The floor is a `max`, not an override -- a fresh candidate that's genuinely higher
+        than the persisted value (e.g. the position rallied further) must still win."""
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        result = ratchet_trailing_profit_stop(
+            position, daily, safezone_stop=90.0, persisted_high_water_mark=95.0
+        )
+
+        assert result == pytest.approx(106.666667, abs=1e-5)
+
+    def test_no_persisted_high_water_mark_behaves_exactly_as_the_original_stateless_call(
+        self,
+    ) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_frame_since(date(2026, 1, 1), [100.0, 110.0, 130.0])
+
+        with_none = ratchet_trailing_profit_stop(
+            position, daily, safezone_stop=90.0, persisted_high_water_mark=None
+        )
+        without_kwarg = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert with_none == pytest.approx(without_kwarg)
+
+
+def _daily_ohlcv_frame_since(entry: date, closes: list[float]) -> pd.DataFrame:
+    """Like `_daily_frame_since` above, but with a `low` column too (`close - 1.0` throughout)
+    -- `trailing_stop_floor_before_merge` needs both (it calls `protective_stop` internally,
+    unlike `ratchet_trailing_profit_stop`'s own tests above, which are handed a manual
+    `safezone_stop` and so never touch `daily_ohlcv["low"]` at all)."""
+    return pd.DataFrame(
+        {"close": closes, "low": [c - 1.0 for c in closes]},
+        index=pd.date_range(entry, periods=len(closes), freq="D", name="date"),
+    )
+
+
+class TestTrailingStopFloorBeforeMerge:
+    """`app.portfolio.risk.trailing_stop_floor_before_merge` -- the value `POST
+    /api/portfolio/positions`'s same-ticker-merge branch persists as
+    `PositionORM.trailing_stop_high_water_mark`'s floor, captured against the position's OLD,
+    pre-merge `avg_cost_basis`/`entry_date` before the merge overwrites them (backend-
+    trailing-profit-stop round 2 -- see `ratchet_trailing_profit_stop`'s own docstring for why
+    `GET /api/portfolio/risk` no longer writes this column itself)."""
+
+    def test_none_daily_ohlcv_returns_none(self) -> None:
+        """A `provider.get_daily_ohlcv` fetch failure at merge time (already caught by the
+        caller and turned into `daily_ohlcv=None`) must degrade to leaving the floor
+        untouched, never raise or fabricate a value from no data."""
+        position = _position(avg_cost_basis=100.0)
+
+        assert trailing_stop_floor_before_merge(position, None, persisted_high_water_mark=50.0) is None
+
+    def test_too_short_daily_ohlcv_returns_none(self) -> None:
+        """Fewer than 2 rows leaves nothing for `protective_stop`'s own `.iloc[:-1]` slice to
+        compute a stop from -- degrades to `None` rather than raising."""
+        position = _position(avg_cost_basis=100.0)
+        daily = _daily_ohlcv_frame_since(date(2026, 1, 1), [100.0])
+
+        assert (
+            trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+            is None
+        )
+
+    def test_malformed_frame_degrades_to_none_rather_than_raising(self) -> None:
+        """A frame missing the `low` column `protective_stop` requires raises `ValueError`
+        internally -- caught here and degraded to `None`, matching every other
+        can't-be-computed case in this module (a data hiccup at merge time must never block
+        the merge)."""
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame(
+            {"close": [100.0, 110.0]},
+            index=pd.date_range(date(2026, 1, 1), periods=2, freq="D", name="date"),
+        )
+
+        assert (
+            trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+            is None
+        )
+
+    def test_matches_directly_calling_protective_stop_then_ratchet_trailing_profit_stop(
+        self,
+    ) -> None:
+        """The result must be identical to what a real `GET /api/portfolio/risk` call would
+        have reported for this exact position/`daily_ohlcv`/persisted floor at this exact
+        moment -- i.e. `protective_stop(position, daily.iloc[:-1])` feeding
+        `ratchet_trailing_profit_stop(position, daily, that_stop, persisted_high_water_mark=...)`,
+        with no divergence in the intermediate `safezone_stop`."""
+        position = _position(avg_cost_basis=100.0)
+        # Ends at close=115 -- +15% profit, comfortably past the 10% breakeven trigger.
+        daily = _daily_ohlcv_frame_since(
+            date(2026, 1, 1), [100.0 + 15.0 * i / 14.0 for i in range(15)]
+        )
+
+        result = trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+
+        expected_stop = protective_stop(position, daily.iloc[:-1])
+        expected = ratchet_trailing_profit_stop(position, daily, expected_stop)
+        assert result == pytest.approx(expected)
+        # 100 + 1/3 * (15 - 10) == 101.666...
+        assert result == pytest.approx(101.666667, abs=1e-4)
+
+    def test_never_returns_lower_than_the_persisted_high_water_mark(self) -> None:
+        """A position whose OLD cost basis no longer crosses the trigger against unchanged
+        price history (e.g. a second merge that raises `avg_cost_basis` further) must still
+        floor at whatever was already locked in -- this is `ratchet_trailing_profit_stop`'s
+        own floor contract, just exercised through this wrapper."""
+        # avg_cost_basis=150 vs. a flat $90 close history never crosses the 10% trigger at
+        # all -- the fresh candidate alone collapses to protective_stop (87.0: swing_low=89,
+        # a constant downside penetration of 1.0 against the converged EMA(13)=90 -- 89 -
+        # 2*1.0), well below the already-locked-in 101.667 floor.
+        position = _position(avg_cost_basis=150.0)
+        daily = _daily_ohlcv_frame_since(date(2026, 1, 1), [90.0] * 15)
+
+        result = trailing_stop_floor_before_merge(
+            position, daily, persisted_high_water_mark=101.666667
+        )
+
+        assert result == pytest.approx(101.666667, abs=1e-4)
+        assert result >= 101.666667 - 1e-9

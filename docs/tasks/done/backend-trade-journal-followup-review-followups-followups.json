@@ -1,0 +1,66 @@
+{
+  "id": "backend-trade-journal-followup-review-followups-followups",
+  "title": "Non-blocking follow-up from PR #227 review (backend-trade-journal-followup-review-followups)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trade-journal-followup-review-followups"],
+  "references": [
+    "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+    "https://github.com/rainoko/fintrade/pull/227"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #227, tracked here so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "backend-trade-journal-followup-review-followups.json's decisions entry (and PR #227's description) state ClosedTradeOut has grown to '18 fields' -- an AST count of app/api/schemas.py's ClosedTradeOut and a manual field-by-field read of the extracted _to_closed_trade_out helper both show exactly 17 fields (id, ticker, quantity, entry_price, entry_date, exit_price, exit_date, realized_pnl, exit_reason, buy_grade_pct, sell_grade_pct, trade_grade_pct, trade_letter_grade, entry_notes, strategy, follow_up_notes, follow_up_reviewed_at). The helper itself is complete and correct (it covers the real, full field set), so this doesn't affect behavior -- it's purely the decision record's/PR description's stated count that's off by one. Worth correcting the decision entry's wording (or at least noting the discrepancy) so a future reader trying to reconstruct 'which fields were added when' from the decision record isn't misled by the wrong count.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Re-verified the field count of ClosedTradeOut (backend/app/api/schemas.py) via ast.walk over its AnnAssign class body: exactly 17 fields (id, ticker, quantity, entry_price, entry_date, exit_price, exit_date, realized_pnl, exit_reason, buy_grade_pct, sell_grade_pct, trade_grade_pct, trade_letter_grade, entry_notes, strategy, follow_up_notes, follow_up_reviewed_at), confirming the checklist item's claim. Corrected the stale '18 fields'/'18-field shape' wording to '17 fields'/'17-field shape' in docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry (and adjusted the accompanying 'net +2' arithmetic to 'net +1' so the corrected sentence stays internally consistent, plus appended an explicit correction note there dated and attributed to this task), and edited PR #227's own description on GitHub (still editable post-merge) to say 17 fields instead of 18, with an inline note explaining the correction. Left the review.comments and pr_decision.notes entries in the done task file untouched, since those already correctly report 17 as the actual count -- they're quoting the original claim as the finding being reported, not repeating it as fact.",
+      "rationale": "The task description says this is purely a documentation/decision-record correction, not a code change, so no source file (schemas.py, portfolio.py) needed editing -- only the two places (a task file's decisions entry and PR #227's description) that stated the wrong count. Editing the merged PR's description rather than leaving it stale was chosen over posting a new PR comment because 'wherever it appears' plus the checklist step's own phrasing ('PR #227's description') calls it out by name as one of the two things to fix, and GitHub allows editing a merged PR's body. Chose to also fix the 'net +2' arithmetic alongside the headline number rather than leave a self-contradicting 16->17 (+2) statement next to the corrected count, since leaving it inconsistent would defeat the stated purpose of not misleading a future reader."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review-followups-followups",
+    "pr_number": 228,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/228",
+    "pushed_at": "2026-09-21T09:26:49Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T09:31:48Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/228",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-verified via ast.walk over ClosedTradeOut's AnnAssign class body in backend/app/api/schemas.py: exactly 17 fields, matching task-worker's claim and the corrected wording. The stale '18 fields' claim is confirmed wrong; the correction is accurate.",
+        "file": "backend/app/api/schemas.py",
+        "line": 0
+      },
+      {
+        "summary": "Verified via GitHub's userContentEdits GraphQL history that PR #227's description edit changed only '18 fields' -> '17 fields' and appended a dated correction note -- no other wording was altered, and the prior text remains recoverable via GitHub's own edit history. The edit itself is a reasonable, low-risk, transparently-documented judgment call (recorded as a decisions entry with rationale weighing 'edit the body' against 'post a new comment' and explaining why the former was chosen), not something that needed to be escalated to a questions/waiting_input entry -- it's reversible, doesn't touch code or merge state, and the checklist item it resolves explicitly named 'PR #227's description' as one of the two things to fix.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "Non-blocking: the corrected decisions entry's 'net +1 after removing the original description's undercount' parenthetical still doesn't logically reconcile with the two named PRs' three field additions (trade_letter_grade, entry_notes, strategy), and calls the baseline discrepancy an 'undercount' when the arithmetic actually implies an overcount. This confusion predates PR #228 (the original 'net +2' version had the same unreconciled arithmetic) and wasn't introduced by it, but the correction didn't fix the underlying explanation either. Tracked as a follow-up.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "Non-blocking: no project convention currently states whether editing an already-merged PR's GitHub description is acceptable versus always preferring an additive comment. This instance was handled reasonably and transparently, but worth codifying for future recurrences. Tracked as a follow-up.",
+        "file": "CLAUDE.md",
+        "line": 0
+      }
+    ],
+    "notes": "Documentation-only PR (3 docs/tasks/*.json files changed, no application code). Backend test suite re-run: 1109 passed, 99.95% coverage (unaffected by this change, confirms no regression). ruff check/mypy clean on backend/app. scripts/check_profit_target_wording.py and scripts/validate_tasks.py both pass. Frontend untouched by this diff; last-known state (from PR #227's own review chain) was clean, not re-run since nothing on that side changed. No UI surface -- task-board JSON edits only -- so the browser walkthrough and e2e-test steps are explicitly skipped, not silently omitted. area is backend/db (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No API route/schema touched, so no openapi.json regeneration is needed (confirmed backend/openapi.json is absent from the diff). code-review skill (medium effort) run against the PR diff independently confirmed the field count and found no bugs. Filed docs/tasks/backend-trade-journal-followup-review-followups-followups-followups.json for the two non-blocking findings above."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T09:37:32Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app: 1109 passed, 99.95% coverage, matching pr-reviewer's numbers exactly. Re-counted ClosedTradeOut's fields via my own ast.walk over backend/app/api/schemas.py: exactly 17, matching the corrected claim. Confirmed via `gh pr view 227 --json body` that its description was edited exactly as described (18->17, dated correction note appended, nothing else changed). Skimmed the full diff (git diff origin/main...HEAD): task-board JSON only, no application code. Formed my own view that editing the already-merged PR #227's description was a reasonable, low-risk, transparent action (reversible via GitHub edit history, explicitly named by the checklist item, doesn't touch code/merge state) -- independently agree with pr-reviewer's judgment rather than deferring to it. Also ran scripts/validate_tasks.py (248 files, no violations)."
+  }
+}

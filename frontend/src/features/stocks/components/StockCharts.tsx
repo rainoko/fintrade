@@ -39,6 +39,14 @@ export interface StockChartsProps {
  * props into an uncontrolled/controlled dual-mode component for no benefit
  * beyond this one new consumer.
  *
+ * Passes `errorSurfacedBySibling` to `OscillatorChart`/`VolumeIndicatorsChart`/
+ * `TrendStrengthChart` (frontend-position-risk-columns-followups-followups-
+ * followups-followups) since `PriceChart`, mounted first here, already owns
+ * the `GET /api/stocks/{ticker}/indicators` failure's ErrorState — see each
+ * of those components' own `errorSurfacedBySibling` prop doc comment for why
+ * this is an explicit opt-in passed at the composition site rather than an
+ * implicit assumption baked into each component.
+ *
  * Feature composition component, not `common/`: it wires together two
  * ticker/indicator-specific charts, not a generic layout primitive.
  */
@@ -53,9 +61,24 @@ export default function StockCharts({ ticker }: StockChartsProps) {
         onRangeChange={setRange}
         onIntervalChange={setInterval}
       />
-      <OscillatorChart ticker={ticker} range={range} enabled={interval === 'daily'} />
-      <VolumeIndicatorsChart ticker={ticker} range={range} enabled={interval === 'daily'} />
-      <TrendStrengthChart ticker={ticker} range={range} enabled={interval === 'daily'} />
+      <OscillatorChart
+        ticker={ticker}
+        range={range}
+        enabled={interval === 'daily'}
+        errorSurfacedBySibling
+      />
+      <VolumeIndicatorsChart
+        ticker={ticker}
+        range={range}
+        enabled={interval === 'daily'}
+        errorSurfacedBySibling
+      />
+      <TrendStrengthChart
+        ticker={ticker}
+        range={range}
+        enabled={interval === 'daily'}
+        errorSurfacedBySibling
+      />
     </Stack>
   )
 }

@@ -1,0 +1,77 @@
+{
+  "id": "backend-trade-journal-followup-review-followups-followups-followups",
+  "title": "Non-blocking follow-ups from PR #228 review (backend-trade-journal-followup-review-followups-followups)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trade-journal-followup-review-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+    "docs/tasks/backend-trade-journal-followup-review-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/228"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #228, tracked here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry, as corrected by PR #228, still contains a parenthetical that doesn't logically reconcile: '...backend-trade-grade-letter added trade_letter_grade and backend-trade-journal-entry-notes added entry_notes/strategy (net +1 after removing the original description's undercount)...'. Those two named PRs add three fields total (trade_letter_grade, entry_notes, strategy), not one, so a stated 'net +1' from a 16-field baseline to a 17-field final doesn't square with '3 fields added' unless the 16-field baseline was itself an *overcount* by 2 -- yet the text calls it an 'undercount', which is the wrong direction. This confusion predates PR #228 (the original '18 fields'/'net +2' version had the same unreconciled arithmetic against the same 3 named field additions); PR #228 only made the headline count and its raw arithmetic (16->17) internally consistent, it didn't fix the underlying explanation. Worth rewriting the parenthetical (or removing it) so it accurately explains how the baseline and the three named additions produce the actual final count, rather than leaving a plausible-sounding but backwards 'undercount' explanation in a decision record that's now been corrected twice.",
+      "done": true
+    },
+    {
+      "step": "PR #228's task-worker edited an already-merged PR's (#227) GitHub description in place to correct a stale field count, rather than leaving it as-is and relying on review.comments/pr_decision.notes (which already correctly stated the real count) as the corrective record, or posting a new additive PR comment. This was a reasonable, low-risk, transparently-documented call (recorded as a `decisions` entry with rationale, GitHub's own edit history preserves the prior text) and pr-reviewer did not treat it as blocking -- but nothing in CLAUDE.md or the task-worker agent instructions currently says whether editing a merged PR's description post-merge is an acceptable pattern versus something that should default to an additive comment instead (a comment is more visible in the PR timeline/notifications and never overwrites the original text other readers may have already relied on). Worth deciding and documenting this as an explicit convention (e.g. in CLAUDE.md's task board section or the task-worker/pr-reviewer agent docs) so future occurrences don't each have to re-derive the same judgment call from scratch.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconstructed the real ClosedTradeOut field-count history via each contributing PR's `pushed_at` and rewrote docs/tasks/done/backend-trade-journal-followup-review-followups.json's decisions entry to state it correctly, rather than removing the arithmetic and settling for a vague 'it grew over time' note. backend-trade-journal-entry-notes (entry_notes, PR #213), backend-trade-strategy-tagging (strategy, PR #218), and backend-trade-grade-letter (trade_letter_grade, PR #219) all merged to main *before* PR #221 was even pushed, so all three fields were already present in ClosedTradeOut (17 fields total) by the time PR #221's own review claimed '16 fields' -- that '16' was a plain miscount at the time, not an earlier true baseline that later grew to 17 via those three PRs' additions. The old parenthetical's 'net +1'/'undercount' arithmetic was trying to derive a 16->17 change from three field additions that didn't happen after the 16-field claim at all; there was never a genuine 16-field state to net up from.",
+      "rationale": "The task's own fallback option (drop the arithmetic, just state the current count) was available and safer, but the PRs' `pushed_at` timestamps make the actual sequence cleanly reconstructable -- entry-notes at 2026-09-20T23:58:00Z, strategy-tagging at 2026-09-21T02:58:00Z, grade-letter at 2026-09-21T03:15:30Z, all before followup-review's 2026-09-21T04:13:44Z -- so simplifying away the explanation would have thrown away a real, checkable answer in favor of a vaguer one for no reason. A correct, reconciled account is strictly more useful to a future reader trying to understand 'how did this decision record's field count go wrong twice' than a shrug that just states 17 with no explanation of why '16' and '18' were both once believed."
+    },
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Documented a house convention in CLAUDE.md's Autonomous pipeline section: correcting a stale claim in an already-merged PR's description defaults to an additive PR comment (or a task-board `review.comments`/`decisions`/follow-up entry), not an in-place edit of the merged PR's body. An in-place edit is permitted only when it's a narrow factual correction (not a rewrite of the PR's substantive claims), the prior text stays recoverable via GitHub's edit history, the correction is also recorded as a task `decisions` entry with rationale, and the edit doesn't touch code or merge state -- and even then, an additive comment is still preferred unless the task/checklist item explicitly names the description itself (not just a passing mention of the mistake) as the thing to fix.",
+      "rationale": "A PR comment is strictly more visible (timeline, notifications, never silently overwrites text another reader may have already linked to or relied on) and is the lower-risk default for exactly the reason pr-reviewer's own PR #228 review flagged: nothing previously said which pattern to prefer, so the same judgment call would otherwise be re-litigated from scratch every time it comes up (as it already had once, on PR #227/#228). Editing in place isn't banned outright because PR #228's own instance was judged reasonable, transparent, and low-risk by two independent reviews (pr-reviewer and pr-decision on PR #228) -- a blanket ban would contradict that precedent -- so the convention instead narrows it to conditions that reproduce exactly what made that instance safe (narrow factual fix, recoverable history, documented decision, no code/merge-state impact) plus a requirement that the task itself called out the description by name, rather than leaving the choice fully open-ended for the next occurrence to reason about unaided."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review-followups-followups-followups",
+    "pr_number": 229,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/229",
+    "pushed_at": "2026-09-21T09:45:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T09:53:57Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/229",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-derived the PR field-count timeline from source rather than trusting the PR body: `gh pr view --json mergedAt` confirms PR #213 merged 2026-09-21T00:09:23Z, #218 merged 03:04:35Z, #219 merged 03:29:52Z, all before PR #221 was even created/pushed (04:13:42Z). `git show c2130b8~1:backend/app/api/schemas.py` (the commit immediately before PR #221's merge) shows ClosedTradeOut already had 15 fields including entry_notes, strategy, and trade_letter_grade before PR #221 added its own follow_up_notes/follow_up_reviewed_at (bringing it to 17) -- confirming the three named fields genuinely predate PR #221 and the original '16 fields' claim in PR #221's own review was a plain miscount of the final (post-#221) 17-field state, not a true earlier baseline. The claimed ordering and conclusion are both correct.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "Re-read the rewritten decisions entry end to end: it's now internally coherent, not just re-worded to sound confident. It states the current/actual count (17, independently re-verified via an AST field count of ClosedTradeOut), correctly attributes each of the three inherited fields to its origin PR with pushed_at evidence, and correctly states there was never a genuine 16-field state to net up from -- resolving the backwards 'undercount' arithmetic the parent task flagged twice. The two 'Correction (...)' notes appended for history are a reasonable way to preserve the record of what was previously wrong without leaving the wrong text as the live account.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "The new CLAUDE.md bullet (Autonomous pipeline section) is clearly written, matches the surrounding bullets' bold-lead-phrase/colon/explanation structure and tone, and actually resolves the ambiguity it targets: additive-comment default, with a narrow, checkable four-condition exception for an in-place edit, plus a concrete precedent citation. Independently confirmed via `gh api graphql` on PR #227's `userContentEdits` that GitHub's edit-history claim in the bullet is accurate (both the original '18 fields' and corrected '17 fields' text remain queryable).",
+        "file": "CLAUDE.md",
+        "line": 91
+      },
+      {
+        "summary": "Non-blocking: this task-worker amended CLAUDE.md itself (a governance/process document) unilaterally via the task's ordinary automated pipeline, with no distinct human sign-off gate for governance-doc changes as such. This instance was appropriate (explicitly requested by the parent task's checklist item, and consistent with this repo's long-running precedent of CLAUDE.md evolving through this exact same pipeline), so not blocking here, but the general question of whether CLAUDE.md/.claude/ changes should require an explicit human touchpoint has never been decided. Tracked as a follow-up.",
+        "file": "CLAUDE.md",
+        "line": 91
+      }
+    ],
+    "notes": "Documentation/task-board-only PR (CLAUDE.md + 2 task JSON files + index.json; no application code). Backend re-run: 1109 passed, 99.95% coverage; ruff/mypy clean. Frontend re-run: 704 passed, 99.7%+ coverage; eslint/tsc clean (unaffected by this diff, confirmed no drift). scripts/validate_tasks.py: 248 files, no violations. scripts/check_profit_target_wording.py: clean. No UI surface -- browser walkthrough and the persisted e2e suite explicitly skipped for that reason, not silently omitted. area is backend/db (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer, so architecture-review doesn't apply. No API route/schema touched, so no openapi.json regeneration needed. code-review skill (medium effort, forked/background) ran independently and found zero issues, corroborating this review's own independent timestamp/field-count reconstruction. Both checklist items are legitimately done (field-count arithmetic fixed and reconciled; house convention decided and documented) and both have corresponding decisions entries with real rationale. Filed docs/tasks/backend-trade-journal-followup-review-followups-followups-followups-followups.json for the one non-blocking finding (CLAUDE.md governance-edit sign-off question)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T09:59:19Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app: 1109 passed, 99.95% coverage, matching pr-reviewer's numbers exactly; ruff/mypy clean; scripts/validate_tasks.py clean (249 task files now vs. 248 on main, the expected +1 from this PR's own new follow-up task). Re-derived the merge-order timeline myself via gh pr view --json mergedAt/createdAt (PR #213 merged 00:09:23Z, #218 03:04:35Z, #219 03:29:52Z, all before PR #221 was even created at 04:13:42Z) and confirmed against the actual schema history: `git show c2130b8~1:backend/app/api/schemas.py` (commit before PR #221's merge) shows ClosedTradeOut already had 15 fields including entry_notes/strategy/trade_letter_grade, and the post-#221/current schema has 17 (AST-counted both), so PR #221's own '16 fields' claim was a plain miscount, not a real earlier baseline -- the rewritten decisions entry's account holds up. Also confirmed via `gh api graphql` on PR #227's userContentEdits that both the original '18 fields' and corrected '17 fields' text remain queryable, verifying the new CLAUDE.md bullet's edit-history claim, and confirmed its precedent citation (backend-trade-journal-followup-review-followups-followups explicitly named 'PR #227's description' in its checklist) is accurate. Skimmed the full diff (git diff origin/main...HEAD): task-board JSON + one CLAUDE.md bullet only, no application code."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "backend-static-verify-cleanup-followups-followups",
+  "title": "Non-blocking finding from PR #281's review (backend-static-verify-cleanup-followups)",
+  "area": "backend",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-static-verify-cleanup-followups"],
+  "references": [
+    "docs/tasks/done/backend-static-verify-cleanup-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/281"
+  ],
+  "description": "Tracked non-blocking finding from pr-reviewer's review of PR #281 (backend-static-verify-cleanup-followups). Nothing here blocks the PR's accept; recorded so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "PR #281 corrected `docs/tasks/done/backend-static-verify-cleanup.json`'s `description` field (which named `test_stooq_provider.py` among six `I001` files) via a fresh `decisions` entry, but left that same task's `checklist` item 1 untouched: 'Run `ruff check backend/ --fix` to auto-fix the 6 unsorted-import findings; confirm no behavior change (tests still pass, coverage unaffected).' That checklist text still mischaracterizes all 6 auto-fixable findings as 'unsorted-import' -- one of the six (test_stooq_provider.py's fix) is actually `UP012` (unnecessary `.encode(\"utf-8\")` rewritten to a bytes literal), not an import-sorting issue at all. Purely a wording nit -- no functional or code impact, and the step's substance (run ruff --fix, confirm no behavior change) is accurate regardless of the finding-type label. If revisited: append a further `decisions` entry to `docs/tasks/done/backend-static-verify-cleanup.json` noting the checklist-item-1 wording is imprecise for the same reason as the already-corrected description text, per CLAUDE.md's append-only decisions-correction convention (do not edit the checklist text in place unless a task explicitly calls for it).",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-static-verify-cleanup-followups-followups",
+    "pr_number": 292,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/292",
+    "pushed_at": "2026-09-24T02:17:09Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T02:20:10Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/292",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Documentation-only change, light-touch review per dispatch instruction. Confirmed the change is genuinely append-only: git diff main...HEAD shows only additions to docs/tasks/done/backend-static-verify-cleanup.json's `decisions` array (one new entry) plus this task's own checklist/git-block fields and the index.json state mirror -- no existing text (including backend-static-verify-cleanup.json's checklist item 1 wording, which the new decision explicitly declines to edit in place) was altered or deleted. Verified the underlying factual claim directly against PR #278's actual diff: test_stooq_provider.py's fix was `mock_response.read.return_value = \"...\".encode(\"utf-8\")` -> `b\"...\"`, i.e. UP012 (unnecessary encode rewritten to a bytes literal), not an I001 import-sort fix -- matching what the new decisions entry (and the prior, already-accepted PR #278/#281 review chain) states. Ran `python3 scripts/validate_tasks.py` (289 files, no violations) and confirmed all three touched JSON files parse. No code files touched (git diff --stat: only the 3 docs/tasks/*.json files) so backend/frontend test suite, coverage, static-verify (ruff/mypy/eslint/tsc), and code-review were not run as separate steps -- there is no code surface for them to check, consistent with the dispatch instruction that this is a very low-risk, light-touch review. No UI surface in this PR -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) do not apply and are explicitly skipped. No API/schema touched, so no OpenAPI snapshot concern. No new module/dependency/layer, so architecture-review does not apply. Checklist's single item (an append-a-decisions-entry instruction, not a 'decide X' item) is fully implemented and marked done; no undecided judgment call. No non-blocking findings to track as a follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T02:23:24Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...HEAD --stat` shows only 4 docs/tasks/*.json files changed (no code); line-by-line diff confirms the change is purely additive (one new `decisions` entry on backend-static-verify-cleanup.json, this task's own checklist item flipped to done, git/review blocks added, index.json state+path mirror) with no existing text altered. Spot-checked the factual claim against PR #278's actual diff myself: test_stooq_provider.py's fix was `.encode(\"utf-8\")` -> `b\"...\"` literal, i.e. UP012, not I001 -- matches the decisions entry. Ran `python3 scripts/validate_tasks.py` fresh: 289 files, no violations. Checked PR #292 via `gh pr view`: no human comments, only pr-reviewer's COMMENTED review (not approve/request-changes). No code surface, so backend test suite/coverage was not applicable to re-run for this PR."
+  }
+}

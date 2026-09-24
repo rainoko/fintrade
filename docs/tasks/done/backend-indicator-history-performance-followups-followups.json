@@ -1,0 +1,66 @@
+{
+  "id": "backend-indicator-history-performance-followups-followups",
+  "title": "Non-blocking follow-up from PR #232 review (backend-indicator-history-performance-followups)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-indicator-history-performance-followups"],
+  "references": [
+    "docs/tasks/done/backend-indicator-history-performance-followups.json",
+    "https://github.com/rainoko/fintrade/pull/232"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #232 (verification-only close-out of backend-indicator-history-performance-followups), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/backend-indicator-history-performance-followups.json's second `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time (per CLAUDE.md's guidance to run `date -u +%Y-%m-%dT%H:%M:%SZ` rather than estimating/guessing a timestamp), and it sorts *before* the first `decisions` entry's `2026-09-21T11:20:00Z` timestamp even though it was recorded later chronologically. Doesn't affect the substance of the record (both entries are otherwise accurate and verified), but worth correcting the timestamp (or at minimum noting why it's approximate) so the array stays chronologically meaningful for anyone reading it later.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T20:09:03Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the placeholder timestamp `2026-09-21T00:00:00Z` on docs/tasks/done/backend-indicator-history-performance-followups.json's second `decisions` entry to `2026-09-21T11:21:16Z`, derived from `git log --follow --format='%aI' -- docs/tasks/done/backend-indicator-history-performance-followups.json`, which shows the file was introduced (with both `decisions` entries already present) in a single squash-merge commit, `d2f3782` (`2026-09-21T14:21:16+03:00`, i.e. `11:21:16Z`), landing PR #232. That is the most precise real timestamp git actually has for when this entry's text was captured -- the pre-squash per-commit history on task-worker's original branch no longer exists to give finer granularity -- and it sorts correctly after the first entry's `11:20:00Z` (both entries land within the ~9-minute window between this task's own `git.pushed_at` of `11:12:28Z` and the `d2f3782` merge at `11:21:16Z`, consistent with the first entry describing work done earlier in that same PR cycle and the second describing a later verification/close-out pass).",
+      "rationale": "Preferred deriving a value from git history (per this task's own checklist instruction to 'check git log/commit timestamps for that file to derive an accurate value') over falling back to 'use the current time', since git actually retains a real, verifiable timestamp for this file even though squashing lost sub-commit granularity -- using today's current wall-clock time instead would have been further from the truth (the decision was recorded months ago, not now) purely for the sake of a round number. Rejected trying to guess a more precise sub-minute value between 11:20:00Z and 11:21:16Z (e.g. splitting the difference) as fabricating false precision; the commit timestamp itself is the most defensible value that is both real and correctly ordered."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-indicator-history-performance-followups-followups",
+    "pr_number": 233,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/233",
+    "pushed_at": "2026-09-21T20:10:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T20:14:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/233",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified independently via `git log -1 --format='%H %cI %s' d2f3782`: commit d2f3782's committer timestamp is `2026-09-21T14:21:16+03:00`, which converts to `2026-09-21T11:21:16Z` -- matching the corrected timestamp exactly. `git log --follow --format='%aI'` on the target file confirms d2f3782 is the commit that introduced the file's current content (the only earlier entry besides this PR's own fix-up commit).",
+        "file": "docs/tasks/done/backend-indicator-history-performance-followups.json",
+        "line": 31
+      },
+      {
+        "summary": "Confirmed the corrected timestamp (11:21:16Z) now sorts after the array's first decisions entry (11:20:00Z) as intended, resolving the out-of-order placeholder flagged by the PR #232 review.",
+        "file": "docs/tasks/done/backend-indicator-history-performance-followups.json",
+        "line": 31
+      },
+      {
+        "summary": "Confirmed via `gh pr view 233 --json files` and `git diff main...HEAD` that the PR touches only three files: the target task-board JSON, this task's own JSON (checklist/decisions/git/state bookkeeping), and index.json's state mirror -- no application code changed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Ran full backend + frontend test/coverage suites and static analysis as independent evidence nothing regressed on this branch: backend 1129 passed, 99.95% coverage; frontend 99.7%+ across statements/branches/functions/lines; ruff, mypy, eslint, tsc, and the profit-target stale-wording guard all clean. scripts/validate_tasks.py also validates cleanly (251 files).",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Task-board-JSON-only PR fixing a single placeholder timestamp; no application code, no API/schema change (no openapi.json regen expected), no new module/dependency (no architecture-review needed), no signal/portfolio logic (no verify-elder-signal needed), and no UI surface (browser walkthrough and e2e suite, steps 9/9a, explicitly skipped for that reason). No non-blocking findings this pass, so no new -followups-followups-followups task was created."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T20:17:40Z",
+    "verdict": "merge",
+    "notes": "Independently confirmed: `git log -1 --format='%cI' d2f3782` gives 2026-09-21T14:21:16+03:00 = 11:21:16Z, matching the corrected timestamp in docs/tasks/done/backend-indicator-history-performance-followups.json's second decisions entry exactly. `gh pr view 233 --json files` and `git diff main...HEAD --stat` confirm only 4 task-board JSON files changed (no application code). Re-ran the backend suite myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly."
+  }
+}

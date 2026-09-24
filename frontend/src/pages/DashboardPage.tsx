@@ -48,7 +48,17 @@ export default function DashboardPage() {
 
           <RiskSummaryCard />
 
-          <SellFlaggedPositionsCard />
+          {/*
+            RiskSummaryCard (above) already fully gates its own body -- and
+            renders a common/ErrorState -- on the exact same usePortfolioRisk
+            failure this card would otherwise also surface, so it's the
+            explicit, caller-declared error owner here (see
+            SellFlaggedPositionsCard's own errorSurfacedBySibling doc
+            comment: this is an explicit opt-in, not an implicit "whichever
+            sibling renders first" assumption -- if RiskSummaryCard is ever
+            removed from this composition, this prop must be removed too).
+          */}
+          <SellFlaggedPositionsCard errorSurfacedBySibling />
 
           <PositionsGlanceTable positions={portfolioQuery.data.positions} />
         </Stack>

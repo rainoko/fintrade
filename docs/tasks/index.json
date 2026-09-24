@@ -1447,8 +1447,22 @@
       "id": "backend-indicator-history-performance",
       "area": "backend/api",
       "skill": "add-api-endpoint",
-      "state": "planned",
-      "path": "docs/tasks/backend-indicator-history-performance.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-history-performance.json"
+    },
+    {
+      "id": "backend-indicator-history-performance-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-history-performance-followups.json"
+    },
+    {
+      "id": "backend-indicator-history-performance-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-indicator-history-performance-followups-followups.json"
     },
     {
       "id": "backend-trade-strategy-tagging",
@@ -1461,15 +1475,29 @@
       "id": "backend-trade-strategy-tagging-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-strategy-tagging-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-strategy-tagging-followups.json"
+    },
+    {
+      "id": "backend-trade-strategy-tagging-followups-followups",
+      "area": "backend/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-strategy-tagging-followups-followups.json"
     },
     {
       "id": "backend-trailing-profit-stop",
       "area": "backend/portfolio",
       "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/backend-trailing-profit-stop.json"
+    },
+    {
+      "id": "backend-trailing-profit-stop-followups",
+      "area": "backend/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-trailing-profit-stop.json"
+      "path": "docs/tasks/backend-trailing-profit-stop-followups.json"
     },
     {
       "id": "backend-profit-target-weekly-channel",
@@ -1503,29 +1531,43 @@
       "id": "backend-ibkr-status-endpoint-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-status-endpoint-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json"
+    },
+    {
+      "id": "backend-ibkr-status-endpoint-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-status-endpoint-followups-followups.json"
     },
     {
       "id": "backend-ibkr-tickle-keepalive",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-tickle-keepalive.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-tickle-keepalive.json"
     },
     {
       "id": "backend-ibkr-symbol-resolution",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-symbol-resolution.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-symbol-resolution.json"
     },
     {
       "id": "backend-ibkr-bar-interval-param",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-ibkr-bar-interval-param.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-bar-interval-param.json"
+    },
+    {
+      "id": "backend-ibkr-bar-interval-param-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-bar-interval-param-followups.json"
     },
     {
       "id": "backend-trade-grade-letter",
@@ -1538,8 +1580,8 @@
       "id": "backend-trade-grade-letter-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-grade-letter-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-grade-letter-followups.json"
     },
     {
       "id": "backend-daily-homework-self-test",
@@ -1559,8 +1601,8 @@
       "id": "backend-trade-journal-entry-notes-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-journal-entry-notes-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-entry-notes-followups.json"
     },
     {
       "id": "backend-trade-journal-followup-review",
@@ -1573,8 +1615,29 @@
       "id": "backend-trade-journal-followup-review-followups",
       "area": "backend/db",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-journal-followup-review-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-followup-review-followups.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review-followups-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-followup-review-followups-followups.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review-followups-followups-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-journal-followup-review-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-trade-journal-followup-review-followups-followups-followups-followups",
+      "area": "backend/db",
+      "skill": null,
+      "state": "waiting_input",
+      "path": "docs/tasks/backend-trade-journal-followup-review-followups-followups-followups-followups.json"
     },
     {
       "id": "backend-close-position-manual-exit",
@@ -1587,8 +1650,8 @@
       "id": "backend-cftc-cot-data",
       "area": "backend/data",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-cftc-cot-data.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data.json"
     },
     {
       "id": "backend-trade-apgar",
@@ -1601,64 +1664,120 @@
       "id": "backend-trade-apgar-followups",
       "area": "backend/portfolio",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-trade-apgar-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-trade-apgar-followups.json"
     },
     {
       "id": "frontend-close-position-dialog",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-close-position-dialog.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-close-position-dialog.json"
     },
     {
       "id": "frontend-position-risk-columns",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-position-risk-columns.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups-followups.json"
     },
     {
       "id": "frontend-trade-grade-letter-display",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-grade-letter-display.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-grade-letter-display.json"
     },
     {
       "id": "frontend-ibkr-status-indicator",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-ibkr-status-indicator.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-status-indicator.json"
+    },
+    {
+      "id": "frontend-ibkr-status-indicator-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-status-indicator-followups.json"
     },
     {
       "id": "frontend-daily-homework-page",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-daily-homework-page.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page.json"
+    },
+    {
+      "id": "frontend-daily-homework-page-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page-followups.json"
+    },
+    {
+      "id": "frontend-daily-homework-page-followups-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page-followups-followups.json"
+    },
+    {
+      "id": "frontend-daily-homework-page-followups-followups-followups",
+      "area": "frontend/pages",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page-followups-followups-followups.json"
     },
     {
       "id": "frontend-trade-journal-entry-notes",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-journal-entry-notes.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-entry-notes.json"
     },
     {
       "id": "frontend-trade-journal-followup-review",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-journal-followup-review.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followup-review.json"
     },
     {
       "id": "frontend-trade-apgar",
       "area": "frontend/pages/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-trade-apgar.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-apgar.json"
+    },
+    {
+      "id": "frontend-trade-apgar-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-apgar-followups.json"
+    },
+    {
+      "id": "frontend-trade-apgar-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-apgar-followups-followups.json"
     },
     {
       "id": "backend-market-scanner",
@@ -1671,15 +1790,36 @@
       "id": "backend-market-scanner-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-market-scanner-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-scanner-followups.json"
+    },
+    {
+      "id": "backend-market-scanner-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-scanner-followups-followups.json"
+    },
+    {
+      "id": "backend-market-scanner-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-scanner-followups-followups-followups.json"
     },
     {
       "id": "frontend-market-scanner-page",
       "area": "frontend/pages",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-scanner-page.json"
+    },
+    {
+      "id": "frontend-market-scanner-page-followups",
+      "area": "frontend/pages",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-market-scanner-page.json"
+      "path": "docs/tasks/frontend-market-scanner-page-followups.json"
     },
     {
       "id": "backend-market-breadth-indicators",
@@ -1692,15 +1832,29 @@
       "id": "backend-market-breadth-indicators-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-market-breadth-indicators-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-breadth-indicators-followups.json"
+    },
+    {
+      "id": "backend-market-breadth-indicators-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-breadth-indicators-followups-followups.json"
+    },
+    {
+      "id": "backend-market-breadth-indicators-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-market-breadth-indicators-followups-followups-followups.json"
     },
     {
       "id": "frontend-market-breadth-widget",
       "area": "frontend/pages/watchlist",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-market-breadth-widget.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode",
@@ -1713,8 +1867,8 @@
       "id": "backend-daily-homework-self-test-followups",
       "area": "backend/api",
       "skill": null,
-      "state": "planned",
-      "path": "docs/tasks/backend-daily-homework-self-test-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-daily-homework-self-test-followups.json"
     },
     {
       "id": "backend-profit-target-weekly-channel-followups",
@@ -1736,6 +1890,195 @@
       "skill": null,
       "state": "planned",
       "path": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-trade-journal-followup-review-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followup-review-followups.json"
+    },
+    {
+      "id": "frontend-trade-journal-followup-review-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-trade-journal-followup-review-followups-followups.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-position-risk-columns-followups-followups-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-position-risk-columns-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "frontend-close-position-dialog-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-close-position-dialog-followups.json"
+    },
+    {
+      "id": "frontend-close-position-dialog-followups-followups",
+      "area": "frontend/pages/portfolio",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-close-position-dialog-followups-followups.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget-followups.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget-followups-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget-followups-followups.json"
+    },
+    {
+      "id": "frontend-market-breadth-widget-followups-followups-followups",
+      "area": "frontend/pages/watchlist",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/frontend-market-breadth-widget-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-ibkr-symbol-resolution-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-symbol-resolution-followups.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-tickle-keepalive-followups.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-tickle-keepalive-followups-followups.json"
+    },
+    {
+      "id": "backend-ibkr-tickle-keepalive-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-ibkr-tickle-keepalive-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups-followups-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-cftc-cot-data-followups-followups-followups-followups-followups-followups",
+      "area": "backend/data",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-static-verify-cleanup",
+      "area": "backend",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-static-verify-cleanup.json"
+    },
+    {
+      "id": "backend-static-verify-cleanup-followups",
+      "area": "backend",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-static-verify-cleanup-followups.json"
+    },
+    {
+      "id": "backend-static-verify-cleanup-followups-followups",
+      "area": "backend",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-static-verify-cleanup-followups-followups.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500",
+      "area": "backend/api",
+      "skill": "add-api-endpoint",
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json"
+    },
+    {
+      "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups",
+      "area": "backend/api",
+      "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups.json"
     }
   ]
 }

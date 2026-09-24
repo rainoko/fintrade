@@ -27,7 +27,6 @@ import pytest
 
 from app.indicators.force_index import force_index
 
-
 CLOSES = pd.Series([10, 12, 11, 13, 12, 15, 14, 16], dtype=float)
 VOLUMES = pd.Series([1000, 1500, 1200, 1800, 1300, 2000, 1100, 1900], dtype=float)
 

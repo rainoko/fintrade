@@ -1,0 +1,73 @@
+{
+  "id": "frontend-market-breadth-widget",
+  "title": "Real market-breadth widget, alongside the existing personal-breadth proxy",
+  "area": "frontend/pages/watchlist",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["backend-market-breadth-indicators"],
+  "references": [
+    "frontend/src/features/watchlist/components",
+    "docs/tasks/done/frontend-breadth-widget.json",
+    "docs/ideas.md#broad-market-breadth-indicators-ch-3436-nh-nl-stocks-above-50-day-ma-advancedecline"
+  ],
+  "description": "Surface the new real market-breadth indicator(s) alongside the existing personal-watchlist-only breadth widget, clearly labeled as distinct (one reflects the whole market via IBKR, the other only the user's own tracked tickers) -- with a clear disabled/unavailable state when IBKR isn't connected.",
+  "checklist": [
+    { "step": "Build a widget/panel for the new market-breadth indicator(s), clearly distinguishing it from the existing PersonalBreadthCard so a user doesn't confuse the two.", "done": true },
+    { "step": "Show a clear, non-error disabled state when the backend reports IBKR unavailable/disabled.", "done": true },
+    { "step": "Component tests covering available data and the disabled state.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "New `MarketBreadthCard` (features/ibkr/components/, not features/watchlist/) composes `POST /api/ibkr/breadth/snapshot` twice, with two fixed, hardcoded scan configs: `series_key: 'adv'` using IBKR's `TOP_PERC_GAIN` scan type, and `series_key: 'dec'` using `TOP_PERC_LOSE` -- a top-gainers-vs-top-losers proxy for Advance/Decline, computing the spread (`rolling_5d`/`rolling_20d` difference) client-side. Rendered on WatchlistPage directly below the existing PersonalBreadthCard.",
+      "rationale": "`backend-market-breadth-indicators` deliberately left `series_key`/`scan_config` fully caller-supplied rather than hardcoding which IBKR scan-type code means 'new highs' vs 'new lows' (unconfirmed against a live gateway) -- this frontend widget is exactly the 'caller' docs/Analyse.md's own 'IBKR-scanner breadth approximation' section anticipates ('the caller supplies both the label and the scan_config... and combines two labeled readings into a spread itself'), and that same section explicitly names 'top-gainers vs. top-losers for an Advance/Decline reading' as the example pairing -- so hardcoding TOP_PERC_GAIN/TOP_PERC_LOSE here isn't a new unverified guess, it's implementing the exact example the architecture docs already committed to. Considered building a live category-picker (fetching GET /api/ibkr/scanner/params and letting the user choose which two categories to use) instead of a fixed pairing -- rejected as out of this task's scope and a duplicate of `frontend-market-scanner-page`'s own still-planned 'category picker, run a scan, review results' feature; building a second one here for just this widget would pre-empt and diverge from that page's eventual UI. If TOP_PERC_GAIN/TOP_PERC_LOSE turn out not to be real category codes once tested against a live gateway, the failure mode is a transient scan-call error (this widget's own ErrorState), never a silently wrong number -- the same fail-safe every other IBKR-backed route in this app already relies on for an unconfirmed scan-type code."
+    },
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "`useMarketBreadth` fetches the 'adv' and 'dec' snapshots sequentially (awaiting the first before starting the second), and retries a `429` once after sleeping for the `Retry-After` value before giving up.",
+      "rationale": "`IBKRProvider.run_scanner`'s 1-request/second throttle is enforced instance-wide on the backend's process-level singleton (per backend-market-breadth-indicators's own decisions entry) -- firing both POSTs concurrently would very likely 429 the second one on a same-day cache miss (first load ever, or first load of a new calendar day; every other load is two fast cache hits and never touches the throttle at all). Sequencing avoids that in the common case; the one-shot retry-after-Retry-After fallback covers the residual case where the two calls still land under a second apart. Considered surfacing the 429 as an immediate ErrorState instead (matching this app's default `retry: 1` TanStack Query behavior) -- rejected because that would make the widget visibly fail on every very-first load for a reason entirely of this widget's own making (two sequential calls it chose to issue), not a genuine external error a user should see."
+    },
+    {
+      "timestamp": "2026-09-22T12:04:51Z",
+      "recorded_by": "task-worker",
+      "decision": "`useMarketBreadth`/`MarketBreadthCard` live under `features/ibkr/` (a `useQuery`, not `useMutation`, despite the underlying calls being POSTs).",
+      "rationale": "Placement: every field this widget renders and the endpoint it calls are IBKR-scanner domain concepts, not watchlist ones -- WatchlistPage imports it directly the same way AppShell already imports features/ibkr's IbkrStatusIndicator from outside that feature folder, so a cross-feature import here isn't a new pattern. useQuery over useMutation: this is an auto-fetch-on-mount, per-calendar-day-cacheable read (the backend itself caches by day), the same shape useWatchlistBreadth/usePortfolioRisk already have -- unlike useScoreTradeApgar's useMutation, which is explicitly a user-triggered on-demand computation (see that hook's own doc comment), nothing here is triggered by a user action."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget",
+    "pr_number": 262,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/262",
+    "pushed_at": "2026-09-22T12:07:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T12:23:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/262",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "formatSpread is implemented twice with slightly different null-handling/parameter types (MarketBreadthCard.tsx's own local formatSpread vs. marketBreadthHelp.ts's) rather than shared -- a future change to the spread-formatting rule (rounding, sign convention) only reaches one of the two call sites unless both are remembered together. Non-blocking cleanup.",
+        "file": "frontend/src/features/ibkr/components/MarketBreadthCard.tsx",
+        "line": 32
+      },
+      {
+        "summary": "This task file itself sets `\"questions\": []` even though no question was ever raised -- CLAUDE.md's task-board section says `questions` (like `decisions`/`test`/`review`/`pr_decision`) should stay absent entirely until populated, not present-but-empty. Minor board-hygiene nit, not fixed here since it's outside a review's normal edit scope.",
+        "file": "docs/tasks/frontend-market-breadth-widget.json",
+        "line": 45
+      },
+      {
+        "summary": "No frontend/tests/e2e/*.spec.ts spec exercises MarketBreadthCard directly (available vs. disabled rendering) as a persisted regression check -- watchlist.spec.ts only incidentally hits the default-disabled POST /api/ibkr/breadth/snapshot MSW-less fixture handler in passing. vitest component coverage for the card itself is thorough (100% lines/branches), so this is a nice-to-have for the persisted e2e layer, not a gap in unit coverage.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts",
+        "line": null
+      }
+    ],
+    "notes": "Full review pass: backend pytest (1144 passed, 99.95% coverage) and frontend vitest (798 passed, 99.76%+ statements/branches/functions/lines) both clean, well above the 90% gate, no regressions. ruff/mypy/eslint/tsc/profit-target-wording guard all clean. Verified docs/Analyse.md's 'IBKR-scanner breadth approximation' section names 'top-gainers vs. top-losers for an Advance/Decline reading' as its own example -- TOP_PERC_GAIN/TOP_PERC_LOSE matches it exactly, not a new unverified guess. Verified the sequential-fetch + one-shot Retry-After retry logic both by reading useMarketBreadth.ts (each of the two snapshot calls goes through its own independent fetchSnapshotWithRateLimitRetry, so a 429 on the *second* (decline) request after the first (advance) already succeeded is handled, not just a 429 on the first) and by an end-to-end live browser run against the real backend + a stub IBKR gateway + a fresh DB: observed advance succeed (200), decline's first attempt get a real 429 with `Retry-After`, and the retried decline request land ~1.02s later succeeding with the correct count -- the widget never flashed an error during the wait, matching the design intent in this task's second `decisions` entry. Also did a live browser pass for the 'disabled' (default, no IBKR) and 'available' (via a stub gateway) states -- both rendered correctly, clearly distinguished from PersonalBreadthCard, no console/network errors. Ran the persisted e2e suite (`make e2e`): all 21 specs across all 4 files passed, including watchlist.spec.ts which now incidentally exercises the new POST /api/ibkr/breadth/snapshot default-disabled MSW-less fixture handler with no regression. Checked add-frontend-feature placement rules: MarketBreadthCard/marketBreadthHelp.ts are correctly feature-scoped under features/ibkr/ (every value rendered and the hook backing it are IBKR-scanner domain concepts, not watchlist ones) -- no common/-vs-feature misplacement, and the reused IbkrStatusBadge (components/common/) is genuinely domain-agnostic (takes only a state/detail prop) so its placement there remains correct too. No API route/schema changed in this PR (POST /api/ibkr/breadth/snapshot already existed and was already documented by backend-market-breadth-indicators), so backend/openapi.json is correctly untouched -- confirmed not stale. All three decisions entries are well-reasoned and match what's implemented; no checklist item is phrased as 'decide X' without a corresponding decision. Three non-blocking findings recorded above and filed as docs/tasks/frontend-market-breadth-widget-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T12:33:31Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (1144 passed, 99.95% coverage) and frontend vitest (798 passed, 99.76%+ stmts/branches/functions/lines) -- both match pr-reviewer's reported numbers exactly. Skimmed the full diff (git diff origin/main...HEAD, 12 files, no backend changes) including useMarketBreadth.ts, MarketBreadthCard.tsx, marketBreadthHelp.ts, api/ibkr.ts, queryKeys.ts, WatchlistPage.tsx, MarketBreadthCard.test.tsx, and handlers.ts. Cross-checked the TOP_PERC_GAIN/TOP_PERC_LOSE decision against docs/Analyse.md line 319 directly -- it verbatim names 'top-gainers vs. top-losers for an Advance/Decline reading' as its own example, so the claim holds. Sanity-checked the sequential-fetch-with-429-retry logic in useMarketBreadth.ts: fetchMarketBreadth awaits advance before starting decline, and fetchSnapshotWithRateLimitRetry wraps each call independently with a single Retry-After-based retry -- confirmed MarketBreadthCard.test.tsx's 'retries the decline request once after Retry-After on a 429' test exercises exactly the second-request-429 case the decisions entry describes, via fake timers, and passes. Checked all three decisions entries against the implementation -- all match (scan-config pairing, sequential+retry fetch, features/ibkr placement with useQuery). Ran frontend eslint/tsc directly (both clean); backend ruff/mypy findings that exist on the tree are pre-existing on main (this PR touches no backend files -- git diff origin/main...HEAD --stat -- backend/ is empty) and out of this PR's scope. Confirmed no human PR comments exist beyond the automation's own accept comment. Accept holds."
+  }
+}

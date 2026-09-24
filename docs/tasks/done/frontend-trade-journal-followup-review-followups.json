@@ -1,0 +1,65 @@
+{
+  "id": "frontend-trade-journal-followup-review-followups",
+  "title": "Non-blocking follow-up from frontend-trade-journal-followup-review PR #248 review",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-trade-journal-followup-review"],
+  "references": [
+    "docs/tasks/frontend-trade-journal-followup-review.json",
+    "https://github.com/rainoko/fintrade/pull/248",
+    "frontend/tests/e2e/portfolio.spec.ts",
+    "frontend/src/features/portfolio/components/TradeFollowUpDuePanel.tsx",
+    "frontend/src/features/portfolio/components/FollowUpReviewDialog.tsx"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #248 (frontend-trade-journal-followup-review), recorded here per CLAUDE.md's convention so it isn't lost once the PR merges. Everything else in that review passed cleanly: static analysis (ruff/mypy/eslint/tsc/profit-target-wording), backend+frontend coverage (backend 99.95%, frontend statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79%, all new files 100%), the persisted e2e suite (18/18 passing), and a live headless-Chromium walkthrough (due-list render, Record Review -> fill notes -> Save -> dialog closes immediately -> trade drops off the due list and stays gone after reload, plus a blank/whitespace-only-notes validation edge case blocking submission with no network call) -- this is a coverage gap to close, not a defect that blocks the accept.",
+  "checklist": [
+    {
+      "step": "No Playwright e2e spec (frontend/tests/e2e/*.spec.ts) exercises the new 'Due for Follow-Up Review' panel or FollowUpReviewDialog end to end -- portfolio.spec.ts wasn't extended, and no new spec file was added, even though the flow adds a new API round trip (POST .../follow-up-review) and a new query-string filter (due_for_follow_up=true) that the existing e2e suite's fixture-provider backend now serves live. Per the e2e-test skill's own 'Relationship to Other Checks' note ('If a new UI flow is added, the underlying task should also add or extend an e2e spec for it'), this flow should get a persisted regression spec (e.g. extend portfolio.spec.ts: seed a due trade via the running backend's fixture-provider database, record a review through the UI, assert it drops off the due list) rather than relying solely on mocked component tests plus one-off manual browser walkthroughs for future regression coverage.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended the existing `frontend/tests/e2e/portfolio.spec.ts` with a new `test.describe.serial('portfolio: due-for-follow-up review flow', ...)` block (3 tests: due panel renders the seeded trade, blank-notes validation keeps the dialog open, and a successful review closes the dialog/removes the row/survives a reload) rather than adding a new spec file, and seeded the due trade for that block via two direct `request` fixture calls to the real running backend (`POST /api/portfolio/positions` then `DELETE .../positions/{id}?exit_price=...&exit_date=<9 weeks ago>`) rather than driving the seed through the UI.",
+      "rationale": "A new spec file was considered and rejected: this flow lives entirely on the existing Portfolio page (`PortfolioPage.tsx` renders `TradeFollowUpDuePanel` alongside `PositionsTable`/`RiskPanel`), matching how `watchlist.spec.ts` and `stock-analysis.spec.ts` are each scoped to one page rather than one flow, and the checklist item's own suggested example ('extend portfolio.spec.ts') already named this option. A UI-driven seed (add a position through AddPositionDialog, then delete it through the confirm dialog) was also considered and rejected as currently impossible: `DELETE /api/portfolio/positions/{id}`'s `exit_price`/`exit_date` manual-override query params (needed to backdate the trade into the backend's 8-10-week due window -- a same-day UI delete always exits 'today', never due) have no UI surface yet -- that's `frontend-close-position-dialog`, still `planned`, a separate task. Driving those two existing, already-tested API calls directly via Playwright's `request` fixture keeps the seed honest (it's the real backend, the real validation, the real DB -- not a mock) while not blocking this task on `frontend-close-position-dialog` landing first; the seed step itself asserts `response.ok()` so a backend regression in either call would still fail this spec, not silently produce a no-op fixture. 9 weeks back was chosen for the exit date (not, say, 8 or 10, the window's exact edges) for the same boundary-flake-avoidance reason `frontend/tests/mocks/handlers.ts`'s `dueTradeFixture` already uses 9 weeks -- comfortably inside both edges of `_FOLLOW_UP_DUE_WINDOW_MIN`/`_MAX` (`app/api/routers/portfolio.py`) so a few seconds of clock drift between the seed call and the page's own `as_of` never risks the row falling just outside the window.",
+      "alternatives_considered": "New standalone spec file (frontend/tests/e2e/trade-follow-up-review.spec.ts); UI-driven backdated seed (blocked on frontend-close-position-dialog); seeding via a direct SQLite write to backend/e2e.db (rejected as more brittle/coupled to internal schema than the same public API a real user-driven flow would use)."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-trade-journal-followup-review-followups",
+    "pr_number": 249,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/249",
+    "pushed_at": "2026-09-22T04:52:05Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T05:04:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/249",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "isoDateWeeksAgo in the new frontend/tests/e2e/portfolio.spec.ts is a verbatim duplicate of the same-named helper already in frontend/tests/mocks/handlers.ts (from PR #248). Non-blocking (two different test layers, only two copies so far); tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts",
+        "line": 110
+      },
+      {
+        "summary": "The new due-for-follow-up describe.serial block has no tolerance for a leftover unreviewed TSLA trade from an earlier interrupted run, unlike the sibling add/delete block in the same file which explicitly documents tolerating a stale MSFT position for this reason. A rerun against a still-alive webServer (yarn test:e2e:ui, not the routine make e2e path which always wipes e2e.db) could seed a second due row and turn dueForFollowUpRow into a Playwright strict-mode-violation instead of a clean failure. Non-blocking: doesn't affect the documented make e2e/CI path (verified clean, 21/21), and the failure mode is loud, not silent. Tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/tests/e2e/portfolio.spec.ts",
+        "line": 128
+      },
+      {
+        "summary": "One flaky timeout task-worker saw in FollowUpReviewDialog.test.tsx on its first vitest run did not reproduce across 16 further runs (13 isolated + 3 full-suite). That file is entirely untouched by this PR's diff, so it can't be something this PR introduced or exacerbated -- classified as a one-off environmental fluke, not a genuine pre-existing flake, but recorded for a paper trail if it recurs. Tracked on frontend-trade-journal-followup-review-followups-followups.",
+        "file": "frontend/src/features/portfolio/components/FollowUpReviewDialog.test.tsx"
+      }
+    ],
+    "notes": "Full review: backend pytest 1139 passed, 99.95% coverage; frontend vitest 745 passed, statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79% (all well above the 90% gate, no regression from PR #248's already-clean numbers). Static analysis clean on both sides (ruff, mypy, eslint, tsc, profit-target-wording guard). make e2e: 21/21 specs pass, including all 3 new due-for-follow-up specs. Verified the e2e assertions (table names, dialog heading, field label, button text, validation copy) against the actual TradeFollowUpDuePanel.tsx/FollowUpReviewDialog.tsx source rather than trusting the diff alone. Verified the seeded 9-week exit date sits well inside the backend's actual 8-10-week window (_FOLLOW_UP_DUE_WINDOW_MIN/_MAX in app/api/routers/portfolio.py) and matches the mocked-test suite's own choice, as the decisions entry claims. Verified state isolation: FOLLOW_UP_TICKER=TSLA is distinct from every other spec's fixture ticker (AAPL/MSFT/GOOGL), playwright.config.ts runs workers:1/fullyParallel:false so no cross-file race, and the seeded TSLA position is already closed (no longer an open position) before the due-panel block's first assertion runs, confirmed by the real make e2e run's request log ordering. No UI-facing app code changed by this PR (test/doc/task-JSON only) -- no interactive browser walkthrough applicable per step 9, explicitly noted rather than skipped silently; step 9a's e2e-test skill run substitutes for it here since this PR's own 'UI surface' is entirely e2e-spec coverage. Not applicable: verify-elder-signal (area/skill don't match), architecture-review (no new module/dependency/layer), OpenAPI check (no API/schema change), frontend component-placement check (no component added or changed). Checklist item's underlying judgment calls (spec-file placement, seed strategy, exact seed offset) are all backed by a decisions entry with rationale and alternatives considered, satisfying CLAUDE.md's decision-memory rule. Two non-blocking code-review findings (duplicate helper, describe-block leftover-state edge case) plus the flaky-test investigation result are filed on frontend-trade-journal-followup-review-followups-followups rather than left only in this comment."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T05:10:01Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything pr-reviewer reported: backend pytest 1139 passed/99.95% coverage; frontend vitest 745 passed, statements 99.73%/branches 99.21%/functions 99.74%/lines 99.79%; make e2e 21/21 (including the 3 new due-for-follow-up specs, confirmed by the run's own request log the seeded DELETE used exit_date=2026-07-21, exactly 9 weeks before today, comfortably inside the backend's 8-10-week _FOLLOW_UP_DUE_WINDOW_MIN/_MAX in app/api/routers/portfolio.py). Also ran scripts/validate_tasks.py clean, skimmed the full diff (frontend/tests/e2e/portfolio.spec.ts, docs/architecture/Testing.md, docs/tasks/index.json, and the new followups-followups task file) myself rather than trusting the review summary, confirmed the decisions entry's window-offset claim against the actual backend constants, confirmed the -followups-followups follow-up task was created with the three findings pr-reviewer's comments reference, and checked the PR for human comments (none). No PR comment/review posted since the accept holds."
+  }
+}

@@ -1,5 +1,6 @@
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined'
+import HourglassTopIcon from '@mui/icons-material/HourglassTop'
 import SearchOffIcon from '@mui/icons-material/SearchOff'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import WifiOffIcon from '@mui/icons-material/WifiOff'
@@ -28,6 +29,8 @@ function presentationFor(status: number): ErrorPresentation {
       return { heading: 'Unable to process request', Icon: WarningAmberIcon }
     case 503:
       return { heading: 'Service unavailable', Icon: CloudOffIcon }
+    case 429:
+      return { heading: 'Too many requests', Icon: HourglassTopIcon }
     case 0:
       return { heading: 'Connection error', Icon: WifiOffIcon }
     default:
@@ -43,8 +46,18 @@ export interface ErrorStateProps {
 /**
  * Renders an ApiError with a distinct heading/icon per HTTP status case
  * (404 unknown ticker, 422 insufficient history/validation, 503 provider
- * unavailable, plus a 0 network-failure case) and the backend's own
- * human-readable `detail` underneath it.
+ * unavailable, 429 rate-limited, plus a 0 network-failure case) and the
+ * backend's own human-readable `detail` underneath it.
+ *
+ * 429 (first surfaced by `frontend-market-scanner-page`'s
+ * `POST /api/ibkr/scanner/run`, the first frontend caller of any route this
+ * app rate-limits) additionally renders `error.retryAfterSeconds` — already
+ * parsed off the response's `Retry-After` header by `api/client.ts`, see
+ * that module's own doc comment — as a concrete "try again in Ns" line
+ * rather than leaving the retry delay buried in `detail`'s free-text
+ * sentence, which is not a stable contract a caller should parse. Rendered
+ * as its own `Typography`, not appended into `detail`, so a backend wording
+ * change to `detail` can never accidentally duplicate or contradict it.
  */
 export default function ErrorState({ error }: ErrorStateProps) {
   const { heading, Icon } = presentationFor(error.status)
@@ -70,6 +83,11 @@ export default function ErrorState({ error }: ErrorStateProps) {
       <Typography variant="body2" color="text.secondary">
         {error.detail}
       </Typography>
+      {error.status === 429 && error.retryAfterSeconds !== null && (
+        <Typography variant="body2" color="text.secondary">
+          Try again in {error.retryAfterSeconds}s.
+        </Typography>
+      )}
     </Box>
   )
 }

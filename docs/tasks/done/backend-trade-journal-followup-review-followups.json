@@ -1,0 +1,66 @@
+{
+  "id": "backend-trade-journal-followup-review-followups",
+  "title": "Follow-ups from PR #221 review (backend-trade-journal-followup-review)",
+  "area": "backend/db",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trade-journal-followup-review"],
+  "references": [
+    "docs/tasks/done/backend-trade-journal-followup-review.json",
+    "https://github.com/rainoko/fintrade/pull/221"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #221, tracked here so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "Extract a shared `_to_closed_trade_out(row, grade)` helper in backend/app/api/routers/portfolio.py -- get_closed_trades and record_follow_up_review each independently construct an identical 16-field ClosedTradeOut(...) from a ClosedTradeORM row + TradeGrade; this PR itself had to add the two new follow-up fields to both call sites, which a shared helper would have made a one-place change instead.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The duplicated ClosedTradeOut(...) construction has 17 fields (verified via an AST count of app/api/schemas.py's ClosedTradeOut and a manual read of the extracted helper). The checklist item's original '16 fields' figure (describing the code right after PR #221 merged) was a plain miscount at the time, not a snapshot of a genuinely smaller schema that later grew: backend-trade-journal-entry-notes (added entry_notes, PR #213, pushed 2026-09-20T23:58:00Z), backend-trade-strategy-tagging (added strategy, PR #218, pushed 2026-09-21T02:58:00Z), and backend-trade-grade-letter (added trade_letter_grade, PR #219, pushed 2026-09-21T03:15:30Z) all merged to main *before* PR #221 was pushed (2026-09-21T04:13:44Z) -- so all three of those fields were already present in ClosedTradeOut by the time PR #221's own review ran, and none of them was added 'since' PR #221. They don't explain any 16->17 change; there was no 16-field state to grow from. Extracted _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeOut covering the schema's actual, current 17-field shape rather than the checklist's miscounted 16, since the goal (one place to update when ClosedTradeOut gains/loses fields) holds regardless of how the stated count got confused. Correction (2026-09-21, backend-trade-journal-followup-review-followups-followups): this entry originally stated '18 fields'/'18-field shape', corrected to 17. Correction (2026-09-21, backend-trade-journal-followup-review-followups-followups-followups): the accompanying 'net +1 after removing the original description's undercount' arithmetic never reconciled with the three fields named above (three additions can't net to +1 from a 16-field baseline) and rested on a wrong premise besides, since those three fields predate PR #221 rather than following it -- replaced with the plain, reconciled account above (17 fields total; the original '16' was simply wrong at the time it was written, not an earlier true count that later changed).",
+      "rationale": "Matching the checklist's literal '16-field' phrasing would have meant deliberately reproducing a miscount rather than reality; the helper's whole purpose (per the task description) is to make future field changes a one-place edit, so it needs to reflect ClosedTradeOut's actual shape (17 fields, both then and now), not the checklist's inaccurate description of it."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-journal-followup-review-followups",
+    "pr_number": 227,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/227",
+    "pushed_at": "2026-09-21T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T09:15:02Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/227",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the extracted _to_closed_trade_out(row, grade) helper is byte-identical to both original inline ClosedTradeOut(...) constructions in get_closed_trades and record_follow_up_review -- field-by-field diff of the pre-refactor code against the helper shows the same 17 fields, same source variables (row.* / grade.*), same cast(ExitReasonOut, row.exit_reason), same trade_letter_grade(grade.trade_grade_pct) call, no field dropped, added, or given a different value/default between the two call sites.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 219
+      },
+      {
+        "summary": "Confirmed this is a pure internal refactor with no wire-format change: backend/openapi.json has no diff against main, no schema (app/api/schemas.py) or route signature changed, consistent with the PR description's claim that no OpenAPI regeneration was needed.",
+        "file": "backend/openapi.json",
+        "line": 0
+      },
+      {
+        "summary": "Backend test suite: 1109 passed, 99.95% coverage overall, app/api/routers/portfolio.py at 100% line/branch coverage. ruff check, ruff format, and mypy all clean. Non-refactor hunks in the diff (_grade_closed_trades, get_portfolio, get_risk) are pure ruff-format line-wrapping with no logic change.",
+        "file": "backend/app/api/routers/portfolio.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking: the decisions entry (and PR description) claim ClosedTradeOut has grown to '18 fields', but an AST count of the schema and a manual count of the helper's field list both come to 17 fields exactly. The helper itself is complete and correct -- covers the real, full field set -- so this is purely a documentation/decision-record inaccuracy, not a code bug. Tracked as a follow-up.",
+        "file": "docs/tasks/done/backend-trade-journal-followup-review-followups.json",
+        "line": 23
+      }
+    ],
+    "notes": "No UI surface -- this PR only touches backend/app/api/routers/portfolio.py (an internal helper extraction) with no schema/route change, so the browser walkthrough and e2e-test steps don't apply; explicitly skipped rather than silently omitted. area is backend/db (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal doesn't apply. No new module/dependency/layer added, so architecture-review doesn't apply. Filed docs/tasks/backend-trade-journal-followup-review-followups-followups.json for the one non-blocking finding (field-count inaccuracy in the decision record)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T09:20:50Z",
+    "verdict": "merge",
+    "notes": "Re-ran backend/.venv pytest --cov=app --cov-report=term-missing myself: 1109 passed, 99.95% overall coverage, app/api/routers/portfolio.py at 100% line/branch -- matches pr-reviewer's reported numbers exactly. Independently regex-extracted all ClosedTradeOut(...) constructions from origin/main's portfolio.py and the new _to_closed_trade_out helper's body: both original inline call sites are byte-identical to each other (17 fields each) and, after normalizing grade.X -> grades[row.id].X (the call sites pass grades[row.id] as the grade arg), field-by-field identical in name, order, and source expression to the helper -- no field dropped, added, retyped, or given a different value. Confirmed `git diff origin/main...HEAD -- backend/openapi.json` is empty (zero diff) and no route/schema signature changed. Also confirmed schemas.py's ClosedTradeOut has exactly 17 fields via direct read, matching the tracked follow-up's correction of the decision record's '18 fields' claim. Checked ruff/mypy: portfolio.py itself is ruff/format/mypy-clean; the 7 ruff findings in unrelated test files pre-exist on origin/main (verified via a throwaway worktree) and aren't introduced by this diff, so they don't affect this PR's mergeability. No human PR comments found on #227."
+  }
+}

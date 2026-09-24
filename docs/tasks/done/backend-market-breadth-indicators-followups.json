@@ -1,0 +1,93 @@
+{
+  "id": "backend-market-breadth-indicators-followups",
+  "title": "IBKR-scanner breadth snapshot endpoint — non-blocking review follow-ups",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-market-breadth-indicators"
+  ],
+  "references": [
+    "docs/tasks/backend-market-breadth-indicators.json#review",
+    "https://github.com/rainoko/fintrade/pull/217"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #217 (backend-market-breadth-indicators), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "record_ibkr_breadth_snapshot's cache-miss path (db.get(...) is None -> db.add(row); db.commit()) has no handling for a concurrent second request for the same (series_key, snapshot_date) racing in between the get() and the commit() -- the composite primary key means the second commit() would raise an uncaught IntegrityError instead of falling back to the now-existing row. Same category of gap already flagged and fixed for OHLCVCacheORM in docs/tasks/done/data-cache-followups.json's third checklist item; not exercised by any test here either. Low real-world likelihood (this is a manually-triggered, low-frequency endpoint) but worth the same treatment for consistency.",
+      "done": true
+    },
+    {
+      "step": "record_ibkr_breadth_snapshot issues two separate queries after a cache hit/miss is resolved -- a func.count() for days_recorded and a separate ORDER BY ... LIMIT query for the rolling-window counts -- that could be combined into a single query (e.g. fetch all rows once, ordered, and derive both days_recorded and the rolling sums from the same result set) to save a round trip. Purely an efficiency nit; correctness is unaffected either way.",
+      "done": true
+    },
+    {
+      "step": "test_invalid_series_key_rejected only exercises a series_key with spaces/uppercase against the `^[a-z0-9_-]{1,40}$` pattern; no test exercises the length boundary itself (a 41-character key, or an empty string) to confirm the 1-40 bound is actually enforced as documented.",
+      "done": true
+    },
+    {
+      "step": "_ROLLING_WINDOW_DAYS = (5, 20) reads like the single source of truth for the rolling windows, but it's only actually consulted via max() to compute the query LIMIT (_MAX_ROLLING_WINDOW_DAYS) -- the literal 5/20 values are separately hardcoded in the rolling_5d/rolling_20d/days_recorded>=5/20 expressions in record_ibkr_breadth_snapshot's return statement (and again in the schema field descriptions). Changing the tuple alone (e.g. to add a third window) wouldn't change behavior, which is misleading. Derive the response fields from the tuple itself (or drop the tuple and just hardcode the two literals with a comment, removing the false impression of a single config point).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 1 (concurrent-insert race): fixed by wrapping `record_ibkr_breadth_snapshot`'s `db.commit()` in `try/except (IntegrityError, OperationalError)`. On conflict, roll back the loser's own uncommitted row, log a warning, then re-`db.get(...)` the same composite PK to read the concurrently-committed winner's row and use it as `row` for the rest of the response -- rather than discarding the write and returning the loser's own (now-uncommitted) data, which is what `app.data.cache.CachedDataProvider`'s `_upsert`/`_upsert_extended` do for the exact same race shape.",
+      "rationale": "`CachedDataProvider`'s precedent (docs/tasks/done/data-cache-followups.json item 3) can safely swallow the loser's write and still return correct data, because its return value (an OHLCV `frame`) is independent of whether the DB write lands -- the frame was already fetched from the source provider before the write was even attempted. This route's response fields (`count`/`days_recorded`/`rolling_5d`/`rolling_20d`) are read from the persisted row itself, so silently discarding the loser's write the same way would return the loser's own uncommitted/never-persisted `count` as if it were the recorded value, and a same-day re-request would then read back the winner's different, actually-persisted `count` -- a real inconsistency, not just a wasted write. Re-fetching the winner's row instead keeps this route's response always reflecting what's actually persisted for that (series_key, snapshot_date), matching what a same-day repeat call would see. Both `IntegrityError` and `OperationalError` are caught (not just `IntegrityError`), matching `_upsert`'s own reasoning: SQLite's default file-level locking (no WAL mode/`busy_timeout` configured, app/db/session.py) makes a genuinely concurrent commit at least as likely to raise `OperationalError` ('database is locked') depending on timing. Verified with a new integration test (`test_concurrent_first_population_falls_back_to_winners_row`) that forces `db.commit()` to raise `IntegrityError` once (after committing a competing 'winner' row for the same PK, simulating the actual race) and asserts the response reflects the winner's `count`, not the loser's own scan result, with exactly one row persisted. Rejected a locking mechanism (e.g. `BEGIN IMMEDIATE`, an application-level per-series mutex) as disproportionate for a rare race on a manually-triggered, low-frequency endpoint, consistent with `data-cache-followups`' own proportionality reasoning for the identical race shape."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 2 (two separate queries for days_recorded/rolling sums): combined into one query -- all of a series' recorded `count` values, ordered most-recent-first, with no LIMIT -- deriving `days_recorded` as `len(...)` of that result and both rolling sums as slices of the same list, exactly as the checklist item's own suggested example describes.",
+      "rationale": "Removing the previous query's `LIMIT max(ROLLING_WINDOW_DAYS)` means this now fetches a series' full history rather than just the rows the rolling windows need -- a deliberate trade-off (one round trip instead of two, at the cost of loading more rows than strictly necessary for the sums) rather than a pure win, but a cheap one: this route persists at most one row per series per calendar day, so even years of history is a few hundred to a couple thousand rows, trivial for SQLite and this single-user MVP (docs/Architecture.md's documented persistence model). Rejected keeping the LIMIT and doing a second, separate unbounded `func.count()` for `days_recorded` alongside it (no query-count improvement over the original two-query shape, so it wouldn't actually address the finding) and rejected a SQL-level combined aggregate (e.g. a single query computing `COUNT(*)` and windowed `SUM()`s via a subquery/window function) as unnecessary complexity for a table this small, when a single unbounded ORDER BY already gives Python everything needed in one round trip."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 3 (series_key length-boundary test gap): closed by adding three tests -- a 40-char key (the pattern's `{1,40}` upper bound) accepted, a 41-char key rejected, and an empty string rejected (the `{1,40}` lower bound).",
+      "rationale": "All three boundary cases the pattern `^[a-z0-9_-]{1,40}$` actually encodes (max-length accepted, over-max rejected, empty rejected) are now exercised, not just the existing spaces/uppercase-against-the-character-class case `test_invalid_series_key_rejected` already covered. Added the max-length-accepted case too (not just the two rejection cases the checklist item named) since a boundary test that only ever asserts rejection either side of a bound doesn't actually prove the bound is `{1,40}` rather than, say, `{1,39}` or `{2,40}` -- confirming the valid edge is accepted is needed to pin down the boundary precisely, not just that *some* length is rejected on each side."
+    },
+    {
+      "timestamp": "2026-09-22T00:22:40Z",
+      "recorded_by": "task-worker",
+      "decision": "Item 4 (_ROLLING_WINDOW_DAYS not a genuine single source of truth): fixed by moving the tuple from app/api/routers/ibkr.py to app/api/schemas.py (renamed `ROLLING_WINDOW_DAYS`, public/unprefixed since it's now imported across modules), and deriving both the router's `rolling_5d`/`rolling_20d`/`days_recorded>=N` computation and the schema's own field-description text from it via unpacking (`window_5d, window_20d = ROLLING_WINDOW_DAYS`) and f-strings, respectively -- chosen over the checklist item's other offered option (drop the tuple, hardcode the two literals with a comment) since deriving from a real single source of truth is strictly better when it's this cheap to do, and it directly fixes the finding's actual complaint (changing the tuple's values now does change behavior) rather than just relabeling the same hardcoding as intentional.",
+      "rationale": "Placed in schemas.py rather than kept in ibkr.py (with schemas.py importing back from it) because this app's dependency direction is routers-import-from-schemas, never the reverse (verified: schemas.py has no router imports anywhere in the codebase) -- putting it in schemas.py alongside this same module's existing `_SERIES_KEY_PATTERN` shared-validation-constant precedent avoids introducing a new circular-import risk. `_MAX_ROLLING_WINDOW_DAYS` (the tuple's only previous consumer, a query LIMIT) was removed entirely rather than kept, since item 2's fix above dropped that LIMIT. The response schema still has two fixed, separately-named fields (`rolling_5d`/`rolling_20d`) rather than a generic N-window list, so a hypothetical third window still couldn't be added by editing the tuple alone (destructuring `window_5d, window_20d = ROLLING_WINDOW_DAYS` would raise `ValueError` on a 3-tuple, immediately, rather than silently no-op) -- redesigning the response shape to be genuinely open-ended for an arbitrary number of windows is out of scope for this non-blocking nit and not something ch. 34-36 asks for (only two windows are ever named). This is judged sufficient because the finding's actual complaint was 'changing the tuple alone wouldn't change behavior, which is misleading' for the two windows the tuple does hold -- that's now fixed; a `ValueError` on a third element is an honest, loud failure mode, not the silent misleading one being reported."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-breadth-indicators-followups",
+    "pr_number": 242,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/242",
+    "pushed_at": "2026-09-22T00:25:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T00:32:13Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/242",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Concurrency-race fix (item 1) independently reproduced with two real threads and two separate SQLAlchemy sessions against a real file-backed SQLite DB (not just the PR's own mocked-commit test): a genuine sqlite3.IntegrityError on the composite PK was raised by the loser's real db.commit(), caught, rolled back, and correctly fell back to the winner's row -- both requests' responses reflected the winner's count, exactly one row persisted.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 336
+      },
+      {
+        "summary": "Non-blocking: the except (IntegrityError, OperationalError) fallback assumes any caught OperationalError implies a same-key winner exists and is readable via db.get(...). True for IntegrityError (verified: composite PK is this table's only constraint), but SQLite's whole-file locking can raise 'database is locked' OperationalError from any concurrent write anywhere in the file, not only a race on this exact key -- in which case db.get(...) legitimately returns None and `assert winner is not None` raises AssertionError instead of the described graceful fallback. Not a behavior regression (pre-fix, an uncaught OperationalError also propagated to a generic 500) but the log line would misleadingly claim a race occurred. This exact scope caveat was already reviewed and explicitly accepted as non-blocking for the identical race pattern in app/data/cache.py's _upsert (docs/tasks/done/data-cache-followups-followups.json, PR #56 review), but this PR's new decision entry doesn't carry forward that caveat. Filed as a checklist item on docs/tasks/backend-market-breadth-indicators-followups-followups.json.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 359
+      },
+      {
+        "summary": "Non-blocking: the invariant is enforced with a bare `assert`, which is stripped under python -O/PYTHONOPTIMIZE -- in the scenario above that would silently produce row = None and a later AttributeError on row.count rather than even an AssertionError. Not a live concern (no evidence of -O anywhere in this repo), but worth an explicit if/raise guard if this pattern is reused elsewhere. Filed on docs/tasks/backend-market-breadth-indicators-followups-followups.json.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 359
+      }
+    ],
+    "notes": "Full review: gh pr checkout 242 (already on the branch). Backend pytest --cov: 1139 passed, 99.95% coverage, app/api/routers/ibkr.py and app/api/schemas.py both 100% -- matches the PR's own reported numbers, no regression. ruff+mypy clean; scripts/check_profit_target_wording.py clean; frontend untouched by this PR (no frontend/ files in the diff) so frontend lint/tsc was skipped, stated explicitly. Re-ran python scripts/export_openapi.py from a clean tree and diffed against the committed backend/openapi.json: byte-identical, confirming the PR's claim that item 4's field-description rewording didn't change the rendered schema. python3 scripts/validate_tasks.py: no violations across 254 task files. Concurrency-race fix (item 1) verified beyond reading the test: wrote a standalone two-thread/two-session reproduction against a real file-backed SQLite DB with an artificial scanner delay to widen the race window, confirming a genuine IntegrityError is raised, caught, and correctly falls back to the winner's row with exactly one row persisted -- the PR's own test (test_concurrent_first_population_falls_back_to_winners_row) is also a faithful simulation since it monkeypatches the exact same db_session object the router uses via the client fixture's dependency override, not a fake/detached mock. Items 2-4 (query combination, ROLLING_WINDOW_DAYS single-source-of-truth, series_key boundary tests) read correct with no stale references to the removed names anywhere in the tree. All four decisions entries are sound, each with genuine rejected-alternatives rationale, and map 1:1 onto the four checklist items -- no undocumented judgment call (no checklist item here is phrased as 'decide X' needing a cross-check beyond this). No frontend/UI surface in this PR (backend router/schema/test/task-board files only), so the browser walkthrough (step 9) and persisted e2e suite (step 9a) don't apply -- stated explicitly, not silently skipped. area is backend/api (not backend/signals or backend/portfolio) and skill is null, so verify-elder-signal isn't formally triggered; no new module/dependency/layer added, so architecture-review doesn't apply either. Dispatched code-review skill (effort high) independently found the same OperationalError-scope gap as my own manual read, surfacing it at lines 344/351 of the diff; cross-checked against this exact codebase's own precedent (data-cache-followups-followups.json's PR #56 review, which reviewed and explicitly accepted the identical scope gap in app/data/cache.py's _upsert as non-blocking) to confirm this severity call is consistent with prior practice, not a one-off judgment. Both non-blocking findings filed as new checklist entries on docs/tasks/backend-market-breadth-indicators-followups-followups.json (created fresh; no existing -followups-followups task for this id was found in index.json)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T00:37:53Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app: 1139 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly. Skimmed the full diff myself (ibkr.py, schemas.py, test_ibkr_breadth.py, task-board files): the concurrent-insert fallback (db.rollback() -> db.get() winner row -> assert) matches app/data/cache.py's _upsert precedent as described, the combined single-query days_recorded/rolling-sum computation is correct, and ROLLING_WINDOW_DAYS is genuinely a single source of truth now (destructured in the router, interpolated into schema field descriptions). Re-ran python scripts/export_openapi.py myself and confirmed backend/openapi.json is byte-identical to the committed snapshot. Hand-checked the new series_key boundary tests (40-char accepted, 41-char and empty rejected) against the `^[a-z0-9_-]{1,40}$` pattern -- correct. Confirmed the two non-blocking OperationalError/bare-assert findings pr-reviewer filed as followups are genuinely non-blocking by checking the cited precedent (data-cache-followups-followups.json's PR #56 review, which accepted the identical scope gap for the same exception pair in app/data/cache.py). ruff/mypy clean on the diff's own files (the 7 pre-existing ruff findings elsewhere in the tree are unchanged from origin/main, confirmed via a throwaway worktree, and untouched by this PR). No human PR comments override the accept. Verdict holds."
+  }
+}

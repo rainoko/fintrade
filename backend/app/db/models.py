@@ -34,6 +34,37 @@ class PositionORM(Base):
     (docs/ideas.md's ch. 59 "equity curves segmented by strategy" idea, and the future
     backend-trade-apgar task), which a multi-value concatenated string would break. Carried
     over onto the corresponding `ClosedTradeORM.strategy` row when the position closes."""
+    trailing_stop_high_water_mark: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """The highest `trailing_stop` (`app.portfolio.risk.ratchet_trailing_profit_stop`, Elder
+    ch. 54 "Don't Let a Winning Trade Turn into a Loss") ever locked in for this position,
+    used as a floor on every `GET /api/portfolio/risk` call -- `None` until this position's
+    profit has crossed the breakeven trigger for the first time AND a same-ticker merge has
+    happened at least once (see below for why it's written only on a merge, not on every read).
+
+    Added after this task's (backend-trailing-profit-stop) own original `decisions` entry
+    explicitly rejected a persisted column in favor of a purely stateless recomputation from
+    `position.avg_cost_basis` and full price history -- that stateless approach turned out to
+    have the exact defect it was chosen to avoid: `POST /api/portfolio/positions`'s same-ticker
+    merge can raise `avg_cost_basis` (a quantity-weighted average) with no price movement at
+    all, which recomputes a HIGHER `entry_price`/`threshold_profit` on every subsequent call
+    and can silently invalidate closes that used to qualify -- making the "reported" ratchet
+    value decrease across a merge even though the stateless fold itself never revisits a given
+    call incorrectly. A live PR review (see docs/tasks/backend-trailing-profit-stop.json's
+    `review`/`decisions` for the reproduction and the revised rationale) caught this precise
+    bug, which is what this column exists to close: the persisted high-water mark can only
+    ever go up, so a subsequent `avg_cost_basis` change can lower the freshly *computed*
+    candidate but never the *reported* value, which is always at least the floor.
+
+    This column is written **only** by `POST /api/portfolio/positions`'s same-ticker-merge
+    branch (`app.portfolio.risk.trailing_stop_floor_before_merge`, called against the
+    position's OLD, pre-merge cost basis before it's overwritten) -- `GET /api/portfolio/risk`
+    only ever reads it as a floor. An earlier revision had `GET /api/portfolio/risk` write
+    `max(persisted, freshly_computed_candidate)` back on every call instead, making it this
+    codebase's first side-effecting-write GET route; a second PR review round correctly flagged
+    that as violating HTTP GET's safe/idempotent contract, so the write moved to the one path
+    that actually invalidates this floor (the merge itself) -- see
+    `ratchet_trailing_profit_stop`'s own docstring and this task's `decisions` entry for the
+    full round-2 history."""
 
 
 class AccountORM(Base):
@@ -188,6 +219,43 @@ class ExtendedDataCacheORM(Base):
     float_shares: Mapped[int | None] = mapped_column(Integer, nullable=True)
     insider_transactions_json: Mapped[str] = mapped_column(String)
     unavailable_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class IndicatorHistoryCacheORM(Base):
+    """Cached `GET /api/stocks/{ticker}/indicators` response body, keyed by
+    `(ticker, range)` (docs/tasks/backend-indicator-history-performance.json) --
+    analogous to `OHLCVCacheORM`/`ExtendedDataCacheORM` above but one layer up the
+    stack: those cache the raw provider data `app.data.cache.CachedDataProvider`
+    fetches, while this caches the fully-computed `IndicatorHistoryResponse` itself
+    (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`), so a same-day
+    repeat request for the same ticker/range skips the whole per-bar Triple Screen
+    recompute in `app.signals.engine.analyse_history` -- not just the OHLCV fetch --
+    entirely.
+
+    `response_json` stores the response's own `model_dump_json()` (SQLite has no
+    native JSON column type, same convention as `ExtendedDataCacheORM.
+    insider_transactions_json`) rather than being decomposed into per-field columns:
+    unlike `ExtendedDataCacheORM` (a fixed handful of scalar/list fields queried
+    individually elsewhere), this whole row is only ever read back as one opaque
+    `IndicatorHistoryResponse` blob (`IndicatorHistoryResponseCache.get`), never
+    queried into by an individual field, so a decomposed schema would add no query
+    benefit while coupling this table's shape to `IndicatorHistoryPoint`'s (which
+    already changes independently as new indicators are added).
+
+    `fetched_at` is compared against *calendar day*, not a rolling
+    `timedelta`-based TTL like `OHLCVCacheORM`'s `_CACHE_TTL` -- see this task's
+    `decisions` entry for why: the computed response is a pure function of
+    "daily/weekly OHLCV as of today," so it's valid for the rest of the calendar day
+    it was computed on regardless of what hour that was, and goes stale exactly at
+    the UTC calendar-day boundary rather than N hours after the specific fetch time.
+    """
+
+    __tablename__ = "indicator_history_cache"
+
+    ticker: Mapped[str] = mapped_column(String, primary_key=True)
+    range: Mapped[str] = mapped_column(String, primary_key=True)
+    response_json: Mapped[str] = mapped_column(String)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
 
 

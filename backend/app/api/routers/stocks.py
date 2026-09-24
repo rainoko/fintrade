@@ -1,10 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from typing import Literal, cast
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_provider
+from app.api.indicator_history_cache import IndicatorHistoryResponseCache
 from app.api.schemas import (
     AnalysisResponse,
     ConfidenceBreakdownItem,
@@ -32,6 +35,7 @@ from app.data.exceptions import (
     InsufficientHistoryError,
     TickerNotFoundError,
 )
+from app.db.session import get_db
 from app.indicators.accumulation_distribution import (
     accumulation_distribution as compute_accumulation_distribution,
 )
@@ -531,6 +535,7 @@ def get_indicator_history(
         "task's `decisions` entry.",
     ),
     provider: DataProvider = Depends(get_data_provider),
+    db: Session = Depends(get_db),
 ) -> IndicatorHistoryResponse:
     """Re-runs the Triple Screen signal engine (`app.signals.engine.analyse`, via
     `app.signals.engine.analyse_history`) once per daily bar in the requested range, each time
@@ -542,19 +547,44 @@ def get_indicator_history(
     itself recomputed per bar from only the weekly data available as of that bar's own
     calendar week -- not held fixed at today's value.
 
-    `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. Malformed
-    bars (NaN OHLC, see `app.signals.engine.drop_malformed_daily_bars`) are dropped from
-    `daily_ohlcv` up front, same as `/analysis`. The full (untrimmed) daily history is always
-    fetched first so every emitted point -- including ones near the start of the requested
-    `range` -- has correct indicator warm-up context; `range` only controls which already-
-    computed points are included in the response, not how much history feeds the computation.
-    The last entry in `points` always matches `GET /api/stocks/{ticker}/analysis`'s
-    `signal`/`confidence`/`indicators` for this same ticker at the same date, since it's
-    produced from the exact same (untruncated) inputs."""
+    The computed response is served from a same-calendar-day `(ticker, range)`-keyed cache
+    (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`,
+    docs/tasks/backend-indicator-history-performance.json) when a fresh entry exists -- the
+    whole per-bar recompute below, and both OHLCV fetches, are skipped entirely on a cache hit.
+    Only a successfully computed response is cached; an error response (404/422/503) never is.
+
+    `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. On a cache
+    miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since neither
+    depends on the other; if either fetch fails, that failure is what's raised, matching this
+    endpoint's previous sequential-fetch error priority (a failing daily fetch takes priority
+    over a failing weekly one, since sequentially the daily fetch would have failed first and
+    the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
+    `app.signals.engine.drop_malformed_daily_bars`) are dropped from `daily_ohlcv` up front,
+    same as `/analysis`. The full (untrimmed) daily history is always fetched first so every
+    emitted point -- including ones near the start of the requested `range` -- has correct
+    indicator warm-up context; `range` only controls which already-computed points are included
+    in the response, not how much history feeds the computation. The last entry in `points`
+    matches `GET /api/stocks/{ticker}/analysis`'s `signal`/`confidence`/`indicators` for this
+    same ticker at the same date whenever both are computed fresh (same untruncated inputs) --
+    but a same-calendar-day cache hit here can still return a signal computed from an
+    earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
+    picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
+    `decisions` entry and its `-followups` task for the accepted tradeoff."""
     ticker = ticker.upper()
+    response_cache = IndicatorHistoryResponseCache(db)
+    cached_response = response_cache.get(ticker, range)
+    if cached_response is not None:
+        return cached_response
+
     try:
-        daily_ohlcv = provider.get_daily_ohlcv(ticker)
-        weekly_ohlcv = provider.get_weekly_ohlcv(ticker)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            daily_future = executor.submit(provider.get_daily_ohlcv, ticker)
+            weekly_future = executor.submit(provider.get_weekly_ohlcv, ticker)
+            # Resolved in this order (daily first, then weekly) so a daily-fetch failure
+            # always takes priority over a weekly-fetch failure, matching the previous
+            # sequential implementation's error priority -- see this function's own docstring.
+            daily_ohlcv = daily_future.result()
+            weekly_ohlcv = weekly_future.result()
     except TickerNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientHistoryError as exc:
@@ -620,4 +650,6 @@ def get_indicator_history(
         )
         for offset, (bar_date, result) in enumerate(history)
     ]
-    return IndicatorHistoryResponse(ticker=ticker, points=points)
+    response = IndicatorHistoryResponse(ticker=ticker, points=points)
+    response_cache.set(ticker, range, response)
+    return response

@@ -47,7 +47,6 @@ import pytest
 
 from app.indicators.stochastic import stochastic_oscillator
 
-
 HIGH = pd.Series([10, 11, 12, 11, 10, 9, 10, 11, 12, 13], dtype=float)
 LOW = pd.Series([8, 9, 10, 9, 8, 7, 8, 9, 10, 11], dtype=float)
 CLOSE = pd.Series([9, 10, 11, 10, 9, 8, 9, 10, 11, 12], dtype=float)

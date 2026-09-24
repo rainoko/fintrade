@@ -1,0 +1,66 @@
+{
+  "id": "backend-ibkr-status-endpoint-followups-followups",
+  "title": "Non-blocking follow-up from PR #234 review (backend-ibkr-status-endpoint-followups)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-status-endpoint-followups"],
+  "references": [
+    "docs/tasks/backend-ibkr-status-endpoint-followups.json",
+    "https://github.com/rainoko/fintrade/pull/234"
+  ],
+  "description": "Non-blocking finding from the pr-reviewer pass on PR #234 (fix IBKRStatusResponse.detail's schema description for the 'disabled' state), tracked here per CLAUDE.md's convention so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/tasks/backend-ibkr-status-endpoint-followups.json's `decisions` entry has timestamp `2026-09-21T00:00:00Z` -- a round-midnight placeholder rather than a captured real time, reproducing the exact defect pattern that PR #233 (backend-indicator-history-performance-followups-followups) already fixed once in a sibling task. The commit that actually recorded this decision (a9fb6cb) has an authored/committer timestamp of `2026-09-21T20:24:02Z`, ~20 hours after the placeholder. Correct the timestamp (deriving it from git history the way PR #233 did) so the array stays chronologically meaningful.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T20:37:49Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the placeholder timestamp `2026-09-21T00:00:00Z` on docs/tasks/done/backend-ibkr-status-endpoint-followups.json's `decisions` entry to `2026-09-21T20:24:02Z`, derived from `git log -1 --format='%H %aI %cI' a9fb6cb` (both authored and committer timestamps agree), which is the commit that introduced this decision text (confirmed via `git show --stat a9fb6cb`, which touches exactly docs/tasks/backend-ibkr-status-endpoint-followups.json among the task-board files, along with the schema/openapi/API.md fix it accompanied).",
+      "rationale": "Followed the same approach PR #233 (backend-indicator-history-performance-followups-followups) already established for this exact defect pattern: derive the real timestamp from the git commit that actually recorded the decision, rather than guessing or substituting the current wall-clock time (which would misrepresent when the decision was actually made). Unlike the PR #233 case, this repo's history was not squashed between the decision-recording commit and now, so the commit's own timestamp is directly available with no need to fall back to a squash-merge commit's timestamp."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-status-endpoint-followups-followups",
+    "pr_number": 235,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/235",
+    "pushed_at": "2026-09-21T20:38:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-21T20:40:41Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/235",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified commit a9fb6cb's authored and committer timestamps both equal 2026-09-21T20:24:02Z (`git log -1 --format='%H %aI %cI' a9fb6cb`), matching the PR's claim exactly, and confirmed via `git show --stat`/`git show` that this commit is genuinely the one that introduced the decisions entry (added the whole decisions array, including the placeholder timestamp, to docs/tasks/backend-ibkr-status-endpoint-followups.json) alongside the schema/openapi/API.md fix it accompanied.",
+        "file": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "New timestamp sorts sensibly against context: decision (20:24:02) < review.reviewed_at (20:29:07) < pr_decision.confirmed_at (20:33:28) on the target task, and this task's own new decision (20:37:49) < git.pushed_at (20:38:48). The out-of-order placeholder defect is resolved.",
+        "file": "docs/tasks/done/backend-ibkr-status-endpoint-followups.json",
+        "line": 21
+      },
+      {
+        "summary": "Confirmed via `git diff main...HEAD` that only the three intended task-board JSON files are touched (docs/tasks/backend-ibkr-status-endpoint-followups-followups.json, docs/tasks/done/backend-ibkr-status-endpoint-followups.json, docs/tasks/index.json) -- no application code, schema, or OpenAPI snapshot changed, so those review steps don't apply.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Re-ran the full backend suite: 1129 passed, 99.95% coverage, well above the 90% gate -- unaffected, as expected for a JSON-only change. Also ran scripts/validate_tasks.py: 252 task files validated, no violations. Static analysis (ruff/mypy/eslint/tsc) and the browser walkthrough/e2e suite are not applicable -- no source, schema, or UI surface touched.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Pure task-board bookkeeping fix, no application code. Area is backend/api (not backend/signals or backend/portfolio, skill is null), so verify-elder-signal is not applicable; no new module/dependency/layer, so architecture-review is not applicable; no frontend component touched, so the 7a placement check is not applicable. No blocking findings; no new non-blocking findings to track as a further follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-21T20:43:08Z",
+    "verdict": "merge",
+    "notes": "Independently confirmed: `git log -1 --format='%H %aI %cI' a9fb6cb` shows both authored and committer timestamps equal 2026-09-21T20:24:02Z, matching the task's claim, and `git show a9fb6cb -- docs/tasks/backend-ibkr-status-endpoint-followups.json` shows that commit genuinely introducing the decisions array with the placeholder 2026-09-21T00:00:00Z timestamp. `git diff origin/main...HEAD` touches only the three claimed task-board JSON files, no application code. Re-ran backend suite myself: 1129 passed, 99.95% coverage, matching pr-reviewer's reported numbers exactly."
+  }
+}

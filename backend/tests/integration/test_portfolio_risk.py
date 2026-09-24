@@ -18,6 +18,7 @@ degrade-gracefully exclusion of a position whose price/history couldn't be fetch
 """
 
 from datetime import UTC, date, datetime, timedelta
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -30,12 +31,12 @@ from app.db.models import AccountORM, ClosedTradeORM, PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import ExitReason, Position
-from app.portfolio.risk import protective_stop, stop_from_price_action
+from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop, stop_from_price_action
 from app.signals.engine import analyse
 
 
 def _today() -> date:
-    """Matches `app.api.routers.portfolio._today()` exactly (UTC-derived, not local
+    """Matches `app.time_utils.today()` exactly (UTC-derived, not local
     `date.today()`) -- see the backend-trade-history-table-followups task's `decisions`
     entry for why: a fixture built from local `date.today()` would intermittently disagree
     with the UTC-based production value outside a UTC-local-timezone runner (and, near a
@@ -606,6 +607,200 @@ class TestGetRisk:
         assert response.status_code == 200
         [position] = response.json()["positions"]
         assert "stop_hit" in position["exit_flags"]
+
+
+class TestTrailingStop:
+    """backend-trailing-profit-stop: `RiskPosition.trailing_stop` (Elder ch. 54 "Don't Let a
+    Winning Trade Turn into a Loss") wired alongside the existing `protective_stop` field."""
+
+    def test_field_present_and_matches_the_pure_computation(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_UPTREND_CLOSES, _UPTREND_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        expected = ratchet_trailing_profit_stop(
+            Position(
+                id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0,
+                entry_date=date(2026, 1, 1), current_price=_UPTREND_CLOSES[-1],
+            ),
+            daily,
+            position["protective_stop"],
+        )
+        assert position["trailing_stop"] == pytest.approx(expected)
+
+    def test_never_decreases_across_successive_requests_even_as_price_pulls_back(
+        self, db_session: Session
+    ) -> None:
+        """The book's companion rule, "Move Your Stop Only in the Direction of Your Trade":
+        simulates two successive polls of the same endpoint -- the first while a rally is
+        still climbing (profit well past the trigger), the second after a pullback that would,
+        computed fresh from that day alone, suggest a lower trailing_stop. The second
+        response's trailing_stop must not be lower than the first's."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+
+        rally_closes = [100.0 + i for i in range(31)]  # ends at +30% profit
+        rally_lows = [c - 1.0 for c in rally_closes]
+        rally_daily = _daily_frame(rally_closes, rally_lows)
+        rally_response = _get_risk(
+            db_session, _StubProvider(daily={"AAPL": rally_daily}, weekly={"AAPL": weekly})
+        )
+        assert rally_response.status_code == 200
+        [rally_position] = rally_response.json()["positions"]
+        rally_trailing_stop = rally_position["trailing_stop"]
+        assert rally_trailing_stop > 100.0  # comfortably past breakeven
+
+        pullback_closes = rally_closes + [115.0]  # pulls back from +130 to +115 (+15% profit)
+        pullback_lows = [c - 1.0 for c in pullback_closes]
+        pullback_daily = _daily_frame(pullback_closes, pullback_lows)
+        pullback_response = _get_risk(
+            db_session, _StubProvider(daily={"AAPL": pullback_daily}, weekly={"AAPL": weekly})
+        )
+        assert pullback_response.status_code == 200
+        [pullback_position] = pullback_response.json()["positions"]
+
+        assert pullback_position["trailing_stop"] >= rally_trailing_stop
+
+    def test_never_decreases_across_a_same_ticker_merge_that_raises_avg_cost_basis(
+        self, db_session: Session
+    ) -> None:
+        """PR #240 review repro (backend-trailing-profit-stop): `POST /api/portfolio/positions`
+        's same-ticker merge can raise `avg_cost_basis` (a quantity-weighted average) with NO
+        further price movement at all -- before the persisted-high-water-mark fix, this
+        invalidated the ratchet's own stateless recompute (the merge raises `entry_price`/
+        `threshold_profit`, un-qualifying closes that used to cross the trigger) and made
+        `trailing_stop` DECREASE across successive `GET /api/portfolio/risk` calls, directly
+        violating this task's hard-ratchet contract. Reproduces the reviewer's exact numbers:
+        entered at $100, rallies to $115 (ratchets to ~$101.667), then merges in more shares at
+        $200/share (avg_cost_basis -> $150) with the price unchanged."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+
+        # Ends at 115.0 -- +15% profit, comfortably past the 10% breakeven trigger. One deep
+        # downside wick (a low far below its day's close) is mixed in deliberately, dragging
+        # `protective_stop` (the SafeZone stop, i.e. `safezone_stop` in
+        # `ratchet_trailing_profit_stop`'s own signature) well BELOW the $101.667 trailing_stop
+        # the rally itself ratchets to -- so the merge step below genuinely exercises the
+        # persisted-high-water-mark floor overriding a lower fresh recompute, rather than the
+        # floor being trivially satisfied by an incidentally-higher live SafeZone stop.
+        rally_closes = [100.0 + 15.0 * i / 14.0 for i in range(15)]
+        rally_lows = [c - 1.0 for c in rally_closes]
+        rally_lows[10] = 85.0
+        rally_daily = _daily_frame(rally_closes, rally_lows)
+        provider = _StubProvider(daily={"AAPL": rally_daily}, weekly={"AAPL": weekly})
+
+        rally_response = _get_risk(db_session, provider)
+        assert rally_response.status_code == 200
+        [rally_position] = rally_response.json()["positions"]
+        rally_trailing_stop = rally_position["trailing_stop"]
+        # 100 + 1/3 * (15 - 10) == 101.666...
+        assert rally_trailing_stop == pytest.approx(101.666667, abs=1e-4)
+
+        # Merge in 1 more share at $200/share with the price frame unchanged -- weighted average
+        # (1*100 + 1*200) / 2 == 150.0, exactly the reviewer's repro.
+        merge_client = _make_client(db_session, provider)
+        try:
+            merge_response = merge_client.post(
+                "/api/portfolio/positions",
+                json={
+                    "ticker": "AAPL",
+                    "quantity": 1,
+                    "avg_cost_basis": 200.0,
+                    "entry_date": "2026-01-01",
+                },
+            )
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+        assert merge_response.status_code == 201
+        assert merge_response.json()["avg_cost_basis"] == pytest.approx(150.0)
+
+        post_merge_response = _get_risk(db_session, provider)
+        assert post_merge_response.status_code == 200
+        [post_merge_position] = post_merge_response.json()["positions"]
+
+        # The bug (pre-fix): recomputed fresh from avg_cost_basis=150 against an unchanged
+        # $115 price, this position never crosses the (now higher) 10% trigger at all, so a
+        # purely stateless recompute alone collapses back to protective_stop (~$80.87, well
+        # below the $101.667 already reported during the rally -- see this deep-wick fixture's
+        # comment above). The fix (a persisted high-water-mark floor) must prevent that
+        # regression: the reported value must not drop.
+        assert post_merge_position["trailing_stop"] >= rally_trailing_stop
+        assert post_merge_position["trailing_stop"] == pytest.approx(rally_trailing_stop)
+
+    def test_get_risk_never_writes_to_the_database(self, db_session: Session) -> None:
+        """Round-2 fix (PR #240): `GET /api/portfolio/risk` must be a pure read again -- the
+        `trailing_stop_high_water_mark` floor is now captured only at its one write path
+        (`POST /api/portfolio/positions`'s same-ticker-merge branch), never advanced/persisted
+        by this GET route, restoring HTTP GET's safe/idempotent contract (including on
+        ordinary TanStack Query window-refocus refetches). Proven two ways: `Session.commit`
+        is never called during the request, and the ORM row's own
+        `trailing_stop_high_water_mark` is still `None` afterwards even though this fixture's
+        `trailing_stop` genuinely crosses the breakeven trigger in the response itself."""
+        db_session.add(AccountORM(id=1, cash=100_000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=1.0, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        rally_closes = [100.0 + i for i in range(31)]  # ends at +30% profit, well past the trigger
+        rally_lows = [c - 1.0 for c in rally_closes]
+        daily = _daily_frame(rally_closes, rally_lows)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        with patch.object(db_session, "commit", wraps=db_session.commit) as mock_commit:
+            response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["trailing_stop"] > 100.0  # the ratchet DID fire (comfortably past breakeven)
+        mock_commit.assert_not_called()
+
+        refreshed = db_session.get(PositionORM, "pos_1")
+        assert refreshed.trailing_stop_high_water_mark is None
+
+    def test_below_trigger_matches_protective_stop(self, db_session: Session) -> None:
+        """A position whose profit has never crossed the breakeven trigger reports the same
+        trailing_stop as protective_stop -- there's no "winning trade" yet for ch. 54's
+        mechanic to protect."""
+        # avg_cost_basis=108 vs. _QUIET_CLOSES' final close of 110 -> ~1.85% unrealized profit,
+        # comfortably under the 10% breakeven trigger for every close in this fixture's history.
+        db_session.add(AccountORM(id=1, cash=6_700.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=30.0, avg_cost_basis=108.0, entry_date=date(2026, 1, 1))
+        )
+        db_session.commit()
+
+        daily = _daily_frame(_QUIET_CLOSES, _QUIET_LOWS)
+        weekly = _weekly_frame(_FLAT_WEEKLY_CLOSES)
+        provider = _StubProvider(daily={"AAPL": daily}, weekly={"AAPL": weekly})
+
+        response = _get_risk(db_session, provider)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["trailing_stop"] == pytest.approx(position["protective_stop"])
 
 
 class TestProfitTarget:

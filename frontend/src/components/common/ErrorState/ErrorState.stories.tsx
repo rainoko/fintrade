@@ -34,6 +34,16 @@ export const ProviderUnavailable503: Story = {
   },
 }
 
+export const RateLimited429: Story = {
+  args: {
+    error: new ApiError(
+      429,
+      'Scanner run rate limit (1 request/second) exceeded -- retry shortly.',
+      1,
+    ),
+  },
+}
+
 export const NetworkFailure: Story = {
   args: {
     error: new ApiError(
