@@ -318,9 +318,12 @@ def ratchet_trailing_profit_stop(
     pre-filter it themselves as a docstring-enforced convention (though `get_risk`/`add_position`
     still do, since that same filtered frame is also needed for other computations of theirs);
     see this task's (backend-trailing-profit-stop-followups) `decisions` entry for why this
-    became an unconditional internal guarantee rather than a caller contract. ``position
-    .entry_date`` rows with a NaN close (whether original or a byproduct of this filtering) are
-    skipped (can't inform the ratchet either way). If no row in ``daily_ohlcv`` is on or after
+    became an unconditional internal guarantee rather than a caller contract. In practice no row
+    can reach the fold below with a NaN close anymore -- the unconditional filtering just
+    described already strips those out -- so the next sentence is defense-in-depth documentation
+    rather than a live code path: a ``position.entry_date`` row with a NaN close (whether
+    original or a byproduct of this filtering, were it ever removed) would be skipped (can't
+    inform the ratchet either way). If no row in ``daily_ohlcv`` is on or after
     ``position.entry_date`` at all (a malformed/incomplete history that doesn't reach back to
     entry -- see `app.portfolio.grading.grade_trade_from_filtered_history`'s identical concern),
     the whole frame is used instead of raising, since a stop somewhat too conservative (ignoring

@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #303's review (backend-trailing-profit-stop-followups-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-trailing-profit-stop-followups-followups"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop-followups-followups.json",
@@ -14,7 +14,7 @@
   "checklist": [
     {
       "step": "PR #303 fixed the 'dead NaN-close' reasoning in the inline comment inside `ratchet_trailing_profit_stop`'s vectorized fold (backend/app/portfolio/risk.py, around the `.cummax().ffill()` fold), but left an near-duplicate stale claim in the same function's docstring a few lines earlier (around line 321-323: \"``position.entry_date`` rows with a NaN close (whether original or a byproduct of this filtering) are skipped (can't inform the ratchet either way)\"), which still frames NaN-close-row skipping as a live case rather than noting -- like the now-updated inline comment does -- that the function's own unconditional `drop_malformed_daily_bars` call makes this unreachable in practice (defense-in-depth only). A future reader consulting only the docstring (without noticing the inline comment's updated framing) could reintroduce NaN-close handling elsewhere under the mistaken impression it's still a live, load-bearing path here, or file a duplicate 'stale comment' finding against the same function since the fix was only applied in one of the two places describing the same behavior. Harmless (no behavior change either way), but worth reconciling next time this function's docstring/comments are touched.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],
