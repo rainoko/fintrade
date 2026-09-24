@@ -21,6 +21,7 @@ backend/
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
       ibkr_provider.py # optional IBKR Client Portal Web API provider (hourly bars + scanner) -- not a DataProvider, see §8
       cftc_cot_provider.py # CFTC Commitments of Traders (futures positioning) -- not a DataProvider, see §9
+      day_trader_intraday.py # IBKR intraday bars for the active day-trader TimeframeTriple's MINUTE-unit leg(s) -- see §10
     indicators/    # pure functions, one indicator per module
       ema.py
       macd.py
@@ -40,7 +41,7 @@ backend/
       support_resistance.py  # horizontal S/R zone detection + false-breakout flagging
       divergence.py           # MACD-H/Stochastic/RSI divergence detection (Analyse.md §4 row 11)
       kangaroo_tail.py         # Kangaroo Tail ("fingers") reversal-pattern detection (Analyse.md §4 row 13)
-      timeframe.py             # generic long-term/intermediate/short-term TimeframeTriple model (ch. 39, docs/tasks/backend-day-trader-timeframe-mode.json) -- foundational domain model only, not yet read by triple_screen.py/engine.py (see §11)
+      timeframe.py             # generic long-term/intermediate/short-term TimeframeTriple model (ch. 39, docs/tasks/backend-day-trader-timeframe-mode.json) -- foundational domain model only, not yet read by triple_screen.py/engine.py (see §10)
       insider_clusters.py      # insider-transaction buy/sell classification + cluster detection (Elder ch. 37 p. 147)
     portfolio/
       models.py        # Position, Account (Pydantic/SQLAlchemy)
@@ -48,7 +49,7 @@ backend/
       risk.py           # 2% rule, 6% rule, protective stop calc
       exits.py           # existing-position exit rules (Analyse.md §7)
       profit_target.py    # suggested profit target + reward:risk ratio; signal-agnostic itself, gated BUY-only by one caller (fresh-signal analysis) but computed unconditionally by the other (an already-open position) (Analyse.md §7)
-    trading_mode.py    # global trading-mode settings persistence (docs/tasks/backend-day-trader-timeframe-mode.json §11) -- top-level, parallel to config.py, not nested under portfolio/ or signals/
+    trading_mode.py    # global trading-mode settings persistence (docs/tasks/backend-day-trader-timeframe-mode.json §10) -- top-level, parallel to config.py, not nested under portfolio/ or signals/
     db/
       models.py         # SQLAlchemy ORM models
       session.py
@@ -257,14 +258,32 @@ documents what exists **today**, not the full eventual feature.
   setting above. `PUT` rejects (422) a `day_trader` mode request with no triple, or a triple
   violating the hard ordering rule; a factor-of-five-guideline violation is echoed back as a
   non-blocking `factor_of_five_warnings` list on the response instead.
+- `app.data.day_trader_intraday` (`docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json`)
+  -- fetches IBKR intraday bars for whichever `MINUTE`-unit leg(s) of the active day-trader
+  triple need them (`short_term` always in the common case, `intermediate` too if it's also
+  configured in minutes; a `DAY`/`WEEK`-unit leg needs no IBKR call at all, since it's already
+  served by the existing yfinance/Stooq daily/weekly pipeline). Reconciles IBKR's fixed,
+  non-composable `bar` value set (`IBKRProvider._VALID_BAR_INTERVALS` -- §8 above) against the
+  triple's fully-configurable minute counts by fetching the *largest IBKR-supported minute/hour
+  bar size that evenly divides the requested interval* and resampling client-side into the
+  exact requested width (same open/high/low/close/volume aggregation as
+  `StooqProvider._resample_weekly`'s own daily-to-weekly precedent, generalized to an arbitrary
+  minute count) -- e.g. a `"25m"` leg fetches IBKR's native `"5min"` bars and resamples 5:1,
+  since `"25min"` isn't itself one of IBKR's valid `bar` values. Degrades every applicable leg
+  to a typed, never-raised state (`available`/`disabled`/`gateway_unreachable`/
+  `not_authenticated`/`unavailable`) exactly like every other IBKR-dependent feature in this
+  app (§8's `GatewayStatus`, `app.api.routers.ibkr`'s existing pattern) -- `provider=None`
+  (`Settings.ibkr_enabled=False`) means day-trader mode being *configured* never itself
+  requires IBKR to be reachable. See that task's `decisions` entry for the full reconciliation
+  writeup and the rejected alternative (restricting the triple's IBKR-backed legs to only
+  IBKR-supported values).
 
 **Not yet landed** (tracked as dependent follow-up tasks, `depends_on` this task):
 
-- IBKR intraday data fetching for the day-trader triple's faster leg(s) -- `Settings.mode`
-  currently changes nothing about what data any endpoint actually fetches or computes.
 - Generic Screen 1/2/3 (Tide/Wave/Trigger) evaluation in `app.signals.triple_screen`/
   `app.signals.engine` over whichever triple is active -- both still unconditionally use the
-  hard-coded weekly/daily scheme regardless of `TradingMode`.
+  hard-coded weekly/daily scheme regardless of `TradingMode`; `app.data.day_trader_intraday`
+  above fetches the data but nothing yet consumes it.
 - Any API-schema/frontend surface for the generically-computed signal (item 6/7 of the task's
   original checklist).
 
