@@ -3,7 +3,7 @@
   "title": "Day-trader mode: genericize the portfolio risk/exit/profit-target layer's hard-coded weekly/daily split",
   "area": "backend/portfolio",
   "skill": "verify-elder-signal",
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-day-trader-timeframe-mode",
     "backend-day-trader-timeframe-mode-signal-engine"
@@ -43,5 +43,11 @@
       "rationale": "CLAUDE.md's task-worker instructions say to check off a checklist item 'only once you've actually verified them, same bar task-qa-reviewer holds' -- task-worker verifying its own work is real verification for an ordinary implementation checklist item, but this specific item names a named agent (`elder-signal-reviewer`) as part of the PR review pipeline (CLAUDE.md's Agents section: 'read-only audit of trading logic ... loads the verify-elder-signal skill'), the same way `backend-day-trader-timeframe-mode-signal-engine`'s own PR #312 review history shows this pass actually happening during `pr-reviewer`'s dispatch, not during `task-worker`'s own implementation turn. Marking it done here would be indistinguishable, to a later reader of this task's checklist, from that independent agent pass having already occurred -- exactly the kind of self-graded checklist item CLAUDE.md's review pipeline is designed to avoid. The substantive methodology work itself (Analyse.md §7 grounding, the two genuine judgment calls, mutation-tested discriminating tests) is done regardless of who formally checks this box; leaving it open just accurately reflects that the formal independent pass is still pending."
     }
   ],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-portfolio-risk",
+    "pr_number": 317,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/317",
+    "pushed_at": "2026-09-24T23:16:10Z"
+  },
   "questions": []
 }
