@@ -2,9 +2,25 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { HistoryResponse } from '../../../api/stocks'
 import { server } from '../../../../tests/mocks/server'
 import { renderWithProviders } from '../../../../tests/renderWithProviders'
 import StockCharts from './StockCharts'
+
+// `GET /api/stocks/{ticker}/history` legitimately returns null
+// open/high/low/close for today's still-forming (not yet closed) trading
+// day (yfinance NaN OHLC, serialized as JSON null) even though the
+// generated `HistoryResponse['bars']` type says `number` -- same
+// real-world shape `PriceChart.test.tsx`'s own `formingBar` fixture
+// constructs, via a single cast, for the exact same reason.
+const formingBar = {
+  date: '2026-09-03',
+  open: null,
+  high: null,
+  low: null,
+  close: null,
+  volume: 12345,
+} as unknown as HistoryResponse['bars'][number]
 
 // jsdom mock, same approach as PriceChart.test.tsx/OscillatorChart.test.tsx
 // — this file cares about the range/interval wiring *between* PriceChart
@@ -231,6 +247,76 @@ describe('StockCharts', () => {
     // PriceChart is the sole error surface for this shared failure --
     // OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart render
     // nothing (no own alert, no own loading/empty state) for it.
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('trend-strength-chart-canvas')).not.toBeInTheDocument()
+  })
+
+  // Compound-failure regression (frontend-position-risk-columns-followups-
+  // followups-followups-followups, checklist item 1): PriceChart's own
+  // indicators-ErrorState used to be gated behind `showOverlaySection`
+  // (`historyQuery.isSuccess && hasBars && overlayEnabled`), a condition
+  // about *price history*, not about whether `/indicators` itself failed.
+  // OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart all suppress
+  // their own indicators-ErrorState (via `errorSurfacedBySibling`, passed by
+  // StockCharts.tsx above), relying on PriceChart to be the shared
+  // failure's sole surface -- so when `/history` ALSO fails (or succeeds
+  // with zero usable bars), `showOverlaySection` was false and a genuinely
+  // failed `/indicators` never rendered anywhere at all. PriceChart.tsx now
+  // gates that ErrorState on `overlayEnabled` alone, independent of
+  // `showOverlaySection`, fixing this.
+  it('still surfaces a genuine GET /api/stocks/:ticker/indicators failure when GET /api/stocks/:ticker/history ALSO fails', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/history', () =>
+        HttpResponse.json(
+          { detail: 'Market data provider is currently unavailable. Try again shortly.' },
+          { status: 503 },
+        ),
+      ),
+      http.get('/api/stocks/:ticker/indicators', () =>
+        HttpResponse.json({ detail: 'Unknown ticker: AAPL' }, { status: 404 }),
+      ),
+    )
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    const alerts = await screen.findAllByRole('alert')
+    // One alert for the /history failure, one for the /indicators failure
+    // -- both from PriceChart (historyQuery.isError and, now un-gated from
+    // showOverlaySection, indicatorsQuery.isError). The three sibling
+    // charts still render nothing of their own (errorSurfacedBySibling).
+    expect(alerts).toHaveLength(2)
+    expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Not found')).toBeInTheDocument()
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('trend-strength-chart-canvas')).not.toBeInTheDocument()
+  })
+
+  it('still surfaces a genuine GET /api/stocks/:ticker/indicators failure when GET /api/stocks/:ticker/history succeeds with zero usable bars', async () => {
+    server.use(
+      http.get('/api/stocks/:ticker/history', ({ request }) => {
+        const url = new URL(request.url)
+        const interval = (url.searchParams.get('interval') ?? 'daily') as
+          'daily' | 'weekly'
+        return HttpResponse.json({ ticker: 'AAPL', interval, bars: [formingBar] })
+      }),
+      http.get('/api/stocks/:ticker/indicators', () =>
+        HttpResponse.json({ detail: 'Unknown ticker: AAPL' }, { status: 404 }),
+      ),
+    )
+
+    renderWithProviders(<StockCharts ticker="AAPL" />)
+
+    // The price chart itself degrades to its EmptyState (no usable bars)...
+    await waitFor(() =>
+      expect(screen.getByText('No price history available for AAPL.')).toBeInTheDocument(),
+    )
+    // ...but the /indicators failure is still visible, even though
+    // showOverlaySection (which requires hasBars) is false.
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(screen.getByText('Not found')).toBeInTheDocument()
     expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
     expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
     expect(screen.queryByTestId('trend-strength-chart-canvas')).not.toBeInTheDocument()
