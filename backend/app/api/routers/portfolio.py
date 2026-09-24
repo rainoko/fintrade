@@ -223,7 +223,12 @@ _EXIT_REASON_VALUES: frozenset[str] = frozenset(get_args(ExitReasonOut))
 
 # Distinct out-of-taxonomy exit_reason values already warned about in this process's lifetime
 # (backend-closed-trades-legacy-exit-reason-500-followups) -- see _normalize_exit_reason's
-# docstring for why this is de-duplicated rather than logged on every request.
+# docstring for why this is de-duplicated rather than logged on every request. No size cap:
+# it grows by one entry per distinct out-of-taxonomy value ever seen, for the process's whole
+# lifetime. Accepted as-is (not a defensive cap) because the write path enum-validates
+# exit_reason (see `exit_reason: ExitReason = Query(...)` below), so only pre-existing
+# legacy/hand-inserted rows can ever land here -- not something ordinary API usage or repeated
+# requests can grow unboundedly. See backend-closed-trades-legacy-exit-reason-500-followups-followups.
 _warned_exit_reason_values: set[str] = set()
 
 
@@ -242,6 +247,11 @@ def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
     backend-closed-trades-legacy-exit-reason-500-followups task's `decisions` entry."""
     if raw_exit_reason in _EXIT_REASON_VALUES:
         return cast(ExitReasonOut, raw_exit_reason)
+    # Best-effort, not atomic: this check-then-act on a module-level set can race under
+    # concurrent requests (get_closed_trades is a sync `def` route, run in FastAPI/Starlette's
+    # thread-pool executor) and occasionally emit a duplicate warning for the same value --
+    # an accepted, known tradeoff, not a regression. See
+    # backend-closed-trades-legacy-exit-reason-500-followups-followups's decisions entry.
     if raw_exit_reason not in _warned_exit_reason_values:
         _warned_exit_reason_values.add(raw_exit_reason)
         logger.warning(
