@@ -52,6 +52,28 @@ class ExtendedData:
     unavailable_reason: UnavailableReason | None = None
 
 
+def resample_ohlcv(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Resamples an OHLCV-shaped frame (columns: open, high, low, close, volume; indexed by a
+    `DatetimeIndex`) into wider bars at `rule` (any pandas resample offset alias, e.g. `"W-FRI"`
+    for calendar weeks or `"25min"` for a 25-minute bar) using the one aggregation rule this
+    kind of series always needs: open=first, high=max, low=min, close=last, volume=sum, with an
+    incomplete trailing/leading bin (no bars fell in it at all, so every OHLC column is NaN)
+    dropped rather than left as a row of nulls.
+
+    Shared by `StooqProvider._resample_weekly` (daily -> weekly) and
+    `app.data.day_trader_intraday._resample_to_target` (IBKR-native minutes -> the requested
+    `TimeframeInterval` width) -- the two were near-identical copies of this exact aggregation
+    differing only in the resample rule string, until this task's own follow-up extracted the
+    shared logic here (docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json).
+    """
+    resampled = frame.resample(rule).agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    )
+    resampled = resampled.dropna(subset=["open", "high", "low", "close"])
+    resampled.index.name = "date"
+    return resampled
+
+
 class DataProvider(Protocol):
     """Common interface for market data sources (docs/architecture/Backend.md §2).
 

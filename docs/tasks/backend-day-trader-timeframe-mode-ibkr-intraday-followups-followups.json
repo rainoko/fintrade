@@ -1,0 +1,29 @@
+{
+  "id": "backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups",
+  "title": "Non-blocking findings from PR #314's review (backend-day-trader-timeframe-mode-ibkr-intraday-followups)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-ibkr-intraday-followups"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json",
+    "https://github.com/rainoko/fintrade/pull/314"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #314 (backend-day-trader-timeframe-mode-ibkr-intraday-followups), which accepted the PR. All three items below are quality/robustness observations, not correctness bugs -- none was reproducible as an actual test failure or runtime defect during review.",
+  "checklist": [
+    {
+      "step": "`tests/unit/data/test_day_trader_intraday.py`'s `test_two_of_three_minute_unit_legs_are_fetched` (asserts `provider.get_hourly_bars.call_count == 2`) and `test_all_three_legs_fetched_for_a_fully_intraday_triple` (asserts `== 3`) now exercise `get_intraday_bars_for_triple`'s genuinely concurrent (`ThreadPoolExecutor`) leg fetching, but still assert on `unittest.mock.Mock.call_count`, whose increment is a non-atomic read-modify-write that can lose updates under real concurrent invocation from separate OS threads (confirmed empirically during this PR's review: 0/20,000 trials mismatched at this test's exact 2-3-calls-per-run scale, but the same harness reliably undercounted `call_count` at high call volume in the same run, while `len(call_args_list)` stayed exact in every trial at every volume tested). The one other test whose assertion became order-dependent under concurrency (`test_non_composable_interval_resamples_from_finest_evenly_dividing_bar_size`) was already updated in this PR to check `call_args_list` membership instead of position -- these two `call_count` assertions should likewise be made robust against the same underlying non-atomicity, e.g. by asserting on `len(provider.get_hourly_bars.call_args_list)` instead of `.call_count`, even though no actual flake has been observed at this test's call volume.",
+      "done": false
+    },
+    {
+      "step": "`get_intraday_bars_for_triple` (`backend/app/data/day_trader_intraday.py`, the `with ThreadPoolExecutor(...) as executor: futures = {...}; results = {k: f.result() for k, f in futures.items()}` block) duplicates the same fan-out/fan-in shape already used by `backend/app/api/routers/stocks.py`'s indicator-history endpoint (`with ThreadPoolExecutor(max_workers=2) as executor: daily_future = executor.submit(...); weekly_future = executor.submit(...)`) -- both hand-roll \"submit N independent synchronous calls to a small thread pool, then collect every result\" with no shared helper, the same class of duplication this very PR's `resample_ohlcv` extraction fixed for OHLCV resampling. Worth considering a small shared helper (e.g. in a `app.concurrency`-style module) if a third call site appears, though note the two current sites aren't a byte-for-byte match the way the two resample call sites were -- `stocks.py`'s version deliberately resolves futures in a fixed order to preserve a specific error-priority contract (daily-fetch failure takes priority over weekly-fetch failure), which `day_trader_intraday.py`'s version has no equivalent requirement for, so any extraction needs to accommodate that ordering-vs-no-ordering difference rather than assuming the two are identical.",
+      "done": false
+    },
+    {
+      "step": "The newly-extracted `app.data.base.resample_ohlcv(frame, rule)` helper has no direct unit test of its own -- it's exercised only indirectly via `StooqProvider._resample_weekly`'s and `day_trader_intraday._resample_to_target`'s existing tests (both of which pass unchanged, confirming behavior-preservation for those two specific rule strings, but not locking down `resample_ohlcv`'s own contract independent of either caller). Worth adding a small direct test module (e.g. `tests/unit/data/test_base.py::TestResampleOhlcv`) covering the aggregation rule and the incomplete-bin-dropped behavior directly, so a future third caller (or a future edit to either existing caller) can't silently break the shared helper's contract without a test catching it at the source.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

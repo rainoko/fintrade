@@ -9,9 +9,9 @@ for the full writeup): IBKR's `/iserver/marketdata/history` endpoint
 (`app.data.ibkr_provider.IBKRProvider.get_hourly_bars`) only accepts a fixed,
 non-composable set of `bar` values (`_VALID_BAR_INTERVALS` -- 1/2/3/5/10/15/30 min, 1/2/3/4/8h,
 1d/1w/1m), while `TimeframeInterval` is fully user-configurable (any positive integer count of
-minutes/days/weeks). This module reconciles the two by fetching the *finest IBKR-supported
-minute-based granularity that evenly divides the requested interval's minute count* and
-resampling client-side into the exact requested bar width -- mirroring
+minutes/days/weeks). This module reconciles the two by fetching the *coarsest IBKR-supported
+minute-based granularity that evenly divides the requested interval's minute count* (see
+`_select_ibkr_bar_size`) and resampling client-side into the exact requested bar width -- mirroring
 `app.data.stooq_provider.StooqProvider._resample_weekly`'s own daily-to-weekly resampling
 precedent, generalized from a fixed calendar-week bucket to an arbitrary minute-count one.
 
@@ -40,12 +40,14 @@ supported, not silently missing its Tide/Screen-1 data.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Literal
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.data.base import resample_ohlcv
 from app.data.ibkr_provider import IBKRBar, IBKRProvider, IBKRUnavailableError
 from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TimeframeUnit, TradingMode
 from app.trading_mode import get_trading_mode_setting
@@ -128,11 +130,11 @@ class DayTraderIntradayBars:
 
 
 def _select_ibkr_bar_size(target_minutes: int) -> tuple[str, int]:
-    """The finest IBKR-supported bar interval that (a) is `<= target_minutes` and (b) evenly
-    divides it, so the resampling in `_resample_to_target` below produces clean, fully-formed
-    bins rather than partial ones misaligned to the requested bar width. The *largest* such
-    candidate is chosen (not simply the finest available overall) to minimize how many raw
-    bars need to be fetched and resampled -- e.g. a 30-minute target with `"5min"` bars
+    """The coarsest (largest) IBKR-supported bar interval that (a) is `<= target_minutes` and
+    (b) evenly divides it, so the resampling in `_resample_to_target` below produces clean,
+    fully-formed bins rather than partial ones misaligned to the requested bar width. The
+    *largest* such candidate is chosen (not the finest available overall) to minimize how many
+    raw bars need to be fetched and resampled -- e.g. a 30-minute target with `"5min"` bars
     available should fetch `"5min"` bars and resample 6:1, not fetch `"1min"` bars and
     resample 30:1 for the identical result.
 
@@ -172,10 +174,10 @@ def _bars_to_frame(bars: list[IBKRBar]) -> pd.DataFrame:
 
 def _resample_to_target(frame: pd.DataFrame, target_minutes: int) -> pd.DataFrame:
     """Resamples `frame` (fetched at some finer IBKR-native granularity, per
-    `_select_ibkr_bar_size`) into `target_minutes`-wide bins -- the same
-    open=first/high=max/low=min/close=last/volume=sum aggregation and drop-incomplete-bin-via-
-    `dropna` pattern as `StooqProvider._resample_weekly`, generalized from a fixed
-    calendar-week bucket to an arbitrary minute-count one (see this module's own docstring).
+    `_select_ibkr_bar_size`) into `target_minutes`-wide bins, via the same shared
+    `app.data.base.resample_ohlcv` helper `StooqProvider._resample_weekly` uses for its own
+    daily-to-weekly resampling -- generalized here from a fixed calendar-week bucket to an
+    arbitrary minute-count one (see this module's own docstring).
 
     Bin boundaries are pandas' own default resample origin (aligned to midnight, not to the
     US market's 9:30 ET open) -- an approximation, not a claim that every bin lines up exactly
@@ -183,10 +185,7 @@ def _resample_to_target(frame: pd.DataFrame, target_minutes: int) -> pd.DataFram
     own documented "adequate for this guideline-strength comparison, not a precise calendar
     computation" caveat elsewhere in this feature.
     """
-    resampled = frame.resample(f"{target_minutes}min").agg(
-        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    )
-    return resampled.dropna(subset=["open", "high", "low", "close"])
+    return resample_ohlcv(frame, f"{target_minutes}min")
 
 
 def _fetch_leg(
@@ -270,21 +269,42 @@ def get_intraday_bars_for_triple(
     `state="disabled"` rather than raising, so day-trader mode being *configured* never
     itself requires IBKR to be reachable (checklist item 3).
 
+    The three legs are fetched **concurrently** (a small thread pool -- `IBKRProvider`'s HTTP
+    calls are synchronous, so this is the same "offload blocking I/O to a thread" pattern as
+    everywhere else in this codebase that overlaps otherwise-independent synchronous network
+    calls) rather than sequentially, now that `app.api.day_trader_signal
+    .compute_day_trader_signal` is a real caller requiring every leg to be `MINUTE`-unit (a
+    fully-intraday triple): a request-latency-sensitive caller (`GET /api/stocks/{ticker}
+    /analysis`, `GET /api/watchlist`) would otherwise pay three sequential IBKR round-trips
+    per ticker instead of roughly one (see this task's own `decisions` entry for the
+    measurement/tradeoff writeup). Each leg's own fetch is fully independent of the others'
+    (no shared mutable state, no ordering requirement between them), so this is a
+    straightforward fan-out/fan-in with no synchronization concerns beyond the thread pool
+    itself; `IntradayLegResult`/`DayTraderIntradayBars` are both frozen dataclasses, and
+    `_fetch_leg` never mutates anything outside its own local scope.
+
     `conid` is the IBKR contract id already resolved for the ticker being analyzed
     (`IBKRProvider.resolve_conid`) -- resolving it is the caller's responsibility, not this
     function's; a caller with no resolved conid (e.g. `resolve_conid` returned `None`) has
     nothing meaningful to pass here and shouldn't call this function at all for that ticker.
     """
+    legs: tuple[tuple[DayTraderLeg, TimeframeInterval], ...] = (
+        ("long_term", triple.long_term),
+        ("short_term", triple.short_term),
+        ("intermediate", triple.intermediate),
+    )
+    with ThreadPoolExecutor(max_workers=len(legs)) as executor:
+        futures = {
+            leg: executor.submit(
+                _fetch_leg, leg, interval, provider=provider, conid=conid, lookback_days=lookback_days
+            )
+            for leg, interval in legs
+        }
+        results = {leg: future.result() for leg, future in futures.items()}
     return DayTraderIntradayBars(
-        long_term=_fetch_leg(
-            "long_term", triple.long_term, provider=provider, conid=conid, lookback_days=lookback_days
-        ),
-        short_term=_fetch_leg(
-            "short_term", triple.short_term, provider=provider, conid=conid, lookback_days=lookback_days
-        ),
-        intermediate=_fetch_leg(
-            "intermediate", triple.intermediate, provider=provider, conid=conid, lookback_days=lookback_days
-        ),
+        long_term=results["long_term"],
+        short_term=results["short_term"],
+        intermediate=results["intermediate"],
     )
 
 

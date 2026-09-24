@@ -1888,8 +1888,15 @@
       "id": "backend-day-trader-timeframe-mode-ibkr-intraday-followups",
       "area": "backend/data",
       "skill": null,
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups",
+      "area": "backend/data",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json"
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-signal-engine",
