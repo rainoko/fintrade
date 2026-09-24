@@ -432,6 +432,65 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         )
         self.assertEqual(cptw.check_banned_patterns([path]), [])
 
+    def test_byte_string_only_run_is_safely_skipped_not_misreported(self) -> None:
+        # Round 6 review follow-up finding (this task's own checklist item 6):
+        # `_decode_string_token_with_offsets` returns None for a byte-string literal
+        # (correct -- a byte string holds bytes, not text), but a run made ENTIRELY
+        # of byte-string literals is also valid Python (only *mixing* bytes and
+        # non-bytes literals in one run is forbidden, not multiple bytes literals
+        # together) and shares the same any-member-undecodable-skips-the-whole-run
+        # contract as an f-string run. Must not crash or mis-report -- just skip the
+        # whole run, matching the already-correct single-byte-string-piece behavior.
+        path = self.repo.write(
+            "backend/app/api/example_bytes_only_run.py",
+            "description = (\n"
+            "    b\"today's \"\n"
+            "    b\"Autoenvelope\"\n"
+            ")\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
+    def test_two_different_patterns_matching_same_run_line_are_both_reported(self) -> None:
+        # This task's own checklist item 5: _find_run_violations's dedup key must
+        # match the per-line scan's own (pattern_index, lineno) granularity, not
+        # lineno alone -- two different _BANNED_PATTERNS entries both matching
+        # within the same run and resolving to the same reported start line must be
+        # counted as two distinct violations, not undercounted to one. All four
+        # pieces sit on one physical line (each match crosses a piece boundary
+        # without crossing a physical line, so both matches' start_line is the same
+        # line) -- the shape that specifically exercises the run's own `reported`
+        # dedup set, not the separate per-line-scan dedup set.
+        path = self.repo.write(
+            "backend/app/api/example_two_patterns_one_run_line.py",
+            "description = \"today's \" \"Autoenvelope and that \" \"day's \" \"Autoenvelope\"\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 2)
+        self.assertIn("example_two_patterns_one_run_line.py:1", violations[0])
+        self.assertIn("example_two_patterns_one_run_line.py:1", violations[1])
+
+    def test_nested_fstring_end_index_is_found_correctly(self) -> None:
+        # This task's own checklist item 8: locks in _find_fstring_end_index's
+        # nesting-depth-tracking branch (an outer f-string containing a genuinely
+        # nested inner f-string, allowed by PEP 701 on this project's Python 3.12)
+        # with an actual regression test, rather than relying on a one-off manual
+        # review check -- given this exact function's history (three separate axes
+        # of bugs across 6 review rounds before this one) and that nested f-strings
+        # were explicitly named as a round-7 stress-test scenario. The nested
+        # f-string is implicitly concatenated to a trailing real string containing
+        # the banned phrase; since an f-string member is never decodable, the whole
+        # run (correctly recognized despite the nesting) must be safely skipped, not
+        # mis-parsed into the WRONG (inner) FSTRING_END and left dangling.
+        path = self.repo.write(
+            "backend/app/api/example_nested_fstring.py",
+            "description = (\n"
+            "    \"today's \"\n"
+            "    f\"outer {f'inner {1}'} middle \"\n"
+            "    \"Autoenvelope\"\n"
+            ")\n",
+        )
+        self.assertEqual(cptw.check_banned_patterns([path]), [])
+
     def test_weekly_wording_is_not_flagged(self) -> None:
         path = self.repo.write(
             "frontend/src/utils/example.ts",
