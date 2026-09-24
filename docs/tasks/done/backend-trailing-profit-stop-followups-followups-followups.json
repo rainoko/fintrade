@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #303's review (backend-trailing-profit-stop-followups-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trailing-profit-stop-followups-followups"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop-followups-followups.json",
@@ -24,5 +24,12 @@
     "pr_number": 304,
     "pr_url": "https://github.com/rainoko/fintrade/pull/304",
     "pushed_at": "2026-09-24T11:34:07Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T11:38:39Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/304",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Genuinely comment/docstring-only change: confirmed via `git diff main...HEAD --stat` that only backend/app/portfolio/risk.py (docstring text, no executable lines), this task's own JSON, and docs/tasks/index.json changed. The reworded docstring passage (lines 321-326) accurately mirrors the 'defense-in-depth documentation, not a live code path' framing PR #303 already applied to the nearby inline fold comment (lines 398-403) -- cross-checked both against the actual code: `drop_malformed_daily_bars` is called unconditionally at line 359, before the since-entry slicing and the fold, so a NaN-close row at position.entry_date genuinely cannot reach the fold today, matching what both the old and new docstring text always claimed about the outcome (still 'skipped'/excluded); only the *why* framing changed, correctly. No logic touched. Full backend suite (1244 passed), 100% coverage, ruff + mypy clean, check_profit_target_wording.py clean, validate_tasks.py clean (297 tasks, no violations) -- all re-run on the actual checked-out PR branch (task/backend-trailing-profit-stop-followups-followups-followups), not just read from the diff. No API/schema touched, so no openapi.json regeneration required. No frontend/UI surface touched, so the browser walkthrough (step 9) and persisted e2e suite (step 9a) are explicitly skipped, not silently omitted. area is backend/portfolio, so verify-elder-signal was loaded per CLAUDE.md's trigger list; the change has no bearing on Triple Screen/confidence/risk-rule methodology (it's data-cleaning defensiveness prose, not a computation), so no methodology mismatch is possible here. No checklist item is phrased as 'decide X', so no decisions-entry gap. No pr_decision field was present to clear. I looked for a further non-blocking finding in this same docstring/comment area and did not find one worth manufacturing -- this finding chain (PR #301 -> #303 -> #304) has reached its natural end: the docstring and inline comment now say the same thing, and I found no third near-duplicate stale claim describing this behavior elsewhere in the file."
   }
 }
