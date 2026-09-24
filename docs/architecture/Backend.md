@@ -20,6 +20,7 @@ backend/
       cache.py         # SQLite-backed OHLCV + extended-data cache
       exceptions.py    # shared DataProviderError hierarchy (TickerNotFoundError, InsufficientHistoryError, DataProviderUnavailableError)
       ibkr_provider.py # optional IBKR Client Portal Web API provider (hourly bars + scanner) -- not a DataProvider, see §8
+      cftc_cot_provider.py # CFTC Commitments of Traders (futures positioning) -- not a DataProvider, see §9
     indicators/    # pure functions, one indicator per module
       ema.py
       macd.py
@@ -136,9 +137,11 @@ while scoping this task:**
    must be done by a human, once per session (the session expires after a period of
    inactivity and needs re-authenticating the same way).
 4. Keep the session alive with a periodic `GET /tickle` call roughly once a minute
-   while the gateway needs to stay authenticated (not automated by this app today — a
-   future task consuming this provider from a long-running process would need to add
-   that, itself a currently-open gap, not something this task's checklist covers).
+   while the gateway needs to stay authenticated. This is automated by the app itself
+   (`docs/tasks/done/backend-ibkr-tickle-keepalive.json`): `app.main._ibkr_tickle_loop`
+   runs as a FastAPI `lifespan` background task, started only when `Settings.ibkr_enabled`
+   is `True`, calling `IBKRProvider.tickle()` every 45s and cleanly cancelled on app
+   shutdown — nothing further to do here beyond the interactive login in step 3.
 5. Set `FINTRADE_IBKR_ENABLED=true` (and `FINTRADE_IBKR_BASE_URL` if the gateway isn't
    at the default `https://localhost:5000/v1/api`) in the backend's environment.
 
@@ -150,10 +153,12 @@ while scoping this task:**
   than raising, so a caller can distinguish "gateway isn't running at all" from
   "running, but the browser login step hasn't been done (or has expired)" — checked
   before every other call this provider makes.
-- `GET /iserver/marketdata/history` (`bar=1h`) — hourly OHLCV bars, capped at 1,000
-  points per call (~41 days) by IBKR itself; `get_hourly_bars` walks the `startTime`
-  cursor backward across as many calls as needed to cover the requested lookback
-  window, up to a fixed page-count safety bound.
+- `GET /iserver/marketdata/history` (`bar=1h` by default, or another of IBKR's
+  documented `bar` values via `get_hourly_bars`'s `bar_size` parameter —
+  `backend-ibkr-bar-interval-param`) — OHLCV bars, capped at 1,000 points per call
+  (~41 days at `1h`) by IBKR itself; `get_hourly_bars` walks the `startTime` cursor
+  backward across as many calls as needed to cover the requested lookback window, up to
+  a fixed page-count safety bound.
 - `GET /iserver/scanner/params` — the scanner's valid filter/instrument/location
   options, rate-limited by IBKR to 1 request/15 minutes; `get_scanner_params` caches
   the result for that same window rather than re-fetching on every call.
@@ -161,6 +166,16 @@ while scoping this task:**
   rate-limited by IBKR to 1 request/second; `run_scanner` self-enforces that limit
   client-side (`IBKRRateLimitedError` if called again too soon) rather than always
   spending a real HTTP round-trip only to have the gateway reject it.
+- `GET /iserver/secdef/search` (`?symbol=...`) — resolves a plain ticker symbol to
+  IBKR's own numeric conid (docs/tasks/backend-ibkr-symbol-resolution.json), the id
+  `get_hourly_bars`/`run_scanner` actually key off of. `resolve_conid` keeps only exact
+  (case-insensitive) symbol matches that include a `"STK"` section (filtering out
+  options/warrants/futures on the same underlying and fuzzy partial-symbol matches the
+  endpoint can also return), and returns `None` -- never raises -- for both no match and
+  a genuinely ambiguous one (more than one distinct conid for that symbol, e.g. dual
+  listings on different exchanges) rather than guessing which contract was meant. See
+  that task's `decisions` entry for the documented response shape this was implemented
+  against.
 
 **Known, accepted limitation — unverified against a live gateway.** Every one of the
 above was implemented directly against IBKR's own documented Web API request/response
@@ -171,6 +186,41 @@ has one. The actual response shapes returned by a live gateway, the interactive 
 flow itself, and any undocumented quirks are therefore not verified end-to-end here;
 this is deferred to manual testing by a user with a real running, authenticated
 gateway. See this task's `decisions` entry.
+
+## 9. CFTC Commitments of Traders (COT) Provider
+
+`app/data/cftc_cot_provider.py`'s `CFTCCOTProvider` (docs/tasks/backend-cftc-cot-data.json,
+docs/ideas.md's ch. 37 entry) is a small, standalone provider for Elder ch. 37's Commitments
+of Traders framing — follow commercials, fade small speculators, read current positioning
+against historical norms. Like `IBKRProvider` (§8), it deliberately does **not** implement
+the `DataProvider` protocol (§2): its data is futures-market positioning for a fixed set of 5
+major contracts, not per-stock-ticker OHLCV, and it's never wired into `app.signals`/
+`app.portfolio` — it only backs `GET /api/cftc/cot` (docs/architecture/API.md), a genuinely
+separate, informational surface.
+
+Sourced from the CFTC's own public Socrata Open Data (SODA) JSON API
+(`https://publicreporting.cftc.gov/resource/6dca-aqww.json`), confirmed live during this
+task's research — the "Legacy"/"Futures Only" report, the classic Commercial/
+Non-Commercial/Non-Reportable three-way breakdown Elder describes (the newer "Disaggregated"/
+"Traders in Financial Futures" reports split those groups further, e.g. producer/merchant vs.
+swap dealer, which this app doesn't need). No API key is required for this app's low request
+volume. `COT_MARKETS` fixes the 5-market set (Euro, Yen, Oil, Gold, Bonds — matching the ch.
+57 daily-homework idea's own list) to a specific `cftc_contract_market_code` per market,
+confirmed against the live endpoint rather than assumed from the contract name alone (several
+of these commodities have multiple CFTC-tracked contracts across different exchanges — e.g.
+NYMEX WTI vs. ICE Brent for oil). See this task's `decisions` entry for the full research
+writeup and the specific code chosen for each market.
+
+`get_all_recent()` fetches every fixed market's trailing `WEEKS_OF_HISTORY` (52) weeks of
+history in a single HTTP request (one compound `cftc_contract_market_code IN (...)` filter),
+grouped client-side by market — not five separate per-market requests. `cot_index()` computes
+the classic Williams "COT Index" (0-100, where the current net position sits within its own
+trailing window's high/low range) as this provider's operationalization of "against
+historical norms" — chosen over a bespoke percentile-rank scheme since it's the standard,
+well-known form for exactly this data. No local caching/persistence layer (unlike
+`CachedDataProvider`'s OHLCV/extended-data caches, §7): `GET /api/cftc/cot` fetches fresh on
+every request, since the underlying data changes at most weekly and this is explicitly scoped
+as a minimal, informational surface — see this task's `decisions` entry.
 
 ## Testing Notes
 

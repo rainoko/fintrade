@@ -1,0 +1,57 @@
+{
+  "id": "backend-ibkr-bar-interval-param",
+  "title": "Parameterize IBKRProvider's hardcoded 1h bar interval",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": [
+    "backend/app/data/ibkr_provider.py",
+    "docs/ideas.md#switchable-trading-mode-positionswing-trader-vs-day-trader--different-triple-screen-timeframe-scales"
+  ],
+  "description": "get_hourly_bars hardcodes _BAR_INTERVAL = \"1h\" -- only hourly bars are implemented today, not the finer granularities (5-min/25-min/2-min, or 39-min/8-min) a future day-trader-mode feature would need. Parameterize the bar interval now so it's ready, without building the full day-trader-mode feature itself (that remains a separate, much larger idea explicitly flagged in docs/ideas.md as needing its own design pass -- not in scope here).",
+  "checklist": [
+    { "step": "Generalize get_hourly_bars into a bar-interval-parameterized method (or add a `bar` parameter to it), validating the requested value against IBKR's actually-documented accepted bar values.", "done": true },
+    { "step": "Default the parameter to today's '1h' behavior so no existing caller's behavior changes.", "done": true },
+    { "step": "Record which bar values were confirmed vs. assumed (per this module's mocked-only testing constraint) as a decisions entry.", "done": true },
+    { "step": "Update existing tests for the new parameter and add tests for at least one other interval value.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a `bar_size: str = \"1h\"` keyword-only parameter to the existing `get_hourly_bars` method (kept its name unchanged) rather than renaming it to a generic `get_bars`/splitting into a new method, and validated it against a fixed `_VALID_BAR_INTERVALS` set: {1min, 2min, 3min, 5min, 10min, 15min, 30min, 1h, 2h, 3h, 4h, 8h, 1d, 1w, 1m} (raising ValueError before any network call for anything else).",
+      "rationale": "The checklist explicitly offered both options ('generalize into a bar-interval-parameterized method (or add a `bar` parameter to it)'). No route or other module calls get_hourly_bars today (grepped app/ and tests/ outside test_ibkr_provider.py), so there was no back-compat risk from renaming, but keeping the name avoids rewriting the several docstring/architecture-doc cross-references that already call it 'get_hourly_bars' for no functional benefit, matching this task's own instruction not to scope-creep into the separate day-trader-mode design. The accepted bar-value set itself is IBKR's own publicly documented enumerated list for `GET /iserver/marketdata/history`'s `bar` query parameter (a fixed set of values, not a freely composable duration string) -- confirmed against IBKR's published Web API reference documentation, consistent with how every other value/shape in this module was implemented (this module's own docstring: 'implemented directly against IBKR's own documented Web API request/response shapes'). It is NOT verified against a live gateway response (no sandboxed/CI environment has one, per this module's existing testing constraint) -- that live-gateway verification remains deferred to manual testing by the user, same as every other endpoint this provider uses. One concrete, book-relevant consequence worth recording: docs/ideas.md's hypothetical '39-minute/8-minute' day-trader pairing (chosen because 39 divides the 390-minute trading day into 10 clean bars) is NOT achievable via this bar parameter at all -- IBKR's `bar` values are a fixed enumerated list, not arbitrary minute counts, so a future day-trader-mode design pass choosing that specific pairing would need a different mechanism (e.g. resampling 1-minute bars client-side) rather than requesting `bar=39min` directly."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Changed the pagination cursor step (previously a hardcoded `timedelta(hours=1)` subtracted from the earliest bar's timestamp to compute the next page's `startTime`) to look up a per-`bar_size` step from a new `_BAR_INTERVAL_STEP` mapping.",
+      "rationale": "The original hardcoded 1-hour step was correct only because the method only ever requested `bar=1h` bars; generalizing the `bar` parameter without also generalizing this step would silently skip up to ~59 minutes of bars between (earliest - one bar) and (earliest - 1h) whenever a finer interval (e.g. `5min`) was requested and multi-page pagination was needed -- a real correctness bug, not just a missed generalization, so fixing it was judged in-scope for 'parameterizing the existing hardcoded interval' rather than scope creep. `_MAX_PAGINATION_PAGES`'s 20-page safety bound was deliberately left unchanged (still sized against `1h` bars, ~833 days) -- a finer bar_size simply covers proportionally less history before hitting that same page cap, an acceptable, documented limitation rather than something worth redesigning here; a future day-trader-mode feature that genuinely needs deep finer-grained history would need to revisit that bound as part of its own larger design pass."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-bar-interval-param",
+    "pr_number": 265,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/265",
+    "pushed_at": "2026-09-22T13:25:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:35:08Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/265",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "`_BAR_INTERVAL_STEP['1m']`'s 30-day approximation for IBKR's monthly bar can overshoot the actual bar-to-bar gap in short months (e.g. the Feb->Mar transition in a non-leap year is only a 28-day gap), producing a pagination `startTime` earlier than the actual preceding bar and, per IBKR's documented 'bars at or before startTime' semantics, silently skipping that bar -- the same bug class this PR fixed for finer intervals, reintroduced for the coarsest one. Verified by direct simulation, not just reasoning. Non-blocking: unreachable today since `_MAX_BARS_PER_PAGE` (1000) means a monthly-bar page only triggers a second page after ~83 years of requested lookback, and no caller passes `bar_size='1m'`. Tracked as a followup.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 108
+      }
+    ],
+    "notes": "Full review performed: gh pr checkout 265 (already on the branch). Backend suite: 1161 passed, 99.95% coverage (well above the 90% gate) via `pytest --cov=app --cov-report=term-missing`. Static analysis: backend `ruff check app/` and `mypy` both clean; `scripts/check_profit_target_wording.py` clean; frontend `yarn lint`/`yarn tsc -b --noEmit` clean (unaffected baseline -- this PR touches no frontend files). `code-review` skill (medium effort) run against the diff: no findings. `_VALID_BAR_INTERVALS` cross-checked against IBKR's publicly documented Client Portal Web API `bar` enum for `/iserver/marketdata/history` ({1min,2min,3min,5min,10min,15min,30min,1h,2h,3h,4h,8h,1d,1w,1m}) -- matches. Pagination-cursor-step fix (`_BAR_INTERVAL_STEP[bar_size]` replacing the hardcoded `timedelta(hours=1)`) verified correct for every interval except the `1m` (monthly) approximation noted above, which is a real-but-unreachable latent issue tracked as a non-blocking followup rather than blocking. `FINTRADE_IBKR_ENABLED` confirmed still `false` in `backend/.env` and unchanged by this PR; all new/existing tests mock `_request`, no live network calls. Both `decisions` entries reviewed: both correctly document what's confirmed-vs-assumed per this module's mocked-only testing constraint, with concrete rationale and rejected alternatives -- satisfies CLAUDE.md's decision-memory bar. No API route/schema touched, so no `openapi.json` regeneration was required. `area` is `backend/data`, not `backend/signals`/`backend/portfolio`, and `skill` is `null` (not `verify-elder-signal`), so the Elder-signal-specific review step doesn't apply; this isn't a new module/dependency/layer, so `architecture-review` wasn't separately loaded (the `docs/architecture/Backend.md` doc update was checked directly against the code change and is accurate). No frontend component work, so the placement-review step (7a) doesn't apply. No route/frontend consumer of `get_hourly_bars` exists (grepped `app/` and `frontend/`) -- this change has no UI surface, so the browser walkthrough (step 9) and the persisted e2e suite (step 9a) were both explicitly skipped rather than silently omitted. Filed one non-blocking finding as docs/tasks/backend-ibkr-bar-interval-param-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T13:41:40Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran `pytest --cov=app --cov-report=term-missing`: 1161 passed, 99.95% coverage, matching pr-reviewer's numbers exactly. Read the full diff of backend/app/data/ibkr_provider.py myself: confirmed the pagination-cursor-step fix (_BAR_INTERVAL_STEP[bar_size] replacing the hardcoded timedelta(hours=1)) is real and correct, backed by test_pagination_cursor_steps_by_the_requested_bar_size_not_a_hardcoded_hour. Confirmed FINTRADE_IBKR_ENABLED=false unchanged (empty diff on backend/.env) and all tests mock _request. Hand-simulated the reviewer's filed 1m-monthly-step overshoot: naive startTime (2026-03-01 minus 30 days = 2026-01-30) does sit before the actual prior bar (2026-02-01), confirming a real skip under IBKR's 'at or before startTime' semantics -- but verified it's genuinely unreachable today (1000 bars * 30 days/bar cap requires ~82 years of lookback to trigger a second page, and grep confirms no caller passes bar_size='1m'), so non-blocking is the right call; the follow-up task backend-ibkr-bar-interval-param-followups.json exists with a matching checklist entry and is correctly mirrored in index.json. Both decisions entries reviewed and hold up. ruff/mypy clean. Accept stands."
+  }
+}

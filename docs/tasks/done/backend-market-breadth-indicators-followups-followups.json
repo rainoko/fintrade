@@ -1,0 +1,69 @@
+{
+  "id": "backend-market-breadth-indicators-followups-followups",
+  "title": "IBKR-scanner breadth snapshot concurrent-insert fix — non-blocking findings from PR #242's review",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "backend-market-breadth-indicators-followups"
+  ],
+  "references": [
+    "docs/tasks/done/backend-market-breadth-indicators-followups.json#review",
+    "https://github.com/rainoko/fintrade/pull/242"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #242 (backend-market-breadth-indicators-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. Both concern record_ibkr_breadth_snapshot's new `except (IntegrityError, OperationalError)` concurrent-insert fallback in app/api/routers/ibkr.py.",
+  "checklist": [
+    {
+      "step": "The `except (IntegrityError, OperationalError)` branch's fallback (`winner = db.get(...)`, `assert winner is not None`) assumes any caught `OperationalError` implies a same-key winner committed and is now readable. That's verified true for `IntegrityError` (IBKRBreadthSnapshotORM's only constraint is the composite PK), but SQLite's whole-file write locking (no WAL/busy_timeout, per app/db/session.py) can raise 'database is locked' `OperationalError` from *any* concurrent write anywhere in the file, not only a race on this exact (series_key, snapshot_date) -- in which case `db.get(...)` legitimately returns None and the assert raises AssertionError instead of the graceful fallback the decision describes. Not a behavior regression (pre-fix, an uncaught OperationalError also propagated to a generic 500), but the fallback logs a misleading 'falling back to the concurrently-committed row' warning for a case where no such row exists, and the new decision entry doesn't carry forward the OperationalError-scope caveat app/data/cache.py's own `_upsert` comment makes for the identical exception pair (see docs/tasks/done/data-cache-followups-followups.json's review comment on PR #56, which reviewed and explicitly accepted this exact scope gap as non-blocking for the same race pattern). Worth either narrowing the assumption (return a clean error/None-safe path when no winner row is actually found) or adding the same explicit scope-limitation comment cache.py's OperationalError branch has.",
+      "done": true
+    },
+    {
+      "step": "The `assert winner is not None` at app/api/routers/ibkr.py:359 is a bare `assert`, which is fragile under `python -O`/`PYTHONOPTIMIZE` (assertions compiled out) -- in the scenario above, that would silently turn the failure into `row = None` and a later `AttributeError` on `row.count` instead of even the (still-uninformative but at least present) `AssertionError`. Not a live concern today (no evidence anywhere in the repo of running with `-O`), but worth an explicit `if winner is None: raise ...` guard instead of `assert` if this pattern is reused elsewhere, or at minimum a comment noting the reliance on assertions being enabled.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T22:02:39Z",
+      "recorded_by": "task-worker",
+      "decision": "Both findings fixed together by narrowing the fallback's assumption (checklist item 1's first option), rather than just adding the scope-limitation comment cache.py's OperationalError branch has (its other, weaker option): the bare `assert winner is not None` at app/api/routers/ibkr.py:359 was replaced with an explicit `if winner is None:` branch that logs a distinct warning (making clear this wasn't actually a same-key race, just an unrelated SQLite lock) and raises `HTTPException(status_code=503, detail=...)` instead of falling through to `row = winner`. The commit's `except (IntegrityError, OperationalError)` comment block was extended with the same IntegrityError-verified-narrow / OperationalError-wider-causes distinction app/data/cache.py's `_upsert` OperationalError branch documents, adapted to explain why this route (unlike `_upsert`) can't just silently discard the failed write. The route's existing `503` `responses={}` entry and docstring paragraph were both updated to describe this second `503` cause alongside the pre-existing transient-scanner-call-failure one, and `backend/openapi.json` (plus the generated `frontend/src/api/types.ts`) were regenerated to match.",
+      "rationale": "Rejected the weaker option (leaving the bare `assert` and just adding a comment) because it wouldn't actually fix finding 2 (the `python -O`/`PYTHONOPTIMIZE`-fragility of a bare `assert`), and item 1's own narrower-assumption path already requires distinguishing the 'no winner found' case from the normal fallback anyway -- once that branch exists, turning it into a clean `if/raise` costs nothing extra and directly addresses both findings with one change, rather than leaving finding 2's fragility in place and documenting it as merely acceptable. Chose `HTTPException(503)` over inventing a new response shape because this route already declares and raises `503` for its other transient failure mode (`_resolve_scanner_unavailable`'s disagreeing-gateway-state case) -- reusing the same status code and `ErrorDetail` response model for another genuinely transient, retry-safe failure keeps the route's error surface consistent rather than adding a third distinct failure representation. Rejected retrying the commit internally (re-attempting `db.commit()` a bounded number of times before giving up) as disproportionate for a rare, low-frequency, manually-triggered endpoint -- consistent with `backend-market-breadth-indicators-followups`' own rejection of a locking mechanism (BEGIN IMMEDIATE / app-level mutex) for the same race pattern, and orthogonal to what this task's two findings actually asked for (a misleading log message and a fragile assert, not the absence of a retry). Verified with a new test (`test_operational_error_with_no_same_key_winner_returns_503`) that forces `db.commit()` to raise a real `sqlalchemy.exc.OperationalError` with no concurrent winner ever appearing for the same key, asserting a `503` response (not an uncaught `AssertionError`/500) and that nothing is persisted; the existing `test_concurrent_first_population_falls_back_to_winners_row` (the genuine-same-key-race path) continues to pass unchanged, confirming the narrowed branch doesn't regress the original fallback behavior."
+    },
+    {
+      "timestamp": "2026-09-23T23:05:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Addressed pr-reviewer's needs_work finding on PR #283 (raw SQLAlchemy exception leaked into the new 503's client-facing `detail`) by dropping `({type(exc).__name__}: {exc})` from the `HTTPException(status_code=503, ...)` `detail` string entirely, leaving only the app-defined 'Transient write conflict recording breadth snapshot for series_key=...; retry.' message. The preceding `logger.warning(...)` call, which does interpolate `type(exc).__name__`/`exc`, was left untouched -- logging the real exception server-side is fine and matches `app/data/cache.py`'s identical pattern; only the HTTP response body was the problem.",
+      "rationale": "This is a straightforward fix of a correctly-identified information-disclosure regression (str() of a real SQLAlchemy OperationalError/IntegrityError embeds the interpolated SQL statement, bound parameters, and a sqlalche.me docs link), not a judgment call with alternatives to weigh. No test changes were needed: `test_operational_error_with_no_same_key_winner_returns_503` only asserts `\"nh\" in response.json()[\"detail\"]` (the series_key, still present in the generic message), not the exception-derived suffix that was removed, so it continues to pass unchanged. Re-ran `pytest tests/integration/test_ibkr_breadth.py` (17 passed) and the full backend suite (`pytest --cov=app`, 1203 passed, 100% line/branch coverage) plus `ruff check`/`mypy app` (both clean) to confirm no regression."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-breadth-indicators-followups-followups",
+    "pr_number": 283,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/283",
+    "pushed_at": "2026-09-23T22:17:28Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T22:24:40Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/283",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round-1 finding (now fixed, recorded here for history): the new 503's `detail` interpolated the raw SQLAlchemy exception (`{exc}`) directly into the client-facing HTTP response, leaking interpolated SQL/bound parameters/a docs link. Fixed in commit a02fa48 by dropping `{exc}` from the client-facing `detail` string, leaving only the generic app-defined message; the server-side `logger.warning` call still logs the real exception, matching `app/data/cache.py`'s convention. Verified directly: `detail` at ibkr.py:380-386 now reads only \"Transient write conflict recording breadth snapshot for series_key=<series_key>; retry.\" -- no exception-derived text present.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 383
+      },
+      {
+        "summary": "Non-blocking (filed as a follow-up task, backend-market-breadth-indicators-followups-followups-followups): `test_operational_error_with_no_same_key_winner_returns_503` only asserts `\"nh\" in response.json()[\"detail\"]`, so it doesn't actually guard against the round-2 regression it was meant to catch -- if the raw-exception interpolation were reintroduced, this test would still pass since \"nh\" remains present. Worth strengthening to also assert the exception-derived text (e.g. \"SQL\"/\"database is locked\") is absent.",
+        "file": "backend/tests/integration/test_ibkr_breadth.py",
+        "line": 388
+      }
+    ],
+    "notes": "Round 2 (re-review after needs_work). Verified the fix directly by reading the current source: the client-facing `detail` at ibkr.py:380-386 contains only the app-defined message and `series_key` (not exception-derived text), while the preceding `logger.warning` (untouched) still logs `type(exc).__name__`/`exc` server-side only -- resolves the leak exactly as described. The existing test still exercises the right scenario (forces a real OperationalError via commit monkeypatching with no winner ever committed, asserts 503 not an uncaught AssertionError/500, and nothing persisted); its assertion is just weaker than it could be (see non-blocking finding above). Independently re-ran: backend pytest+coverage (1203 passed, 100% line/branch coverage), frontend vitest+coverage (825 passed, 99.76% statements/99.31% branches), backend ruff+mypy clean, frontend eslint+tsc clean, profit-target stale-wording guard clean, and the persisted Playwright e2e suite (make e2e, 22/22 passed, including watchlist.spec.ts's specs exercising POST /api/ibkr/breadth/snapshot -- the touched route -- on its golden path in a real browser; this round's fix is a plain string-literal change with no golden-path behavior change, and the edge case itself needs DB-level fault injection not reproducible by clicking, consistent with round 1's assessment). code-review skill (medium effort) confirmed the fix is correct/minimal/consistent with the file's existing pattern and independently reproduced that str(OperationalError(...)) does embed raw SQL/params, confirming the pre-fix leak was real; its only finding was the test-assertion-strength gap above, now tracked as a follow-up. No schema/route-signature change this round, so no openapi.json regeneration needed (round 1's regeneration already covers the docstring/responses changes made then; confirmed unchanged in this round's diff). No new module/dependency/layer; area is backend/api (not signals/portfolio), so verify-elder-signal not applicable. No frontend component added/changed this round. decisions entries for both rounds are complete with rationale. Accepting: no blocking findings remain."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-23T22:30:10Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read ibkr.py:352-397 directly and confirmed the client-facing 503 `detail` contains only the app-defined message + series_key, no exception-derived text, while `logger.warning` still logs the real exception server-side only -- the leak is genuinely gone. Re-ran backend suite myself: pytest tests/integration/test_ibkr_breadth.py (17 passed), full pytest --cov=app (1203 passed, 100% line/branch coverage), ruff check and mypy app both clean -- all match pr-reviewer's reported numbers exactly. Skimmed the full diff (ibkr.py, test_ibkr_breadth.py, openapi.json, frontend/src/api/types.ts, task board files) -- all consistent with the review notes; the non-blocking test-assertion-strength finding is correctly filed as backend-market-breadth-indicators-followups-followups-followups and does not change the merge verdict. Board bookkeeping confirmed consistent on this branch: task at docs/tasks/done/, index.json state/path mirrored, review field intact."
+  },
+  "questions": []
+}

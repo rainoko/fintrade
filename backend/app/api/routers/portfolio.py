@@ -1,8 +1,9 @@
+import logging
 import math
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import cast, get_args
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -60,6 +61,8 @@ from app.signals.engine import SignalResult, analyse, drop_malformed_daily_bars
 from app.signals.impulse import evaluate_impulse
 from app.signals.support_resistance import detect_support_resistance_zones
 from app.time_utils import today, utcnow
+
+logger = logging.getLogger(__name__)
 
 # 2%/6% rule thresholds used by the display fields below (`two_percent_rule_breached`,
 # `six_percent_rule_breached`) -- kept in sync by hand with the identical private constants
@@ -218,6 +221,50 @@ def _grade_closed_trades(
     return grades
 
 
+_EXIT_REASON_VALUES: frozenset[str] = frozenset(get_args(ExitReasonOut))
+
+# Distinct out-of-taxonomy exit_reason values already warned about in this process's lifetime
+# (backend-closed-trades-legacy-exit-reason-500-followups) -- see _normalize_exit_reason's
+# docstring for why this is de-duplicated rather than logged on every request. No size cap:
+# it grows by one entry per distinct out-of-taxonomy value ever seen, for the process's whole
+# lifetime. Accepted as-is (not a defensive cap) because the write path enum-validates
+# exit_reason (see `exit_reason: ExitReason = Query(...)` below), so only pre-existing
+# legacy/hand-inserted rows can ever land here -- not something ordinary API usage or repeated
+# requests can grow unboundedly. See backend-closed-trades-legacy-exit-reason-500-followups-followups.
+_warned_exit_reason_values: set[str] = set()
+
+
+def _normalize_exit_reason(raw_exit_reason: str) -> ExitReasonOut:
+    """Coerces a `closed_trades` row's raw (unconstrained-`String`-column, see
+    `app.db.models.ClosedTradeORM.exit_reason`) `exit_reason` value to a valid `ExitReasonOut`
+    Literal, falling back to `'unspecified'` for anything outside the current 8-value taxonomy
+    instead of letting `ClosedTradeOut(...)` raise a `pydantic.ValidationError` for the whole
+    request -- see the backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry
+    for why a fallback was chosen over widening the taxonomy.
+
+    Logs a `logger.warning` the first time a given out-of-taxonomy value is seen in this
+    process, then stays silent for that same value on every subsequent request -- a
+    long-lived legacy row (e.g. hand-inserted dev data) would otherwise produce an identical
+    warning on every single `GET /api/portfolio/closed-trades` call indefinitely. See the
+    backend-closed-trades-legacy-exit-reason-500-followups task's `decisions` entry."""
+    if raw_exit_reason in _EXIT_REASON_VALUES:
+        return cast(ExitReasonOut, raw_exit_reason)
+    # Best-effort, not atomic: this check-then-act on a module-level set can race under
+    # concurrent requests (get_closed_trades is a sync `def` route, run in FastAPI/Starlette's
+    # thread-pool executor) and occasionally emit a duplicate warning for the same value --
+    # an accepted, known tradeoff, not a regression. See
+    # backend-closed-trades-legacy-exit-reason-500-followups-followups's decisions entry.
+    if raw_exit_reason not in _warned_exit_reason_values:
+        _warned_exit_reason_values.add(raw_exit_reason)
+        logger.warning(
+            "closed_trades row has out-of-taxonomy exit_reason %r -- reporting as "
+            "'unspecified' (further occurrences of this same value are suppressed for the "
+            "rest of this process's lifetime)",
+            raw_exit_reason,
+        )
+    return "unspecified"
+
+
 def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeOut:
     """Builds the `ClosedTradeOut` for one `closed_trades` row + its already-computed
     `TradeGrade` (from `_grade_closed_trades`). Shared by `get_closed_trades` and
@@ -234,7 +281,7 @@ def _to_closed_trade_out(row: ClosedTradeORM, grade: TradeGrade) -> ClosedTradeO
         exit_price=row.exit_price,
         exit_date=row.exit_date,
         realized_pnl=row.realized_pnl,
-        exit_reason=cast(ExitReasonOut, row.exit_reason),
+        exit_reason=_normalize_exit_reason(row.exit_reason),
         buy_grade_pct=grade.buy_grade_pct,
         sell_grade_pct=grade.sell_grade_pct,
         trade_grade_pct=grade.trade_grade_pct,
@@ -364,7 +411,12 @@ def add_position(
     `entry_notes`) so this field stays a single clean tag for future strategy-segmented
     grouping/equity-curve use, rather than accumulating multiple concatenated values -- a
     merge with no incoming `strategy` leaves the existing one untouched -- see the
-    backend-trade-strategy-tagging task's `decisions`.
+    backend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is
+    stripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to
+    null at the schema layer; neither field is case-folded on write, so casing is preserved
+    exactly as typed for both -- the real asymmetry between the two is the merge behavior
+    above (`strategy` overwrites, `entry_notes` appends), not casing -- see the
+    backend-trade-strategy-tagging-followups task's `decisions`.
     `current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on
     read (GET /api/portfolio), not on write, and isn't available until the data-cache task
     lands. `signal`/`confidence`/`confidence_band` are always null here too, for the same
@@ -483,12 +535,16 @@ def add_position(
                 if existing.entry_notes
                 else position.entry_notes
             )
-        # strategy merges by overwriting rather than appending -- see this task's `decisions`
-        # entry: unlike entry_notes' narrative text, strategy is meant to be grouped/
-        # aggregated on exactly (equity-curves-by-strategy, the future backend-trade-apgar
-        # task), so a merge with an incoming strategy replaces the existing tag outright. A
-        # merge with no incoming strategy leaves the existing one untouched (nothing to
-        # replace it with).
+        # strategy merges by overwriting rather than appending -- see the
+        # backend-trade-strategy-tagging task's `decisions` entry: unlike entry_notes'
+        # narrative text, strategy is meant to be grouped/aggregated on exactly
+        # (equity-curves-by-strategy, the future backend-trade-apgar task), so a merge with an
+        # incoming strategy replaces the existing tag outright. A merge with no incoming
+        # strategy leaves the existing one untouched (nothing to replace it with).
+        # PositionIn's own field_validator already strips whitespace and normalizes a blank/
+        # whitespace-only tag to None before this handler ever runs, so a whitespace-only
+        # incoming tag is falsy here too and never overwrites an existing tag with whitespace
+        # -- see the backend-trade-strategy-tagging-followups task's `decisions`.
         if position.strategy:
             existing.strategy = position.strategy
         row = existing
@@ -994,7 +1050,38 @@ def get_closed_trades(
     rows = query.order_by(ClosedTradeORM.exit_date.desc(), ClosedTradeORM.id.desc()).all()
     grades = _grade_closed_trades(rows, provider)
 
-    return ClosedTradesResponse(items=[_to_closed_trade_out(row, grades[row.id]) for row in rows])
+    items: list[ClosedTradeOut] = []
+    dropped_row_ids: list[str] = []
+    for row in rows:
+        try:
+            items.append(_to_closed_trade_out(row, grades[row.id]))
+        except Exception:
+            # Defense in depth beyond the exit_reason-specific fallback above (which already
+            # covers the one failure mode actually observed): a single malformed row -- of any
+            # future/unanticipated kind, not just exit_reason -- is dropped and logged rather
+            # than 500ing every other trade in the list. See the
+            # backend-closed-trades-legacy-exit-reason-500 task's `decisions` entry.
+            logger.exception("Skipping closed_trades row %s: failed to build API response", row.id)
+            dropped_row_ids.append(row.id)
+    if dropped_row_ids:
+        # Aggregate signal on top of the per-row logger.exception above (backend-closed-trades-
+        # legacy-exit-reason-500-followups' `decisions` entry): a handful of per-row tracebacks
+        # scattered through the log is easy to miss, and by itself can't distinguish "one bad
+        # legacy row" from a systemic bug affecting most/all of `rows` -- an on-call engineer
+        # watching only aggregate log volume/error-rate metrics (not tailing every traceback)
+        # needs a single line carrying the count and ratio to notice the latter. logger.error,
+        # not .warning, since every row here already failed unexpectedly (dropped_row_ids is
+        # only ever non-empty via the `except Exception` above, never the exit_reason fallback,
+        # which never drops a row).
+        logger.error(
+            "GET /api/portfolio/closed-trades dropped %d/%d row(s) (%.1f%%) due to unexpected "
+            "per-row failures: %s",
+            len(dropped_row_ids),
+            len(rows),
+            100.0 * len(dropped_row_ids) / len(rows),
+            dropped_row_ids,
+        )
+    return ClosedTradesResponse(items=items)
 
 
 @router.post(
@@ -1058,7 +1145,7 @@ def record_follow_up_review(
         503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
     },
 )
-def get_trade_apgar(
+def evaluate_trade_apgar(
     request: TradeApgarIn, provider: DataProvider = Depends(get_data_provider)
 ) -> TradeApgarOut:
     """Elder ch. 58's "Trade Apgar" (docs/Analyse.md §7 / docs/ideas.md ch. 58): a fixed

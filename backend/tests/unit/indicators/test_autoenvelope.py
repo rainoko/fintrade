@@ -49,7 +49,6 @@ import pytest
 
 from app.indicators.autoenvelope import autoenvelope
 
-
 CLOSES = pd.Series([10, 12, 15, 14, 13, 16, 18, 17], dtype=float)
 
 

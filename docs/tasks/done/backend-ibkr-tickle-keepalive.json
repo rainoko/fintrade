@@ -1,0 +1,85 @@
+{
+  "id": "backend-ibkr-tickle-keepalive",
+  "title": "Automate the IBKR gateway /tickle session keep-alive",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-status-endpoint"],
+  "references": [
+    "backend/app/data/ibkr_provider.py",
+    "docs/architecture/Backend.md",
+    "docs/ideas.md#ibkr-client-portal-gateway-is-now-live-and-authenticated--concrete-next-steps"
+  ],
+  "description": "docs/architecture/Backend.md documents keeping the gateway session alive with a periodic GET /tickle call roughly once a minute, but this is currently a manual step for whoever does the browser login -- nothing in IBKRProvider or the FastAPI app itself ever calls it, so an authenticated session will silently expire on its own. Add a background repeating task that calls /tickle on an interval, only when Settings.ibkr_enabled is True. Depends on backend-ibkr-status-endpoint landing first so there's a way to observe/verify the keep-alive is actually working.",
+  "checklist": [
+    { "step": "Add a tickle() method to IBKRProvider calling GET /tickle, following the same _request boundary/error-handling convention as its other methods.", "done": true },
+    { "step": "Add a FastAPI lifespan background task that calls tickle() on an interval, started only when Settings.ibkr_enabled is True, and cleanly cancelled/stopped on app shutdown.", "done": true },
+    { "step": "Decide and record the polling interval (docs/architecture/Backend.md says 'roughly once a minute' -- pick and justify a concrete value).", "done": true },
+    { "step": "Unit tests for the tickle() call itself, and for the lifespan task being a no-op when ibkr_enabled is False.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "IBKRProvider.tickle() goes through the same _request boundary as every other method (so gateway-down/non-200/unparseable-body all surface as IBKRUnavailableError), but deliberately skips the _require_available()/get_gateway_status() pre-check that get_hourly_bars/get_scanner_params/run_scanner/resolve_conid all do first.",
+      "rationale": "Those other methods gate on availability because a data-fetching call against an unauthenticated gateway is pointless. /tickle's entire purpose is refreshing a session that's expected to still be authenticated -- gating it behind a status check would call GET /iserver/auth/status immediately before every single /tickle, doubling request volume against the gateway for no benefit; if the session actually expired, /tickle itself fails the same way the status check would have."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Polling interval for the lifespan /tickle loop is 45 seconds (app.main._IBKR_TICKLE_INTERVAL_SECONDS), not the literal 60s docs/architecture/Backend.md's 'roughly once a minute' names.",
+      "rationale": "docs/ideas.md's own research note on this gap warns 'IBKR's session timeout is short' without pinning an exact number, so 45s buys a safety margin below the letter of 'roughly once a minute' in case the real timeout is shorter than expected. Unlike /iserver/scanner/params and /iserver/scanner/run (documented, enforced 1-req/15-min and 1-req/sec rate limits respectively), IBKR's docs don't document any rate limit on /tickle itself, so polling somewhat more often than exactly once a minute costs nothing. Rejected picking exactly 60s (no margin, and 'roughly' already signals it's not meant to be exact) and picking something much shorter e.g. 10s (no evidence the timeout is that aggressive, and needlessly chatty against the gateway)."
+    },
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "The lifespan task's IBKRProvider instance is obtained via next(get_ibkr_provider()) (app.api.dependencies) rather than duplicating the Settings.ibkr_enabled check and constructing a fresh IBKRProvider directly in app.main.",
+      "rationale": "Reuses that dependency's existing gate and process-wide singleton (same HTTP client, so the tickle loop's calls share connection/cookie state with every other IBKR call the app makes) as a single source of truth instead of a second, independently-maintained enabled check. get_ibkr_provider has no cleanup logic after its single yield in either branch, so calling next() once without ever closing the generator loses nothing."
+    },
+    {
+      "timestamp": "2026-09-22T15:10:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the reproducible flake in TestLifespanIbkrTickleGate::test_enabled_logs_and_keeps_looping_when_tickle_fails (and the same structural risk in test_enabled_starts_a_task_that_calls_tickle) by replacing the fixed-200-iteration `await asyncio.sleep(0)` busy-wait with a real-timer poll: a new module-level `_wait_until(predicate, timeout=5.0, interval=0.01)` helper that awaits `asyncio.sleep(interval)` in a loop wrapped in `asyncio.wait_for(..., timeout=timeout)`.",
+      "rationale": "The reviewer's root cause was correct: `_ibkr_tickle_loop` calls `provider.tickle()` via `asyncio.to_thread`, a real thread-pool round trip, so 200 bare `sleep(0)` cooperative yields (no real wall-clock time) aren't guaranteed to let two such round trips land under load (coverage instrumentation, a busy CI host). Rejected an asyncio.Event set from inside the mock's side_effect -- that side_effect runs in the to_thread worker thread, and asyncio.Event isn't safe to .set() from a thread other than the loop's own (would need call_soon_threadsafe, adding complexity for no real benefit over a small real sleep). Rejected just raising the iteration count (e.g. 2000) -- still a fixed-count guess rather than a real condition wait, and either flakes again under enough load or wastes time in the common case. The chosen fix gives the worker thread genuine wall-clock time between checks while still bounding the wait so a real regression (loop never calling tickle()) fails promptly instead of hanging; verified with 40 repeated runs of tests/unit/test_main.py (plain) and 15 repeated runs with --cov=app (matching the reviewer's exact repro conditions) with zero failures, plus one full backend suite run (1170 passed, 100% coverage)."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-ibkr-tickle-keepalive",
+    "pr_number": 267,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/267",
+    "pushed_at": "2026-09-22T14:21:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T14:58:15Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/267",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Round 2: verified the flake fix (_wait_until real-timer poll bounded by asyncio.wait_for) independently rather than trusting the reported counts -- confirmed the helper genuinely raises asyncio.TimeoutError (not a silent pass) when its predicate never becomes true via a standalone repro, then ran backend/tests/unit/test_main.py 30x plain, 25x under --cov=app, and 20x more under --cov=app while the host was under deliberate CPU load (20 parallel `yes` processes on a 24-core box, to stress the exact 'busy host' condition the original flake needed). All 75 runs green.",
+        "file": "backend/tests/unit/test_main.py",
+        "line": 31
+      },
+      {
+        "summary": "Full backend suite + coverage run myself: 1170 passed, 100% line+branch coverage (gate is 90%). ruff/mypy clean on every file this PR touches; the 7 ruff findings from a repo-wide check are pre-existing in unrelated untouched files (tests/unit/indicators/test_stochastic.py, tests/unit/signals/test_triple_screen.py), confirmed via git diff --name-only against origin/main.",
+        "file": "backend/app/main.py",
+        "line": 0
+      },
+      {
+        "summary": "Ran an independent code-review pass (medium effort) against PR #267's full diff: corroborated the same three non-blocking findings already filed on backend-ibkr-tickle-keepalive-followups (stale Backend.md §8 wording, shutdown-mid-tickle-cancellation edge case, narrow except IBKRUnavailableError latent re-raise risk) and surfaced nothing new. Not duplicated as new followups.",
+        "file": "backend/app/main.py",
+        "line": 0
+      },
+      {
+        "summary": "No frontend/API surface touched by this PR (no route, no schema, no frontend file) -- backend/openapi.json correctly untouched, and no browser walkthrough / e2e run applies here.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 0
+      }
+    ],
+    "notes": "Round 1 (2026-09-22T14:34:04Z) found the flaky test blocking; task-worker's fix (commit 8eeee9d) replaced the fixed-200-iteration bare asyncio.sleep(0) busy-wait with a real-timer _wait_until helper bounded by asyncio.wait_for. Verified the fix genuinely non-flaky via 75 of my own repeated runs across three conditions (plain, --cov, --cov+CPU-load), on top of task-worker's own reported 40+15. Full backend suite (1170 passed, 100% coverage) and static analysis (ruff/mypy) clean on all touched files. Independent code-review pass found no new issues beyond the three already-tracked non-blocking findings on backend-ibkr-tickle-keepalive-followups (still planned, no duplicates added). No pr_decision was present from a prior pass to clear. Accepted; posted as a COMMENTED-type PR review, never merged."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T15:09:34Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite (1170 passed, 100% line+branch coverage, matching pr-reviewer's reported numbers exactly) and ruff/mypy clean on all touched files. Sanity-checked the flake claim myself: 65 repeated runs of tests/unit/test_main.py (25 plain, 20 under --cov=app.main, 20 more under --cov while the host was under deliberate CPU load from 16 parallel `yes` processes) all green, and confirmed via a standalone repro that _wait_until genuinely raises asyncio.TimeoutError (not a silent pass) when its predicate never becomes true. Confirmed Settings.ibkr_enabled defaults to False and no FINTRADE_IBKR_ENABLED env var is set. Skimmed the full diff (app/main.py, app/data/ibkr_provider.py, both test files) myself and confirmed it matches the four recorded decisions; the three non-blocking findings pr-reviewer filed are accurately captured on backend-ibkr-tickle-keepalive-followups (still planned, depends_on this task). index.json path/state mirror is consistent (done -> docs/tasks/done/)."
+  }
+}

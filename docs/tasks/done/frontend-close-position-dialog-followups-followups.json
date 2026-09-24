@@ -1,0 +1,53 @@
+{
+  "id": "frontend-close-position-dialog-followups-followups",
+  "title": "Non-blocking finding from PR #285's review (PositionsTable.handleConfirmClose's unconditional pendingDelete clear)",
+  "area": "frontend/pages/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-close-position-dialog-followups"],
+  "references": [
+    "docs/tasks/done/frontend-close-position-dialog-followups.json#decisions",
+    "https://github.com/rainoko/fintrade/pull/285",
+    "frontend/src/features/portfolio/components/PositionsTable.tsx"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's review of PR #285 (frontend-close-position-dialog-followups). PR #285's own `decisions` entry explicitly flagged this quirk as a real, pre-existing latent bug discovered while writing the PR's new regression test, but deliberately left it unfixed and unfiled ('if a future reviewer wants it tracked, the natural home is a new <id>-followups entry'). This reviewer's independent assessment agrees it's genuinely reachable (not just theoretical) and confirms via `git diff` that `handleConfirmClose`'s logic predates PR #285 (untouched by it) -- tracked here rather than blocking PR #285's otherwise-clean cleanup work, since fixing it is out of scope for that PR's 3 checklist items.",
+  "checklist": [
+    {
+      "step": "`PositionsTable.handleConfirmClose`'s `onSuccess: () => setPendingDelete(null)` callback is bound per-call to whichever position's `mutate()` invocation it was passed to, not to whatever `pendingDelete` currently holds when it later fires. Reachable sequence: (1) open Position A's ClosePositionDialog and confirm -- `deletePosition.mutate()` starts, held pending by a slow/delayed DELETE response; (2) dismiss A's dialog via a backdrop click while the DELETE is still in flight (`handleCancelClose` allows this, and doesn't call `reset()` while `isPending`); (3) open Position B's (a different position) ClosePositionDialog -- its Confirm button renders disabled/loading too, since `isPending` is shared/unscoped across the whole table (this is the exact invariant PR #285's own new regression test and doc comment describe); (4) A's DELETE resolves successfully -- its `onSuccess` fires, calling `setPendingDelete(null)` unconditionally, which closes B's dialog out from under the user at the same moment B's Confirm button would have become clickable, silently discarding any exit-reason/manual-override values the user had already entered for B, with no error or explanation shown. Not a data-corruption risk (B's position is never actually deleted), but a real, user-visible 'dialog vanishes unexpectedly mid-interaction' bug. Fix by scoping the `onSuccess` clear to only fire when `pendingDelete` still refers to the position that mutation call was for (e.g. capture the intended position id in the closure and compare against current `pendingDelete?.id`, or use a functional `setPendingDelete` updater that no-ops when the ids don't match), and add a regression test exercising this exact sequence (two positions, held DELETE responses, backdrop-dismiss then reopen-for-a-different-position, assert the second dialog stays open after the first's DELETE resolves).",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Scoped `handleConfirmClose`'s `onSuccess` clear with a functional `setPendingDelete` updater that captures the mutated position's id in the closure (`closedPositionId`) and no-ops unless `pendingDelete?.id` still matches it, rather than e.g. comparing against `deletePosition.variables?.id` read at callback-fire time (the pattern `belongsToOpenDialog` already uses elsewhere in this component) or adding a second piece of state to track 'which position is this mutate() call for'.",
+      "rationale": "The closure-captured id is simpler and unambiguous: `deletePosition.variables` is TanStack Query's own single most-recent-call snapshot, which is exactly the kind of not-necessarily-matching-which-callback-is-firing indirection that caused this bug in the first place if a third close were to start before this callback runs (unlikely given the shared-isPending guard, but not worth relying on transitively). A locally-captured `const closedPositionId = pendingDelete.id` above the `mutate()` call ties the check directly to the specific invocation's own intent with no dependency on mutation-observer ordering."
+    },
+    {
+      "timestamp": "2026-09-23T23:30:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended the existing PositionsTable.test.tsx test (previously titled 'keeps a second position's dialog Confirm button disabled while a different position's close is still pending...', which already built the exact repro sequence but stopped short of asserting post-resolve dialog state, per its own comment noting the quirk was 'outside this test's scope') with the new assertions and a comment explaining what's now verified, rather than adding a wholly separate test.",
+      "rationale": "The existing test already set up the full two-position/held-DELETE/backdrop-dismiss/reopen sequence this bug needs -- duplicating that setup in a new test would just be a near-identical copy differing only in its final assertions. Extending it keeps one authoritative test for the whole scenario and removes the now-stale comment explicitly calling out this exact gap, rather than leaving that comment sitting next to a second test that closes it."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-close-position-dialog-followups-followups",
+    "pr_number": 286,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/286",
+    "pushed_at": "2026-09-23T23:20:33Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-23T23:32:25Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/286",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #286. Traced the exact repro sequence from the task description against `handleConfirmClose`'s new functional `setPendingDelete` updater and confirmed it genuinely closes the race, not just the specific test written for it: reverted the fix locally (restored the old unconditional `setPendingDelete(null)`) and re-ran PositionsTable.test.tsx -- the extended assertions fail exactly as expected (dialog no longer present after AAPL's held DELETE resolves), then restored the fix and confirmed green again. Independently reproduced the full sequence live in a real Chromium browser (Playwright driving a manually-started backend+frontend stack, with the AAPL DELETE held via page.route()): opened AAPL's dialog and confirmed, backdrop-dismissed it while its DELETE was held, opened GOOGL's dialog (rendered with its own Confirm disabled/loading, confirming the shared-isPending invariant), released AAPL's DELETE, and confirmed GOOGL's dialog stayed open with its own title and its Confirm button re-enabling -- no console errors or failed network requests. Also verified the normal single-close flow is unaffected (dialog closes on its own once its own DELETE resolves, position removed from the table). Backend suite: 1203 passed, 100% coverage. Frontend suite: 831 passed, 99.76%/99.31%/99.78%/99.82% (statements/branches/functions/lines), well above the 90% gate. Backend ruff/mypy and frontend eslint/tsc/profit-target-wording guard all clean. Ran the code-review skill against the diff independently -- no bugs found. Ran the full persisted e2e suite (`make e2e`) -- all 22 specs passed. Change is frontend-only (no API/schema touch, so no openapi.json check applies); no new module/component/layer introduced (existing PositionsTable.tsx modified in place, correctly placed under features/portfolio/components already), so architecture-review/component-placement assessment doesn't apply here. Area is frontend/pages/portfolio, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply. No checklist item phrased as 'decide X' without a corresponding decisions entry -- both judgment calls made (closure-capture vs `variables?.id`, extending vs duplicating the existing test) are recorded with rationale. No non-blocking findings from this review; no followup task filed."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-23T23:39:56Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full frontend suite (831/831 passed, 99.76%/99.31%/99.78%/99.82% stmts/branches/fns/lines) and backend suite (1203/1203 passed, 100% coverage) -- both match pr-reviewer's reported numbers exactly. Ran eslint and tsc -b clean, and scripts/validate_tasks.py clean (287 files, no violations). Skimmed the full diff (PositionsTable.tsx, PositionsTable.test.tsx, both task JSONs, index.json) -- the fix is exactly as described: closure-captured closedPositionId plus a functional setPendingDelete updater that no-ops on id mismatch. Spot-checked the revert-and-confirm-test-fails claim myself: reverted handleConfirmClose to the old unconditional setPendingDelete(null), re-ran PositionsTable.test.tsx, and got exactly the expected single failure (getByText for ZZZZ's dialog title not found -- dialog gone), then restored the fix and confirmed the working tree matched the original PR diff with no residue. No non-blocking findings missed; accept holds."
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "id": "frontend-trade-grade-letter-display",
+  "title": "Show the letter grade (A/B/C/D) in the Trade Journal",
+  "area": "frontend/pages/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["backend-trade-grade-letter"],
+  "references": [
+    "frontend/src/features/portfolio/components/TradeJournalPanel.tsx",
+    "docs/ideas.md#letter-grade-scores-abcd-not-just-raw-grade-percentages"
+  ],
+  "description": "TradeJournalPanel.tsx currently only renders raw grade percentages, with its own code comment explaining the letter grade was deliberately left out pending a documented threshold decision. backend-trade-grade-letter now provides that. Show the new letter grade alongside the existing percentage in TradeJournalPanel's grade cells.",
+  "checklist": [
+    { "step": "Render the letter grade in GradeCell alongside the existing percentage.", "done": true },
+    { "step": "Update/add component tests for the new letter display, covering each letter grade.", "done": true },
+    { "step": "Remove or update GradeCell's existing code comment that explained why the letter grade was previously left out, now that it's implemented.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Render trade_letter_grade appended to the existing percentage text as `${pct}% (${letter})` (e.g. \"32.1% (A)\"), inside the same Typography span GradeCell already uses for the percentage, rather than a separate Chip/badge element. GradeCell gained a new optional `letterGrade` prop (default null) that only the trade_grade_pct column passes (buy/sell grade columns omit it, since backend-trade-grade-letter deliberately left those percentage-only).",
+      "rationale": "A plain parenthetical suffix keeps the letter tightly bound to the exact percentage it was derived from (readers see both together, with the letter as a plain-language gloss on the number) without adding a second visual element, extra spacing, or a new common/ component for a two-character label that only ever appears in this one column. A Chip (as used for exit_reason) was considered and rejected: exit_reason is a categorical tag with no adjacent numeric value to relate it to, which is exactly what makes a separate visual chip earn its place there, whereas here the letter is redundant restated information already implied by the percentage (a reader who knows the A/B/C/D bands from the percentage alone gains nothing structurally different from a chip vs. inline text) -- Elder's own ch. 55 framing treats the letter as a label *for* the percentage, not an independent tag. Also considered showing the letter only via MetricHelp's tooltip text (no visible change to the base cell) -- rejected because the task's own title/checklist explicitly calls for showing the letter 'alongside the existing percentage' in the cell itself, not tucked away in a help popover a user might never open. Kept the letter out of GradeCell's bold/not-bold color logic (isGood still keys off gradePct alone) since that threshold (30%) already exactly coincides with the A/B boundary for trade_grade_pct, so no new visual signal was needed. Buy/sell grade columns don't pass letterGrade at all (defaulting to null, i.e. no parenthetical) rather than being wired to always pass null explicitly, since backend-trade-grade-letter's own decisions record already settled that those two metrics have no letter-grade scale in the book at all."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-trade-grade-letter-display",
+    "pr_number": 247,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/247",
+    "pushed_at": "2026-09-22T03:36:29Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T03:46:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/247",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review pass: backend pytest --cov=app 99.95% (1139 passed), frontend vitest --coverage 99.72%/99.2%/99.72%/99.79% (all above the 90% gate, no regressions). Static analysis clean: ruff, mypy, eslint, tsc -b --noEmit, and the profit-target wording guard all pass with zero findings. code-review skill (effort medium) against the diff found zero correctness/reuse/simplification issues. No backend/API/schema change in this PR, so no openapi.json regeneration was needed (trade_letter_grade was already added and documented by the already-merged backend-trade-grade-letter task). No new component was introduced (GradeCell already existed in features/portfolio/components/ and only gained an optional prop), so add-frontend-feature's common/-vs-feature placement question doesn't newly arise here. Browser walkthrough: started the app with FINTRADE_DATA_PROVIDER_MODE=fixture, seeded four real closed trades via the actual add/delete-position API (buy/sell prices hand-derived from the fixture provider's own OHLCV + autoenvelope channel to hit each letter band), and drove a real Chromium browser (Playwright, since no browser MCP tool was available in this session) against the running Trade Journal. Confirmed via DOM text/computed styles: Trade Grade column renders '5.0% (D)', '15.0% (C)', '25.0% (B)', '35.0% (A)' -- all four letters -- with the existing >=30% bold threshold still applying correctly (only 35.0% (A) bold). Buy Grade/Sell Grade columns in the same rows render bare percentages ('90.0%', '144.0%', '65.8%', '86.6%', '-61.3%') with no parenthetical letter, confirming those columns are genuinely unaffected, including their own independent >50% bold threshold. No console errors, no failed/4xx+ network requests. Also checked at a 375px viewport: the '(A)' suffix wraps onto its own line inside the Trade Grade cell under narrow width, consistent with how other cells (e.g. entry/exit date+price) already wrap in this table -- not a regression introduced by this change. Ran the persisted e2e suite (make e2e): 18/18 specs passed across dashboard/methodology/navigation/portfolio/stock-analysis/watchlist. The recorded `decisions` entry is sound: it correctly cites Elder ch. 55's letter-as-a-label-for-the-percentage framing, matches backend-trade-grade-letter's own decision that only trade_grade_pct gets a letter (buy/sell have no letter-grade scale in the book), and the rejected Chip/tooltip-only alternatives are reasoned through rather than asserted. Checklist cross-check: all three items are done and none are phrased as 'decide X' needing a further decisions entry beyond the one already recorded. No non-blocking findings were identified in this pass, so no follow-up task was filed for this PR."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T03:56:49Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest --cov=app (1139 passed, 99.95% coverage) and frontend vitest --coverage (728 passed, 99.72%/99.2%/99.72%/99.79%) -- both match pr-reviewer's reported numbers exactly. Re-ran tsc -b --noEmit and eslint on the two changed files, both clean. Read the full diff: GradeCell's new optional letterGrade prop defaults to null and is only wired into the trade_grade_pct column's render call; buy_grade_pct/sell_grade_pct columns' render calls were left untouched (no letterGrade passed), confirming those columns are genuinely unaffected by inspection, not just by comment. trade_letter_grade already exists on ClosedTradeOut in backend/openapi.json and frontend/src/api/types.ts from the already-merged backend-trade-grade-letter task, so no schema drift. The recorded decisions entry gives a reasoned rationale (parenthetical suffix vs. Chip vs. tooltip-only) consistent with Elder ch.55 framing and backend-trade-grade-letter's own decision. Accept holds."
+  }
+}

@@ -19,11 +19,16 @@ explanation.
    environment notes; `pip install -e ".[dev]"` first if `ruff`/`mypy` aren't installed
    yet):
    ```
-   ruff check app/
+   ruff check .
    ```
    Findings here are lint/style issues (import order, unused imports, FastAPI-unsafe
    default-argument patterns, simplifiable conditionals, etc.) per `[tool.ruff]` in
-   `backend/pyproject.toml`.
+   `backend/pyproject.toml`. Deliberately not narrowed to `app/`: unlike `[tool.mypy]`
+   (which scopes to `files = ["app"]` below, for the reasons in step 2), `[tool.ruff]`
+   has no such scoping and applies repo-wide (only `app/db/migrations/versions`
+   excluded) — running the narrower `app/`-only command let real, auto-fixable findings
+   in `tests/` go unnoticed by this skill's own gate across several review rounds until
+   `backend-static-verify-cleanup` cleared them by hand; see that task's `decisions`.
 
 2. **Backend type check.** Same environment:
    ```

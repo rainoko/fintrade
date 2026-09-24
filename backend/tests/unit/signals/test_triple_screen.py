@@ -438,7 +438,6 @@ class TestEvaluateTidePrecomputedSeries:
         from app.indicators.macd import macd_components as real_macd_components
 
         closes = pd.Series([100 * (1.03**i) for i in range(20)], dtype=float)
-        full_ohlcv = _weekly_ohlcv(closes)
         truncated_ohlcv = _weekly_ohlcv(closes.iloc[:-1])
 
         full_components = real_macd_components(closes)

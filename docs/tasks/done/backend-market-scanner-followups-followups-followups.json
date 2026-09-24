@@ -1,0 +1,59 @@
+{
+  "id": "backend-market-scanner-followups-followups-followups",
+  "title": "Non-blocking follow-ups from backend-market-scanner-followups-followups review (PR #239)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-market-scanner-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-market-scanner-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/239"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #239 (the typed `Retry-After` OpenAPI header added to POST /api/ibkr/scanner/run's and POST /api/ibkr/breadth/snapshot's 429 responses), tracked here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "The generated `\"Retry-After\"?: number` field on both 429 responses (frontend/src/api/types.ts) is currently unreachable from any actual frontend code: the hand-rolled frontend/src/api/client.ts `request()`/`ApiError` never surfaces `response.headers` to callers at all (`ApiError` only carries `status`/`detail`). Before any future feature actually reads Retry-After to schedule a UI retry, thread response headers through the client (or a dedicated typed accessor) -- and note that a real `Headers` instance is read via `.get('Retry-After')` (returns a string) rather than bracket access on a plain object, so the generated `number` type needs an explicit parse step, not a direct cast.",
+      "done": true
+    },
+    {
+      "step": "The `Retry-After` header spec in backend/app/api/routers/ibkr.py's `responses={}` (both routes) omits `required: true`, even though `_rate_limited_http_exception` unconditionally sets this header on every 429 these two routes raise. Add `required: true` so the generated type is `\"Retry-After\": number` (non-optional) instead of `\"Retry-After\"?: number`, and regenerate backend/openapi.json + frontend/src/api/types.ts.",
+      "done": true
+    },
+    {
+      "step": "The `headers: {\"Retry-After\": {...}}` dict literal (and its enclosing 429 `description` string) is duplicated verbatim between run_ibkr_scanner's and record_ibkr_breadth_snapshot's `responses={}` in backend/app/api/routers/ibkr.py. Factor it into a shared module-level constant (e.g. `_RETRY_AFTER_HEADER_SPEC`) referenced by both routes' `responses={}` dicts so the two 429 specs can't silently drift out of sync.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-21T23:50:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `retryAfterSeconds: number | null` as a new field on `ApiError` (frontend/src/api/client.ts), populated only for a non-2xx response via a new `parseRetryAfterSeconds()` helper that reads `response.headers.get('Retry-After')` and accepts only a digits-only integer-seconds string (the form these two backend routes always send), returning `null` otherwise -- including for an RFC 9110-legal HTTP-date `Retry-After` value, which no route in this app ever actually sends. Rejected alternatives: (1) a separate `getResponseHeaders()`/typed accessor threaded alongside the parsed body through `request()`'s return value, which would force every one of the ~30 existing `ApiError` call sites across api/*.ts and their tests to change shape for a header only two routes ever set; (2) casting the header string directly to `number` per the generated OpenAPI type, which is simply wrong for a real `Headers.get()` return value (always `string | null`) and would produce `NaN`/type-lies for a non-numeric header.",
+      "rationale": "This is the narrowest change that actually makes Retry-After reachable from frontend code (closing the checklist's core gap) without reshaping `request()`'s generic success-path return type or every existing caller. `retryAfterSeconds` defaults to `null` on the constructor and every other error path (network failure, 4xx/5xx without the header), so no existing test asserting on `status`/`detail` needed to change."
+    },
+    {
+      "timestamp": "2026-09-21T23:52:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Factored the duplicated 429 `responses={}` entry (description + `headers` dict, now with `required: true` added) into a single module-level `_RETRY_AFTER_429_RESPONSE` dict in backend/app/api/routers/ibkr.py, referenced by both `run_ibkr_scanner` and `record_ibkr_breadth_snapshot`'s `responses={}`, rather than the checklist's suggested name `_RETRY_AFTER_HEADER_SPEC` (which described only the inner `headers` sub-dict, not the full 429 entry that was actually duplicated including its `description` and `model`).",
+      "rationale": "Factoring the whole 429 entry (not just the `headers` sub-dict) is what actually prevents the two specs from drifting -- the checklist's own repro line named the `description` string as also duplicated. The renamed constant reflects what it actually holds."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-market-scanner-followups-followups-followups",
+    "pr_number": 241,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/241",
+    "pushed_at": "2026-09-21T23:56:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T00:01:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/241",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (1135 passed, 99.95% coverage), frontend vitest (707 passed, 99.72%/99.19%/99.72%/99.78% stmt/branch/func/line coverage) -- both well above the 90% gate and no regression. ruff/mypy/eslint/tsc all clean; check_profit_target_wording.py clean. Regenerated backend/openapi.json and frontend/src/api/types.ts from scratch and confirmed zero diff against the committed snapshot -- genuinely in sync, not just claimed. Both recorded decisions are sound: the ApiError.retryAfterSeconds field is the narrower backward-compatible choice over threading headers through request()'s return type, and the _RETRY_AFTER_429_RESPONSE constant name accurately reflects that the whole 429 entry (not just the headers sub-dict the checklist's suggested name implied) was duplicated. Verified _rate_limited_http_exception unconditionally sets Retry-After as a digits-only integer string on both call sites, so required: true and the frontend regex parse are both honest. Verified (via FastAPI's own get_openapi_path source) that sharing one _RETRY_AFTER_429_RESPONSE dict object across two routes' responses={} is safe -- FastAPI deepcopies each entry before mutating, so no aliasing hazard. No UI surface touched (only api/client.ts and api/types.ts; the new field is deliberately unreachable from any UI code yet per the task's own decision) -- browser walkthrough and e2e suite both explicitly skipped as not applicable. area is backend/api (not signals/portfolio) and skill is null, so verify-elder-signal skipped; no new module/dependency/layer, so architecture-review skipped; no frontend component touched, so the 7a placement check doesn't apply. Independent code-review skill pass (medium effort) found zero correctness/reuse/simplification/efficiency issues, independently corroborating the FastAPI deepcopy finding. No blocking or non-blocking findings -- no follow-up task filed this round."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T00:11:45Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend pytest (1135 passed, 99.95% coverage) and frontend vitest (707 passed, 99.72%/99.19%/99.72%/99.78% stmt/branch/func/line) -- exact match to pr-reviewer's reported numbers. Skimmed the full diff (ibkr.py, openapi.json, client.ts, client.test.ts, types.ts) myself. Regenerated backend/openapi.json via export_openapi.py and frontend/src/api/types.ts via openapi-typescript directly against the committed snapshots -- zero diff both ways, confirming the in-sync claim rather than trusting it. Confirmed ruff/eslint/tsc clean on touched files (the 7 pre-existing ruff findings elsewhere are unchanged on origin/main, verified via a throwaway worktree, and untouched by this PR's diff). Read _rate_limited_http_exception (ibkr.py:144-160, called from both routes at lines 251 and 325) and confirmed math.ceil(exc.retry_after) + str() unconditionally produces a digits-only string, so `required: true` and the frontend digits-only regex are both honest. Confirmed FastAPI's get_openapi_path deepcopies each responses={} entry before mutating (process_response = copy.deepcopy(additional_response)), so sharing _RETRY_AFTER_429_RESPONSE across both routes has no aliasing hazard. No human PR comments/reviews found overriding the automated accept. Both decisions entries hold up. No skill (add-indicator) reference-value check applicable since skill is null."
+  }
+}

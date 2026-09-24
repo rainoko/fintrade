@@ -172,11 +172,36 @@ describe('VolumeIndicatorsChart', () => {
     expect(createChartMock).not.toHaveBeenCalled()
   })
 
-  it('shows a 404 error via common/ErrorState for an unknown ticker', async () => {
+  // This chart shares the exact same useIndicatorHistory hook/query key with
+  // PriceChart, OscillatorChart, and TrendStrengthChart (all composed
+  // together by StockCharts.tsx). By default it still renders its own
+  // common/ErrorState on indicatorsQuery.isError -- a standalone mount (no
+  // errorSurfacedBySibling-passing sibling) must still surface a real fetch
+  // failure. Only a caller that explicitly passes errorSurfacedBySibling
+  // (StockCharts.tsx, since PriceChart already owns this shared failure's
+  // ErrorState) opts out -- see this component's own prop doc comment and
+  // the frontend-position-risk-columns-followups-followups-followups-
+  // followups task's decisions entry.
+  it('renders its own ErrorState on a 404 for an unknown ticker by default (no errorSurfacedBySibling)', async () => {
     renderWithProviders(<VolumeIndicatorsChart ticker="UNKNOWN" range="1y" />)
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Not found')).toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing (no own ErrorState) on a 404 when errorSurfacedBySibling is passed, since PriceChart owns this shared failure', async () => {
+    renderWithProviders(
+      <VolumeIndicatorsChart ticker="UNKNOWN" range="1y" errorSurfacedBySibling />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Loading volume indicator history for UNKNOWN...'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
   })
 
   it('does not fetch or render when disabled (weekly interval upstream), showing an explanatory message instead', async () => {

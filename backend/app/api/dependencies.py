@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.data.base import DataProvider
 from app.data.cache import CachedDataProvider
+from app.data.cftc_cot_provider import CFTCCOTProvider
 from app.data.fixture_provider import FixtureDataProvider
 from app.data.ibkr_provider import IBKRProvider
 from app.data.stooq_provider import StooqProvider
@@ -129,3 +130,15 @@ def get_ibkr_provider() -> Iterator[IBKRProvider | None]:
         return
 
     yield _get_ibkr_provider_singleton()
+
+
+def get_cftc_cot_provider() -> CFTCCOTProvider:
+    """The CFTC Commitments of Traders (COT) provider used by `app.api.routers.cftc`
+    (docs/tasks/backend-cftc-cot-data.json).
+
+    A fresh instance per request, same as `get_data_provider`'s yfinance/Stooq adapters:
+    `CFTCCOTProvider` is stateless (no rate-limit/session state to preserve across
+    requests, unlike `IBKRProvider`), so there's nothing a shared singleton would buy here
+    -- see this task's `decisions` entry.
+    """
+    return CFTCCOTProvider()

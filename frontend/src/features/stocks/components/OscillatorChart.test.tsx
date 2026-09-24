@@ -466,25 +466,52 @@ describe('OscillatorChart', () => {
     expect(createChartMock).not.toHaveBeenCalled()
   })
 
-  it('shows a 404 error via common/ErrorState for an unknown ticker', async () => {
+  // This chart shares the exact same useIndicatorHistory hook/query key with
+  // PriceChart, VolumeIndicatorsChart, and TrendStrengthChart (all composed
+  // together by StockCharts.tsx). By default it still renders its own
+  // common/ErrorState on indicatorsQuery.isError -- a standalone mount (no
+  // errorSurfacedBySibling-passing sibling) must still surface a real fetch
+  // failure. Only a caller that explicitly passes errorSurfacedBySibling
+  // (StockCharts.tsx, since PriceChart already owns this shared failure's
+  // ErrorState) opts out -- see this component's own prop doc comment and
+  // the frontend-position-risk-columns-followups-followups-followups-
+  // followups task's decisions entry.
+  it('renders its own ErrorState on a 404 for an unknown ticker by default (no errorSurfacedBySibling)', async () => {
     renderWithProviders(<OscillatorChart ticker="UNKNOWN" range="1y" />)
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Not found')).toBeInTheDocument()
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
   })
 
-  it('shows a 503 error via common/ErrorState when the market data provider is unavailable', async () => {
+  it('renders its own ErrorState on a 503 when the market data provider is unavailable by default (no errorSurfacedBySibling)', async () => {
     renderWithProviders(<OscillatorChart ticker="NOPROVIDER" range="1y" />)
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
   })
 
-  it('shows a 422 error via common/ErrorState for insufficient weekly history', async () => {
+  it('renders its own ErrorState on a 422 for insufficient weekly history by default (no errorSurfacedBySibling)', async () => {
     renderWithProviders(<OscillatorChart ticker="THINHISTORY" range="1y" />)
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByText('Unable to process request')).toBeInTheDocument()
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing (no own ErrorState) on a 404 when errorSurfacedBySibling is passed, since PriceChart owns this shared failure', async () => {
+    renderWithProviders(
+      <OscillatorChart ticker="UNKNOWN" range="1y" errorSurfacedBySibling />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Loading oscillator history for UNKNOWN...'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('oscillator-chart-canvas')).not.toBeInTheDocument()
   })
 
   it('does not fetch or render when disabled (weekly interval upstream), showing an explanatory message instead', async () => {

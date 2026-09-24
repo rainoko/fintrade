@@ -1,11 +1,23 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
+import { isoDateWeeksAgo } from '../dateFixtures'
 import type {
+  DailyHomeworkIn,
+  DailyHomeworkOut,
+  YesterdayTradingSuggestionOut,
+} from '../../src/api/homework'
+import type { IBKRStatusResponse } from '../../src/api/ibkr'
+import type {
+  ClosedTradeOut,
   ClosedTradesResponse,
+  FollowUpReviewIn,
   PortfolioResponse,
   PositionIn,
   PositionOut,
   RiskResponse,
+  TradeApgarIn,
+  TradeApgarOut,
+  TradeApgarQuestionOut,
 } from '../../src/api/portfolio'
 import type {
   AnalysisResponse,
@@ -35,9 +47,15 @@ import type {
 //
 // Sentinel tickers (case-insensitive, matched after the same uppercase
 // normalization the backend applies — see API.md):
-//   UNKNOWN       -> 404 (stocks: analysis + history + indicators)
-//   NOPROVIDER    -> 503 (stocks: analysis + history + indicators)
-//   THINHISTORY   -> 422 insufficient weekly history (analysis + indicators always; history only when interval=weekly)
+//   UNKNOWN       -> 404 (stocks: analysis + history + indicators; also POST /api/portfolio/trade-apgar)
+//   NOPROVIDER    -> 503 (stocks: analysis + history + indicators; also POST /api/portfolio/trade-apgar)
+//   THINHISTORY   -> 422 insufficient weekly history (analysis + indicators always; history only when interval=weekly; also POST /api/portfolio/trade-apgar)
+//   APGARHIGH     -> POST /api/portfolio/trade-apgar only: auto-populated questions (weekly/daily
+//                    Impulse, price vs. value) all score the maximum (2 each, auto total 6) rather
+//                    than the default profile's 1-each (auto total 3) below -- lets a test reach a
+//                    high `total_score` while still driving one manual answer to 0, to exercise
+//                    Elder's "no single zero" rule at a high total (docs/ideas.md ch. 58) without
+//                    the default ticker's lower auto total making that combination unreachable.
 // Sentinel position ids:
 //   any id not present in the in-memory portfolio store -> 404 (DELETE)
 // Sentinel POST /api/portfolio/positions payloads:
@@ -54,6 +72,15 @@ import type {
 // not present in `mockTickerTideTrends` below counts as `unavailable_count`
 // (Tide couldn't be computed right now), the same convention as
 // mockTickerSignals' own "no entry -> null signal" rule above.
+// GET /api/ibkr/status: defaults to 'disabled' (this app's own real
+// backend default, `Settings.ibkr_enabled = False`) — every test that
+// renders AppShell (frontend-ibkr-status-indicator's IbkrStatusIndicator
+// lives in its app bar) hits this handler whether or not it cares about
+// IBKR specifically, so the default has to be a fixed, deterministic value.
+// A test that does care about a different state (`available`/
+// `gateway_unreachable`/`not_authenticated`, or a transport failure)
+// overrides it directly with `server.use()`, same as every other
+// non-sentinel-driven override in this file (e.g. PriceChart.test.tsx).
 
 const analysisFixture: AnalysisResponse = {
   ticker: 'AAPL',
@@ -232,6 +259,8 @@ const closedTradesFixture: ClosedTradesResponse = {
       sell_grade_pct: 35.5,
       trade_grade_pct: 32.1,
       trade_letter_grade: 'A',
+      follow_up_notes: null,
+      follow_up_reviewed_at: null,
     },
     {
       id: 'trade_def456',
@@ -247,8 +276,68 @@ const closedTradesFixture: ClosedTradesResponse = {
       sell_grade_pct: null,
       trade_grade_pct: null,
       trade_letter_grade: null,
+      follow_up_notes: null,
+      follow_up_reviewed_at: null,
     },
   ],
+}
+
+// A third row dated *relative to now* (unlike the two fixed-date rows
+// above), so it reliably falls inside the 8-10-week due-for-follow-up window
+// (API.md's `due_for_follow_up` query parameter) regardless of when the test
+// suite happens to run -- a fixed date would drift out of the window as real
+// time passes. Exercises `POST .../follow-up-review` end to end too: it
+// starts unreviewed and, once reviewed, correctly drops out of the
+// due-filtered GET (see `isDueForFollowUp` below).
+const dueTradeFixture: ClosedTradeOut = {
+  id: 'trade_due_nvda',
+  ticker: 'NVDA',
+  quantity: 10,
+  entry_price: 100.0,
+  entry_date: isoDateWeeksAgo(12),
+  exit_price: 120.0,
+  exit_date: isoDateWeeksAgo(9),
+  realized_pnl: 200.0,
+  exit_reason: 'target_hit',
+  buy_grade_pct: null,
+  sell_grade_pct: null,
+  trade_grade_pct: null,
+  trade_letter_grade: null,
+  follow_up_notes: null,
+  follow_up_reviewed_at: null,
+}
+
+// Mutable in-memory closed-trades store backing GET/POST
+// /api/portfolio/closed-trades(/*), the same pattern (and reset convention)
+// `positions`/`resetPortfolioStore` establish above -- so a test can record a
+// follow-up review and then observe it both on a subsequent unfiltered GET
+// and dropping out of the due-filtered GET.
+type StoredClosedTrade = ClosedTradeOut
+
+const FOLLOW_UP_MIN_WEEKS = 8
+const FOLLOW_UP_MAX_WEEKS = 10
+const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000
+
+// Mirrors the backend's own due-for-follow-up filter (API.md,
+// backend-trade-journal-followup-review's `decisions` entry): not yet
+// reviewed, and `exit_date` between 8 and 10 weeks ago inclusive.
+function isDueForFollowUp(trade: StoredClosedTrade): boolean {
+  if (trade.follow_up_reviewed_at !== null) {
+    return false
+  }
+  const exitMs = new Date(`${trade.exit_date}T00:00:00Z`).getTime()
+  const weeksAgo = (Date.now() - exitMs) / MS_PER_WEEK
+  return weeksAgo >= FOLLOW_UP_MIN_WEEKS && weeksAgo <= FOLLOW_UP_MAX_WEEKS
+}
+
+function initialClosedTrades(): StoredClosedTrade[] {
+  return [...closedTradesFixture.items, dueTradeFixture].map((trade) => ({ ...trade }))
+}
+
+let closedTrades: StoredClosedTrade[] = initialClosedTrades()
+
+export function resetClosedTradesStore(): void {
+  closedTrades = initialClosedTrades()
 }
 
 const riskFixture: RiskResponse = {
@@ -367,6 +456,7 @@ let nextPositionId = 1
 export function resetPortfolioStore(): void {
   positions = initialPositions.map((position) => ({ ...position }))
   nextPositionId = 1
+  resetClosedTradesStore()
 }
 
 function cash(): number {
@@ -393,6 +483,50 @@ function portfolioResponse(): PortfolioResponse {
 const MIN_WEEKLY_BARS_TICKER = 'THINHISTORY'
 const UNKNOWN_TICKER = 'UNKNOWN'
 const PROVIDER_DOWN_TICKER = 'NOPROVIDER'
+
+// POST /api/portfolio/trade-apgar's own scoring tables, mirroring
+// `app.portfolio.trade_apgar`'s fixed scoring exactly (Elder ch. 58,
+// docs/ideas.md) -- kept in the mock rather than importing anything from the
+// backend, same as every other handler in this file computing its own
+// response shape from request input.
+const HIGH_AUTO_SCORE_TICKER = 'APGARHIGH'
+
+type MockImpulseColor = 'RED' | 'GREEN' | 'BLUE'
+type MockPriceVsValue = 'above_value' | 'in_value_zone' | 'below_value'
+
+const IMPULSE_SCORES: Record<MockImpulseColor, number> = { RED: 0, GREEN: 1, BLUE: 2 }
+const PRICE_VS_VALUE_SCORES: Record<MockPriceVsValue, number> = {
+  above_value: 0,
+  in_value_zone: 1,
+  below_value: 2,
+}
+const FALSE_BREAKOUT_SCORES: Record<TradeApgarIn['false_breakout_status'], number> = {
+  none: 0,
+  already_happened: 1,
+  on_the_verge: 2,
+}
+const PERFECTION_SCORES: Record<TradeApgarIn['perfection'], number> = {
+  neither: 0,
+  one: 1,
+  both: 2,
+}
+
+// Every ticker other than HIGH_AUTO_SCORE_TICKER gets this same
+// deterministic, middling auto-question profile (auto total 3) -- fine for
+// tests exercising the go/low-total-no-go outcomes, but too low to also
+// reach a single-zero-at-high-total outcome (max manual score is 2+2=4, so
+// zeroing one manual answer caps the total at 3+0+2=5) -- see
+// HIGH_AUTO_SCORE_TICKER above for that case.
+function tradeApgarAutoQuestions(ticker: string): {
+  weekly_impulse: MockImpulseColor
+  daily_impulse: MockImpulseColor
+  price_vs_value: MockPriceVsValue
+} {
+  if (ticker === HIGH_AUTO_SCORE_TICKER) {
+    return { weekly_impulse: 'BLUE', daily_impulse: 'BLUE', price_vs_value: 'below_value' }
+  }
+  return { weekly_impulse: 'GREEN', daily_impulse: 'GREEN', price_vs_value: 'in_value_zone' }
+}
 
 const RANGE_PATTERN = /^(max|\d{1,4}[dwmy])$/
 
@@ -430,12 +564,106 @@ export function resetWatchlistStore(): void {
   watchlistItems = initialWatchlistItems.map((item) => ({ ...item }))
 }
 
+// Mutable in-memory daily-homework store backing GET /api/daily-homework/today
+// and POST /api/daily-homework, keyed by calendar date (the real backend's
+// own primary key -- see backend-daily-homework-self-test's `decisions`).
+// `resetDailyHomeworkStore` clears it between tests (call from `beforeEach`).
+type StoredDailyHomeworkEntry = DailyHomeworkOut
+
+const dailyHomeworkEntries = new Map<string, StoredDailyHomeworkEntry>()
+
+export function resetDailyHomeworkStore(): void {
+  dailyHomeworkEntries.clear()
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// Mirrors the real backend's own thresholds exactly (app.portfolio.homework.
+// band_for_total_score, docs/architecture/API.md).
+function bandForTotalScore(totalScore: number): DailyHomeworkOut['band'] {
+  if (totalScore <= 4) {
+    return 'red'
+  }
+  if (totalScore <= 6) {
+    return 'yellow'
+  }
+  if (totalScore <= 8) {
+    return 'green'
+  }
+  return 'yellow'
+}
+
+// Static fixture backing GET /api/daily-homework/yesterday-trading-suggestion
+// -- deliberately *not* derived from the `closedTrades` store above (whose
+// fixture dates are fixed, not relative to whatever "today" the test
+// actually runs on), so this stays a deterministic, always-available
+// suggestion a form can prefill from rather than usually resolving to null.
+// A test that cares about the "nothing closed yesterday" (null) case
+// overrides this directly with `server.use()`.
+const yesterdayTradingSuggestionFixture: YesterdayTradingSuggestionOut = {
+  as_of_date: '2026-09-20',
+  net_realized_pnl: 150.0,
+  suggested_score: 2,
+}
+
+const defaultIbkrStatusResponse: IBKRStatusResponse = {
+  state: 'disabled',
+  detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
+}
+
+// POST /api/ibkr/breadth/snapshot (frontend-market-breadth-widget):
+// defaults to 'disabled', mirroring `defaultIbkrStatusResponse` above --
+// every test that renders WatchlistPage (MarketBreadthCard lives there)
+// hits this handler whether or not it cares about real market breadth
+// specifically, so the default has to be a fixed, deterministic value. A
+// test that cares about the 'available' case (or a different unavailable
+// state, or a 429/503) overrides it directly with `server.use()`, echoing
+// back `series_key` from the request body the same way the real backend
+// does.
+const defaultIbkrBreadthSnapshotResponse = {
+  state: 'disabled' as const,
+  detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
+  snapshot_date: null,
+  count: null,
+  days_recorded: 0,
+  rolling_5d: null,
+  rolling_20d: null,
+}
+
 export const handlers: HttpHandler[] = [
+  http.get('/api/ibkr/status', () => HttpResponse.json(defaultIbkrStatusResponse)),
+
+  http.post('/api/ibkr/breadth/snapshot', async ({ request }) => {
+    const body = (await request.json()) as { series_key: string }
+    return HttpResponse.json({ ...defaultIbkrBreadthSnapshotResponse, series_key: body.series_key })
+  }),
+
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
 
   http.get('/api/portfolio/risk', () => HttpResponse.json(riskFixture)),
 
-  http.get('/api/portfolio/closed-trades', () => HttpResponse.json(closedTradesFixture)),
+  http.get('/api/portfolio/closed-trades', ({ request }) => {
+    const url = new URL(request.url)
+    const dueForFollowUp = url.searchParams.get('due_for_follow_up') === 'true'
+    const items = dueForFollowUp ? closedTrades.filter(isDueForFollowUp) : closedTrades
+    return HttpResponse.json({ items })
+  }),
+
+  http.post('/api/portfolio/closed-trades/:trade_id/follow-up-review', async ({
+    params,
+    request,
+  }) => {
+    const trade = closedTrades.find((candidate) => candidate.id === params.trade_id)
+    if (!trade) {
+      return HttpResponse.json({ detail: 'Closed trade not found' }, { status: 404 })
+    }
+    const body = (await request.json()) as FollowUpReviewIn
+    trade.follow_up_notes = body.follow_up_notes
+    trade.follow_up_reviewed_at = new Date().toISOString()
+    return HttpResponse.json(trade)
+  }),
 
   http.post('/api/portfolio/positions', async ({ request }) => {
     const body = (await request.json()) as PositionIn
@@ -480,6 +708,15 @@ export const handlers: HttpHandler[] = [
       existing.avg_cost_basis = blendedCostBasis
       existing.entry_date =
         existing.entry_date < body.entry_date ? existing.entry_date : body.entry_date
+      // Mirrors the real backend's merge behavior (see the
+      // backend-trade-journal-entry-notes task's `decisions`): an incoming
+      // note is appended to the existing one rather than overwriting it; no
+      // incoming note leaves the existing one untouched.
+      if (body.entry_notes) {
+        existing.entry_notes = existing.entry_notes
+          ? `${existing.entry_notes}\n\n${body.entry_notes}`
+          : body.entry_notes
+      }
       stored = existing
     } else {
       stored = {
@@ -488,6 +725,7 @@ export const handlers: HttpHandler[] = [
         quantity: body.quantity,
         avg_cost_basis: body.avg_cost_basis,
         entry_date: body.entry_date,
+        entry_notes: body.entry_notes ?? null,
       }
       positions.push(stored)
     }
@@ -515,6 +753,73 @@ export const handlers: HttpHandler[] = [
     }
     positions.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post('/api/portfolio/trade-apgar', async ({ request }) => {
+    const body = (await request.json()) as TradeApgarIn
+    const ticker = body.ticker.trim().toUpperCase()
+
+    if (ticker === UNKNOWN_TICKER) {
+      return HttpResponse.json({ detail: `Unknown ticker: ${ticker}` }, { status: 404 })
+    }
+    if (ticker === PROVIDER_DOWN_TICKER) {
+      return HttpResponse.json(
+        { detail: 'Market data provider is currently unavailable. Try again shortly.' },
+        { status: 503 },
+      )
+    }
+    if (ticker === MIN_WEEKLY_BARS_TICKER) {
+      return HttpResponse.json(
+        {
+          detail: `Insufficient weekly history for ${ticker} to compute weekly indicators (< 26 weeks).`,
+        },
+        { status: 422 },
+      )
+    }
+
+    const auto = tradeApgarAutoQuestions(ticker)
+    const questions: TradeApgarQuestionOut[] = [
+      {
+        key: 'weekly_impulse',
+        label: 'Weekly Impulse',
+        value: auto.weekly_impulse,
+        score: IMPULSE_SCORES[auto.weekly_impulse],
+        source: 'auto',
+      },
+      {
+        key: 'daily_impulse',
+        label: 'Daily Impulse',
+        value: auto.daily_impulse,
+        score: IMPULSE_SCORES[auto.daily_impulse],
+        source: 'auto',
+      },
+      {
+        key: 'price_vs_value',
+        label: 'Daily price vs. value',
+        value: auto.price_vs_value,
+        score: PRICE_VS_VALUE_SCORES[auto.price_vs_value],
+        source: 'auto',
+      },
+      {
+        key: 'false_breakout',
+        label: 'False breakout status',
+        value: body.false_breakout_status,
+        score: FALSE_BREAKOUT_SCORES[body.false_breakout_status],
+        source: 'manual',
+      },
+      {
+        key: 'perfection',
+        label: '"Perfection" (both timeframes look ideal)',
+        value: body.perfection,
+        score: PERFECTION_SCORES[body.perfection],
+        source: 'manual',
+      },
+    ]
+    const total_score = questions.reduce((sum, question) => sum + question.score, 0)
+    const go = total_score >= 7 && questions.every((question) => question.score > 0)
+
+    const response: TradeApgarOut = { ticker, questions, total_score, go }
+    return HttpResponse.json(response)
   }),
 
   http.get('/api/stocks/:ticker/analysis', ({ params }) => {
@@ -708,4 +1013,38 @@ export const handlers: HttpHandler[] = [
     watchlistItems.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
   }),
+
+  http.get('/api/daily-homework/today', () => {
+    const entry = dailyHomeworkEntries.get(todayIsoDate()) ?? null
+    return HttpResponse.json({ entry })
+  }),
+
+  http.post('/api/daily-homework', async ({ request }) => {
+    const body = (await request.json()) as DailyHomeworkIn
+    const date = body.date ?? todayIsoDate()
+    const totalScore =
+      body.physical_state_score +
+      body.yesterday_trading_score +
+      body.trade_planning_score +
+      body.mood_score +
+      body.schedule_score
+
+    const entry: StoredDailyHomeworkEntry = {
+      date,
+      physical_state_score: body.physical_state_score,
+      yesterday_trading_score: body.yesterday_trading_score,
+      trade_planning_score: body.trade_planning_score,
+      mood_score: body.mood_score,
+      schedule_score: body.schedule_score,
+      total_score: totalScore,
+      band: bandForTotalScore(totalScore),
+      recorded_at: new Date().toISOString(),
+    }
+    dailyHomeworkEntries.set(date, entry)
+    return HttpResponse.json(entry, { status: 201 })
+  }),
+
+  http.get('/api/daily-homework/yesterday-trading-suggestion', () =>
+    HttpResponse.json(yesterdayTradingSuggestionFixture),
+  ),
 ]

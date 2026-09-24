@@ -38,6 +38,7 @@ describe('TradeJournalPanel', () => {
           buy_grade_pct: 97.3,
           sell_grade_pct: 35.5,
           trade_grade_pct: 32.1,
+          trade_letter_grade: 'A',
         },
       ],
     })
@@ -64,15 +65,84 @@ describe('TradeJournalPanel', () => {
 
     expect(within(row).getByText('Target hit')).toBeInTheDocument()
 
-    // Buy grade 97.3% -- above the 50% "very good" threshold, so bold.
+    // Buy grade 97.3% -- above the 50% "very good" threshold, so bold. Buy
+    // grade has no letter-grade scale, so it renders as a bare percentage.
     const buyGrade = within(row).getByText('97.3%')
     expect(buyGrade).toHaveStyle({ fontWeight: '700' })
-    // Sell grade 35.5% -- below the threshold, not bold.
+    // Sell grade 35.5% -- below the threshold, not bold, also letter-less.
     const sellGrade = within(row).getByText('35.5%')
     expect(sellGrade).toHaveStyle({ fontWeight: '400' })
-    // Trade grade 32.1% -- above its own 30% "A trade" threshold, so bold.
-    const tradeGrade = within(row).getByText('32.1%')
+    // Trade grade 32.1% -- above its own 30% "A trade" threshold, so bold,
+    // and its A letter grade is shown alongside the percentage.
+    const tradeGrade = within(row).getByText('32.1% (A)')
     expect(tradeGrade).toHaveStyle({ fontWeight: '700' })
+  })
+
+  it('renders the trade grade letter alongside the percentage for every letter grade', async () => {
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_a',
+          ticker: 'AAAA',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 13,
+          exit_date: '2026-01-05',
+          realized_pnl: 3,
+          exit_reason: 'target_hit',
+          trade_grade_pct: 30,
+          trade_letter_grade: 'A',
+        },
+        {
+          id: 'trade_b',
+          ticker: 'BBBB',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 12,
+          exit_date: '2026-01-05',
+          realized_pnl: 2,
+          exit_reason: 'target_hit',
+          trade_grade_pct: 20,
+          trade_letter_grade: 'B',
+        },
+        {
+          id: 'trade_c',
+          ticker: 'CCCC',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 11,
+          exit_date: '2026-01-05',
+          realized_pnl: 1,
+          exit_reason: 'target_hit',
+          trade_grade_pct: 10,
+          trade_letter_grade: 'C',
+        },
+        {
+          id: 'trade_d',
+          ticker: 'DDDD',
+          quantity: 1,
+          entry_price: 10,
+          entry_date: '2026-01-01',
+          exit_price: 10.5,
+          exit_date: '2026-01-05',
+          realized_pnl: 0.5,
+          exit_reason: 'target_hit',
+          trade_grade_pct: 5,
+          trade_letter_grade: 'D',
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('AAAA')).toBeInTheDocument())
+
+    expect(screen.getByText('30.0% (A)')).toBeInTheDocument()
+    expect(screen.getByText('20.0% (B)')).toBeInTheDocument()
+    expect(screen.getByText('10.0% (C)')).toBeInTheDocument()
+    expect(screen.getByText('5.0% (D)')).toBeInTheDocument()
   })
 
   it('does not bold a grade at exactly its "good" threshold, since the threshold copy says "over" it', async () => {
@@ -249,7 +319,9 @@ describe('TradeJournalPanel', () => {
     await waitFor(() => expect(screen.getByText('TSLA')).toBeInTheDocument())
 
     const row = screen.getByText('TSLA').closest('tr') as HTMLElement
-    expect(within(row).getAllByText('—')).toHaveLength(3)
+    // 3 null grade cells plus the Notes column's own em dash (no entry_notes
+    // on this fixture row).
+    expect(within(row).getAllByText('—')).toHaveLength(4)
 
     const loss = within(row).getByText('-$75.00')
     expect(loss).toHaveStyle({ color: theme.palette.error.main })
@@ -263,6 +335,70 @@ describe('TradeJournalPanel', () => {
     await user.keyboard('{Escape}')
     await user.click(within(row).getByRole('button', { name: 'Trade Grade help' }))
     expect(screen.getByText(/warm-up window/)).toBeInTheDocument()
+  })
+
+  it('shows an em dash with no notes trigger when entry_notes is absent', async () => {
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_no_notes',
+          ticker: 'NFLX',
+          quantity: 1,
+          entry_price: 100,
+          entry_date: '2026-01-01',
+          exit_price: 110,
+          exit_date: '2026-01-05',
+          realized_pnl: 10,
+          exit_reason: 'target_hit',
+          buy_grade_pct: null,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+          entry_notes: null,
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('NFLX')).toBeInTheDocument())
+
+    const row = screen.getByText('NFLX').closest('tr') as HTMLElement
+    expect(
+      within(row).queryByRole('button', { name: 'View entry notes' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens an InfoBalloon with the full entry note when one is present', async () => {
+    const user = userEvent.setup()
+    mockClosedTrades({
+      items: [
+        {
+          id: 'trade_with_notes',
+          ticker: 'GOOG',
+          quantity: 1,
+          entry_price: 100,
+          entry_date: '2026-01-01',
+          exit_price: 110,
+          exit_date: '2026-01-05',
+          realized_pnl: 10,
+          exit_reason: 'target_hit',
+          buy_grade_pct: null,
+          sell_grade_pct: null,
+          trade_grade_pct: null,
+          entry_notes: 'Breakout above resistance, strong earnings beat.',
+        },
+      ],
+    })
+
+    renderTradeJournalPanel()
+    await waitFor(() => expect(screen.getByText('GOOG')).toBeInTheDocument())
+
+    const row = screen.getByText('GOOG').closest('tr') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: 'View entry notes' }))
+
+    expect(screen.getByText('Entry Notes')).toBeInTheDocument()
+    expect(
+      screen.getByText('Breakout above resistance, strong earnings beat.'),
+    ).toBeInTheDocument()
   })
 
   it('falls back to a humanized label for an exit reason not in the known label map', async () => {

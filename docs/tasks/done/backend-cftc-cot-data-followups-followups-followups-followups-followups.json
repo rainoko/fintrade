@@ -1,0 +1,87 @@
+{
+  "id": "backend-cftc-cot-data-followups-followups-followups-followups-followups",
+  "title": "Non-blocking finding from PR #294's review (identical timestamps on two sequential decisions entries)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/294"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #294 (backend-cftc-cot-data-followups-followups-followups-followups, which reconciled the vitest maxWorkers evidence trail and bisected the cap value -- returned needs_work for a separate, blocking issue: the chosen `maxWorkers: 12` is not safely portable to lower-core hosts, since vitest does not clamp an explicit numeric `maxWorkers` to `os.availableParallelism()`, and the committed config was empirically shown to reproduce the original timeout flake deterministically under a 2-core-restricted run). Everything else in that review passed cleanly: backend (ruff/mypy clean, pytest 1203 passed, 100.00% coverage), frontend (eslint/tsc clean, profit-target wording guard clean, 841/841 tests passed at the committed config on the unrestricted 24-core host, coverage 99.76%/99.31%/99.78%/99.82%), `scripts/validate_tasks.py` clean across 289 task files, and the evidence-trail reconciliation itself (the '0/7' vs '0/4' code-comment fix) was independently verified as accurate. This PR has no UI surface of its own, so the browser walkthrough and persisted e2e suite steps were explicitly skipped rather than silently omitted.",
+  "checklist": [
+    {
+      "step": "The two `decisions` entries PR #294 added to `backend-cftc-cot-data-followups-followups-followups-followups.json` (the evidence-trail reconciliation and the maxWorkers bisection) both carry the identical timestamp `2026-09-24T03:00:00Z`, despite describing two sequential investigations that by their own reported run counts (7 full-suite runs, then a separate 20 full-suite runs across four worker counts) took many minutes of wall-clock vitest runtime and could not actually have both been recorded at the same instant. Low severity on its own, but notable given this exact task lineage exists to fix evidence-trail sloppiness -- whoever next edits that task's decisions array (e.g. when addressing the blocking maxWorkers-portability finding) should correct or annotate the timestamps to reflect the actual sequence, per CLAUDE.md's decision-memory convention that a decisions entry should let a future reader trust the record without re-deriving it from scratch.",
+      "done": true
+    },
+    {
+      "step": "Non-blocking finding from pr-reviewer's round-2 re-review of PR #294 (backend-cftc-cot-data-followups-followups-followups-followups, now merged/done at `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json`): the PR's third `decisions` entry (the `maxWorkers: '50%'` fix) and its matching `frontend/vite.config.ts` code comment give two different wall-clock numbers for the same unrestricted-24-core-host confirmation re-run -- the decisions entry says '~23s (in line with the previous fixed-12 wall-clock)' while the code comment says '~30s, matching the fixed-12 wall-clock'. Neither matches the other, and '~23s' doesn't actually match its own cross-reference: the fixed-12 baseline recorded earlier in the same decisions array (the second entry) is '~29-31s', not ~23s, so the code comment's '~30s' is the figure actually consistent with that baseline. An independent re-measurement during the round-2 review got 27.34s -- within range of both claims but exactly matching neither, so this looks like an ordinary rounding/transcription slip rather than a wrong empirical result, but it's the same class of self-inconsistency ('0/7' vs '0/4') this exact task lineage already exists to fix once. Reconcile the two records to one actual number (or note that some variance run-to-run is expected and pick a representative range) the next time that task's decisions array or vite.config.ts comment is touched.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T05:48:53Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the two identical `2026-09-24T03:00:00Z` timestamps on `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json`'s first and second `decisions` entries in place (this checklist item explicitly calls out those entries' own timestamp text as the thing to fix, satisfying CLAUDE.md's narrow carve-out for amending an existing entry rather than only appending a new one). Set the first entry (the '0/7' vs '0/4' evidence-trail reconciliation, 7 full-suite runs at the then-committed `maxWorkers: 4`, each observed elsewhere in that same array to run ~54s) to `2026-09-24T02:52:00Z`, and the second entry (the 6/8/10/12 bisection, 20 full-suite runs at ~30-45s each) to `2026-09-24T03:05:00Z` -- roughly a 13-minute gap, reflecting that the first investigation's 7 runs alone take ~6-7 minutes of raw vitest wall-clock before any analysis/write-up, and that both investigations had to complete, in that order, before the PR's `git.pushed_at` of `2026-09-24T03:15:00Z`. The exact original capture times cannot be recovered (no other record of when each investigation actually ran survives); only the relative sequencing and a plausible spacing derived from the runs' own reported wall-clock durations have been corrected, not a reconstruction of the true historical instants.",
+      "rationale": "Editing the timestamps in place (rather than only adding a new decisions entry pointing at the problem) was the right call here because the checklist item's whole complaint is that the existing entries' own timestamp field is unusable evidence -- a bare pointer entry wouldn't have fixed that, only annotated around it, and CLAUDE.md's own carve-out example (PR #274's `cftc_contract_market_code` correction) is precisely this shape: the checklist item names the existing text as the thing to fix. The 13-minute spacing was derived from the entries' own internally reported run counts/wall-clock figures rather than invented arbitrarily, so it's a defensible lower-bound estimate rather than a guess dressed up as precision; explicitly flagging that the original instants are unrecoverable (this note, plus that the original text remains visible via git history) avoids the new timestamps looking more authoritative than they are."
+    },
+    {
+      "timestamp": "2026-09-24T05:48:59Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled the '~23s' vs '~30s' wall-clock mismatch (PR #294's third `decisions` entry vs. `frontend/vite.config.ts`'s matching comment, both describing the same unrestricted-24-core-host confirmation re-run of `maxWorkers: '50%'`) by changing the `decisions` entry's '~23s (in line with the previous fixed-12 wall-clock)' to '~30s, matching the previous fixed-12 wall-clock (the ~29-31s range recorded in this array's second entry)', and lightly expanded the `vite.config.ts` comment's existing '~30s, matching the fixed-12 wall-clock' to spell out that same '~29-31s' range explicitly, so both records now state the same figure and the same cross-reference. Picked '~30s' over re-measuring a fresh number myself, since '~30s' is the figure independently corroborated by three separate records already in evidence -- the second `decisions` entry's own ~29-31s bisection baseline, the `vite.config.ts` comment as originally written, and pr-reviewer's/pr-decision's independently measured 27.30-30.55s range on this same PR's round-2 review/merge-decision passes -- whereas '~23s' is the outlier with no corroboration anywhere else in the record.",
+      "rationale": "Re-measuring myself would only have produced a fourth number on a comment-only change with no code-behavior difference to verify, and this task's evidence base already triangulates cleanly on ~30s from three independent sources spanning two different PR review rounds; treating that convergence as the more reliable answer avoids adding noise. Editing both the decisions-entry text and the code comment in place (rather than appending a new decisions entry only) matches this checklist item's explicit instruction to reconcile 'both the decisions entry text and the vite.config.ts comment', which is this task's own narrow-carve-out trigger just as the first checklist item's timestamp fix was."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups-followups-followups-followups-followups",
+    "pr_number": 298,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/298",
+    "pushed_at": "2026-09-24T05:51:28Z"
+  },
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-24T05:57:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/298",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the in-place-edit carve-out genuinely applies: both checklist items on this task explicitly name the parent done task's existing decisions-entry text (the duplicate timestamps; the '~23s' vs '~30s' mismatch) as the thing to fix, matching CLAUDE.md's narrow carve-out and the PR #274 precedent -- which also touched a non-JSON code file (cftc_cot_provider.py) alongside its in-place decisions-text correction, confirming that condition 4 ('doesn't touch code or merge state') refers to the nature of the correction itself (a factual, non-substantive fix) rather than a literal ban on any other file in the same PR.",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 34
+      },
+      {
+        "summary": "Corrected timestamps (02:52:00Z, 03:05:00Z) verified plausible and internally consistent: properly sequenced, ~13 minutes apart as claimed, and both fall before the parent PR's git.pushed_at of 03:15:00Z.",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 34
+      },
+      {
+        "summary": "'~30s' confirmed as the more defensible reconciled figure: it matches the same array's own '~29-31s' fixed-12 baseline, matches frontend/vite.config.ts's original (pre-PR) comment text (only '~23s' in the decisions entry was the outlier), and is independently corroborated by PR #294's own round-2 pr-reviewer measurement (27.34s, recorded in that PR's review comment) and pr-decision's merge-confirmation measurement (27.30-30.55s, recorded in that task's pr_decision.notes).",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 46
+      },
+      {
+        "summary": "frontend/vite.config.ts change confirmed comment-only (spells out the ~29-31s range already referenced) with no logic/config-value change; full frontend suite re-run at the committed config passed 841/841 with 99.76%/99.31%/99.78%/99.82% coverage, matching the PR's own claimed figures exactly.",
+        "file": "frontend/vite.config.ts",
+        "line": 84
+      },
+      {
+        "summary": "scripts/validate_tasks.py clean across 292 task files; eslint and tsc -b --noEmit both clean on frontend. No backend files touched by this PR, so backend pytest/coverage/ruff/mypy are not applicable here. No API/schema touched (openapi.json n/a). No new module/dependency/layer (architecture-review n/a). Not backend/signals or backend/portfolio, and skill is null (verify-elder-signal n/a). No UI surface of its own (only a code comment and task-board JSON changed) -- browser walkthrough and the persisted e2e suite (steps 9/9a) explicitly skipped, not silently omitted. No human PR comments/reviews found on #298. No leftover pr_decision from a prior pass existed to clear.",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+        "line": 1
+      },
+      {
+        "summary": "Non-blocking: this PR's own two new decisions entries (on this task) both carry the identical timestamp 2026-09-24T05:48:53Z -- the same class of evidence-trail imprecision this exact task lineage exists to fix, though lower severity here since both corrections were plausibly made in one edit session rather than describing separate lengthy investigations. Filed as a new follow-up task (backend-cftc-cot-data-followups-followups-followups-followups-followups-followups) rather than blocking on it.",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+        "line": 30
+      }
+    ],
+    "notes": "Full review of a narrow documentation-reconciliation PR (docs/tasks JSON + one comment-only frontend/vite.config.ts edit, no application code). Ran python3 scripts/validate_tasks.py (clean, 292 files), yarn vitest run --coverage on frontend (841/841 passed, 99.76%/99.31%/99.78%/99.82% coverage, matching the PR's own claimed figures exactly), yarn eslint . and yarn tsc -b --noEmit (both clean). Cross-checked the '~30s' reconciliation against PR #294's actual review/pr_decision records via gh api (comments + reviews), confirming the 27.34s and 27.30-30.55s figures cited in this PR's decisions entries are real, not fabricated. Confirmed the corrected timestamps' sequencing and bounds against the parent task's git.pushed_at. Confirmed the PR #274 precedent for the in-place-edit carve-out by checking its file list (it also touched backend/app/data/cftc_cot_provider.py, a real code file, alongside its in-place decisions-text correction). One non-blocking finding (this PR's own two new decisions entries sharing an identical timestamp) tracked as a new follow-up task since no existing backend-cftc-cot-data-followups-followups-followups-followups-followups-followups task was found in index.json. No blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T06:02:35Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified the accept: confirmed both checklist items name the existing decisions-entry text as the thing to fix (genuine carve-out match, same precedent as PR #274 which also touched a real code file). Re-ran validate_tasks.py (clean, 293 files now including the new follow-up task), yarn vitest run --coverage (841/841 passed, 99.76%/99.31%/99.78%/99.82% coverage, exact match), and backend pytest (1203 passed, unaffected since this PR touches no backend files). Pulled PR #294's actual review comment and pr_decision.notes via gh api and confirmed the cited 27.34s and 27.30-30.55s figures are real text in those records, corroborating the '~30s' reconciliation. Verified corrected timestamps (02:52:00Z, 03:05:00Z) are properly sequenced and both precede PR #294's git.pushed_at of 03:15:00Z. Confirmed board bookkeeping: git mv of this task's own file into docs/tasks/done/, index.json state+path mirrored for both this task and the new followups-followups-followups-followups-followups-followups task with correct depends_on. No human PR comments on #298. Accept holds."
+  }
+}

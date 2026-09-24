@@ -1,0 +1,82 @@
+{
+  "id": "frontend-market-breadth-widget-followups",
+  "title": "Non-blocking findings from PR #262's review (MarketBreadthCard)",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-market-breadth-widget"
+  ],
+  "references": [
+    "docs/tasks/done/frontend-market-breadth-widget.json#review",
+    "https://github.com/rainoko/fintrade/pull/262"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #262 (frontend-market-breadth-widget), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. None of these blocked acceptance -- tests/coverage/static analysis/methodology/placement/browser walkthrough/e2e all passed clean.",
+  "checklist": [
+    {
+      "step": "formatSpread is implemented twice with slightly different null-handling/parameter types: MarketBreadthCard.tsx's own local `formatSpread(number | null | undefined, number | null | undefined)` (returns '—' on null/undefined) and marketBreadthHelp.ts's separate `formatSpread(number | null, number | null)` (returns 'not enough history yet' on null). Both compute the same `advance - decline` plus '+N'/'N' sign formatting. Consider consolidating into one shared helper so a future change to the spread-formatting rule (rounding, sign convention) doesn't need to be remembered and applied at both call sites.",
+      "done": true
+    },
+    {
+      "step": "docs/tasks/done/frontend-market-breadth-widget.json sets `\"questions\": []` even though no question was ever raised during that task's implementation -- CLAUDE.md's task-board section documents that `questions` (like `decisions`/`test`/`review`/`pr_decision`) should stay absent entirely until populated, not present-but-empty. Minor board-hygiene nit; worth cleaning up (removing the empty array) next time that task file is touched.",
+      "done": true
+    },
+    {
+      "step": "No frontend/tests/e2e/*.spec.ts spec exercises MarketBreadthCard directly (its 'available' data-rendering vs. 'disabled' unavailable-panel states) as a persisted, versioned regression check -- watchlist.spec.ts only incidentally hits the new POST /api/ibkr/breadth/snapshot endpoint's default-disabled fixture response in passing, since the e2e stack never enables IBKR. vitest component coverage for the card itself is already thorough (100% lines/branches via MarketBreadthCard.test.tsx), so this is a nice-to-have for the persisted e2e layer specifically, not a unit-coverage gap. Consider extending watchlist.spec.ts (or a new spec) with an explicit assertion on the Market Breadth card's disabled-panel copy/IbkrStatusBadge text, matching the level of e2e attention PersonalBreadthCard already gets there.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Consolidated the two `formatSpread` implementations into one new `formatSignedSpread(a, b, fallback)` helper in `frontend/src/utils/format.ts` (alongside `formatNullableNumber`/`formatCurrency`/etc.), rather than picking one of the two existing fallback behaviors as 'the' correct one. `MarketBreadthCard.tsx`'s `StatCard` call sites now pass `'—'` as `fallback` (matching `formatNullableNumber`'s placeholder convention used everywhere else on that same card), and `marketBreadthHelp.ts`'s prose `valueInterpretation` sentence call sites now pass `'not enough history yet'` (a `'—'` embedded mid-sentence -- e.g. '5-day spread: —.' -- would read oddly, unlike a bare `StatCard` value). Both call sites now share the exact same `a - b` plus sign-formatting computation instead of two independently-maintained copies.",
+      "rationale": "The task description flagged that the two call sites 'may genuinely need different fallback text even if unified into one parameterized function' -- confirmed true here: one fallback is a compact stat-card placeholder, the other is prose inside a full sentence, and neither fallback text is wrong for its own context. Considered moving the 'not enough history yet' prose fallback to live only in `MarketBreadthCard.tsx` (per the task's other suggested alternative, 'one call site's distinct message may need to move to where it's actually displayed') -- rejected because the prose fallback is genuinely a `marketBreadthHelp.ts`-owned concern (it's assembled into that file's own `valueInterpretation` sentence, not rendered by `MarketBreadthCard.tsx` directly), so moving it there would only relocate the duplication rather than remove it. Placed the shared helper in `utils/format.ts` (not `features/ibkr/`) since the computation itself (a nullable numeric difference plus a caller-supplied fallback) is domain-agnostic -- the same placement test this file's own header comment documents for `formatNullableNumber`/`formatCurrency`/`formatDate` (Frontend.md §3) -- and named it `formatSignedSpread` rather than reusing the bare `formatSpread` name either call site used, since 'spread' alone doesn't convey this is a generic two-number-difference formatter usable outside the breadth-widget context. The `fallback` parameter is a required string (not optional/defaulted to '—') specifically so neither call site's choice is silently privileged as 'the default' over the other."
+    },
+    {
+      "timestamp": "2026-09-23T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "For checklist item 3's e2e spec, added a standalone `test(...)` (not part of `watchlist.spec.ts`'s existing `describe.serial` add/remove block) that asserts the Market Breadth card's disabled-panel heading, copy, and `IbkrStatusBadge` text ('IBKR: Disabled'), scoped to `page.getByRole('main')` to disambiguate from the app shell's own header `IbkrStatusIndicator` chip (which renders the identical 'IBKR: Disabled' text outside `main`, discovered via a genuine Playwright strict-mode failure on the first run). Did not add an equivalent new assertion for `PersonalBreadthCard` as the checklist item's phrasing ('matching the level of e2e attention PersonalBreadthCard already gets there... check how that existing spec covers PersonalBreadthCard for the pattern to follow') implied existed.",
+      "rationale": "Checked `frontend/tests/e2e/*.spec.ts` directly (grep for 'PersonalBreadthCard'/'Personal Breadth'/'Bullish'/'Bearish'/'Neutral') and confirmed no existing spec asserts on `PersonalBreadthCard` at all -- the pr-reviewer finding this checklist item was copied from appears to have been inaccurate on that specific point (or referred to `MarketBreadthCard.test.tsx`'s thorough *vitest* coverage rather than an e2e pattern; that review's own `notes` field does credit vitest coverage as 'thorough (100% lines/branches)' for the card). Since there was no real e2e pattern to mirror, the new test instead follows this spec file's own existing assertion style (role/text locators, `toBeVisible()`) and is placed outside the `describe.serial` block since it neither depends on nor mutates the add/remove flow's watchlist state, so a failure in one doesn't skip or gate the other. Chose the 'always-disabled' assertion specifically (rather than also exercising an 'available' state) because the e2e stack always runs with `ibkr_enabled: bool = False` (`backend/app/config.py`'s default, unmodified by `playwright.config.ts`'s `webServer` block) -- the disabled panel is the only `MarketBreadthCard` state this suite can deterministically reach without a stub IBKR gateway, which is out of this task's scope to add."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget-followups",
+    "pr_number": 287,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/287",
+    "pushed_at": "2026-09-23T23:53:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T00:02:31Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/287",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified formatSignedSpread(a, b, fallback) is behavior-identical to both deleted local formatSpread implementations: same null/undefined guard (now unified across both call sites' looser number|null|undefined signature), same a-b computation, same '+N'/String(N) sign formatting. MarketBreadthCard.tsx passes '—' (matching formatNullableNumber's placeholder convention used elsewhere on the same card); marketBreadthHelp.ts passes 'not enough history yet' (avoids an odd mid-sentence '—'). format.test.ts's 5 new cases (positive, negative, zero-not-'+0', null, undefined) plus the full existing MarketBreadthCard.test.tsx/vitest suite (836 passed, 99.76%+ coverage) confirm no behavior changed.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 187
+      },
+      {
+        "summary": "Verified the new e2e test's page.getByRole('main') scoping is a genuine disambiguation, not incidental: AppShell.tsx renders IbkrStatusIndicator's identical 'IBKR: Disabled' chip in the AppBar/Toolbar, outside the <Box component=\"main\"> wrapping <Outlet/>. Confirmed live in a browser (make dev + a scripted Playwright walkthrough): the watchlist page renders exactly 2 occurrences of the text 'IBKR: Disabled' (the app-shell chip and MarketBreadthCard's own badge), and the main-scoped assertions match the actually-rendered heading/copy/badge text. make e2e: all 23 specs pass, including this new one.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts",
+        "line": 86
+      },
+      {
+        "summary": "Independently confirmed (grep across frontend/tests/e2e/*.spec.ts) that no e2e spec asserts on PersonalBreadthCard at all -- the original checklist item's premise ('matching the level of e2e attention PersonalBreadthCard already gets') did not hold, exactly as the task-worker's decisions entry states. Recording this as a decision rather than blocking was the right call (fixing it would be new scope beyond this task's three tracked findings), but the underlying gap is real and worth its own tracked follow-up rather than only living in this decisions entry -- filed as frontend-market-breadth-widget-followups-followups.json.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Both new decisions entries are timestamped 2026-09-23T00:00:00Z, an exact-midnight placeholder-looking value roughly 24h off from this PR's actual push (git log shows commits at 2026-09-23T23:53-23:54Z). Doesn't affect the decisions' validity or the review gate, but worth using a real `date -u` capture for decisions timestamps same as review/pr_decision timestamps are required to.",
+        "file": "docs/tasks/frontend-market-breadth-widget-followups.json",
+        "line": 31
+      }
+    ],
+    "notes": "Full review pass, all clean: backend pytest (1203 passed, 100% coverage) and frontend vitest (836 passed, 99.76%+ stmts/branches/functions/lines) both well above the 90% gate, no regressions (this PR touches no backend code). ruff/mypy/eslint/tsc/profit-target-wording guard/validate_tasks.py all clean. code-review skill (effort: high, single-pass) found zero correctness findings, matching my own read of the diff. Ran the persisted e2e suite (make e2e): 23/23 specs pass, including the new watchlist.spec.ts assertion. Did a live browser walkthrough (make dev + a scripted Playwright pass against the real watchlist page, since no interactive browser tool was available this session) confirming the disabled panel renders correctly and the 'IBKR: Disabled' text genuinely appears twice on the page (app-shell chip + card badge), validating the main-scoping fix is real disambiguation rather than incidental. No API/schema changed, so backend/openapi.json is correctly untouched. No new/changed components requiring a common/-vs-feature placement check (only an existing utils/format.ts helper added, correctly domain-agnostic per its own header comment, and two existing feature components' internals swapped to use it). No checklist item is phrased as 'decide X' without a corresponding decision. Two non-blocking findings (PersonalBreadthCard e2e-coverage gap; decisions-entry timestamp placeholder) filed as frontend-market-breadth-widget-followups-followups.json. No leftover pr_decision existed on this task to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T00:12:28Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything: backend pytest 1203 passed/100% coverage; frontend vitest 836 passed/99.76%+ stmts+branches+functions+lines; eslint and tsc --noEmit both clean; validate_tasks.py clean (288 files); make e2e 23/23 specs pass including the new watchlist.spec.ts disabled-panel assertion. Read the full diff myself: hand-verified formatSignedSpread(a,b,fallback) in frontend/src/utils/format.ts is behavior-identical to both deleted formatSpread copies -- same a-b computation, same '>0 -> +N else String(N)' sign rule, and the null/undefined guard is a strict superset of marketBreadthHelp.ts's original null-only check since that call site's prior '?? null' coalescing is now redundant but harmless (formatSignedSpread itself checks undefined too). Confirmed the new e2e assertion's literal heading/copy/badge text against MarketBreadthCard.tsx's actual JSX. Also noticed the new frontend-market-breadth-widget-followups-followups.json (filed by this PR's own accept commit) carries present-but-empty 'decisions': [] and 'questions': [] arrays -- the same anti-pattern this task's own checklist item 2 fixed elsewhere -- but it's a cosmetic board-hygiene nit on a brand-new planned task, not a functional or test regression, so it doesn't change the merge verdict; noting it here rather than overriding to needs_work over it."
+  }
+}

@@ -179,6 +179,159 @@
         "title": "BreadthResponse",
         "type": "object"
       },
+      "CFTCCOTMarketOut": {
+        "properties": {
+          "commercial_cot_index_52w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The classic Williams 'COT Index': where `commercial_net` sits within its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest net reading) to 100 (at/above its highest) -- Elder's 'read current positioning against historical norms' framing operationalized, since a raw net-position count isn't comparable across time as overall open interest grows/shrinks. Null if `weeks_of_history` < 2 or every value in the window is identical (an undefined, zero-width range) -- see `app.data.cftc_cot_provider.cot_index`.",
+            "title": "Commercial Cot Index 52W"
+          },
+          "commercial_long": {
+            "description": "Commercial ('follow this group', per Elder ch. 37) long positions.",
+            "title": "Commercial Long",
+            "type": "integer"
+          },
+          "commercial_net": {
+            "description": "`commercial_long - commercial_short`. Positive = commercials net long.",
+            "title": "Commercial Net",
+            "type": "integer"
+          },
+          "commercial_short": {
+            "description": "Commercial short positions.",
+            "title": "Commercial Short",
+            "type": "integer"
+          },
+          "display_name": {
+            "description": "The CFTC's own `market_and_exchange_names` string for this contract (e.g. \"GOLD - COMMODITY EXCHANGE INC.\").",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "large_speculator_cot_index_52w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same computation as `commercial_cot_index_52w`, over `large_speculator_net`.",
+            "title": "Large Speculator Cot Index 52W"
+          },
+          "large_speculator_long": {
+            "description": "CFTC 'Non-Commercial' long positions -- Elder's large speculators.",
+            "title": "Large Speculator Long",
+            "type": "integer"
+          },
+          "large_speculator_net": {
+            "description": "`large_speculator_long - large_speculator_short`.",
+            "title": "Large Speculator Net",
+            "type": "integer"
+          },
+          "large_speculator_short": {
+            "description": "CFTC 'Non-Commercial' short positions.",
+            "title": "Large Speculator Short",
+            "type": "integer"
+          },
+          "market_key": {
+            "description": "Which of this app's fixed 5 futures markets this entry is for.",
+            "enum": [
+              "eur",
+              "jpy",
+              "oil",
+              "gold",
+              "bonds"
+            ],
+            "title": "Market Key",
+            "type": "string"
+          },
+          "open_interest": {
+            "description": "Total open interest (all contract-month combined).",
+            "title": "Open Interest",
+            "type": "integer"
+          },
+          "report_date": {
+            "description": "The CFTC report's as-of date (always a Tuesday) -- reports are published the following Friday, so this lags 'today' by several days even when freshly fetched.",
+            "format": "date",
+            "title": "Report Date",
+            "type": "string"
+          },
+          "small_speculator_cot_index_52w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Same computation as `commercial_cot_index_52w`, over `small_speculator_net`.",
+            "title": "Small Speculator Cot Index 52W"
+          },
+          "small_speculator_long": {
+            "description": "CFTC 'Non-Reportable' long positions -- Elder's small speculators ('fade this group', per ch. 37).",
+            "title": "Small Speculator Long",
+            "type": "integer"
+          },
+          "small_speculator_net": {
+            "description": "`small_speculator_long - small_speculator_short`.",
+            "title": "Small Speculator Net",
+            "type": "integer"
+          },
+          "small_speculator_short": {
+            "description": "CFTC 'Non-Reportable' short positions.",
+            "title": "Small Speculator Short",
+            "type": "integer"
+          },
+          "weeks_of_history": {
+            "description": "How many weekly reports (including this one) this entry's `commercial_cot_index_52w`/etc. fields below are computed over -- less than `app.data.cftc_cot_provider.WEEKS_OF_HISTORY` only if the CFTC's own published history for this contract doesn't go back that far.",
+            "title": "Weeks Of History",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "market_key",
+          "display_name",
+          "report_date",
+          "open_interest",
+          "commercial_long",
+          "commercial_short",
+          "commercial_net",
+          "large_speculator_long",
+          "large_speculator_short",
+          "large_speculator_net",
+          "small_speculator_long",
+          "small_speculator_short",
+          "small_speculator_net",
+          "weeks_of_history"
+        ],
+        "title": "CFTCCOTMarketOut",
+        "type": "object"
+      },
+      "CFTCCOTResponse": {
+        "properties": {
+          "markets": {
+            "description": "One entry per `app.data.cftc_cot_provider.COT_MARKETS` key, in that dict's own fixed order (eur, jpy, oil, gold, bonds).",
+            "items": {
+              "$ref": "#/components/schemas/CFTCCOTMarketOut"
+            },
+            "title": "Markets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "markets"
+        ],
+        "title": "CFTCCOTResponse",
+        "type": "object"
+      },
       "ClosedTradeOut": {
         "properties": {
           "buy_grade_pct": {
@@ -1893,7 +2046,7 @@
                 "type": "null"
               }
             ],
-            "description": "Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.",
+            "description": "Optional free-text personal, named strategy/setup tag for this trade (Elder ch. 55/56/58/59, docs/ideas.md's ch. 55/56 entry -- his own examples: 'false breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, predefined list, since Elder's own framing is that a trader's strategies are personal and evolve over time -- see the backend-trade-strategy-tagging task's `decisions`. Leading/trailing whitespace is stripped, and an empty or whitespace-only tag normalizes to null (mirrors `entry_notes`' own strip/normalize convention -- see the backend-trade-strategy-tagging-followups task's `decisions`). Casing is preserved as typed -- two tags differing only in case (e.g. 'Pullback to value' vs. 'pullback to value') are NOT folded into one on write; see that same task's `decisions` for why. On merge with an existing position for the same ticker, an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a merge with no incoming `strategy` leaves the existing one untouched. A whitespace-only incoming tag normalizes to null before the merge check runs, so it never overwrites an existing tag. Carried through unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later closed.",
             "title": "Strategy"
           },
           "ticker": {
@@ -2812,6 +2965,38 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/cftc/cot": {
+      "get": {
+        "description": "Elder ch. 37's Commitments of Traders framing -- follow commercials (historically the\nsuccessful group), fade small speculators (historically the unsuccessful group), and\nread current positioning against historical norms rather than an absolute level --\napplied to a small, fixed set of major futures markets (Euro, Yen, Oil, Gold, Bonds,\nmatching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.\nCOT_MARKETS`).\n\nAlways fetches fresh from the CFTC's own public Socrata endpoint (no local caching in\nthis minimal scope -- see this task's `decisions` entry): the underlying data changes at\nmost weekly, so this app doesn't add its own staleness logic on top of the CFTC's.\n\nRaises `503` if the CFTC request itself fails, or unexpectedly returns no rows for one\nof this app's fixed contract codes -- there is no per-market \"not found\" case the way\nthere is for an arbitrary user-supplied stock ticker, since these are all long-\nestablished, actively-traded futures contracts.",
+        "operationId": "get_cftc_cot",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CFTCCOTResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The CFTC's public Socrata data endpoint itself failed (network error, unexpected/malformed response) or returned no data for one of this app's fixed markets."
+          }
+        },
+        "summary": "Current + recent CFTC Commitments of Traders positioning for a fixed set of major futures markets",
+        "tags": [
+          "cftc"
+        ]
+      }
+    },
     "/api/daily-homework": {
       "get": {
         "description": "Every recorded self-test entry, most recent `date` first -- a history/trend view of\nhow \"ready to trade\" scores have looked over time.",
@@ -2920,7 +3105,7 @@
     },
     "/api/ibkr/breadth/snapshot": {
       "post": {
-        "description": "Elder ch. 34-36's real, broad-market breadth indicators (NH-NL, Advance/Decline),\napproximated via the IBKR scanner -- distinct from `GET /api/watchlist/breadth`'s\npersonal-watchlist-only Tide aggregate.\n\n`body.series_key` is an opaque, caller-chosen label for one side of a breadth reading\n(e.g. `\"nh\"`/`\"nl\"`, `\"adv\"`/`\"dec\"`) -- this app doesn't hardcode which IBKR scan-type\ncode corresponds to which side (see this task's `decisions` entry); the caller supplies\n`body.scan_config` (same shape as `POST /api/ibkr/scanner/run`) and combines two labeled\nreadings into a spread itself (e.g. `nh.rolling_5d - nl.rolling_5d`).\n\nAt most one scan is run per `series_key` per calendar day: if today's row already exists\n(`app.db.models.IBKRBreadthSnapshotORM`), it's served directly and `body.scan_config` is\nignored -- not a stateless per-request computation, since ch. 34's rolling windows need an\naccumulated daily history, and re-scanning on every request would also needlessly spend\nIBKR's rate-limited `run_scanner` calls. `rolling_5d`/`rolling_20d` sum `count` over this\nseries' most recent recorded days (ending today), null until enough days exist\n(`days_recorded >= 5`/`20` respectively) rather than a misleadingly partial sum.\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`POST /api/ibkr/scanner/run` -- a normal `200` response, never an HTTP error, with every\nother field null. Being rate-limited or a transient scanner-call failure against an\notherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like\n`POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first\nrequest for this `series_key`), since a cache hit never calls the scanner at all.",
+        "description": "Elder ch. 34-36's real, broad-market breadth indicators (NH-NL, Advance/Decline),\napproximated via the IBKR scanner -- distinct from `GET /api/watchlist/breadth`'s\npersonal-watchlist-only Tide aggregate.\n\n`body.series_key` is an opaque, caller-chosen label for one side of a breadth reading\n(e.g. `\"nh\"`/`\"nl\"`, `\"adv\"`/`\"dec\"`) -- this app doesn't hardcode which IBKR scan-type\ncode corresponds to which side (see this task's `decisions` entry); the caller supplies\n`body.scan_config` (same shape as `POST /api/ibkr/scanner/run`) and combines two labeled\nreadings into a spread itself (e.g. `nh.rolling_5d - nl.rolling_5d`).\n\nAt most one scan is run per `series_key` per calendar day: if today's row already exists\n(`app.db.models.IBKRBreadthSnapshotORM`), it's served directly and `body.scan_config` is\nignored -- not a stateless per-request computation, since ch. 34's rolling windows need an\naccumulated daily history, and re-scanning on every request would also needlessly spend\nIBKR's rate-limited `run_scanner` calls. `rolling_5d`/`rolling_20d` sum `count` over this\nseries' most recent recorded days (ending today), null until enough days exist\n(`days_recorded >= 5`/`20` respectively) rather than a misleadingly partial sum.\n\n'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like\n`POST /api/ibkr/scanner/run` -- a normal `200` response, never an HTTP error, with every\nother field null. Being rate-limited or a transient scanner-call failure against an\notherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like\n`POST /api/ibkr/scanner/run` -- both only reachable on a cache miss (today's first\nrequest for this `series_key`), since a cache hit never calls the scanner at all. A `503`\nis also raised (distinct from the concurrent-insert fallback below succeeding silently)\nif a concurrent-write conflict is caught on this row's own commit but no same-key row\nactually exists afterwards -- see this task's `decisions` entry.",
         "operationId": "record_ibkr_breadth_snapshot",
         "requestBody": {
           "content": {
@@ -2965,6 +3150,7 @@
             "headers": {
               "Retry-After": {
                 "description": "Number of seconds to wait before retrying the scanner run",
+                "required": true,
                 "schema": {
                   "type": "integer"
                 }
@@ -2979,7 +3165,7 @@
                 }
               }
             },
-            "description": "The scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that)"
+            "description": "Either the scanner-run call itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that), or a concurrent-write conflict was raised on this row's commit but no same-key row was actually found afterwards (see this task's `decisions` entry) -- both transient, safe to retry."
           }
         },
         "summary": "Record (or fetch) today's IBKR-scanner-based breadth count for one series, with rolling sums",
@@ -3067,6 +3253,7 @@
             "headers": {
               "Retry-After": {
                 "description": "Number of seconds to wait before retrying the scanner run",
+                "required": true,
                 "schema": {
                   "type": "integer"
                 }
@@ -3245,7 +3432,7 @@
     },
     "/api/portfolio/positions": {
       "post": {
-        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on\na merge, an incoming note is appended to the existing one (blank-line separated) rather\nthan overwritten, so notes from multiple buys aren't lost -- see the\nbackend-trade-journal-entry-notes task's `decisions`.\n`strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is set outright on a new\nposition; on a merge, an incoming `strategy` *overwrites* the existing one (unlike\n`entry_notes`) so this field stays a single clean tag for future strategy-segmented\ngrouping/equity-curve use, rather than accumulating multiple concatenated values -- a\nmerge with no incoming `strategy` leaves the existing one untouched -- see the\nbackend-trade-strategy-tagging task's `decisions`.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.\n\nOn a same-ticker merge, this is also the one write path for `PositionORM\n.trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s\npersisted floor, Elder ch. 54's \"Move Your Stop Only in the Direction of Your Trade\" hard\nratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --\n`trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for\nthis position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're\noverwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged\ncost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET\n/api/portfolio/risk` itself never writes to the database -- see that route's own docstring\nand `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather\nthan being advanced/persisted from every GET. A `provider` fetch failure for this ticker\n(unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched\nrather than blocking the merge -- adding a position must never depend on live market data\nbeing reachable.",
+        "description": "Creates a position from manual entry / CSV-import data. If a position for this ticker\nalready exists it is merged rather than duplicated: quantities are summed and\navg_cost_basis becomes the quantity-weighted average of the existing and incoming cost\nbases (mirrors how a brokerage averages up/down a position instead of tracking separate\nlots) \u2014 see the api-portfolio-add-position task's `decisions` for the full rationale and\nthe rejected reject-with-409 alternative. entry_date keeps the earlier of the two dates.\n`entry_notes` (Elder ch. 59 Trade Journal Section A) is set outright on a new position; on\na merge, an incoming note is appended to the existing one (blank-line separated) rather\nthan overwritten, so notes from multiple buys aren't lost -- see the\nbackend-trade-journal-entry-notes task's `decisions`.\n`strategy` (Elder ch. 55/56/58/59's personal named strategy tag) is set outright on a new\nposition; on a merge, an incoming `strategy` *overwrites* the existing one (unlike\n`entry_notes`) so this field stays a single clean tag for future strategy-segmented\ngrouping/equity-curve use, rather than accumulating multiple concatenated values -- a\nmerge with no incoming `strategy` leaves the existing one untouched -- see the\nbackend-trade-strategy-tagging task's `decisions`. Like `entry_notes`, `strategy` is\nstripped of leading/trailing whitespace and a blank/whitespace-only value normalizes to\nnull at the schema layer; neither field is case-folded on write, so casing is preserved\nexactly as typed for both -- the real asymmetry between the two is the merge behavior\nabove (`strategy` overwrites, `entry_notes` appends), not casing -- see the\nbackend-trade-strategy-tagging-followups task's `decisions`.\n`current_price`/`unrealized_pnl_pct` are always null here: price enrichment happens on\nread (GET /api/portfolio), not on write, and isn't available until the data-cache task\nlands. `signal`/`confidence`/`confidence_band` are always null here too, for the same\nreason -- signal annotation happens on read (GET /api/portfolio), not on write, mirroring\nPOST /api/watchlist's identical null-on-write convention for the same fields.\n\nOn a same-ticker merge, this is also the one write path for `PositionORM\n.trailing_stop_high_water_mark` (`app.portfolio.risk.ratchet_trailing_profit_stop`'s\npersisted floor, Elder ch. 54's \"Move Your Stop Only in the Direction of Your Trade\" hard\nratchet, exposed as `RiskPosition.trailing_stop` on `GET /api/portfolio/risk`) --\n`trailing_stop_floor_before_merge` locks in whatever value the ratchet would report for\nthis position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're\noverwritten below, so a later `GET /api/portfolio/risk` recompute under the NEW, merged\ncost basis can never report a lower `trailing_stop` than was already true a moment ago. `GET\n/api/portfolio/risk` itself never writes to the database -- see that route's own docstring\nand `ratchet_trailing_profit_stop`'s for the round-2 history of why this moved here rather\nthan being advanced/persisted from every GET. A `provider` fetch failure for this ticker\n(unknown/delisted, provider unavailable) degrades to leaving any existing floor untouched\nrather than blocking the merge -- adding a position must never depend on live market data\nbeing reachable.",
         "operationId": "add_position",
         "requestBody": {
           "content": {

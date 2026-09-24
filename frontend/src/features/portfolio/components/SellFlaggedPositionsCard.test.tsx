@@ -4,15 +4,22 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { RiskResponse } from '../../../api/portfolio'
 import { server } from '../../../../tests/mocks/server'
-import { renderWithProviders } from '../../../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../../../tests/renderWithProviders'
+import { portfolioKeys } from '../hooks/queryKeys'
 import SellFlaggedPositionsCard from './SellFlaggedPositionsCard'
 
-function renderCard() {
-  return renderWithProviders(
+function renderCard(props: { errorSurfacedBySibling?: boolean } = {}) {
+  const queryClient = createTestQueryClient()
+  renderWithProviders(
     <MemoryRouter>
-      <SellFlaggedPositionsCard />
+      <SellFlaggedPositionsCard {...props} />
     </MemoryRouter>,
+    { queryClient },
   )
+  return queryClient
 }
 
 function mockRisk(response: RiskResponse) {
@@ -117,16 +124,35 @@ describe('SellFlaggedPositionsCard', () => {
     expect(await screen.findByText('Some future flag')).toBeInTheDocument()
   })
 
-  it('shows an ApiError via common/ErrorState on failure', async () => {
+  it('shows its own ErrorState on failure by default, when no sibling has claimed the error', async () => {
     server.use(
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({ detail: 'boom' }, { status: 500 }),
       ),
     )
+    const queryClient = renderCard()
 
-    renderCard()
+    await waitFor(() =>
+      expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
+    )
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
+  })
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+  it('renders nothing on failure when errorSurfacedBySibling is set, leaving the sibling as the sole error surface', async () => {
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'boom' }, { status: 500 }),
+      ),
+    )
+    const queryClient = renderCard({ errorSurfacedBySibling: true })
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(portfolioKeys.risk)?.status).toBe('error'),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading sell-flagged positions...')).not.toBeInTheDocument()
+    expect(screen.queryByText('Positions Flagged to Sell')).not.toBeInTheDocument()
   })
 })

@@ -50,11 +50,71 @@ DEFAULT_BASE_URL = "https://localhost:5000/v1/api"
 # docs/ideas.md: "max 1,000 data points per call" on /iserver/marketdata/history.
 _MAX_BARS_PER_PAGE = 1000
 
-# The one bar size this provider requests -- docs/ideas.md's confirmed-supported
-# ``bar=1h``, matching this task's title ("hourly bars"). A finer/coarser interval would
-# need its own method (or a `bar` parameter) if a future task needs one; not added here
-# since nothing in this task's checklist asks for it (see this task's `decisions` entry).
+# `get_hourly_bars`'s default bar size -- kept for backward compatibility with every
+# existing caller (none of which pass `bar_size` explicitly yet, per this task's own
+# `decisions` entry).
 _BAR_INTERVAL = "1h"
+
+# IBKR's own documented set of accepted `bar` values for `/iserver/marketdata/history`
+# (Web API reference for that endpoint: `bar` is one of a fixed enumerated list, not an
+# arbitrary duration string -- there is no way to request e.g. a 39-minute bar the way
+# docs/ideas.md's "Switchable trading mode" note speculated about, since IBKR's `bar`
+# values aren't freely composable). This task's own `decisions` entry records which of
+# these are confirmed against IBKR's published docs vs. genuinely untested against a
+# live gateway, per this module's mocked-only testing constraint.
+_VALID_BAR_INTERVALS: frozenset[str] = frozenset(
+    {
+        "1min",
+        "2min",
+        "3min",
+        "5min",
+        "10min",
+        "15min",
+        "30min",
+        "1h",
+        "2h",
+        "3h",
+        "4h",
+        "8h",
+        "1d",
+        "1w",
+        "1m",
+    }
+)
+
+# The step to walk the pagination cursor back by, per bar size -- must equal one bar's
+# worth of time so the next page's `startTime` sits just before (not re-fetching) the
+# earliest bar already collected, without also skipping bars in between for anything
+# finer than the `1h` this pagination logic was originally written against. `"1m"`
+# (IBKR's monthly bar) has no fixed `timedelta` length (a calendar month is 28-31 days),
+# so it uses a 27-day *underestimate* rather than a 30-day approximation -- the cursor
+# step only needs to be `<=` the true bar-to-bar gap: an underestimate just means the
+# next page's `startTime` sits a few days earlier than the previous page's earliest bar,
+# causing a handful of redundant re-fetched bars that `get_hourly_bars`'s `collected`
+# dict already deduplicates by timestamp, whereas an overestimate like the shortest
+# possible month (28 days) minus a day of margin could sit *after* the actual preceding
+# bar's timestamp and skip it -- the same pagination bug this constant exists to prevent
+# for every other bar size (docs/tasks/backend-ibkr-bar-interval-param-followups.json).
+# No caller of this provider requests monthly bars today (`_MAX_BARS_PER_PAGE` means a
+# second page only triggers after ~83 years of requested lookback), so this is
+# unreachable in practice, but a safe-by-construction constant costs nothing.
+_BAR_INTERVAL_STEP: dict[str, timedelta] = {
+    "1min": timedelta(minutes=1),
+    "2min": timedelta(minutes=2),
+    "3min": timedelta(minutes=3),
+    "5min": timedelta(minutes=5),
+    "10min": timedelta(minutes=10),
+    "15min": timedelta(minutes=15),
+    "30min": timedelta(minutes=30),
+    "1h": timedelta(hours=1),
+    "2h": timedelta(hours=2),
+    "3h": timedelta(hours=3),
+    "4h": timedelta(hours=4),
+    "8h": timedelta(hours=8),
+    "1d": timedelta(days=1),
+    "1w": timedelta(weeks=1),
+    "1m": timedelta(days=27),
+}
 
 # Safety bound on how many pages `get_hourly_bars` will walk backward, independent of
 # `lookback_days` -- caps worst-case request volume (and, if the pagination cursor logic
@@ -100,7 +160,9 @@ class GatewayStatus:
 
 @dataclass(frozen=True)
 class IBKRBar:
-    """One hourly OHLCV bar from `/iserver/marketdata/history` (docs/ideas.md)."""
+    """One OHLCV bar from `/iserver/marketdata/history` (docs/ideas.md), at whatever
+    granularity `get_hourly_bars`'s `bar_size` parameter requested (`"1h"` by default --
+    `backend-ibkr-bar-interval-param`)."""
 
     timestamp: datetime
     open: float
@@ -156,7 +218,9 @@ class IBKRRateLimitedError(Exception):
 
 class IBKRProvider:
     """Optional secondary market-data source: hourly bars + the market scanner, via a
-    locally-run IB Gateway (Client Portal Gateway). See this module's own docstring for
+    locally-run IB Gateway (Client Portal Gateway), plus `resolve_conid` for turning a
+    plain ticker symbol into the IBKR conid those two capabilities actually key off of
+    (docs/tasks/backend-ibkr-symbol-resolution.json). See this module's own docstring for
     why it's a distinct class rather than a `DataProvider` implementation, and
     `docs/architecture/Backend.md` for the human setup walkthrough.
 
@@ -220,24 +284,78 @@ class IBKRProvider:
             return GatewayStatus(state="not_authenticated", detail=detail)
         return GatewayStatus(state="available")
 
-    def get_hourly_bars(self, conid: str, *, lookback_days: int = 30) -> list[IBKRBar]:
-        """Hourly OHLCV bars for IBKR contract id `conid`, covering roughly the last
+    def tickle(self) -> None:
+        """Keep the gateway session alive via `GET /tickle`
+        (docs/architecture/Backend.md §8: "keep the session alive with a periodic GET
+        /tickle call roughly once a minute" -- `backend-ibkr-tickle-keepalive`). Goes
+        through `_request` like every other method on this class, so a transport
+        error/non-200/unparseable body surfaces as the same `IBKRUnavailableError`; the
+        response body itself carries nothing this method's callers need (IBKR's own docs
+        don't document a meaningful payload beyond confirming the ping succeeded), so it's
+        discarded rather than returned.
+
+        Deliberately does **not** call `_require_available()` first, unlike
+        `get_hourly_bars`/`get_scanner_params`/`run_scanner`/`resolve_conid` -- those
+        methods gate on availability because a data-fetching call against an
+        unauthenticated gateway is pointless and would fail anyway, but `/tickle`'s whole
+        purpose *is* refreshing a session that's expected to still be authenticated.
+        Gating it behind `_require_available()` would call `GET /iserver/auth/status`
+        immediately before every single `/tickle`, doubling the request volume against
+        the gateway for no benefit -- if the session has actually expired, `/tickle`
+        itself will simply fail the same way `_require_available()`'s own status check
+        would have. See this task's `decisions` entry.
+
+        Raises:
+            IBKRUnavailableError: the gateway is unreachable, or the request fails.
+        """
+        self._request("GET", "/tickle")
+
+    def get_hourly_bars(
+        self, conid: int, *, lookback_days: int = 30, bar_size: str = _BAR_INTERVAL
+    ) -> list[IBKRBar]:
+        """OHLCV bars for IBKR contract id `conid`, covering roughly the last
         `lookback_days` days -- the Screen 3 intraday entry-timing mechanism this task's
         `description` names. Walks `/iserver/marketdata/history`'s `startTime` parameter
         backward across as many calls as needed, since a single call returns at most
-        `_MAX_BARS_PER_PAGE` (1,000) points (~41 days of hourly bars) -- checklist item 3.
+        `_MAX_BARS_PER_PAGE` (1,000) points (~41 days at the default `"1h"` `bar_size`) --
+        checklist item 3.
+
+        `bar_size` (`backend-ibkr-bar-interval-param`) selects the granularity via
+        `/iserver/marketdata/history`'s own `bar` query parameter, defaulting to `"1h"`
+        so every existing caller's behavior is unchanged. Must be one of
+        `_VALID_BAR_INTERVALS` (IBKR's documented enumerated set) -- this method still
+        keeps its `get_hourly_bars` name (rather than a generic `get_bars`) since that
+        default remains the only granularity any real caller uses today; see this task's
+        `decisions` entry. `_MAX_PAGINATION_PAGES`'s 20-page safety bound was sized
+        against `"1h"` bars (~833 days of history); a finer `bar_size` (e.g. `"5min"`)
+        covers proportionally less history before hitting that same page cap -- a day-
+        trader-mode feature that actually needs deep finer-grained history would need to
+        revisit that bound, out of scope here (see this task's `description`).
+
+        `conid` is `int` (not `str`) to match `resolve_conid`'s return type and
+        `ScannerResult.conid` -- this class's one consistent in-memory representation of
+        an IBKR contract id, converted to a string only at this method's own HTTP
+        request boundary (query params are always strings on the wire). See
+        `backend-ibkr-symbol-resolution-followups`'s `decisions` entry for why this
+        method's signature changed rather than `resolve_conid`'s.
 
         Raises:
+            ValueError: `bar_size` isn't one of IBKR's documented accepted bar values.
             IBKRUnavailableError: the gateway isn't `available` (see `get_gateway_status`),
                 or a request made while paginating fails.
         """
+        if bar_size not in _VALID_BAR_INTERVALS:
+            raise ValueError(
+                f"Unsupported IBKR bar interval {bar_size!r}; must be one of "
+                f"{sorted(_VALID_BAR_INTERVALS)}"
+            )
         self._require_available()
         cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
 
         collected: dict[datetime, IBKRBar] = {}
         start_time: str | None = None
         for _ in range(_MAX_PAGINATION_PAGES):
-            params: dict[str, str] = {"conid": conid, "bar": _BAR_INTERVAL}
+            params: dict[str, str] = {"conid": str(conid), "bar": bar_size}
             if start_time is None:
                 # First page: no cursor yet, so ask for the whole requested span via
                 # `period` -- if `lookback_days` implies more than 1,000 hourly bars,
@@ -269,8 +387,10 @@ class IBKRProvider:
                 # (a non-advancing cursor -- stop rather than loop without progress).
                 break
             # Walk the cursor to just before the earliest bar this page returned, so the
-            # next page doesn't re-fetch it.
-            start_time = (earliest - timedelta(hours=1)).strftime("%Y%m%d-%H:%M:%S")
+            # next page doesn't re-fetch it -- stepped by one `bar_size`-worth of time
+            # (not a hardcoded hour) so a finer interval than the `"1h"` this logic was
+            # originally written against doesn't skip bars in the gap.
+            start_time = (earliest - _BAR_INTERVAL_STEP[bar_size]).strftime("%Y%m%d-%H:%M:%S")
 
         return sorted((bar for bar in collected.values() if bar.timestamp >= cutoff), key=lambda b: b.timestamp)
 
@@ -328,6 +448,36 @@ class IBKRProvider:
         payload = self._request("POST", "/iserver/scanner/run", json=scan_config)
         self._last_scanner_run_at = self._clock()
         return _parse_scanner_results(payload)
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        """Resolve a ticker symbol (e.g. ``"AAPL"``) to IBKR's own numeric conid via
+        ``GET /iserver/secdef/search`` -- the missing piece `get_hourly_bars`/
+        `run_scanner` need before either can be driven by a plain ticker the way every
+        other data source in this app is, rather than an already-known IBKR contract id
+        (`backend-ibkr-data-provider`'s own `decisions` entry explicitly deferred
+        researching this endpoint; this task's own `decisions` entry records the
+        documented request/response shape this was implemented against).
+
+        Matches on an exact (case-insensitive) symbol match that has a ``"STK"`` entry
+        in its ``sections`` list (the search endpoint's response also mixes in
+        options/warrants/futures tied to the same underlying, and can return unrelated
+        symbols as fuzzy/partial matches -- neither is a usable equity conid here).
+
+        Returns `None` -- never raises -- for both a **no-match** ticker and a
+        genuinely **ambiguous** one (more than one distinct stock conid for the same
+        symbol, e.g. the same ticker used by unrelated companies listed on different
+        exchanges): silently guessing among several candidate contracts risks resolving
+        to the wrong instrument entirely, which is worse than surfacing "could not
+        resolve automatically" and asking a human to supply a conid directly instead.
+        See this task's `decisions` entry.
+
+        Raises:
+            IBKRUnavailableError: the gateway isn't `available` (see
+                `get_gateway_status`), or the request itself fails.
+        """
+        self._require_available()
+        payload = self._request("GET", "/iserver/secdef/search", params={"symbol": ticker})
+        return _resolve_stk_conid(payload, ticker)
 
     def _require_available(self) -> None:
         status = self.get_gateway_status()
@@ -412,6 +562,41 @@ def _parse_scanner_results(payload: object) -> list[ScannerResult]:
             )
         )
     return results
+
+
+def _resolve_stk_conid(payload: object, ticker: str) -> int | None:
+    """`[{"conid": "265598", "symbol": "AAPL", "sections": [{"secType": "STK"}, ...],
+    ...}, ...]` per `/iserver/secdef/search`'s documented shape (this task's `decisions`
+    entry) -- a list of candidate contracts, each potentially covering several asset
+    classes (`sections`) tied to the same underlying. Keeps only entries whose `symbol`
+    matches `ticker` exactly (case-insensitive) and which include a `"STK"` section
+    (skipping symbol matches that only exist as options/warrants/futures, and fuzzy
+    partial-symbol matches the endpoint can also return). Returns the single resulting
+    conid, or `None` if that leaves zero or more than one distinct candidate -- see
+    `IBKRProvider.resolve_conid`'s own docstring for why both degrade to the same `None`
+    rather than raising or guessing.
+    """
+    if not isinstance(payload, list):
+        return None
+    ticker_upper = ticker.upper()
+    candidates: set[int] = set()
+    for raw in payload:
+        if not isinstance(raw, dict):
+            continue
+        symbol = raw.get("symbol")
+        if not isinstance(symbol, str) or symbol.upper() != ticker_upper:
+            continue
+        sections = raw.get("sections") or []
+        if not isinstance(sections, list):
+            continue
+        if not any(isinstance(section, dict) and section.get("secType") == "STK" for section in sections):
+            continue
+        conid = _int_or_none(raw.get("conid"))
+        if conid is not None:
+            candidates.add(conid)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
 
 
 def _int_or_none(value: int | float | str | None) -> int | None:

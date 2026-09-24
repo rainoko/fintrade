@@ -1,0 +1,68 @@
+{
+  "id": "backend-ibkr-bar-interval-param-followups",
+  "title": "Follow-ups from backend-ibkr-bar-interval-param PR review (#265)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-ibkr-bar-interval-param"],
+  "references": [
+    "docs/tasks/backend-ibkr-bar-interval-param.json",
+    "https://github.com/rainoko/fintrade/pull/265",
+    "backend/app/data/ibkr_provider.py"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #265 (backend-ibkr-bar-interval-param), which was otherwise accepted.",
+  "checklist": [
+    {
+      "step": "`_BAR_INTERVAL_STEP['1m']`'s 30-day approximation for IBKR's monthly bar can overshoot the actual bar-to-bar gap whenever a real calendar month is shorter than 30 days (e.g. the Feb->Mar transition in a non-leap year is a 28-day gap). Since the pagination cursor is `earliest - step`, an overshoot produces a `startTime` earlier than the actual preceding bar's timestamp, which (assuming IBKR's documented `startTime` semantics of 'bars at or before this timestamp') would exclude that bar from the next page -- a genuine skip, the same bug class this PR set out to fix for finer intervals, just reintroduced for the coarsest one. Verified by direct simulation (2026-02-01 vs a naive 2026-03-01 minus 30 days = 2026-01-30, which sits before the actual Feb 1 bar). Currently unreachable in practice: `_MAX_BARS_PER_PAGE` (1000) means a monthly-bar page only fills enough to trigger a second page after ~83 years of requested lookback, far beyond any realistic `lookback_days` a caller would pass, so no live code path can hit it today. Worth either using a smaller (never-overshooting) approximation -- e.g. `timedelta(days=27)`, since underestimating the step is safe (only causes redundant/overlapping fetches, deduplicated by the `collected` dict) whereas overestimating it can skip -- or computing the exact prior-month boundary with a calendar-aware step, if/when a caller actually requests `bar_size='1m'`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Changed `_BAR_INTERVAL_STEP['1m']` from `timedelta(days=30)` to `timedelta(days=27)` (a fixed, safe underestimate) rather than computing an exact calendar-aware prior-month boundary.",
+      "rationale": "27 days is `<=` every real calendar month's length (28-31 days), so the pagination cursor can never overshoot into the next page's already-collected range and skip a bar -- the only failure mode that matters, per the checklist item's own analysis (underestimating just causes a few redundant, already-deduplicated re-fetched days). An exact calendar-aware step (e.g. walking back one real month via a date library) would be more precise but adds real complexity for a code path that's provably unreachable today (`_MAX_BARS_PER_PAGE`=1000 means a monthly-bar page only triggers a second page after ~83 years of lookback) and has no live caller requesting `bar_size='1m'` yet. Rejected: keeping 30 days (the original bug); rejected: an exact calendar-aware step, deferred until a real caller of monthly bars exists and the extra precision is actually load-bearing."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-bar-interval-param-followups",
+    "pr_number": 266,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/266",
+    "pushed_at": "2026-09-22T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T13:54:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/266",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified independently that 27 days is a genuinely safe underestimate: the shortest real Gregorian calendar month is a non-leap February at 28 days, so 27 < every real month length (28-31 days) and the pagination cursor (`earliest - step`) can never land after the true preceding bar's timestamp -- no skip is possible. No edge case (DST shift, leap seconds, historical calendar reform) brings a real elapsed month below 28 days for market-data timestamps, so no further margin is needed.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 116
+      },
+      {
+        "summary": "New tests are meaningful, not just coverage padding: one asserts the pagination cursor for bar_size='1m' now steps by exactly 27 days (behavioral), and a second is a standalone invariant test asserting the constant never exceeds 28 days -- both pass, and the full backend suite (1163 tests, 99.95% coverage) and static analysis (ruff/mypy/eslint-n-a) are clean.",
+        "file": "backend/tests/unit/data/test_ibkr_provider.py",
+        "line": 222
+      },
+      {
+        "summary": "Confirmed FINTRADE_IBKR_ENABLED=false in backend/.env and every IBKR test mocks _request -- no live network calls.",
+        "file": "backend/.env",
+        "line": 0
+      },
+      {
+        "summary": "decisions entry is complete: records what was changed, why 27 days is safe, and explicitly rejects both the original 30-day value and a calendar-aware exact step (deferred until a real 1m caller exists), per CLAUDE.md's decision-memory standard.",
+        "file": "docs/tasks/backend-ibkr-bar-interval-param-followups.json",
+        "line": 20
+      }
+    ],
+    "notes": "Small, well-scoped fix for a task with a single checklist item. Ran the backend suite with coverage (1163 passed, 99.95%, backend-only change so frontend not re-run -- last known state unaffected by this diff), ruff+mypy (clean on changed files), and scripts/validate_tasks.py (clean). No API/schema/OpenAPI change, no frontend/UI surface touched, so no browser walkthrough or e2e run applies (explicitly skipped for that reason). No non-blocking findings to track as a follow-up task. Not a signals/portfolio change so verify-elder-signal doesn't apply; no new module/dependency so architecture-review doesn't apply."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T14:08:33Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend suite with coverage: 1163 passed, 99.95% coverage, matching pr-reviewer's numbers exactly; ruff+mypy clean on the two changed files; scripts/validate_tasks.py clean. Skimmed the full diff (ibkr_provider.py comment/constant change, two new tests, task JSON, index.json mirror): confirmed 27 < 28 (shortest real Gregorian month, non-leap February), so the cursor step can never overshoot into the next page and skip a bar -- the underestimate-is-safe reasoning holds. Confirmed FINTRADE_IBKR_ENABLED=false in backend/.env and every test in test_ibkr_provider.py mocks _request (27 mocker.patch calls, no live network access). The decisions entry is complete (what changed, why 27 days is safe, explicitly rejects both the 30-day original and a calendar-aware exact step). No human PR comments/reviews requesting changes."
+  }
+}
