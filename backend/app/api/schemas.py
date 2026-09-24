@@ -10,7 +10,7 @@ documentation standard.
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.portfolio.grading import TradeLetterGrade
 
@@ -1149,6 +1149,83 @@ class CFTCCOTResponse(BaseModel):
     markets: list[CFTCCOTMarketOut] = Field(
         description="One entry per `app.data.cftc_cot_provider.COT_MARKETS` key, in that "
         "dict's own fixed order (eur, jpy, oil, gold, bonds)."
+    )
+
+
+# --- /api/settings/trading-mode ---------------------------------------------
+
+TradingModeValue = Literal["swing", "day_trader"]
+
+# `app.signals.timeframe.TimeframeInterval.parse`'s own accepted format -- documented again
+# here (rather than only in the field description) so FastAPI/OpenAPI can render it as a
+# `pattern` constraint, not just prose.
+_TIMEFRAME_INTERVAL_CODE_PATTERN = r"^[1-9][0-9]*[mdw]$"
+
+
+class TimeframeTripleIn(BaseModel):
+    long_term: str = Field(
+        pattern=_TIMEFRAME_INTERVAL_CODE_PATTERN,
+        description="The long-term (Tide/Screen 1) leg of the day-trader timeframe triple, "
+        "as a canonical interval code: a positive integer immediately followed by 'm' "
+        "(minutes), 'd' (days), or 'w' (weeks) -- e.g. '25m', '1d'. Must be strictly longer "
+        "(more trading minutes) than `intermediate`.",
+    )
+    intermediate: str = Field(
+        pattern=_TIMEFRAME_INTERVAL_CODE_PATTERN,
+        description="The intermediate (Wave/Screen 2) leg, same code format as `long_term`. "
+        "Must be strictly longer than `short_term` and strictly shorter than `long_term`.",
+    )
+    short_term: str = Field(
+        pattern=_TIMEFRAME_INTERVAL_CODE_PATTERN,
+        description="The short-term (Trigger/Screen 3) leg, same code format as `long_term`. "
+        "Must be strictly shorter (fewer trading minutes) than `intermediate`.",
+    )
+
+
+class TimeframeTripleOut(TimeframeTripleIn):
+    factor_of_five_warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-blocking notices (empty when the triple is fully within the "
+        "guideline band) for either adjacent pair whose ratio falls outside ch. 39's "
+        "'roughly a factor of five' spacing guideline (this app's own 3x-8x band -- see "
+        "`app.signals.timeframe`'s module-level comment). Never prevents the triple from "
+        "being saved -- ch. 39 itself frames this ratio as a guideline, not a hard rule.",
+    )
+
+
+class TradingModeIn(BaseModel):
+    mode: TradingModeValue = Field(
+        description="The global, app-wide active trading mode (docs/tasks/"
+        "backend-day-trader-timeframe-mode.json) -- 'swing' (this app's long-standing "
+        "weekly/daily/daily-Trigger-approximation behavior, unchanged) or 'day_trader' "
+        "(the user-configured `day_trader_timeframe_triple`, once a future task wires it "
+        "into actual signal computation -- see this endpoint's own docstring for today's "
+        "scope)."
+    )
+    day_trader_timeframe_triple: TimeframeTripleIn | None = Field(
+        default=None,
+        description="Required when `mode` is 'day_trader' (rejected with a 422 if omitted "
+        "or null in that case); ignored (may be omitted) when `mode` is 'swing' -- switching "
+        "back to 'swing' without resupplying this field leaves a previously-configured "
+        "day-trader triple persisted, unchanged, for next time (see `TradingModeSettingORM`'s "
+        "own docstring).",
+    )
+
+    @model_validator(mode="after")
+    def _require_triple_for_day_trader_mode(self) -> "TradingModeIn":
+        if self.mode == "day_trader" and self.day_trader_timeframe_triple is None:
+            raise ValueError("day_trader_timeframe_triple is required when mode is 'day_trader'.")
+        return self
+
+
+class TradingModeOut(BaseModel):
+    mode: TradingModeValue = Field(description="The currently-active global trading mode.")
+    day_trader_timeframe_triple: TimeframeTripleOut | None = Field(
+        default=None,
+        description="The last-configured day-trader timeframe triple, present whenever one "
+        "has ever been configured (even if `mode` is currently 'swing' -- see `mode`'s own "
+        "field description) -- null only if day-trader mode has never been configured at "
+        "all.",
     )
 
 

@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_ibkr_provider
-from app.api.routers import cftc, homework, ibkr, portfolio, stocks, watchlist
+from app.api.routers import cftc, homework, ibkr, portfolio, settings, stocks, watchlist
 from app.data.ibkr_provider import IBKRProvider
 from app.db.models import Base
 from app.db.session import engine
@@ -122,6 +122,7 @@ app.include_router(watchlist.router)
 app.include_router(ibkr.router)
 app.include_router(homework.router)
 app.include_router(cftc.router)
+app.include_router(settings.router)
 
 
 def _drop_non_finite_floats(value: Any) -> Any:
