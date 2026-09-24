@@ -1881,8 +1881,8 @@
       "id": "backend-day-trader-timeframe-mode-ibkr-intraday",
       "area": "backend/data",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-ibkr-intraday.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-ibkr-intraday-followups",
