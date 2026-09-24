@@ -59,5 +59,10 @@
     ],
     "notes": "Accepted. Docs-only PR: verified the corrected §7 Profit target wording against backend/app/portfolio/profit_target.py's docstring and PR #317's decisions entry directly, confirmed no other part of docs/Analyse.md now reads inconsistently, ran scripts/check_profit_target_wording.py and scripts/validate_tasks.py, ran the full backend suite (1371 passed) and static-verify (ruff/mypy/eslint/tsc all clean) as sanity checks even though no code changed, and ran a code-review pass plus a verify-elder-signal pass given this task's area is backend/portfolio. One non-blocking documentation-clarity finding (a colon/list-antecedent mismatch introduced by the edit) filed as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json rather than blocking on a wording nit."
   },
-  "questions": []
+  "questions": [],
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T23:43:04Z",
+    "verdict": "merge",
+    "notes": "Read backend/app/portfolio/profit_target.py's docstring and PR #317's decisions entries directly and confirmed the new docs/Analyse.md §7 wording is accurate (third technique addresses a different exit signal, not intraday inapplicability). Confirmed git diff main...HEAD --stat touches only docs/Analyse.md and task-board JSON, no code. Ran scripts/check_profit_target_wording.py (clean, 264 files + 8 known locations) and scripts/validate_tasks.py (clean, 314 files) myself. Re-ran the full backend suite: 1371 passed, 100% coverage, matching pr-reviewer's reported numbers."
+  }
 }
