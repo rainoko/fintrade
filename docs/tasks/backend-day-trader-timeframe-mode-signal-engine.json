@@ -49,5 +49,11 @@
       "rationale": "`app.data.day_trader_intraday`'s current shape (`get_intraday_bars_for_triple`/`get_active_day_trader_intraday_bars`) only ever fetches 'the most recent N days of bars, as of now' -- a signal-computation snapshot, the right shape for `analyse()`/`analyse_day_trader()`'s single-point-in-time evaluation (this task's checklist item 4's own 'actual day-trader-mode signal computation' framing, singular). Walking forward through *historical* intraday bars for a growing per-bar replay (what `analyse_history` does for swing mode) needs a categorically different IBKR fetch shape -- paginating backward through a much longer intraday history window while still respecting IBKR's per-call pagination bounds (`IBKRProvider._MAX_PAGINATION_PAGES`/`_MAX_BARS_PER_PAGE`) -- that's a genuine, unsolved data-fetching design problem in its own right, not a mechanical extension of this task's own engine-layer changes. Building `_long_term_through_bar_date`'s `DAY`/`MINUTE` branch now (rather than waiting for that follow-up) was still worth doing: it's cheap, correct, and directly testable in isolation (see `TestLongTermThroughBarDateGenericUnits`), so the follow-up task inherits a ready building block instead of needing to touch this function's own look-ahead-avoidance logic itself."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-signal-engine",
+    "pr_number": 312,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/312",
+    "pushed_at": "2026-09-24T18:52:35Z"
+  }
 }
