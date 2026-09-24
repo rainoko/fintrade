@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.data.day_trader_intraday import (
     DayTraderIntradayBars,
     get_active_day_trader_intraday_bars,
+    get_active_day_trader_intraday_history_bars,
     get_intraday_bars_for_triple,
+    get_intraday_history_bars_for_triple,
 )
 from app.data.ibkr_provider import GatewayStatus, IBKRBar, IBKRProvider, IBKRUnavailableError
 from app.db.models import Base
@@ -314,6 +316,171 @@ class TestGracefulDegradation:
         assert result.short_term.state == "unavailable"
         assert "HTTP 500" in result.short_term.detail
         assert result.short_term.ohlcv is None
+
+
+class TestGetIntradayHistoryBarsForTriple:
+    """Tests for `get_intraday_history_bars_for_triple`
+    (`backend-day-trader-timeframe-mode-history`) -- the walk-forward-*history* fetch, distinct
+    from `get_intraday_bars_for_triple`'s own live-signal-snapshot fetch."""
+
+    def test_default_lookback_is_the_much_larger_history_default_not_the_live_snapshot_default(
+        self, mocker
+    ) -> None:
+        """Regression-discriminating: if this function silently delegated straight to
+        `get_intraday_bars_for_triple` (or otherwise lost its own larger default), every leg
+        would be requested with 30 days (the live-snapshot default) instead of 90 (or that
+        leg's own smaller achievable-history clamp, for `"2min"` here -- see
+        `TestMaxLookbackDaysForBarSize` for the exact bound arithmetic)."""
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        requested_lookback_days: dict[str, int] = {}
+
+        def _get_hourly_bars(conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+            requested_lookback_days[bar_size] = lookback_days
+            return [_bar(0, 100.0)]
+
+        provider.get_hourly_bars.side_effect = _get_hourly_bars
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("60m"),
+            intermediate=TimeframeInterval.parse("10m"),
+            short_term=TimeframeInterval.parse("2m"),
+        )
+
+        result = get_intraday_history_bars_for_triple(triple, provider=provider, conid=1)
+
+        assert result.long_term is not None
+        assert result.long_term.state == "available"
+        # "1h"/"10min" both have an achievable-history bound comfortably above 90 days (833.3
+        # and 138.9 respectively), so neither is clamped -- the default 90 passes straight
+        # through. "2min"'s own bound (27.8 days) is *below* 90, so it -- and only it -- is
+        # clamped down; this is also proof this function's default really is 90, not 30 (the
+        # live-snapshot default), since a 30-day request would never have exceeded "2min"'s own
+        # 27.8-day bound and this clamp wouldn't have been observable at all.
+        assert requested_lookback_days == {
+            "1h": 90,
+            "10min": 90,
+            "2min": int(max_lookback_days_for_bar_size("2min")),
+        }
+        assert requested_lookback_days["2min"] < 90
+
+    def test_clamps_lookback_days_per_leg_to_what_that_legs_granularity_can_ever_return(
+        self, mocker
+    ) -> None:
+        """A caller requesting far more history than a fine-grained leg's own bar size could
+        ever honor (per `IBKRProvider.max_lookback_days_for_bar_size`) must have that leg's own
+        effective request clamped down -- proving this by actually inspecting the `lookback_days`
+        `get_hourly_bars` was called with, not just that the call succeeded (a happy-path-only
+        assertion here wouldn't catch the clamp being silently dropped)."""
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        requested_lookback_days: dict[str, int] = {}
+
+        def _get_hourly_bars(conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+            requested_lookback_days[bar_size] = lookback_days
+            return [_bar(0, 100.0)]
+
+        provider.get_hourly_bars.side_effect = _get_hourly_bars
+        # "7m" isn't evenly divisible by any IBKR-native bar size except 1min (a prime minute
+        # count) -- `_select_ibkr_bar_size` falls back to `"1min"`, this app's finest, most
+        # tightly-capped granularity.
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1d"),
+            intermediate=TimeframeInterval.parse("30m"),
+            short_term=TimeframeInterval.parse("7m"),
+        )
+        huge_request = 10_000
+
+        result = get_intraday_history_bars_for_triple(
+            triple, provider=provider, conid=1, lookback_days=huge_request
+        )
+
+        assert result.short_term is not None
+        assert result.short_term.state == "available"
+        expected_short_term_clamp = int(max_lookback_days_for_bar_size("1min"))
+        expected_intermediate_clamp = int(max_lookback_days_for_bar_size("30min"))
+        assert requested_lookback_days["1min"] == expected_short_term_clamp
+        assert requested_lookback_days["30min"] == expected_intermediate_clamp
+        # Both are clamped (neither leg's own achievable window reaches 10,000 days), but to
+        # genuinely different values -- confirms the clamp is computed per-leg from that leg's
+        # own chosen `bar_size`, not a single global cap applied uniformly regardless of
+        # granularity (which would have clamped both to the same number).
+        assert expected_short_term_clamp < expected_intermediate_clamp < huge_request
+
+    def test_no_clamping_when_the_requested_lookback_is_comfortably_under_the_max(
+        self, mocker
+    ) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.get_hourly_bars.return_value = [_bar(0, 100.0)]
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("60m"),
+            intermediate=TimeframeInterval.parse("10m"),
+            short_term=TimeframeInterval.parse("2m"),
+        )
+
+        get_intraday_history_bars_for_triple(triple, provider=provider, conid=1, lookback_days=14)
+
+        for call in provider.get_hourly_bars.call_args_list:
+            assert call.kwargs["lookback_days"] == 14
+
+    def test_day_and_week_unit_legs_still_need_no_ibkr_call(self, mocker) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("2w"),
+            intermediate=TimeframeInterval.parse("3d"),
+            short_term=TimeframeInterval.parse("1d"),
+        )
+
+        result = get_intraday_history_bars_for_triple(triple, provider=provider, conid=1)
+
+        assert result.long_term is None
+        assert result.intermediate is None
+        assert result.short_term is None
+        provider.get_hourly_bars.assert_not_called()
+
+
+class TestGetActiveDayTraderIntradayHistoryBars:
+    def test_none_when_mode_is_swing(self, session: Session, mocker) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+
+        result = get_active_day_trader_intraday_history_bars(session, provider=provider, conid=1)
+
+        assert result is None
+        provider.get_hourly_bars.assert_not_called()
+
+    def test_fetches_the_persisted_triple_with_the_history_default(
+        self, session: Session, mocker
+    ) -> None:
+        from app.data.ibkr_provider import max_lookback_days_for_bar_size
+
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("25m"),
+            intermediate=TimeframeInterval.parse("5m"),
+            short_term=TimeframeInterval.parse("2m"),
+        )
+        set_trading_mode_setting(session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=triple)
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.get_hourly_bars.return_value = [_bar(0, 100.0)]
+
+        result = get_active_day_trader_intraday_history_bars(session, provider=provider, conid=999)
+
+        assert result is not None
+        assert result.long_term.state == "available"
+        assert result.short_term.state == "available"
+        assert result.intermediate.state == "available"
+        # "25m"/"5m" both resolve to native "5min" bars (69.4-day bound); "2m" resolves to
+        # native "2min" bars (27.8-day bound) -- both below the 90-day default, so every leg
+        # here is clamped, each to its own bar size's own bound.
+        expected_5min_clamp = int(max_lookback_days_for_bar_size("5min"))
+        expected_2min_clamp = int(max_lookback_days_for_bar_size("2min"))
+        for call in provider.get_hourly_bars.call_args_list:
+            assert call.args[0] == 999
+            if call.kwargs["bar_size"] == "5min":
+                assert call.kwargs["lookback_days"] == expected_5min_clamp
+            else:
+                assert call.kwargs["bar_size"] == "2min"
+                assert call.kwargs["lookback_days"] == expected_2min_clamp
 
 
 class TestGetActiveDayTraderIntradayBars:

@@ -1930,7 +1930,7 @@
       "id": "backend-day-trader-timeframe-mode-history",
       "area": "backend/signals",
       "skill": null,
-      "state": "planned",
+      "state": "implementing",
       "path": "docs/tasks/backend-day-trader-timeframe-mode-history.json"
     },
     {
