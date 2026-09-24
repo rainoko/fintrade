@@ -7,7 +7,10 @@ import type { IBKRScannerResultOut } from '../../../api/ibkr'
 import type { WatchlistItemOut } from '../../../api/watchlist'
 import { resetWatchlistStore } from '../../../../tests/mocks/handlers'
 import { server } from '../../../../tests/mocks/server'
-import { createTestQueryClient, renderWithProviders } from '../../../../tests/renderWithProviders'
+import {
+  createTestQueryClient,
+  renderWithProviders,
+} from '../../../../tests/renderWithProviders'
 import WatchlistTable from '../../watchlist/components/WatchlistTable'
 import ScannerResultsTable from './ScannerResultsTable'
 
@@ -44,7 +47,9 @@ describe('ScannerResultsTable', () => {
     renderResultsTable([{ conid: 2001, symbol: null, company_name: null, rank: null }])
 
     expect(screen.getByText('#2001')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Add to watchlist/ })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Add to watchlist/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows the empty state (distinct from the unavailable state) for a zero-match scan', () => {
@@ -65,6 +70,46 @@ describe('ScannerResultsTable', () => {
       expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(1),
     )
     expect(screen.getAllByRole('button', { name: 'Add to watchlist' })).toHaveLength(1)
+  })
+
+  it('clicking an already-Added button again does not re-fire the mutation (round-5 review finding, PR #243)', async () => {
+    // The terminal 'Added' state is deliberately never given a native `disabled` attribute
+    // (see this component's own doc comment) -- the guard against a redundant re-add is a
+    // JS-level `if (added) return` at the top of handleAdd instead, asserted here by
+    // counting actual POST /api/watchlist calls rather than just checking the button's
+    // rendered label.
+    let postCount = 0
+    server.use(
+      http.post('/api/watchlist', async ({ request }) => {
+        postCount += 1
+        const body = (await request.json()) as { ticker: string }
+        return HttpResponse.json(
+          {
+            ticker: body.ticker,
+            added_at: new Date().toISOString(),
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    const user = userEvent.setup()
+    renderResultsTable(results)
+
+    const addButton = screen.getAllByRole('button', { name: 'Add to watchlist' })[0]
+    await user.click(addButton)
+
+    const addedButton = await screen.findByRole('button', { name: 'Added' })
+    expect(postCount).toBe(1)
+
+    await user.click(addedButton)
+    await user.click(addedButton)
+
+    // Still the same 'Added' button, and no extra POSTs were fired by the redundant clicks.
+    expect(screen.getByRole('button', { name: 'Added' })).toBe(addedButton)
+    expect(postCount).toBe(1)
   })
 
   it('resolves two concurrent adds on different rows independently (regression, PR #243)', async () => {
@@ -89,7 +134,13 @@ describe('ScannerResultsTable', () => {
         const body = (await request.json()) as { ticker: string }
         await delay(body.ticker === 'AAPL' ? 40 : 10)
         return HttpResponse.json(
-          { ticker: body.ticker, added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          {
+            ticker: body.ticker,
+            added_at: new Date().toISOString(),
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
           { status: 201 },
         )
       }),
@@ -103,7 +154,9 @@ describe('ScannerResultsTable', () => {
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: 'Added' })).toHaveLength(2),
     )
-    expect(screen.queryByRole('button', { name: 'Add to watchlist' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Add to watchlist' }),
+    ).not.toBeInTheDocument()
   })
 
   it('surfaces an add-to-watchlist failure as a compact inline retry icon, not full-block ErrorState', async () => {
@@ -120,19 +173,31 @@ describe('ScannerResultsTable', () => {
     const retryButton = await screen.findByRole('button', {
       name: 'Retry adding AAPL to watchlist',
     })
-    // Not the full ErrorState block: no alert-role landmark, and the second
-    // row's own button is untouched.
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    // Not the full ErrorState block (icon+heading+body, which would stretch this row's
+    // height): asserted via ErrorState's own data-testid rather than the `alert` role, since
+    // this component's own always-mounted per-row live region now also uses `role="alert"`
+    // (round 6 fix, frontend-market-scanner-page-followups) -- checking the `alert` role
+    // here would no longer distinguish "no ErrorState block" from "the row's own silent
+    // live region exists but is empty".
+    expect(screen.queryByTestId('error-state')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add to watchlist' })).toBeInTheDocument()
 
     await user.hover(retryButton)
-    expect(await screen.findByText('Something went wrong. Click to retry.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Something went wrong. Click to retry.'),
+    ).toBeInTheDocument()
 
     // Clicking the icon retries the same add.
     server.use(
       http.post('/api/watchlist', () =>
         HttpResponse.json(
-          { ticker: 'AAPL', added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          {
+            ticker: 'AAPL',
+            added_at: new Date().toISOString(),
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
           { status: 201 },
         ),
       ),
@@ -179,7 +244,13 @@ describe('ScannerResultsTable', () => {
     server.use(
       http.post('/api/watchlist', () =>
         HttpResponse.json(
-          { ticker: 'AAPL', added_at: new Date().toISOString(), signal: null, confidence: null, confidence_band: null },
+          {
+            ticker: 'AAPL',
+            added_at: new Date().toISOString(),
+            signal: null,
+            confidence: null,
+            confidence_band: null,
+          },
           { status: 201 },
         ),
       ),
@@ -192,7 +263,7 @@ describe('ScannerResultsTable', () => {
   })
 
   it('announces a failed add via a live region, even for a user not focused on that row (regression, PR #243 round 4)', async () => {
-    // role="status" doesn't support "name from content" (ARIA accname spec),
+    // role="alert" doesn't support "name from content" (ARIA accname spec),
     // so this asserts on the live region's textContent rather than its
     // accessible name.
     server.use(
@@ -204,13 +275,13 @@ describe('ScannerResultsTable', () => {
     renderResultsTable(results)
 
     // No announcement before anything fails -- one silent live region per row.
-    expect(screen.getAllByRole('status').map((el) => el.textContent)).toEqual(['', ''])
+    expect(screen.getAllByRole('alert').map((el) => el.textContent)).toEqual(['', ''])
 
     await user.click(screen.getAllByRole('button', { name: 'Add to watchlist' })[0])
     await screen.findByRole('button', { name: 'Retry adding AAPL to watchlist' })
 
     await waitFor(() => {
-      expect(screen.getAllByRole('status').map((el) => el.textContent)).toContain(
+      expect(screen.getAllByRole('alert').map((el) => el.textContent)).toContain(
         'Failed to add AAPL to watchlist: Something went wrong.',
       )
     })

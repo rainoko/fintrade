@@ -49,7 +49,9 @@ export interface UseAddWatchlistItemOptions {
  * 'pending' } })` (see that component and this task's `decisions`) without
  * needing this mutation's object passed to it directly.
  */
-export function useAddWatchlistItem({ mutationKey = watchlistKeys.add }: UseAddWatchlistItemOptions = {}) {
+export function useAddWatchlistItem({
+  mutationKey = watchlistKeys.add,
+}: UseAddWatchlistItemOptions = {}) {
   const queryClient = useQueryClient()
 
   return useMutation<WatchlistItemOut, ApiError, WatchlistItemIn>({
