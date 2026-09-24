@@ -3,7 +3,7 @@
   "title": "Day-trader mode: expose generically-computed signals via the stocks/watchlist/portfolio API",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "implementing",
   "depends_on": [
     "backend-day-trader-timeframe-mode",
     "backend-day-trader-timeframe-mode-signal-engine"
@@ -52,5 +52,23 @@
     "pr_number": 313,
     "pr_url": "https://github.com/rainoko/fintrade/pull/313",
     "pushed_at": "2026-09-24T20:20:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T20:45:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/313",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: TestDayTraderMode.test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal doesn't discriminate real day-trader-mode computation from a silent fallback to swing-mode data -- the daily/weekly _StubProvider fixture it pairs with the real IBKR fixtures (_buy_daily_ohlcv()/_buy_weekly_ohlcv()) independently produces the exact same signal==BUY/trigger.fired==True/tide==BULLISH assertions under ordinary swing analyse() too. Confirmed via mutation testing (temporarily forcing get_analysis's day-trader branch to False and reverting -- working tree left clean): across the full 1341-test suite only the five explicit 'unavailable' TestDayTraderMode tests failed; this happy-path test and test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple both kept passing. Same class of gap pr-decision flagged in PR #312. Contrast with test_watchlist.py's own day-trader happy-path test, which correctly discriminates (pairs the day-trader BUY fixture with _StubProvider()'s default HOLD-shaped swing fixture) and does fail under the identical mutation.",
+        "file": "backend/tests/integration/test_stocks_analysis.py",
+        "line": 1178
+      },
+      {
+        "summary": "Non-blocking (filed on backend-day-trader-timeframe-mode-api-followups): GET /api/stocks/{ticker}/analysis fetches daily_ohlcv/weekly_ohlcv/extended_data from the swing DataProvider (and maps 404/422/503 from that fetch) before checking whether day-trader mode is active, so a ticker IBKR could fully compute a day-trader signal for, but that the swing provider doesn't recognize or has <26 weeks of weekly history for, gets a 404/422 and never reaches compute_day_trader_signal. GET /api/watchlist's day-trader branch has no such dependency, so the same ticker+mode combination is handled inconsistently between the two endpoints this PR wires up.",
+        "file": "backend/app/api/routers/stocks.py",
+        "line": 456
+      }
+    ],
+    "notes": "Independently re-ran backend/frontend tests+coverage (1341/882 passed, 100%/99%+ coverage), static analysis (ruff/mypy/eslint/tsc/profit-target-wording, all clean), regenerated openapi.json/types.ts and diffed clean, did a byte-for-byte swing-mode regression check via real HTTP TestClient calls on main vs this branch (identical aside from the additive trading_mode field), a Playwright browser walkthrough (golden path + day-trader-503 + null-signal edge cases, no console/network errors), and the full persisted e2e suite (26/26 specs pass). Mixed-triple handling, 503-vs-null split, API doc standard, architecture placement of app/api/day_trader_signal.py, and the indicators/portfolio scope-deferral (backend-day-trader-timeframe-mode-api-followups) all checked sound. One blocking finding (non-discriminating happy-path test) sends this back for a fix; one non-blocking finding filed as a followups checklist item. Posted as a COMMENTED-type PR review, not a formal approve/request-changes."
   }
 }
