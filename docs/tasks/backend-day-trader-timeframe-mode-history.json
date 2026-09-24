@@ -3,7 +3,7 @@
   "title": "Day-trader mode: walk-forward historical signal replay (analyse_history) over intraday data",
   "area": "backend/signals",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": [
     "backend-day-trader-timeframe-mode-signal-engine",
     "backend-day-trader-timeframe-mode-ibkr-intraday"
@@ -41,5 +41,11 @@
       "rationale": "Matches `backend-day-trader-timeframe-mode-signal-engine`'s own explicitly stated regression-risk posture for this whole feature area ('extremely careful... regression risk here is real, not hypothetical') -- swing mode's `analyse_history` is this app's own production-critical, already-reviewed chart-overlay implementation, and every existing test/caller of it must remain provably untouched; a new, separate function achieves that with zero risk of an accidental swing-mode regression, at the accepted cost of the two functions' precompute blocks being structurally near-identical. Threading a third, generic helper through both call sites was considered and rejected: with exactly two callers (unlikely to grow a third any time soon, since day-trader mode and swing mode are this app's only two `TradingMode`s by design) and `analyse_history`'s own precompute block already carrying extensive inline commentary earned through real review scrutiny (a documented O(range_size x history_length) -> O(history_length) fix, itself the subject of a dedicated `TestAnalyseHistoryPerformance` test class), the indirection cost of a shared helper wasn't judged worth it versus the small, contained duplication. The `_short_term_ohlcv_already_clean` addition to `analyse()` was judged in scope (not deferred) because leaving it out would silently reintroduce the exact O(range_size)-repeated-`dropna`-scan cost `_daily_ohlcv_already_clean` exists to eliminate for `daily_ohlcv` -- and a walk-forward intraday replay is, if anything, more likely to hit thousands of bars than swing mode's own daily cadence ever is, making this optimization matter at least as much here."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-history",
+    "pr_number": 316,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/316",
+    "pushed_at": "2026-09-24T22:36:10Z"
+  }
 }
