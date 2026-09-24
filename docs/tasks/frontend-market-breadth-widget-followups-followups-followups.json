@@ -26,5 +26,11 @@
       "rationale": "Reordering was rejected: the personal-breadth assertion needs the ticker present, so it can't run after the removal step without breaking that step's own precondition, and merging it into the 'adding a ticker' test wouldn't help either -- describe.serial still skips the remaining removal test on any failure in the merged test. An afterAll-based API cleanup is a proven pattern already used in this suite (portfolio.spec.ts's clearPreexistingDueFollowUpTrades before a beforeAll seed) and needs no UI interaction, so it can't itself be blocked by whatever UI state a mid-block failure left behind. Verified by temporarily throwing inside the personal-breadth assertion: the removal test then reported 'did not run' (skipped by describe.serial) but the afterAll hook still ran and returned 204, confirming GOOGL was removed; reverted immediately after."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget-followups-followups-followups",
+    "pr_number": 297,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/297",
+    "pushed_at": "2026-09-24T05:27:03Z"
+  }
 }
