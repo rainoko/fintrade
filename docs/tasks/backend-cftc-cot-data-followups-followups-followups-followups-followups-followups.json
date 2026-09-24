@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #298's review (identical timestamps on its own two new decisions entries)",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
@@ -24,5 +24,11 @@
       "rationale": "A few-seconds gap rather than a larger one reflects that both corrections in that PR were narrow text edits (a timestamp swap and a wall-clock-figure reconciliation) with no multi-minute test runs or investigation between them, so a large gap would itself be an implausible fabrication; a small but non-zero gap is the most defensible guess given no other record of the exact sequencing survives. Editing the parent done task's decisions timestamps in place (rather than only adding a pointer entry there) matches this checklist item's explicit instruction and CLAUDE.md's carve-out precedent (PR #298/#274); recording this correction as a fresh entry on this task's own decisions array (rather than only editing the parent's text) satisfies the carve-out's own requirement that an in-place edit also be logged as a fresh decisions entry with rationale."
     }
   ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups-followups-followups-followups-followups-followups",
+    "pr_number": 299,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/299",
+    "pushed_at": "2026-09-24T06:07:30Z"
+  },
   "questions": []
 }
