@@ -27,6 +27,10 @@
     {
       "step": "Concurrency: two overlapping `GET /api/portfolio/risk` requests for the same position each read `position_row.trailing_stop_high_water_mark` before either commits, so a lost-update race is possible (the lower of two concurrently-computed candidates could win the final `db.commit()`). Narrow window, and self-limiting in practice (the stateless recompute still floors most cases correctly), but now that this GET route mutates state at all, its write needs the same concurrency scrutiny any other mutating endpoint gets -- worth a `SELECT ... FOR UPDATE`-style guard or an atomic `UPDATE ... SET trailing_stop_high_water_mark = MAX(trailing_stop_high_water_mark, :candidate)` instead of read-compare-write from Python, if this is judged worth closing rather than accepting as a low-probability, self-healing race.",
       "done": true
+    },
+    {
+      "step": "Non-blocking, from PR #240's round-4 re-review (code-review skill pass): the 'daily_ohlcv must already be filtered through drop_malformed_daily_bars' contract that `trailing_stop_floor_before_merge`/`ratchet_trailing_profit_stop` rely on (round-3's fix) is enforced only by docstring convention, duplicated across two call sites (`get_risk`, `add_position`'s merge branch) rather than centralized inside the function itself. A third future caller of this permanent-MAX-floor function could forget to pre-filter and silently reintroduce the exact round-3 bug (a single malformed bar locking in an unrecoverable wrong high-water-mark floor) in a new code path. Worth considering having `trailing_stop_floor_before_merge` filter internally (accepting the minor duplicate-filter cost when a caller already filtered) rather than trusting every future caller to remember the convention.",
+      "done": false
     }
   ],
   "decisions": [
