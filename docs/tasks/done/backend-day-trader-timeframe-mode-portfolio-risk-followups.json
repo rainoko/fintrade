@@ -1,0 +1,68 @@
+{
+  "id": "backend-day-trader-timeframe-mode-portfolio-risk-followups",
+  "title": "Non-blocking findings from PR #317's review (backend-day-trader-timeframe-mode-portfolio-risk)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-day-trader-timeframe-mode-portfolio-risk"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json",
+    "https://github.com/rainoko/fintrade/pull/317",
+    "docs/Analyse.md#7"
+  ],
+  "description": "Non-blocking finding recorded by pr-reviewer's independent elder-signal-reviewer pass on PR #317, tracked here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/Analyse.md's §7 'Profit target' section still says the two implemented target techniques are the ones 'relevant to a swing/position-holding use case (the third ... doesn't apply, since this app has no intraday use case)'. That parenthetical is now stale: day-trader (intraday) mode exists in the codebase as of backend-day-trader-timeframe-mode-signal-engine (PR #312) onward, and this PR's own code docstring in app/portfolio/profit_target.py was updated with a more accurate explanation (day-trader mode still doesn't use the third technique, but not because the app 'has no intraday use case' -- it's because that third technique addresses a different exit signal, not because the value-zone/channel target technique stops applying once timeframes are intraday). docs/Analyse.md itself was not updated to match, even though the sibling PRs in this same feature arc (see docs/Analyse.md's own day-trader-mode bullets at line ~77 and ~384) did update Analyse.md alongside the code change they documented. Update Analyse.md's §7 Profit target section's parenthetical to stop claiming the app has no intraday use case, and instead explain (briefly, referencing app.portfolio.profit_target's own docstring and this task's decisions entry) why the third technique still doesn't apply in day-trader mode.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-portfolio-risk-followups",
+    "pr_number": 318,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/318",
+    "pushed_at": "2026-09-24T23:34:17Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T23:33:19Z",
+      "recorded_by": "task-worker",
+      "decision": "Replaced docs/Analyse.md §7's stale parenthetical (\"the third — a day-trade's first-sign-of-opposing-divergence exit — doesn't apply, since this app has no intraday use case\") with wording matching the corrected rationale already recorded in app.portfolio.profit_target's own docstring and PR #317's decisions entry: the third technique still isn't implemented, but not because the app lacks an intraday use case (day-trader mode has existed since PR #312) — it's because that technique addresses a *different exit signal* (first sign of opposing divergence) than the value-zone/channel target technique this app does implement, and nothing in ch. 39/53 suggests the channel-target technique itself stops applying once a trader's timeframes happen to be intraday. The new prose cross-references app.portfolio.profit_target's docstring and this task's own decisions entry rather than re-deriving the full argument inline, mirroring how the sibling day-trader-mode Analyse.md bullets (§4/§7 elsewhere) already point back to their own originating task's decisions entry instead of duplicating the reasoning in two places.",
+      "rationale": "Editing the parenthetical in place (rather than appending a new bullet) was chosen because this is normal living-documentation maintenance on an active (non-done) task's checklist item that explicitly named the stale text as the thing to fix — the append-only-decisions-array convention in CLAUDE.md governs a *done* task's own already-recorded decisions entries, not doc prose describing current app behavior, which docs/Analyse.md's own header already treats as continuously-maintained source-of-truth text (unlike docs/ideas.md's scratch-pad carve-out or docs/tasks/*.json's historical-record carve-out, both of which scripts/check_profit_target_wording.py explicitly excludes from its guard for that exact reason). Verified scripts/check_profit_target_wording.py still passes after the edit (weekly-chart wording elsewhere in the same §7 section is untouched, so its known-file positive check still finds 'weekly' near the channel/Autoenvelope context), and scripts/validate_tasks.py still passes."
+    }
+  ],
+  "review": {
+    "reviewed_at": "2026-09-24T23:39:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/318",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Read backend/app/portfolio/profit_target.py's current docstring and PR #317's decisions entry directly (not just the task-worker's paraphrase) and confirmed the new docs/Analyse.md §7 wording genuinely matches both: the third Elder ch. 53 technique still isn't implemented because it addresses a different exit signal (first sign of opposing divergence), not because the app lacks an intraday use case -- this is a real correction, not just a rephrase that happens to sound plausible.",
+        "file": "docs/Analyse.md",
+        "line": 262
+      },
+      {
+        "summary": "Checked the rest of §7 (SafeZone stop, trailing/profit-protecting stop, the two profit-target technique bullets, the reward:risk rule, the BUY-only/open-position paragraphs) and the two other day-trader-mode Analyse.md bullets (~line 77, ~line 384) for anything that now reads inconsistently with the correction -- none found; nothing else in the doc assumed the old 'no intraday use case' rationale.",
+        "file": "docs/Analyse.md",
+        "line": null
+      },
+      {
+        "summary": "Ran scripts/check_profit_target_wording.py (264 files + 8 known locations, clean) and scripts/validate_tasks.py (313 task files, clean) myself. Also ran the full backend test suite as a cheap sanity check even though this PR touches no code: 1371 passed, no regressions. Ran static-verify's backend (ruff, mypy) and frontend (eslint, tsc) checks -- all clean, as expected for a docs-only diff. No UI-facing surface touched (docs + task-board JSON only), so the browser walkthrough and e2e-test steps don't apply -- explicitly skipped rather than silently omitted.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: the edited paragraph's closing sentence now ends '...for the full reasoning:' immediately before the Swing-style/Position-style bullet list, but that list describes the two implemented techniques, not 'the full reasoning' for why the third technique doesn't apply -- the colon's antecedent no longer matches the list that follows it (the pre-PR wording didn't have this problem, since its own colon's antecedent was 'the two techniques' and the list matched exactly). A documentation clarity nit, not a factual/methodology error. Tracked as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json rather than blocking this PR on it.",
+        "file": "docs/Analyse.md",
+        "line": 262
+      }
+    ],
+    "notes": "Accepted. Docs-only PR: verified the corrected §7 Profit target wording against backend/app/portfolio/profit_target.py's docstring and PR #317's decisions entry directly, confirmed no other part of docs/Analyse.md now reads inconsistently, ran scripts/check_profit_target_wording.py and scripts/validate_tasks.py, ran the full backend suite (1371 passed) and static-verify (ruff/mypy/eslint/tsc all clean) as sanity checks even though no code changed, and ran a code-review pass plus a verify-elder-signal pass given this task's area is backend/portfolio. One non-blocking documentation-clarity finding (a colon/list-antecedent mismatch introduced by the edit) filed as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json rather than blocking on a wording nit."
+  },
+  "questions": [],
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T23:43:04Z",
+    "verdict": "merge",
+    "notes": "Read backend/app/portfolio/profit_target.py's docstring and PR #317's decisions entries directly and confirmed the new docs/Analyse.md §7 wording is accurate (third technique addresses a different exit signal, not intraday inapplicability). Confirmed git diff main...HEAD --stat touches only docs/Analyse.md and task-board JSON, no code. Ran scripts/check_profit_target_wording.py (clean, 264 files + 8 known locations) and scripts/validate_tasks.py (clean, 314 files) myself. Re-ran the full backend suite: 1371 passed, 100% coverage, matching pr-reviewer's reported numbers."
+  }
+}
