@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-up from backend-profit-target-weekly-channel-followups-followups-followups PR #307 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-profit-target-weekly-channel-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json",
@@ -35,5 +35,12 @@
     "pr_number": 308,
     "pr_url": "https://github.com/rainoko/fintrade/pull/308",
     "pushed_at": "2026-09-24T16:17:02Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T16:24:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/308",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Both checklist items independently re-verified, not just trusted from the PR description. (1) Dedup-set threading: confirmed via a genuine scratch-copy before/after run (main's pre-fix module loaded and exec'd directly, not git stash) that `x = \"today's \" \"Autoenvelope\"; y = \"today's \" \"Autoenvelope\"` produces 2 identical violations pre-fix and 1 post-fix -- the semicolon does split the line into two separate _iter_implicit_concat_runs runs (verified directly), so the new test's premise is real, not assumed. Also checked the dedup key isn't now over-suppressing: two runs on genuinely different lines matching the same pattern still yield 2 violations, and two runs on the same line matching different patterns still yield 2 violations (both manually verified against the post-fix module) -- the (pattern_index, lineno) key remains granular enough. run_reported is correctly instantiated once per file (inside the per-path loop, outside the per-run loop) and kept deliberately separate from the per-line scan's own `reported` set, per a decisions entry recording why merging them was rejected. (2) Fallback test: confirmed non-tautological -- the hand-built [FSTRING_START, unrelated NAME] token list genuinely drives the loop off the end without depth reaching 0, falling through to `return start_index`; branch coverage (`coverage run --branch --include=\"*/check_profit_target_wording.py\"`) confirms line 319 no longer appears in Missing after the fix. Full verification: scripts/tests suite 70/70 pass; live guard (`python3 scripts/check_profit_target_wording.py`) clean against the real repo tree; backend ruff/mypy clean; frontend eslint/tsc clean; backend pytest 1244 passed at 100% coverage; frontend vitest 882 passed at ~99.8% coverage (both well above the 90% gate, no regression); scripts/validate_tasks.py clean (299 task files, no violations). A backgrounded code-review (effort high) pass independently corroborated: no bugs, no reuse/simplification issues, dedup ownership transfer correctly documented in both docstrings. This is a scripts-only change (dev-tooling guard, no app code) -- no API/schema touched (openapi.json check n/a), no new module/dependency/layer (architecture-review n/a), no frontend component touched, and no UI-facing surface at all, so the browser walkthrough and e2e-test suite steps are both explicitly skipped as not applicable rather than silently omitted. Task `area` is inherited as backend/signals from the parent chain, but the actual diff never touches app/signals or app/portfolio -- verify-elder-signal's methodology checks don't apply in substance to a wording-guard script's internal dedup bookkeeping, noted explicitly rather than mechanically invoked. Both checklist items were phrased as bug reports, not 'decide X' items, but the PR did make one real design choice (keep the two reported sets separate) and recorded it as a decisions entry with rationale, satisfying CLAUDE.md's decision-memory rule. Genuinely no blocking or non-blocking findings on this pass -- per the task's own framing, accepting without manufacturing a new one."
   }
 }
