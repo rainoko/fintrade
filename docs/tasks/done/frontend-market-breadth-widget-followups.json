@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #262's review (MarketBreadthCard)",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-market-breadth-widget"
   ],
@@ -45,5 +45,33 @@
     "pr_number": 287,
     "pr_url": "https://github.com/rainoko/fintrade/pull/287",
     "pushed_at": "2026-09-23T23:53:45Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T00:02:31Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/287",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified formatSignedSpread(a, b, fallback) is behavior-identical to both deleted local formatSpread implementations: same null/undefined guard (now unified across both call sites' looser number|null|undefined signature), same a-b computation, same '+N'/String(N) sign formatting. MarketBreadthCard.tsx passes '—' (matching formatNullableNumber's placeholder convention used elsewhere on the same card); marketBreadthHelp.ts passes 'not enough history yet' (avoids an odd mid-sentence '—'). format.test.ts's 5 new cases (positive, negative, zero-not-'+0', null, undefined) plus the full existing MarketBreadthCard.test.tsx/vitest suite (836 passed, 99.76%+ coverage) confirm no behavior changed.",
+        "file": "frontend/src/utils/format.ts",
+        "line": 187
+      },
+      {
+        "summary": "Verified the new e2e test's page.getByRole('main') scoping is a genuine disambiguation, not incidental: AppShell.tsx renders IbkrStatusIndicator's identical 'IBKR: Disabled' chip in the AppBar/Toolbar, outside the <Box component=\"main\"> wrapping <Outlet/>. Confirmed live in a browser (make dev + a scripted Playwright walkthrough): the watchlist page renders exactly 2 occurrences of the text 'IBKR: Disabled' (the app-shell chip and MarketBreadthCard's own badge), and the main-scoped assertions match the actually-rendered heading/copy/badge text. make e2e: all 23 specs pass, including this new one.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts",
+        "line": 86
+      },
+      {
+        "summary": "Independently confirmed (grep across frontend/tests/e2e/*.spec.ts) that no e2e spec asserts on PersonalBreadthCard at all -- the original checklist item's premise ('matching the level of e2e attention PersonalBreadthCard already gets') did not hold, exactly as the task-worker's decisions entry states. Recording this as a decision rather than blocking was the right call (fixing it would be new scope beyond this task's three tracked findings), but the underlying gap is real and worth its own tracked follow-up rather than only living in this decisions entry -- filed as frontend-market-breadth-widget-followups-followups.json.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Both new decisions entries are timestamped 2026-09-23T00:00:00Z, an exact-midnight placeholder-looking value roughly 24h off from this PR's actual push (git log shows commits at 2026-09-23T23:53-23:54Z). Doesn't affect the decisions' validity or the review gate, but worth using a real `date -u` capture for decisions timestamps same as review/pr_decision timestamps are required to.",
+        "file": "docs/tasks/frontend-market-breadth-widget-followups.json",
+        "line": 31
+      }
+    ],
+    "notes": "Full review pass, all clean: backend pytest (1203 passed, 100% coverage) and frontend vitest (836 passed, 99.76%+ stmts/branches/functions/lines) both well above the 90% gate, no regressions (this PR touches no backend code). ruff/mypy/eslint/tsc/profit-target-wording guard/validate_tasks.py all clean. code-review skill (effort: high, single-pass) found zero correctness findings, matching my own read of the diff. Ran the persisted e2e suite (make e2e): 23/23 specs pass, including the new watchlist.spec.ts assertion. Did a live browser walkthrough (make dev + a scripted Playwright pass against the real watchlist page, since no interactive browser tool was available this session) confirming the disabled panel renders correctly and the 'IBKR: Disabled' text genuinely appears twice on the page (app-shell chip + card badge), validating the main-scoping fix is real disambiguation rather than incidental. No API/schema changed, so backend/openapi.json is correctly untouched. No new/changed components requiring a common/-vs-feature placement check (only an existing utils/format.ts helper added, correctly domain-agnostic per its own header comment, and two existing feature components' internals swapped to use it). No checklist item is phrased as 'decide X' without a corresponding decision. Two non-blocking findings (PersonalBreadthCard e2e-coverage gap; decisions-entry timestamp placeholder) filed as frontend-market-breadth-widget-followups-followups.json. No leftover pr_decision existed on this task to clear."
   }
 }
