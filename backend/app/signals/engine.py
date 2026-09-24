@@ -399,6 +399,18 @@ def analyse(
     clean`` escape hatch -- there is no ``analyse_history``-style hot loop supplying this
     parameter yet, so that optimization isn't needed here; see this task's `decisions` entry).
 
+    Confidence scoring's ``volume_confirmation`` component (docs/Analyse.md §6, "Force Index
+    spike / trigger bar volume is above 20-day average") deliberately stays on ``daily_ohlcv``'s
+    volume for both halves of that OR even when ``short_term_ohlcv`` is supplied -- it is *not*
+    switched to ``short_term_ohlcv``'s own latest-bar volume the way Screen 3/Trigger itself is
+    above. See `docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups.json`'s
+    `decisions` entry for the full rationale (in short: the 20-day rolling average this
+    component compares against is itself computed from ``daily_ohlcv``'s volume series, so
+    swapping only the numerator to a much-finer-grained short-term bar's volume would compare
+    two quantities at incompatible scales -- a single short-term bar's volume is structurally
+    smaller than a daily/intermediate-timeframe rolling average, which would bias this
+    component toward always scoring 0 via that arm rather than genuinely confirming anything).
+
     ``channel_upper``/``channel_lower``, if given, are the already-computed
     ``autoenvelope(daily_ohlcv['close'], mid=ema_13)['upper']``/``['lower']`` (the Autoenvelope/
     channel bands, docs/Analyse.md §4: "EMA 13 ± avg % deviation") instead of this function
@@ -617,6 +629,10 @@ def analyse(
         breakdown: list[ConfidenceComponent] = []
         confidence = 0
     else:
+        # Deliberately `daily_ohlcv` (the intermediate leg in day-trader mode), not
+        # `short_term_ohlcv`/`trigger_ohlcv` -- see this function's own `short_term_ohlcv`
+        # docstring paragraph above and `backend-day-trader-timeframe-mode-signal-engine-
+        # followups.json`'s `decisions` entry for why.
         volume = daily_ohlcv["volume"]
         latest_volume = _latest(volume)
         average_volume = _latest(volume.rolling(window=_VOLUME_AVERAGE_WINDOW).mean())

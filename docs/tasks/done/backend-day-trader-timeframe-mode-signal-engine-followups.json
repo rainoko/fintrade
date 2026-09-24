@@ -1,0 +1,102 @@
+{
+  "id": "backend-day-trader-timeframe-mode-signal-engine-followups",
+  "title": "Non-blocking findings from PR #312's review (backend-day-trader-timeframe-mode-signal-engine)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-day-trader-timeframe-mode-signal-engine"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-signal-engine.json",
+    "https://github.com/rainoko/fintrade/pull/312"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #312 (backend-day-trader-timeframe-mode-signal-engine), which accepted the PR -- tests (1319 backend / 882 frontend) pass, 100%/99.8% coverage, ruff/mypy/eslint/tsc/profit-target-wording-guard all clean, swing-mode's `analyse()`/`analyse_history()` output independently re-verified byte-identical pre/post-diff (not just the PR's own claim), and the new `analyse_day_trader()`/extended `day_trader_intraday.py` end-to-end integration test read as sound. This task collects the review's non-blocking findings so they aren't lost once PR #312 merges.",
+  "checklist": [
+    {
+      "step": "`app.signals.confidence.score_volume_confirmation`'s \"trigger bar volume\" arm (docs/Analyse.md §6, 10% weight, wired in `app.signals.engine.analyse` as `volume = daily_ohlcv[\"volume\"]` around the confidence-scoring branch) unconditionally reads `daily_ohlcv`'s latest bar -- i.e. the *intermediate*-timeframe leg -- even when `short_term_ohlcv` is supplied and Screen 3/Trigger genuinely fires against a distinct short-term series. In day-trader mode this means the \"trigger bar volume\" check evaluates the intermediate bar's volume, not the actual short-term bar where the trigger fired -- a real (narrow, single 10%-weighted, OR'd-with-Force-Index-spike) drift from docs/Analyse.md §6's own \"trigger bar volume\" language once Trigger no longer shares Wave's timeframe. No live impact today (`analyse_day_trader()` has no API/UI caller yet -- confirmed nothing in `app/api/routers/` or `app/portfolio/` references `TradingMode`/`analyse_day_trader` at all), but PR #312's own self-review claim that confidence scoring is fully timeframe-agnostic once Screen 3 is genericized overstates this one component. Decide (and record via `decisions`) whether day-trader mode's volume-confirmation component should read `short_term_ohlcv`'s own latest bar instead, or whether staying on the intermediate leg is the intended interpretation (matching how Force Index spike, the other half of this OR, also stays on the intermediate leg) -- ideally resolved alongside `backend-day-trader-timeframe-mode-api` once day-trader mode has a real caller to test against.",
+      "done": true
+    },
+    {
+      "step": "`app/signals/timeframe.py`'s `TimeframeUnit` class docstring still references `app.signals.engine._weekly_through_bar_date`, which PR #312 itself renamed to `_long_term_through_bar_date` -- a stale identifier reference this PR's own rename should have caught (every other reference across `docs/architecture/Backend.md`/`engine.py`/tests was updated correctly). Fix: update that one docstring line to the new name.",
+      "done": true
+    },
+    {
+      "step": "`docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s checklist item 3 (deciding how `get_intraday_bars_for_triple` should handle a fully-intraday triple where `long_term` is also `MINUTE`-unit) is effectively resolved by PR #312 (`app.data.day_trader_intraday` now fetches all three legs uniformly), but that followup task's own checklist entry was never marked `done` to reflect it -- a task-board bookkeeping gap, not a code issue. Mark that checklist item `done` (with a note pointing at PR #312) once picked up.",
+      "done": true
+    },
+    {
+      "step": "`get_intraday_bars_for_triple` now issues three sequential synchronous `provider.get_hourly_bars` calls (extended from two by PR #312, one per MINUTE-unit leg) instead of running the independent per-leg fetches concurrently -- for a fully-intraday triple (ch. 39's own 25-min/5-min/2-min motivating case), a day-trader-mode analysis now pays three sequential IBKR round-trip latencies instead of two. `docs/tasks/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s own checklist item 1 already tracks this same concern for the original two-leg version (\"worth revisiting once a real caller exists and the actual latency impact can be measured\") -- update that item's wording to reflect the now-three-leg case (or fold this entry into it) rather than tracking the same concurrency question in two places once a real caller (`backend-day-trader-timeframe-mode-api`) exists to measure against.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T21:52:04Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 1 (volume-confirmation's timeframe): decided to keep `app.signals.confidence.score_volume_confirmation`'s \"trigger bar volume\" arm reading `daily_ohlcv`'s (the intermediate leg's, in day-trader mode) latest bar and 20-period rolling average -- it is NOT switched to `short_term_ohlcv`'s own latest bar, even though `backend-day-trader-timeframe-mode-api` has since landed and gives day-trader mode a real caller (`app.api.day_trader_signal.compute_day_trader_signal`, wired into `GET /api/stocks/{ticker}/analysis` and `GET /api/watchlist`). Added a clarifying paragraph to `analyse()`'s `short_term_ohlcv` docstring and an inline comment at the `volume = daily_ohlcv[\"volume\"]` call site in `app/signals/engine.py` pointing back to this decision, so a future reader doesn't mistake this for an oversight the way PR #312's review flagged it.",
+      "rationale": "The `_VOLUME_AVERAGE_WINDOW`-bar rolling average this component compares `latest_volume` against is itself computed from the *same* series as `latest_volume` (both currently `daily_ohlcv[\"volume\"]`) -- that's what makes 'is the latest bar's volume above its own recent-history average' a coherent comparison in the first place. Swapping only the numerator to `short_term_ohlcv`'s own latest bar (e.g. a 2-minute bar in ch. 39's own day-trading example) while leaving the denominator computed from the intermediate leg's volume (e.g. 5-minute bars) would compare two structurally incomparable quantities: a single short-term bar's volume is mechanically smaller than a rolling average of a coarser leg's per-bar volume (more, smaller bars split the same total traded volume), so this arm of the OR would almost always read as 'below average' regardless of whether the actual short-term bar was unusually heavy for *its own* timeframe -- silently and systematically suppressing this 10%-weighted component rather than genuinely confirming anything, which would be a worse outcome than the status quo's narrower drift from docs/Analyse.md §6's literal 'trigger bar volume' wording. Doing this properly (comparing `short_term_ohlcv`'s latest bar against a 20-period rolling average of `short_term_ohlcv`'s own volume) is a viable alternative in principle, but it's a materially bigger change than this narrow followup's own scope suggests: it would mean also computing/threading a second rolling-average series (mirroring `average_volume`'s existing precompute-and-pass pattern `analyse_history` relies on for its five/eight `daily_ohlcv`-side parameters) purely for a single 10%-weighted, OR'd component, and would need its own dedicated `verify-elder-signal` scrutiny of what '20-day average' even means once the underlying bar is a few minutes wide rather than a full session -- exactly the kind of open question `backend-day-trader-timeframe-mode-signal-engine`'s own `decisions` entries already deferred for the portfolio/risk layer's calendar-day-specific concepts. Staying on the intermediate leg for both halves of the OR also keeps this component symmetric with Force Index spike (`wave[\"state\"]`), which is unambiguously an intermediate-leg/Wave-level concept in this implementation (Wave is evaluated on `daily_ohlcv` in both swing and day-trader mode) -- both halves of the same confidence component now consistently answer 'did the Wave-level reversal event show above-average intermediate-timeframe volume', which is a coherent, testable claim, rather than one half answering a Wave-level question and the other answering a Trigger-level one at an incompatible scale."
+    },
+    {
+      "timestamp": "2026-09-24T21:52:04Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 2 (stale `_weekly_through_bar_date` docstring reference in `app/signals/timeframe.py`): fixed by renaming the reference to `_long_term_through_bar_date` in `TimeframeUnit`'s class docstring, matching PR #312's actual rename.",
+      "rationale": "A direct, mechanical fix -- the identifier being referenced was renamed by PR #312 and this one docstring mention was simply missed; no other reasoning needed beyond making the reference accurate again."
+    },
+    {
+      "timestamp": "2026-09-24T21:52:04Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 3 (mark `backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`'s checklist item 3 done): confirmed already done -- that task (now `docs/tasks/done/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json`, merged via PR #314) already marks its checklist item 3 `done: true` with its own `decisions` entry pointing at PR #312 (\"Checklist item 3 (fetch/expose a long_term leg) was already fully resolved by PR #312 ... before this task was picked up\"). No further action needed; marked this task's corresponding checklist item done with this note.",
+      "rationale": "Verified directly by reading the merged task file rather than assuming the task description's own claim -- it is in fact already resolved, so redoing the bookkeeping here would be pure duplication of PR #314's own already-recorded decision."
+    },
+    {
+      "timestamp": "2026-09-24T21:52:04Z",
+      "recorded_by": "task-worker",
+      "decision": "Checklist item 4 (sequential-vs-concurrent leg fetching for `get_intraday_bars_for_triple`): confirmed already resolved by PR #314 (`backend-day-trader-timeframe-mode-ibkr-intraday-followups`), which implemented concurrent fetching via a `concurrent.futures.ThreadPoolExecutor(max_workers=3)` fanning out all three legs' `_fetch_leg` calls and blocking on every future before returning -- verified directly by reading current `app/data/day_trader_intraday.py` on `main` (the `ThreadPoolExecutor` fan-out is present) rather than trusting the claim alone. No further action needed; marked this task's corresponding checklist item done with this note.",
+      "rationale": "Same verification standard as checklist item 3 above -- read the actual current source rather than assuming the merged PR's description is accurate, since this task's own dispatch instructions explicitly called for that check. `backend-day-trader-timeframe-mode-ibkr-intraday-followups-followups.json` (not this task) is where PR #314's own review non-blocking findings about that concurrent-fetch implementation (a `mock.call_count` non-atomicity theoretical robustness gap, and a duplicated fan-out/fan-in pattern with `app/api/routers/stocks.py`) are already tracked, so nothing further belongs here."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-signal-engine-followups",
+    "pr_number": 315,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/315",
+    "pushed_at": "2026-09-24T21:54:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T22:01:50Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/315",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed items 1/2 are genuinely comment/docstring-only with zero behavior change: `git diff main...HEAD -- backend/app/signals/engine.py backend/app/signals/timeframe.py` shows only a new docstring paragraph + inline comment in engine.py (no code line changed) and a one-line identifier rename inside a docstring in timeframe.py. `_long_term_through_bar_date` (the new name) does exist in engine.py; the stale `_weekly_through_bar_date` reference is gone.",
+        "file": "backend/app/signals/engine.py",
+        "line": 402
+      },
+      {
+        "summary": "Verified the 'keep as-is' rationale for item 1 is analytically sound: `analyse_day_trader` maps `intermediate_ohlcv` onto `analyse()`'s `daily_ohlcv` parameter (confirmed by reading the wrapper), so in day-trader mode `latest_volume` and its 20-period rolling average are both derived from the same intermediate-leg series, exactly as in swing mode. Swapping only the numerator to `short_term_ohlcv`'s much-finer-grained latest bar while leaving the denominator computed from the coarser intermediate leg would compare two structurally incompatible scales (a single fine-grained bar's volume is mechanically smaller than a rolling average of coarser per-bar volumes), which would systematically bias this OR-arm toward 'below average' regardless of whether the actual short-term bar was heavy for its own timeframe -- worse than the status quo's narrower, already-accepted drift from docs/Analyse.md §6's literal 'trigger bar volume' wording. The symmetry argument (Force Index spike also stays on `daily_ohlcv`/Wave-level in both modes) also checks out: `evaluate_wave(daily_ohlcv, tide)` is called unconditionally on the intermediate leg in both `analyse()` and `analyse_day_trader()`.",
+        "file": "backend/app/signals/engine.py",
+        "line": 402
+      },
+      {
+        "summary": "Confirmed items 3/4 are genuinely already resolved on main, independent of the task-worker's own claim: PR #314's merged task file (docs/tasks/done/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json) already marks its own checklist item 3 done with a decisions entry pointing at PR #312, and current main's backend/app/data/day_trader_intraday.py already contains `with ThreadPoolExecutor(max_workers=len(legs)) as executor:` fanning out all three legs (from PR #314), matching item 4's claim.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 296
+      },
+      {
+        "summary": "Independently re-ran the full backend suite (1341 passed), coverage (100% line/branch, --cov-fail-under=90), ruff check (clean), mypy (clean), scripts/check_profit_target_wording.py (clean, 264 files scanned), and scripts/validate_tasks.py (clean, 310 files) -- all match the PR's own reported numbers. No API/schema surface touched, so no OpenAPI snapshot regeneration was needed. No frontend/UI surface touched by this PR (docstring/comment + task-board only) -- browser walkthrough and the persisted e2e suite (step 9/9a) don't apply, noted explicitly rather than silently skipped. Also ran the code-review skill against the diff: no correctness/reuse/simplification findings.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (tracked as a follow-up, not filed here as blocking): docs/Analyse.md §6's 'trigger bar volume is above 20-day average' row is not updated to note the day-trader-mode-specific behavior this PR's docstring/decision now describe (that volume confirmation deliberately stays on the intermediate leg, not the actual short-term Trigger leg) -- unlike §2's Screen 3 bullet and §9's note, which both got a parallel day-trader-mode footnote when Screen 3 itself changed in PR #312. Not blocking since the checklist item that prompted this PR only asked for a decision to be recorded (which it was), but a reader of Analyse.md alone wouldn't learn this without cross-referencing engine.py's docstring or this task's decisions entry.",
+        "file": "docs/Analyse.md",
+        "line": 227
+      }
+    ],
+    "notes": "All four checklist items resolved correctly. Items 1/2 verified to be genuinely comment/docstring-only via a direct diff of engine.py/timeframe.py (no behavior change). Item 1's 'keep as-is' rationale independently re-derived and confirmed sound: analyse_day_trader() maps intermediate_ohlcv onto daily_ohlcv, so the rolling-average-scale-mismatch argument against swapping only the numerator to short_term_ohlcv holds. Items 3/4 independently confirmed already resolved on main (PR #312/#314), not just trusted from the task-worker's own claim. Full backend suite (1341 tests, 100% coverage), static analysis (ruff/mypy), profit-target wording guard, and task-board validation all independently re-run and clean. No API surface touched (no OpenAPI regen needed); no UI surface (browser walkthrough/e2e steps don't apply, noted explicitly). One non-blocking finding (docs/Analyse.md §6 not updated with a day-trader-mode footnote analogous to §2/§9's) filed on docs/tasks/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json rather than left only in this PR's comments."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T22:06:41Z",
+    "verdict": "merge",
+    "notes": "Independently re-diffed engine.py/timeframe.py against origin/main: confirmed the only changes are a docstring paragraph + inline comment in engine.py and a one-line docstring identifier fix in timeframe.py -- the `volume = daily_ohlcv[\"volume\"]` line itself is untouched, zero executable code changed. Re-derived the volume-confirmation rationale from scratch by reading `analyse()`'s signature (`daily_ohlcv` is its second positional param) and `analyse_day_trader`'s call (`analyse(ticker, intermediate_ohlcv, long_term_ohlcv, short_term_ohlcv=...)`), confirming intermediate_ohlcv maps onto daily_ohlcv so both latest_volume and its 20-bar rolling average share one series in day-trader mode -- swapping only the numerator to a finer short_term bar would compare mismatched scales and bias the arm toward always reading 'below average', so staying on the intermediate leg is the sounder call given the current single-series average implementation. Confirmed `_long_term_through_bar_date` exists in engine.py (grep, 7 references) and the stale `_weekly_through_bar_date` name is gone. Confirmed on current main that PR #312/#314 already resolved checklist items 3/4: docs/tasks/done/backend-day-trader-timeframe-mode-ibkr-intraday-followups.json's own checklist item 3 is done with a PR #312 pointer, and backend/app/data/day_trader_intraday.py:296 has the ThreadPoolExecutor(max_workers=len(legs)) fan-out. Re-ran the full backend suite myself: 1341 passed, 100% line/branch coverage; ruff and mypy both clean. No human PR comments on #315 (only the automation account's accept)."
+  }
+}
