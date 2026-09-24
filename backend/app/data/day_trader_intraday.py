@@ -137,7 +137,9 @@ def _bars_to_frame(bars: list[IBKRBar]) -> pd.DataFrame:
     """Converts `IBKRProvider.get_hourly_bars`'s `list[IBKRBar]` (already sorted oldest-first)
     into the `app.data.base.DataProvider`-shaped `pd.DataFrame` this module returns."""
     if not bars:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        return pd.DataFrame(
+            columns=["open", "high", "low", "close", "volume"], index=pd.DatetimeIndex([], name="date")
+        )
     return pd.DataFrame(
         {
             "open": [bar.open for bar in bars],

@@ -10,6 +10,7 @@ not the wire format underneath them (that's `test_ibkr_provider.py`'s job).
 
 from datetime import UTC, datetime, timedelta
 
+import pandas as pd
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -192,6 +193,30 @@ class TestSelectIbkrBarSizeAndResampling:
 
         assert result.short_term.state == "available"
         assert result.short_term.ohlcv.empty
+
+    def test_empty_bars_with_non_composable_interval_does_not_crash_on_resample(self, mocker) -> None:
+        """Regression test (PR #311 review): a `"25m"` leg isn't one of IBKR's own native
+        `bar` values, so `_fetch_leg` always resamples its raw bars (`chosen_minutes=5 !=
+        interval.count=25`) even when IBKR returns zero bars for the window. Before this fix,
+        `_bars_to_frame([])` returned a `pd.DataFrame` with a default `RangeIndex`, and
+        `_resample_to_target` calling `.resample(...)` on that index raised a raw
+        `TypeError: Only valid with DatetimeIndex, ...` instead of degrading gracefully --
+        exactly the "never a raw exception surfaced to a caller" contract this module
+        documents (checklist item 3)."""
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.get_hourly_bars.return_value = []
+        triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1d"),
+            intermediate=TimeframeInterval.parse("100m"),
+            short_term=TimeframeInterval.parse("25m"),
+        )
+
+        result = get_intraday_bars_for_triple(triple, provider=provider, conid=1)
+
+        assert result.short_term.state == "available"
+        assert result.short_term.ibkr_bar_size == "5min"
+        assert result.short_term.ohlcv.empty
+        assert isinstance(result.short_term.ohlcv.index, pd.DatetimeIndex)
 
 
 class TestGracefulDegradation:

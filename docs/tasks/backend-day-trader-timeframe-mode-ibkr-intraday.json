@@ -3,7 +3,7 @@
   "title": "Day-trader mode: wire IBKR live intraday data fetching for the configured timeframe triple",
   "area": "backend/data",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode.json",
@@ -15,7 +15,7 @@
   "checklist": [
     { "step": "Research and record (via `decisions`) how to reconcile IBKR's fixed bar-interval set with the fully-configurable day-trader timeframe triple -- see this task's description for the candidate approaches.", "done": true },
     { "step": "Implement the chosen approach: a function/module that, given the active day-trader `TimeframeTriple` (`app.trading_mode.get_trading_mode_setting`) and a resolved IBKR conid, returns intraday OHLCV bars for whichever leg(s) need them.", "done": true },
-    { "step": "Graceful degradation when IBKR is disabled/unreachable/unauthenticated -- a clear unavailable state, never a raw exception surfaced to a caller.", "done": false },
+    { "step": "Graceful degradation when IBKR is disabled/unreachable/unauthenticated -- a clear unavailable state, never a raw exception surfaced to a caller.", "done": true },
     { "step": "Unit tests with a mocked IBKRProvider/`_request` boundary -- no test may make a live network call, matching this codebase's existing IBKR test convention (`tests/unit/data/test_ibkr_provider.py`).", "done": true },
     { "step": "Update docs/architecture/Backend.md §11's 'Not yet landed' list to move this item to landed, describing what was actually built.", "done": true }
   ],
@@ -56,7 +56,7 @@
     "branch": "task/backend-day-trader-timeframe-mode-ibkr-intraday",
     "pr_number": 311,
     "pr_url": "https://github.com/rainoko/fintrade/pull/311",
-    "pushed_at": "2026-09-24T17:53:17Z"
+    "pushed_at": "2026-09-24T18:08:10Z"
   },
   "review": {
     "reviewed_at": "2026-09-24T18:01:29Z",
