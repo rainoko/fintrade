@@ -166,6 +166,18 @@ def evaluate_tide(
     ``evaluate_impulse`` (mirroring that function's own <2-bar guard, which would otherwise
     reach the same BLUE/NEUTRAL result anyway -- short-circuiting here just avoids the call).
 
+    **Generic over the active timeframe** (`backend-day-trader-timeframe-mode-signal-engine`):
+    nothing below is actually specific to calendar weeks -- ``weekly_ohlcv`` just needs to be
+    whichever bars represent the currently active *long-term* timeframe (weekly bars for this
+    app's swing/position-trader mode; `app.signals.timeframe.TimeframeTriple`'s own
+    ``long_term`` leg -- of any unit, including intraday -- for day-trader mode). The parameter
+    is still named ``weekly_ohlcv`` (not renamed to something generic) since every existing
+    caller in this app is swing-mode-only today and this function's own Tide/Screen-1 math
+    never reads anything calendar-week-specific from it -- see that task's `decisions` entry
+    for why the rename was judged not worth the risk/diff size for a purely cosmetic change,
+    in contrast to `evaluate_trigger`'s genuine ``ohlcv`` rename (its own docstring explains why
+    that one case differs).
+
     ``weekly_macd_histogram_slope`` is the raw 'rising' | 'falling' | 'flat' classification of
     the weekly MACD-Histogram's own last step (docs/Analyse.md §2, unchanged threshold/logic).
     It no longer *decides* ``trend`` -- weekly Impulse's own bar-over-bar direction check does
@@ -342,8 +354,15 @@ def evaluate_wave(
 ) -> dict:
     """Screen 2: oscillator state evaluated against the tide direction (docs/Analyse.md §2).
 
-    Computes the daily Stochastic Oscillator (%K 5, %D 3, smoothing 3) and the 2-period-EMA
-    Force Index, then classifies the latest bar as one of:
+    **Generic over the active timeframe** (`backend-day-trader-timeframe-mode-signal-engine`,
+    same reasoning as `evaluate_tide`'s own docstring): ``daily_ohlcv`` just needs to be
+    whichever bars represent the currently active *intermediate* timeframe -- daily bars for
+    swing mode, `TimeframeTriple.intermediate` (any unit) for day-trader mode. Kept as
+    ``daily_ohlcv`` rather than renamed, for the same "every caller today is swing-mode-only,
+    no calendar-day-specific math lives here" reasoning.
+
+    Computes the Stochastic Oscillator (%K 5, %D 3, smoothing 3) and the 2-period-EMA Force
+    Index over whichever bars were given, then classifies the latest bar as one of:
 
     - ``"OVERSOLD_PULLBACK"``: ``tide == "BULLISH"``, %K is oversold (< 30), and the 2-EMA
       Force Index is a negative spike -- a pullback within an uptrend, i.e. a potential buy
@@ -435,23 +454,32 @@ def evaluate_wave(
     }
 
 
-def evaluate_trigger(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
-    """Screen 3: has price resumed direction (close crossed prior day's high/low) (docs/Analyse.md §2).
+def evaluate_trigger(ohlcv: pd.DataFrame, tide: str) -> dict:
+    """Screen 3: has price resumed direction (close crossed prior bar's high/low) (docs/Analyse.md §2).
 
-    This is a daily-bar EOD approximation of Elder's classic intraday buy-stop/sell-stop
-    trigger, per docs/Analyse.md §2 ("For a daily-bar app (no intraday feed required),
-    approximate with...") and §10, which recommends end-of-day-only evaluation for the MVP
-    given that same approximation -- see this task's `decisions` entry for confirmation this
-    is still the intended approach.
+    ``ohlcv`` (renamed from ``daily_ohlcv`` by `backend-day-trader-timeframe-mode-signal-engine`
+    -- see this task's `decisions` entry) is whichever bars represent the currently active
+    *short-term* timeframe: this app's own swing/position-trader mode feeds this function the
+    same daily bars Screen 2 (Wave) uses, which makes the result a **daily-bar EOD
+    approximation** of Elder's classic intraday buy-stop/sell-stop trigger, per docs/Analyse.md
+    §2 ("For a daily-bar app (no intraday feed required), approximate with...") and §10 --
+    that approximation is unchanged and still the intended swing-mode behavior. Day-trader mode
+    (`app.signals.timeframe.TimeframeTriple`) instead feeds this function the triple's own
+    real ``short_term`` leg (e.g. genuine 2-minute bars, via `app.data.day_trader_intraday` and
+    `app.signals.engine.analyse`'s ``short_term_ohlcv`` parameter) -- in that case there is no
+    approximation at all: this evaluates Elder's literal rule (a buy-stop one tick above the
+    prior *short-term* bar's high / a sell-stop one tick below the prior short-term bar's low)
+    on the timeframe it was actually meant for. The math below is identical either way -- only
+    which bars the caller hands it changes what the result actually represents.
 
-    Bullish trigger (tide == "BULLISH") fires when today's close is strictly above
-    yesterday's high; bearish trigger (tide == "BEARISH") fires when today's close is
-    strictly below yesterday's low. Returns the exact shape docs/architecture/API.md's
-    `screens.trigger` documents: ``{"fired": bool, "reference": str}``. `reference` names
-    which directional rule applies given the tide ('close_above_prior_high' /
+    Bullish trigger (tide == "BULLISH") fires when the latest bar's close is strictly above
+    the prior bar's high; bearish trigger (tide == "BEARISH") fires when the latest bar's
+    close is strictly below the prior bar's low. Returns the exact shape docs/architecture/
+    API.md's `screens.trigger` documents: ``{"fired": bool, "reference": str}``. `reference`
+    names which directional rule applies given the tide ('close_above_prior_high' /
     'close_below_prior_low'), or 'not_applicable' when the tide is NEUTRAL (no directional
-    rule applies) or there are fewer than two daily bars to compare (no prior bar to
-    reference against at all) -- in both cases `fired` is False rather than forcing a guess.
+    rule applies) or there are fewer than two bars to compare (no prior bar to reference
+    against at all) -- in both cases `fired` is False rather than forcing a guess.
     """
     if tide == "BULLISH":
         reference = "close_above_prior_high"
@@ -460,13 +488,13 @@ def evaluate_trigger(daily_ohlcv: pd.DataFrame, tide: str) -> dict:
     else:
         return {"fired": False, "reference": "not_applicable"}
 
-    if len(daily_ohlcv) < 2:
+    if len(ohlcv) < 2:
         return {"fired": False, "reference": "not_applicable"}
 
-    today_close = daily_ohlcv["close"].iloc[-1]
-    prior_high = daily_ohlcv["high"].iloc[-2]
-    prior_low = daily_ohlcv["low"].iloc[-2]
+    latest_close = ohlcv["close"].iloc[-1]
+    prior_high = ohlcv["high"].iloc[-2]
+    prior_low = ohlcv["low"].iloc[-2]
 
-    fired = today_close > prior_high if tide == "BULLISH" else today_close < prior_low
+    fired = latest_close > prior_high if tide == "BULLISH" else latest_close < prior_low
 
     return {"fired": fired, "reference": reference}

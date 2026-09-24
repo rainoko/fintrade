@@ -41,6 +41,7 @@ from app.signals.kangaroo_tail import (
     latest_kangaroo_tail,
 )
 from app.signals.seasons import classify_season
+from app.signals.timeframe import TimeframeUnit
 from app.signals.triple_screen import evaluate_tide, evaluate_trigger, evaluate_wave
 
 # Sentinel default for `analyse()`'s `divergence` parameter -- distinct from `None`, which is
@@ -59,11 +60,15 @@ _DIVERGENCE_NOT_GIVEN = object()
 # docs/tasks/backend-kangaroo-tail-pattern.json's `decisions` entry.
 _KANGAROO_TAIL_NOT_GIVEN = object()
 
-# How many trailing daily bars (today inclusive) evaluate_wave's qualifying oversold/
-# overbought state is allowed to have appeared on before today, for the "Wave shows/showed"
-# language in docs/Analyse.md §5 -- see this task's `decisions` entry for why this exists and
-# why 5 was chosen.
-_WAVE_LOOKBACK_DAYS = 5
+# How many trailing intermediate-timeframe bars (today/the latest bar inclusive)
+# evaluate_wave's qualifying oversold/overbought state is allowed to have appeared on before
+# the latest bar, for the "Wave shows/showed" language in docs/Analyse.md §5 -- see this
+# task's `decisions` entry for why this exists and why 5 was chosen. Renamed from
+# `_WAVE_LOOKBACK_DAYS` by `backend-day-trader-timeframe-mode-signal-engine`: this is a bar
+# count, not literally "days", once a day-trader-mode caller runs this same function over
+# intraday bars -- no functional change, this constant/its usage below are purely a count of
+# whichever bars `daily_ohlcv` actually holds.
+_WAVE_LOOKBACK_BARS = 5
 
 # 20-day volume average window, for the "trigger bar volume ... above 20-day average" half of
 # docs/Analyse.md §6's volume-confirmation component.
@@ -95,7 +100,7 @@ def drop_malformed_daily_bars(
     a bar as "not yet arrived" -- excluded outright, not merely NaN-tolerated -- rather than
     letting it flow into every daily-resolution computation matters for more than just
     ``indicators``/``screens.wave``'s leaf fields: ``evaluate_trigger``'s
-    ``today_close > prior_high`` silently evaluates to ``False`` for a NaN ``today_close``
+    ``latest_close > prior_high`` silently evaluates to ``False`` for a NaN ``latest_close``
     (a NaN comparison, not an error), so a malformed latest bar could silently suppress a
     real BUY/SELL signal without ever surfacing as a visible null anywhere in the response --
     a worse, harder-to-detect bug than a null indicator would be. Excluding the bar up front
@@ -176,7 +181,7 @@ def _wave_lookback(
     stochastic_k: pd.Series | None = None,
     force_index_2ema: pd.Series | None = None,
 ) -> tuple[dict, bool, bool]:
-    """Today's Wave (Screen 2) result, plus whether the last ``_WAVE_LOOKBACK_DAYS`` daily
+    """Today's Wave (Screen 2) result, plus whether the last ``_WAVE_LOOKBACK_BARS`` daily
     bars (today inclusive) "show/showed" the oversold-pullback or overbought-rally state, in
     a single pass over ``evaluate_wave``.
 
@@ -205,7 +210,7 @@ def _wave_lookback(
     any further ``evaluate_wave`` calls scanning a window it could never match -- see this
     task's `decisions` entry (this used to cost up to 11 ``evaluate_wave`` calls per
     ``analyse()`` invocation: one direct call for today's bar, plus two independent
-    ``_WAVE_LOOKBACK_DAYS``-bar lookback loops, one of which was always fully wasted).
+    ``_WAVE_LOOKBACK_BARS``-bar lookback loops, one of which was always fully wasted).
     Within the achievable direction, the scan checks today's bar first (already computed
     above) and walks backwards, stopping as soon as a match is found rather than always
     re-deriving the full window.
@@ -213,7 +218,7 @@ def _wave_lookback(
     ``stochastic_k``/``force_index_2ema``, if given, are passed straight through to every
     ``evaluate_wave`` call this function makes (sliced to match each call's own truncated
     ``daily_ohlcv.iloc[:end]``, per ``evaluate_wave``'s own index-alignment contract) instead
-    of each of the up-to-``_WAVE_LOOKBACK_DAYS + 1`` calls independently recomputing the
+    of each of the up-to-``_WAVE_LOOKBACK_BARS + 1`` calls independently recomputing the
     Stochastic/Force Index from scratch over its own (growing, in the caller's case) prefix of
     the daily series -- see ``evaluate_wave``'s own docstring and this task's `decisions` entry.
     """
@@ -230,7 +235,7 @@ def _wave_lookback(
 
     showed_target = target_state is not None and wave["state"] == target_state
     if target_state is not None and not showed_target and n > 0:
-        start = max(1, n - _WAVE_LOOKBACK_DAYS + 1)
+        start = max(1, n - _WAVE_LOOKBACK_BARS + 1)
         for end in range(n - 1, start - 1, -1):
             lookback_stochastic_k = stochastic_k.iloc[:end] if stochastic_k is not None else None
             lookback_force_index_2ema = (
@@ -294,6 +299,7 @@ def analyse(
     adx: pd.Series | None = None,
     divergence: Divergence | None = _DIVERGENCE_NOT_GIVEN,  # type: ignore[assignment]
     kangaroo_tail: KangarooTail | None = _KANGAROO_TAIL_NOT_GIVEN,  # type: ignore[assignment]
+    short_term_ohlcv: pd.DataFrame | None = None,
     _daily_ohlcv_already_clean: bool = False,
 ) -> SignalResult:
     """Orchestrates Screens 1-3 + Impulse gate + confidence scoring into one signal.
@@ -312,7 +318,9 @@ def analyse(
        ``tide == "NEUTRAL"``, real booleans otherwise) alongside today's own ``state`` -- see
        the ``screens`` dict construction below and docs/tasks/api-stocks-analysis-wave-lookback
        .json's `decisions` entry.
-    4. Screen 3 (Trigger) -- ``evaluate_trigger(daily_ohlcv, tide)``, today's bar.
+    4. Screen 3 (Trigger) -- ``evaluate_trigger(short_term_ohlcv, tide)`` if ``short_term_ohlcv``
+       is given, else ``evaluate_trigger(daily_ohlcv, tide)`` (this function's original,
+       swing-mode behavior -- see ``short_term_ohlcv``'s own docstring paragraph below).
 
     then combines them into BUY/SELL/HOLD (``_determine_signal``) and, for a fresh BUY/SELL
     only, computes the docs/Analyse.md §6 confidence score from today's snapshot of each
@@ -372,6 +380,24 @@ def analyse(
     ``evaluate_tide`` no longer uses EMA(26) at all now that Screen 1 is the weekly Impulse
     color rather than the old EMA(13)/EMA(26) relationship test; see its docstring and this
     task's `decisions` entry.)
+
+    ``short_term_ohlcv``, the genericization `backend-day-trader-timeframe-mode-signal-engine`
+    adds: when given, Screen 3 (Trigger) evaluates ``evaluate_trigger(short_term_ohlcv, tide)``
+    instead of ``evaluate_trigger(daily_ohlcv, tide)`` -- i.e. against a genuinely distinct
+    (typically finer-grained) series from the one every other Screen/indicator in this function
+    reads. This is how day-trader mode gets Elder's *literal* Screen 3 trigger (a real
+    short-term-timeframe buy-stop/sell-stop, per `app.signals.timeframe.TimeframeTriple
+    .short_term`) instead of this app's documented swing-mode daily-bar EOD approximation --
+    see ``evaluate_trigger``'s own docstring for the full explanation of what changes and what
+    doesn't. Defaults to ``None``, which reproduces this function's exact pre-existing
+    behavior (Trigger evaluated on ``daily_ohlcv``, the same series Screen 2/the Impulse
+    gate/every indicator use) -- every existing caller (swing mode, 100% of production traffic
+    today) leaves this unset, so this parameter changes nothing for them; see
+    `analyse_day_trader` below for the day-trader-mode entry point that supplies it. When
+    given, ``short_term_ohlcv`` is cleaned via ``drop_malformed_daily_bars`` the same way
+    ``daily_ohlcv`` is (unconditionally, unlike ``daily_ohlcv``'s own ``_daily_ohlcv_already_
+    clean`` escape hatch -- there is no ``analyse_history``-style hot loop supplying this
+    parameter yet, so that optimization isn't needed here; see this task's `decisions` entry).
 
     ``channel_upper``/``channel_lower``, if given, are the already-computed
     ``autoenvelope(daily_ohlcv['close'], mid=ema_13)['upper']``/``['lower']`` (the Autoenvelope/
@@ -462,6 +488,8 @@ def analyse(
     """
     if not _daily_ohlcv_already_clean:
         daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv)
+    if short_term_ohlcv is not None:
+        short_term_ohlcv = drop_malformed_daily_bars(short_term_ohlcv)
 
     tide_result = evaluate_tide(
         weekly_ohlcv,
@@ -482,7 +510,8 @@ def analyse(
     wave, wave_showed_pullback, wave_showed_rally = _wave_lookback(
         daily_ohlcv, tide, stochastic_k=stochastic_k, force_index_2ema=force_index_2ema
     )
-    trigger = evaluate_trigger(daily_ohlcv, tide)
+    trigger_ohlcv = daily_ohlcv if short_term_ohlcv is None else short_term_ohlcv
+    trigger = evaluate_trigger(trigger_ohlcv, tide)
 
     signal = _determine_signal(tide, impulse, wave_showed_pullback, wave_showed_rally, trigger["fired"])
 
@@ -628,17 +657,81 @@ def analyse(
     )
 
 
-def _weekly_through_bar_date(weekly_ohlcv: pd.DataFrame, bar_date: pd.Timestamp) -> pd.DataFrame:
-    """Truncates ``weekly_ohlcv`` to only the weekly bars whose own label falls within or
-    before the calendar week (Saturday-through-Friday) that *contains* ``bar_date`` -- not to
-    weekly bars whose label is ``<= bar_date`` directly.
+def analyse_day_trader(
+    ticker: str,
+    *,
+    long_term_ohlcv: pd.DataFrame,
+    intermediate_ohlcv: pd.DataFrame,
+    short_term_ohlcv: pd.DataFrame,
+) -> SignalResult:
+    """Day-trader-mode counterpart to `analyse()` -- runs the exact same Screen 1-3 + Impulse
+    gate + confidence-scoring pipeline (`backend-day-trader-timeframe-mode-signal-engine`), but
+    over whichever three legs of the currently active `app.signals.timeframe.TimeframeTriple`
+    the caller supplies, instead of `analyse()`'s own hard-coded swing-mode weekly/daily pair.
 
-    ``app.data.stooq_provider.StooqProvider._resample_weekly`` builds ``weekly_ohlcv`` via
+    A thin wrapper, not a reimplementation: ``long_term_ohlcv`` plays `analyse()`'s
+    ``weekly_ohlcv`` role (Screen 1/Tide), ``intermediate_ohlcv`` plays its ``daily_ohlcv`` role
+    (the Impulse gate, Screen 2/Wave, and every indicator in ``indicators``), and
+    ``short_term_ohlcv`` is passed straight through to `analyse()`'s own like-named parameter
+    (Screen 3/Trigger) -- see that parameter's docstring for why this is what makes day-trader
+    mode's Trigger a genuine short-term-timeframe evaluation rather than swing mode's documented
+    daily-bar approximation. This function adds no logic of its own beyond that one positional
+    remapping -- every degrade-gracefully-to-HOLD/NEUTRAL/BLUE behavior `analyse()` already has
+    for short or malformed history applies identically here, since it's the same function
+    underneath.
+
+    Deliberately takes already-fetched OHLCV frames, not a `TimeframeTriple`/DB session/IBKR
+    provider itself: this keeps `app.signals.engine` a pure, DB- and IBKR-free domain module
+    exactly like `analyse()` already is (see docs/architecture/Backend.md §5) -- resolving
+    *which* frames to fetch for the currently active triple (via
+    `app.trading_mode.get_trading_mode_setting` and `app.data.day_trader_intraday
+    .get_active_day_trader_intraday_bars` for whichever legs are `MINUTE`-unit, or the existing
+    daily/weekly `DataProvider` pipeline for a `DAY`/`WEEK`-unit leg) is deliberately left to a
+    caller -- the not-yet-landed `backend-day-trader-timeframe-mode-api` task -- rather than
+    wired in here. See this task's `decisions` entry for the full scope rationale.
+    """
+    return analyse(
+        ticker,
+        intermediate_ohlcv,
+        long_term_ohlcv,
+        short_term_ohlcv=short_term_ohlcv,
+    )
+
+
+def _long_term_through_bar_date(
+    long_term_ohlcv: pd.DataFrame,
+    bar_date: pd.Timestamp,
+    *,
+    long_term_unit: TimeframeUnit = TimeframeUnit.WEEK,
+) -> pd.DataFrame:
+    """Truncates ``long_term_ohlcv`` (Screen 1/Tide's own data -- weekly bars for swing mode,
+    or `app.signals.timeframe.TimeframeTriple.long_term`'s bars for day-trader mode) to only
+    the bars knowable as of ``bar_date``, with no look-ahead into a bar whose own period
+    extends past it.
+
+    Renamed from ``_weekly_through_bar_date`` and given a ``long_term_unit`` parameter by
+    `backend-day-trader-timeframe-mode-signal-engine` (see that task's `decisions` entry for
+    why only the ``WEEK`` branch below -- this function's entire pre-existing behavior,
+    unchanged bar-for-bar -- is currently exercised by any real caller: `analyse_history`
+    always passes ``long_term_unit=TimeframeUnit.WEEK`` (the default), matching every existing
+    caller's swing-mode-only usage today; the ``DAY``/``MINUTE`` branch exists so this
+    function is ready for a future day-trader-mode `analyse_history` caller, but wiring that
+    up -- walking forward through historical intraday bars, which needs its own IBKR
+    historical-fetch design distinct from `app.data.day_trader_intraday`'s current-snapshot-only
+    shape -- is explicitly deferred, see this task's own `decisions` entry and the
+    `backend-day-trader-timeframe-mode-signal-engine-followups` task).
+
+    **``long_term_unit is TimeframeUnit.WEEK``** (the only case this function needs to handle
+    before this task -- see above): truncates to only the weekly bars whose own label falls
+    within or before the calendar week (Saturday-through-Friday) that *contains* ``bar_date``
+    -- not to weekly bars whose label is ``<= bar_date`` directly.
+
+    ``app.data.stooq_provider.StooqProvider._resample_weekly`` builds ``long_term_ohlcv`` via
     ``daily.resample("W-FRI")``, which bins each Saturday-through-Friday span and labels it
     with that span's Friday -- so a bar that fell on, say, a Wednesday shares its bin (and its
     weekly bar's label) with every other day Monday-through-Friday of that same week, and that
     label is often a date *after* the Wednesday bar itself, including possibly today's
-    still-forming week. A naive ``weekly_ohlcv.index <= bar_date`` filter would incorrectly
+    still-forming week. A naive ``long_term_ohlcv.index <= bar_date`` filter would incorrectly
     drop that in-progress week's bar for every bar_date that isn't itself a Friday-or-later --
     wrong for the "no look-ahead" bars this function serves, and, at the series' own most
     recent bar, exactly the failure this task's prior (rejected) attempt at per-day truncation
@@ -648,15 +741,25 @@ def _weekly_through_bar_date(weekly_ohlcv: pd.DataFrame, bar_date: pd.Timestamp)
     Computing the Friday of ``bar_date``'s own week instead resolves both: every bar within
     the same calendar week maps to the same truncation cutoff (that week's Friday), and for
     the most recent daily bar specifically, that cutoff is -- by construction, since
-    ``weekly_ohlcv`` was built from a resample keyed the same way -- exactly the label of
-    ``weekly_ohlcv``'s own last row, so the filter keeps the full series unchanged and the
+    ``long_term_ohlcv`` was built from a resample keyed the same way -- exactly the label of
+    ``long_term_ohlcv``'s own last row, so the filter keeps the full series unchanged and the
     "last point matches ``/analysis``" invariant holds without special-casing it.
+
+    **``long_term_unit`` is ``DAY`` or ``MINUTE``**: no calendar-anchored resample bucket like
+    ``WEEK``'s Friday-labeled bin applies -- each bar's own label already *is* its own
+    settlement point (a daily bar's label is that trading day; a day-trader-mode intraday bar's
+    label is that bar's own timestamp, per `app.data.day_trader_intraday`'s
+    oldest-first-by-timestamp shape) -- so this degrades to the direct
+    ``long_term_ohlcv.index <= bar_date`` filter the ``WEEK`` case above explicitly rejects for
+    itself.
     """
-    # `pd.DateOffset`, not `pd.Timedelta` -- see `app.api.routers.stocks._trim_to_range`'s
-    # comment on the same NumPy/pandas DeprecationWarning `pd.Timedelta(days=...)` alone trips
-    # on this pairing.
-    week_friday = bar_date + pd.DateOffset(days=(4 - bar_date.weekday()) % 7)
-    return weekly_ohlcv[weekly_ohlcv.index <= week_friday]
+    if long_term_unit is TimeframeUnit.WEEK:
+        # `pd.DateOffset`, not `pd.Timedelta` -- see `app.api.routers.stocks._trim_to_range`'s
+        # comment on the same NumPy/pandas DeprecationWarning `pd.Timedelta(days=...)` alone
+        # trips on this pairing.
+        week_friday = bar_date + pd.DateOffset(days=(4 - bar_date.weekday()) % 7)
+        return long_term_ohlcv[long_term_ohlcv.index <= week_friday]
+    return long_term_ohlcv[long_term_ohlcv.index <= bar_date]
 
 
 def analyse_history(
@@ -669,7 +772,7 @@ def analyse_history(
     """Re-runs ``analyse()`` once per daily bar from ``from_index`` (inclusive) through the
     last bar, truncating ``daily_ohlcv`` to only the bars up to and including that day AND
     truncating ``weekly_ohlcv`` to only the weekly bars as-of that same day (see
-    ``_weekly_through_bar_date``) each time -- so every historical point reflects what
+    ``_long_term_through_bar_date``) each time -- so every historical point reflects what
     ``analyse()`` would have produced "as of" that day, including Screen 1 (Tide), not a
     replay of today's fixed Tide backwards. This is what makes the resulting per-bar
     ``signal``/``indicators`` meaningful for a chart overlay
@@ -679,7 +782,7 @@ def analyse_history(
     ``analyse()`` unchanged) instead of duplicating any indicator/Screen math, and for why an
     earlier version of this function held ``weekly_ohlcv`` fixed (look-ahead bias on Screen 1,
     fixed by truncating per calendar week instead of per bar_date -- see
-    ``_weekly_through_bar_date``'s own docstring for why that resolves the tension a naive
+    ``_long_term_through_bar_date``'s own docstring for why that resolves the tension a naive
     ``<= bar_date`` filter ran into).
 
     ``daily_ohlcv``/``weekly_ohlcv`` are expected already cleaned by the caller (e.g. via
@@ -741,7 +844,7 @@ def analyse_history(
     *not* among the series precomputed here, since ``analyse()`` computes them itself from its
     own truncated ``daily_ohlcv``/``ema_13`` slice every call; along with the
     already-acknowledged per-bar volume-rolling-average (the confidence-scoring branch) and
-    ``_weekly_through_bar_date`` boolean-mask costs, this leaves a residual O(i)-per-bar term,
+    ``_long_term_through_bar_date`` boolean-mask costs, this leaves a residual O(i)-per-bar term,
     so the function's true worst-case asymptotic complexity remains O(range_size x
     history_length) -- just with a much smaller constant, since the twelve/fifteen
     precomputed series above were the dominant terms.
@@ -818,11 +921,11 @@ def analyse_history(
     results = []
     for i in range(start, n):
         bar_date = daily_ohlcv.index[i]
-        weekly_window = _weekly_through_bar_date(weekly_ohlcv, bar_date)
+        weekly_window = _long_term_through_bar_date(weekly_ohlcv, bar_date)
         weekly_kwargs: dict[str, pd.Series] = {}
         if weekly_ema_13_full is not None and weekly_histogram_full is not None:
             # `weekly_window` is always the leading (earliest) rows of ``weekly_ohlcv`` --
-            # ``_weekly_through_bar_date``'s boolean ``index <= week_friday`` mask over a
+            # ``_long_term_through_bar_date``'s boolean ``index <= week_friday`` mask over a
             # sorted-ascending index can only ever keep a prefix -- so a cheap positional
             # ``.iloc[:k]`` slice of each precomputed full series lands on the exact same rows
             # a label-based ``.loc[weekly_window.index]`` lookup would, at a fraction of the

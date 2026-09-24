@@ -73,7 +73,8 @@ Indicators used:
 Purpose: precise entry timing once Screens 1 & 2 align.
 
 - **Elder's classic trigger:** a buy-stop placed one tick above the prior day's high (in an uptrend pullback), or a sell-stop one tick below the prior day's low (in a downtrend rally).
-- For a daily-bar app (no intraday feed required), approximate with: **today's close crosses back above yesterday's high** (bullish trigger) or **below yesterday's low** (bearish trigger), confirming the pullback/rally has ended and the tide has resumed.
+- For a daily-bar app (no intraday feed required), approximate with: **today's close crosses back above yesterday's high** (bullish trigger) or **below yesterday's low** (bearish trigger), confirming the pullback/rally has ended and the tide has resumed. This remains the default/swing-mode behavior (§10's "recommended for MVP" choice).
+- **Day-trader mode** (`backend-day-trader-timeframe-mode-signal-engine`, ch. 39's own switchable-timeframe framing — see §2's intro and `docs/architecture/Backend.md` §10): once a user-configured long-term/intermediate/short-term timeframe triple is active, Screen 3 (`app.signals.triple_screen.evaluate_trigger`) is instead evaluated against the triple's own real short-term-timeframe bars (e.g. genuine 2-minute bars via IBKR intraday data) — Elder's *literal* buy-stop/sell-stop rule above, not the daily-bar approximation. The underlying comparison is identical either way (latest bar's close vs. the prior bar's high/low); only which bars are fed in changes what the result represents.
 
 ---
 
@@ -380,7 +381,7 @@ Not retrieved from a market data provider — this is the user's own data:
 ## 10. Open Questions / Next Steps
 
 - Confirm data source for OHLCV (e.g., a market data API) and rate limits.
-- Decide whether Screen 3 trigger is evaluated live (intraday) or end-of-day only (recommended for MVP, given "prior day high/low" approximation above).
+- Screen 3 trigger: end-of-day only remains the default/swing-mode choice (recommended for MVP, given the "prior day high/low" approximation above) — **partially resolved** by `backend-day-trader-timeframe-mode-signal-engine`: day-trader mode now evaluates Screen 3 live against genuine intraday short-term-timeframe bars instead of approximating (see §2's own updated Screen 3 bullet); swing mode (this app's default/only mode in production) is completely unaffected.
 - Decide the exact weighting table in §6 with backtested tuning once historical data is available — current weights are a reasonable starting default from Elder's own emphasis (trend > oscillators > confirmation), not empirically fit.
 - Define what "total equity" means for the 2%/6% rules (cash-only brokerage account? include external assets?) — needs user input.
 - Decide UI/output format for signals (dashboard, alerts, CLI report, etc.) — out of scope for this analysis doc.

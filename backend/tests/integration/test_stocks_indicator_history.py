@@ -224,7 +224,7 @@ def _hold_weekly_ohlcv(n: int = 30) -> pd.DataFrame:
 def _tide_transition_daily_ohlcv(n: int = 210) -> pd.DataFrame:
     """Flat daily closes (tide/signal computation doesn't depend on daily price action here --
     only `_tide_transition_weekly_ohlcv` below matters for the Tide transitions this fixture
-    exists to exercise) spanning enough calendar days for `_weekly_through_bar_date` to walk
+    exists to exercise) spanning enough calendar days for `_long_term_through_bar_date` to walk
     through every stage of that weekly fixture's own BEARISH -> NEUTRAL -> BULLISH progression
     as `bar_date` advances."""
     return pd.DataFrame(
@@ -264,7 +264,7 @@ def _tide_transition_weekly_ohlcv() -> pd.DataFrame:
 
 class TestTideField:
     """Covers `IndicatorHistoryPoint.tide`, added by this task -- Screen 1 recomputed per bar
-    from only the weekly data as-of that bar's own calendar week (`_weekly_through_bar_date`),
+    from only the weekly data as-of that bar's own calendar week (`_long_term_through_bar_date`),
     exercised here with a fixture whose Tide genuinely changes across the range (see
     `_tide_transition_weekly_ohlcv`'s own docstring for why that matters)."""
 
