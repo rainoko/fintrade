@@ -3,8 +3,10 @@
   "title": "Non-blocking findings from PR #276's review (vitest maxWorkers cap: evidence-trail consistency and cap-value tuning)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
-  "depends_on": ["backend-cftc-cot-data-followups-followups-followups"],
+  "state": "implementing",
+  "depends_on": [
+    "backend-cftc-cot-data-followups-followups-followups"
+  ],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups-followups-followups.json",
     "https://github.com/rainoko/fintrade/pull/276",
@@ -14,13 +16,26 @@
   "checklist": [
     {
       "step": "The evidence trail for this fix is internally inconsistent about how many post-fix full-suite reruns were actually done: the task's own `decisions` entry on `backend-cftc-cot-data-followups-followups-followups.json` claims '0/7 across repeated full-suite runs (both via `--maxWorkers=4` and, separately, the committed `test.maxWorkers: 4` config)', while the code comment added for the same investigation in `frontend/vite.config.ts` (next to `maxWorkers: 4`) claims 'Capping at 4 workers reproduced 0/4 failures across repeated full-suite runs.' Since CLAUDE.md's decision-memory convention expects exactly this kind of cross-referencing by a future reader, the 7-vs-4 mismatch undermines confidence in how thorough the re-verification actually was without re-running the investigation independently. Reconcile the two records to the same actual number (or explain why they legitimately differ, e.g. one counts a CLI-flag pass and the other only the committed-config pass).",
-      "done": false
+      "done": true
     },
     {
       "step": "The chosen `maxWorkers: 4` cap may be more conservative than necessary. During this review, `--maxWorkers=8` passed cleanly across 8 total runs on the same 24-core devcontainer that reproduces the flake at `--maxWorkers=23` (mimicking the old uncapped default), while completing the full suite in ~33s versus ~57s at the committed `maxWorkers: 4` -- a ~42% wall-clock improvement that would apply to every future CI/local run, not just these two files. The task's `decisions` entry states 4 was chosen 'as the smallest value that produced zero flakes across every rerun,' but nothing in the record shows intermediate values (6, 8, 10, 12, ...) were actually tried before settling on 4. Worth a follow-up investigation (a proper multi-run bisection, ideally across more than one host) to see whether a less conservative cap can recoup some of the added wall-clock cost without reintroducing the timeout flake, given this is now a hard-coded value affecting the whole suite indefinitely.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T03:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Reconciled the '0/7' (task decisions entry) vs '0/4' (frontend/vite.config.ts comment) mismatch by re-running the investigation on this session's 24-core devcontainer: 7 total full-suite runs of the then-committed `maxWorkers: 4` config (2 ad hoc runs -- one with `--coverage`, one without -- plus 5 more in a scripted loop with `--coverage`), all 7 clean (841/841 tests passed each time, zero timeouts). That matches the task's `decisions` entry figure of '0/7' exactly, so the code comment's '0/4' was the stale/wrong number. Fixed it in `frontend/vite.config.ts`'s comment (now reads '0/7', with a note pointing at this decisions entry for the reconciliation) rather than editing the existing done task's decisions entry, per CLAUDE.md's append-only convention for that array -- the comment isn't bound by that convention since it's ordinary code, not a task-board decisions log.",
+      "rationale": "The comment is far more likely to have gone stale than the decisions entry: it was almost certainly written earlier in the original investigation (backend-cftc-cot-data-followups-followups-followups) when only 4 reruns had been done, and never updated when 3 more reruns were added before the decisions entry was written -- a plausible, mundane transcription lag rather than a deliberate methodology difference. Re-running independently rather than just picking one of the two existing numbers on faith was necessary because the task explicitly asked for the actual number to be re-verified, and a fresh 7/7 clean result is stronger evidence than trusting either pre-existing record blind."
+    },
+    {
+      "timestamp": "2026-09-24T03:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Ran a multi-run bisection of `test.maxWorkers` at 6, 8, 10, and 12 (5 full-suite `vitest run --coverage --maxWorkers=N` runs each, 20 runs total) on this session's 24-core devcontainer -- the same host class that reproduces the original flake at `--maxWorkers=23` (mimicking the old uncapped default). All 20 runs passed cleanly (841/841 tests, zero timeouts) at every value tested. Wall-clock dropped steadily as the cap rose: ~54s at the previous `maxWorkers: 4` (matching the prior investigation's ~57s), ~42-45s at 6, ~35-38s at 8, ~32-33s at 10, ~29-31s at 12. Raised `frontend/vite.config.ts`'s `maxWorkers` from 4 to 12 and updated its comment with this bisection's results and rationale, since 12 was the largest value actually tested and stayed flake-free across all 5 of its runs while still leaving a roughly 2x margin below the 23-worker count that reproduces the flake on this same host.",
+      "rationale": "12 (rather than pushing further toward 23, or picking an untested intermediate/higher value) keeps a healthy safety margin against the known flake-reproducing worker count on this host class while still recovering most of the wall-clock the original conservative cap of 4 gave up (~54s to ~30s, a ~44% improvement, close to the ~42% the pr-reviewer's spot-check at 8 had already suggested was available). The task's own suggested test values (6, 8, 10, 12) were used as-is rather than continuing to bisect upward past 12 toward 23, since going that close to the reproduced-flake threshold would trade away the safety margin the whole investigation exists to preserve for a further wall-clock gain that's shrinking anyway (12 to hypothetical higher values showed diminishing returns: 10 to 12 was already only ~2-3s). Only tested on this one 24-core host (not multiple hosts, which the original task's finding suggested would be ideal) -- a lower-core-count CI host would only ever cap `os.availableParallelism() - 1` lower than 12 in the first place, so a value of 12 can't overshoot on such a host; a much-higher-core-count host untested here is the only direction this margin could theoretically not hold, which the comment's revisit note flags."
+    }
+  ],
   "questions": []
 }

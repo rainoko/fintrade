@@ -41,21 +41,29 @@ export default defineConfig({
     // `pool: 'forks'` spawns one forked process per test file, up to
     // `os.availableParallelism() - 1` (84 files' worth of workers observed on a
     // high-core-count host) -- reproduced 5/5 times locally on a 24-core devcontainer
-    // under default settings. That many concurrent jsdom+MUI worker processes
-    // contend for real CPU time, which stretches the wall-clock duration of
-    // multi-step `userEvent`-driven tests (real, non-fake timers under
-    // `@testing-library/user-event`) past the hardcoded 5000ms default test timeout
-    // under scheduling pressure. Capping at 4 workers reproduced 0/4 failures across
-    // repeated full-suite runs (vs. `pool: 'vmThreads'`, which shares one jsdom
-    // environment per worker and would address the same root cause with even less
-    // overhead, but breaks MSW's fetch interception in this suite --
-    // `ReferenceError: TransformStream is not defined` -- because a `vm` context's
-    // globals lack the Web Streams API that `pool: 'forks'`/`'threads'` get for free
-    // from Node's own process/worker globals). 4 was chosen over a smaller/larger cap
-    // as the smallest value that produced zero flakes across every rerun while
-    // keeping the full-suite runtime increase modest (~26s to ~58s here); revisit if
-    // the suite grows enough for that tradeoff to shift.
-    maxWorkers: 4,
+    // under default settings, and again at `--maxWorkers=23` (mimicking that same
+    // uncapped default) during backend-cftc-cot-data-followups-followups-followups's
+    // own PR review. That many concurrent jsdom+MUI worker processes contend for real CPU
+    // time, which stretches the wall-clock duration of multi-step `userEvent`-driven
+    // tests (real, non-fake timers under `@testing-library/user-event`) past the
+    // hardcoded 5000ms default test timeout under scheduling pressure (vs.
+    // `pool: 'vmThreads'`, which shares one jsdom environment per worker and would
+    // address the same root cause with even less overhead, but breaks MSW's fetch
+    // interception in this suite -- `ReferenceError: TransformStream is not defined`
+    // -- because a `vm` context's globals lack the Web Streams API that
+    // `pool: 'forks'`/`'threads'` get for free from Node's own process/worker
+    // globals). Capping at 4 workers reproduced 0/7 failures across repeated
+    // full-suite runs of the committed config (corrected here from an earlier,
+    // inconsistent "0/4" in this same comment -- see
+    // backend-cftc-cot-data-followups-followups-followups-followups's `decisions`
+    // entry for the reconciliation). A later bisection (same task) tried 6/8/10/12
+    // workers, 5 full-suite runs each (20/20 clean, no reproduction), with wall-clock
+    // dropping from ~54s at 4 workers to ~30s at 12 -- 12 was adopted as the new cap:
+    // still well under the 23-worker count that reproduces the original flake on this
+    // 24-core host, while recovering most of the runtime the original conservative
+    // cap gave up. Revisit if the suite grows enough, or moves to a much
+    // lower-core-count CI host, for this tradeoff to shift again.
+    maxWorkers: 12,
     coverage: {
       provider: 'v8',
       // 'text' is given explicit options (not just the bare 'text' string)
