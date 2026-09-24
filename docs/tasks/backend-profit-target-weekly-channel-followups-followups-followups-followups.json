@@ -29,5 +29,11 @@
       "rationale": "The two checks are already documented as mutually exclusive by design: `_find_run_violations`'s own docstring states a match is only ever reported there when the per-line scan couldn't already see it directly in the untouched original text (i.e. it crosses a piece boundary or a real embedded newline within one piece). A match entirely on one physical line within one piece is explicitly left to the per-line scan and skipped by the run-based one (see `test_phrase_entirely_within_one_run_member_is_not_double_reported`). Since the two checks by construction never emit the same `(pattern_index, lineno)` key for the same underlying match, merging their dedup sets would add coupling and complexity for no behavioral difference; keeping the run-based dedup set genuinely per-file-and-run-scope-only (not also spanning the line-scan) is the narrowest change that fixes the reported bug (duplicate reports across multiple runs) without touching the already-correct, already-tested per-line-scan behavior. Alternative considered and rejected: having `check_banned_patterns` share one `reported` set across both the per-line scan and every run in the file -- rejected as broader than what the checklist item asked for and riskier given this function's 7+ round review history, where every past fix attempt introduced its own new edge case."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-profit-target-weekly-channel-followups-followups-followups-followups",
+    "pr_number": 308,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/308",
+    "pushed_at": "2026-09-24T16:17:02Z"
+  }
 }
