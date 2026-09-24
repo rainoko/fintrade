@@ -1,0 +1,24 @@
+{
+  "id": "backend-closed-trades-legacy-exit-reason-500-followups-followups-followups-followups",
+  "title": "Non-blocking findings from PR #296's review (round-timestamp fix: evidence wording and instruction placement)",
+  "area": "backend/api",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-closed-trades-legacy-exit-reason-500-followups-followups-followups"],
+  "references": [
+    "docs/tasks/done/backend-closed-trades-legacy-exit-reason-500-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/296",
+    ".claude/agents/task-worker.md"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #296 (backend-closed-trades-legacy-exit-reason-500-followups-followups-followups), which added a real date -u timestamp-capture reminder to .claude/agents/task-worker.md step 5 and left the already-done parent task's round timestamps untouched. The PR itself is accepted -- full backend suite passed (1203 passed, 100% coverage), frontend suite passed (841 passed, 99.7%+ coverage), ruff/mypy/eslint/tsc and the profit-target wording guard were all clean, scripts/validate_tasks.py and its own unittest suite (41 tests) passed, and an independent code-review pass found zero correctness issues. These two findings are wording/placement nits only.",
+  "checklist": [
+    {
+      "step": "The second decisions entry's supporting grep evidence says an exact T00:00:00Z timestamp appears on 'dozens of distinct dates each with 20-50+ entries apiece' to justify skipping a validate_tasks.py round-timestamp check. Re-running the same grep confirms there are 13 distinct dates with this exact pattern (roughly matching 'dozens'), but only 6 of those 13 actually have >=20 entries -- the other 7 range from 2 to 14 (2026-09-24: 2, 2026-09-14: 4, 2026-09-23: 5, 2026-09-13: 11, 2026-09-21: 12, 2026-09-12/2026-09-15: 13 each, 2026-09-18: 14). The underlying conclusion (this pattern is pervasive enough board-wide that a validator check would produce heavy false-positive noise) still holds even with the more accurate per-date range, so this doesn't change the decision -- but the '20-50+ entries apiece' phrasing overstates the evidence for roughly half the dates cited. Worth a follow-up decisions-entry note (or a corrected re-statement) giving the accurate per-date range if this evidence is ever cited again.",
+      "done": false
+    },
+    {
+      "step": "task-worker.md's new timestamping instruction is written generically enough ('or any other timestamp you write into a task JSON -- git.pushed_at included') to also cover the questions[].timestamp field task-worker writes in its own step 6, but it's placed entirely within step 5's discussion of decisions entries with no cross-reference from step 6 (which still shows a bare '{\"timestamp\": \"<ISO 8601 UTC>\", ...}' example with no reminder to actually capture it via date -u). A future reader skimming step 6 in isolation could miss that the step 5 rule applies there too. Consider either a short cross-reference from step 6 back to step 5's rule, or moving the timestamping rule to a standalone bullet that isn't scoped under one specific step, so it's unambiguously read as applying to every timestamp task-worker writes.",
+      "done": false
+    }
+  ]
+}
