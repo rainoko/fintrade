@@ -46,5 +46,11 @@
       "rationale": "`GET /api/stocks/{ticker}/indicators` is structurally blocked, not just deprioritized: it's powered by `app.signals.engine.analyse_history()`'s walk-forward per-bar replay, which docs/architecture/Backend.md \u00a710's own 'Not yet landed' list already documents as having no day-trader-mode support -- `backend-day-trader-timeframe-mode-history` (a separate, already-filed, not-yet-started task) is what has to land first. `GET /api/portfolio/risk`'s `protective_stop`/`profit_target`/exit-flag fields are equally blocked: `app.portfolio.risk`/`app.portfolio.profit_target`/`app.portfolio.exits` still unconditionally hard-code swing mode's weekly/daily split today (confirmed via docs/architecture/Backend.md \u00a710 and `backend-day-trader-timeframe-mode-portfolio-risk`, another already-filed, not-yet-started task covering exactly this). `GET /api/portfolio`'s own per-position `signal`/`confidence`/`confidence_band` fields are NOT structurally blocked the same way (they only need `analyse_day_trader`, already built) -- but wiring only that endpoint's signal field while `GET /api/portfolio/risk` for the same position stays swing-only would leave the two portfolio endpoints inconsistently day-trader-aware, and `GET /api/portfolio`'s per-position IBKR fetch (one round-trip per held position per request, unlike `GET /api/watchlist`'s already-established per-item pattern) raises its own latency question worth a dedicated design pass rather than a naive sequential loop -- both judged better decided together with the risk-layer work in the follow-up task than rushed in here. This matches this task's own explicit permission to scope down given the endpoint count and swing-mode regression risk, and mirrors `backend-day-trader-timeframe-mode-signal-engine`'s identical precedent of deferring `app.portfolio.risk`/`profit_target`/`exits` out of its own PR for the same reason."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-api",
+    "pr_number": 313,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/313",
+    "pushed_at": "2026-09-24T20:20:06Z"
+  }
 }
