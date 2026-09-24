@@ -587,7 +587,9 @@ def _physical_line_for_offset(offset: int, span: _PieceSpan) -> int:
     return span.tok.start[0] + span.tok.string[:raw_offset_in_token].count("\n")
 
 
-def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
+def _find_run_violations(
+    rel: Path, run: list[tokenize.TokenInfo], reported: set[tuple[int, int]]
+) -> list[str]:
     """Scan one implicit-concatenation run's true, decoded, concatenated string
     value (no injected whitespace or leftover newlines -- exactly what Python's own
     runtime would produce) for banned patterns.
@@ -608,7 +610,14 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     derived from counting `\\n` characters in re-decoded text, which can diverge
     from a real physical line break whenever a piece contains an escape sequence
     (e.g. a literal `\\n` escape) that decodes to a newline character that isn't
-    itself a line break in the source."""
+    itself a line break in the source.
+
+    `reported` is owned by the caller (`check_banned_patterns`) and shared across
+    *every* run in the current file, not just this one -- two separate runs that
+    happen to sit on the same physical line (e.g. two semicolon-separated
+    statements, each its own run) and both match the same banned pattern must still
+    dedupe against each other, not each get a fresh, run-local set that lets the
+    same `(pattern_index, lineno)` be reported once per run."""
     pieces: list[str] = []
     spans: list[_PieceSpan] = []
     cursor = 0
@@ -637,8 +646,8 @@ def _find_run_violations(rel: Path, run: list[tokenize.TokenInfo]) -> list[str]:
     # Keyed by (pattern_index, lineno), matching the per-line scan's own dedup
     # granularity in check_banned_patterns -- two different _BANNED_PATTERNS entries
     # both matching within this run and resolving to the same reported line are two
-    # distinct violations, not one.
-    reported: set[tuple[int, int]] = set()
+    # distinct violations, not one. `reported` itself is the caller's per-file set
+    # (see this function's own docstring), not a fresh one per run.
     for pattern_index, pattern in enumerate(_BANNED_PATTERNS):
         for match in pattern.finditer(concatenated):
             start_index = _span_index_for_offset(match.start(), spans)
@@ -692,8 +701,14 @@ def check_banned_patterns(paths: list[Path]) -> list[str]:
         # per-line scan above and of any other run in the file -- so it can never
         # perturb another violation's reported line number.
         if path.suffix == ".py":
+            # Shared across every run in this file (not recreated per run) so two
+            # separate runs that happen to sit on the same physical line -- e.g. two
+            # semicolon-separated statements, each its own run -- dedupe against
+            # each other instead of each reporting the same (pattern_index, lineno)
+            # violation once per run (see _find_run_violations's own docstring).
+            run_reported: set[tuple[int, int]] = set()
             for run in _iter_implicit_concat_runs(text):
-                violations.extend(_find_run_violations(rel, run))
+                violations.extend(_find_run_violations(rel, run, run_reported))
     return violations
 
 

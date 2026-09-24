@@ -471,6 +471,27 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         self.assertIn("example_two_patterns_one_run_line.py:1", violations[0])
         self.assertIn("example_two_patterns_one_run_line.py:1", violations[1])
 
+    def test_two_semicolon_separated_runs_matching_same_pattern_on_one_line_dedupe(self) -> None:
+        # This task's own checklist item 1: _find_run_violations's `reported` dedup
+        # set used to be local to a single implicit-concatenation-run invocation, so
+        # two SEPARATE runs sitting on the same physical line (here, two
+        # semicolon-separated statements -- the semicolon is an OP token, which is
+        # not in _NON_BREAKING_TOKEN_TYPES, so it resets the run-adjacency chain in
+        # _iter_implicit_concat_runs and produces two distinct runs) that both match
+        # the same banned pattern each got their own fresh `reported` set and both
+        # reported a violation for the same (pattern_index, lineno) -- 2 identical
+        # violation strings instead of 1. Verified as a genuine pre-fix duplicate
+        # (reproduced directly against the un-threaded version before writing this
+        # fix). Now that `reported` is threaded per-file from check_banned_patterns
+        # into _find_run_violations, only one violation must be reported.
+        path = self.repo.write(
+            "backend/app/api/example_semicolon_two_runs.py",
+            "x = \"today's \" \"Autoenvelope\"; y = \"today's \" \"Autoenvelope\"\n",
+        )
+        violations = cptw.check_banned_patterns([path])
+        self.assertEqual(len(violations), 1)
+        self.assertIn("example_semicolon_two_runs.py:1", violations[0])
+
     # Shared nested-f-string source for the two tests below: an outer f-string
     # containing a genuinely nested inner f-string (PEP 701, this project's
     # required Python 3.12), implicitly concatenated to a leading and a trailing
@@ -522,6 +543,25 @@ class CheckProfitTargetWordingTestCase(unittest.TestCase):
         # return the outer f-string's own matching FSTRING_END instead.
         self.assertEqual(found_index, outer_end_index)
         self.assertNotEqual(found_index, inner_end_index)
+
+    def test_find_fstring_end_index_returns_start_index_when_unbalanced(self) -> None:
+        # This task's own checklist item 2: _find_fstring_end_index's defensive
+        # fallback (`return start_index`, reached only when the token stream never
+        # returns to depth 0 -- an unbalanced FSTRING_START/FSTRING_END stream that
+        # "shouldn't happen" for real tokenize.generate_tokens output per the
+        # function's own comment) was completely untested. Directly testable with a
+        # hand-built, deliberately-unbalanced token list, the same direct-unit-test
+        # technique test_find_fstring_end_index_tracks_nesting_depth above already
+        # uses for the depth-tracking branch: an FSTRING_START with no matching
+        # FSTRING_END anywhere after it in the list, so the loop runs off the end
+        # without depth ever returning to 0 and falls through to the fallback.
+        start_tok = tokenize.TokenInfo(tokenize.FSTRING_START, 'f"', (1, 0), (1, 2), 'f"')
+        unrelated_tok = tokenize.TokenInfo(tokenize.NAME, "x", (1, 2), (1, 3), "x")
+        tokens = [start_tok, unrelated_tok]
+
+        found_index = cptw._find_fstring_end_index(tokens, 0)
+
+        self.assertEqual(found_index, 0)
 
     def test_nested_fstring_run_includes_trailing_string(self) -> None:
         # Integration-level companion to the direct unit test above: verifies that
