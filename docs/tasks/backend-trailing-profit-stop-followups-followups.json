@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #301's review (backend-trailing-profit-stop-followups)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["backend-trailing-profit-stop-followups"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop-followups.json",
@@ -29,5 +29,11 @@
       "rationale": "Item 1 qualifies for CLAUDE.md's narrow in-place-edit carve-out for an already-done task's `decisions` text: this checklist item explicitly calls out the existing entries' own timestamps as the thing to fix (not a rewrite of what was decided), the original `2026-09-24T10:14:28Z` text remains recoverable via git history, and this correction doesn't touch code or merge state -- matching the precedent this task's own checklist item cites (PR #274/#298/#300). Chose the vectorization-first ordering (rather than, say, filtering-first) because it is both the most substantial of the three (it alone involved writing an implementation, having it fail against `test_extending_history_with_more_calls_never_lowers_the_result`, and debugging pandas' cummax-at-masked-row NaN quirk before landing on `.cummax().ffill()`) and the first of the three items listed in the parent task's own checklist, making it the most plausible first item tackled in a single work session that also touched the other two. All three timestamps were chosen to comfortably precede the PR's actual `pushed_at` of `2026-09-24T10:17:44Z` (leaving time afterward for running the full suite/ruff/mypy/validate_tasks.py and writing the PR description) while staying within a single continuous work session. Considered leaving a note explaining why simultaneity might be accurate instead -- rejected because the task's own checklist item and description both already establish that three distinct, substantial efforts (including a failed attempt and a debugging session) could not plausibly complete in the same instant, so a plausibly-sequenced correction is more useful than a caveat defending the original claim. Item 2's comment update is a plain code-documentation fix, not a task-board text edit, so no in-place-edit carve-out consideration applies to it."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-trailing-profit-stop-followups-followups",
+    "pr_number": 303,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/303",
+    "pushed_at": "2026-09-24T11:19:03Z"
+  }
 }
