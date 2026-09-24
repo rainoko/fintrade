@@ -3,7 +3,7 @@
   "title": "Day-trader mode: walk-forward historical signal replay (analyse_history) over intraday data",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "backend-day-trader-timeframe-mode-signal-engine",
     "backend-day-trader-timeframe-mode-ibkr-intraday"
@@ -47,5 +47,38 @@
     "pr_number": 316,
     "pr_url": "https://github.com/rainoko/fintrade/pull/316",
     "pushed_at": "2026-09-24T22:36:10Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T22:46:05Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/316",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently re-ran both claimed mutation tests (temporarily removed `_long_term_through_bar_date`'s truncation call in `analyse_history_day_trader`, then `_short_term_through_bar_date`'s) -- both `TestAnalyseHistoryDayTrader.test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value` and `.test_short_term_leg_does_not_leak_a_future_bar_backward_into_an_earlier_replay_point` failed exactly as claimed, then passed again after reverting; `git diff` showed no residual change. Confirms the two no-look-ahead tests are genuinely discriminating, not just plausible-looking.",
+        "file": "backend/app/signals/engine.py",
+        "line": 1183
+      },
+      {
+        "summary": "Confirmed `_short_term_ohlcv_already_clean`'s default (`False`) is byte-for-byte behavior-preserving for every existing caller: the guard changed from `if short_term_ohlcv is not None:` to `if short_term_ohlcv is not None and not _short_term_ohlcv_already_clean:`, which evaluates identically to the old condition whenever the new parameter is left at its default.",
+        "file": "backend/app/signals/engine.py",
+        "line": 304
+      },
+      {
+        "summary": "Confirmed `max_lookback_days_for_bar_size`'s per-leg clamp is actually enforced, not just computed and ignored: `TestGetIntradayHistoryBarsForTriple.test_clamps_lookback_days_per_leg_to_what_that_legs_granularity_can_ever_return` inspects the literal `lookback_days` value passed to the mocked `IBKRProvider.get_hourly_bars`, proving the clamp changes the actual outbound request.",
+        "file": "backend/app/data/ibkr_provider.py",
+        "line": 128
+      },
+      {
+        "summary": "Walked through the 'no look-ahead across three legs' definition (decision 2) against a mixed day-trader triple (a WEEK/DAY-unit long_term leg) -- the hardcoded `long_term_unit=TimeframeUnit.MINUTE` would be wrong for a WEEK-unit long_term leg (it needs `_long_term_through_bar_date`'s calendar-anchored WEEK branch instead). Not a real gap in this PR though: `docs/architecture/Backend.md`'s own 'Not yet landed' section already documents that day-trader mode's whole pipeline (`compute_day_trader_signal`) only supports a fully-intraday triple today, with a mixed triple degrading to 'unavailable' everywhere else in the feature -- so no caller can actually feed `analyse_history_day_trader` a non-MINUTE-unit long_term_ohlcv yet. Non-blocking, verification-only note.",
+        "file": "backend/app/signals/engine.py",
+        "line": 1184
+      },
+      {
+        "summary": "Backend test suite: 1362 passed, 100% line/branch coverage. ruff/mypy/profit-target-wording-guard/validate_tasks.py all clean. Frontend untouched by this PR (no files under frontend/ in the diff) -- no browser walkthrough/e2e run needed, no UI surface in this change.",
+        "file": null,
+        "line": null
+      }
+    ],
+    "notes": "Accepted. Three non-blocking findings (an untested _short_term_ohlcv_already_clean discriminating-effect gap, a checklist item 4 'mocked-IBKR end-to-end' gap explainable by this task's own deferred-glue-code scope decision, and a one-line style nit in ibkr_provider.py) filed to docs/tasks/backend-day-trader-timeframe-mode-history-followups.json."
   }
 }
