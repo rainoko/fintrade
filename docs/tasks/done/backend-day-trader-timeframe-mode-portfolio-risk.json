@@ -77,5 +77,10 @@
     ],
     "notes": "Accepted. Non-blocking finding (docs/Analyse.md §7's Profit target section retaining a now-stale 'this app has no intraday use case' parenthetical, given the shipped day-trader mode) filed as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups.json rather than blocking this PR on a documentation-accuracy nit unrelated to correctness."
   },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T23:28:47Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: read Elder ch. 39 p.161 as quoted in docs/Analyse.md §7 and judged both decisions (fixed bar count for the SafeZone lookback; generic long_term leg for the weekly-chart channel and tide_flipped_bearish) methodologically sound -- nothing calendar-week-specific is lost, since the book's own rule is about the long-term/intermediate split, not calendar units. From scratch (not trusting pr-reviewer's claim), reverted each of the three genericizations one at a time (risk.py's .tail(N) to a .last(\"10D\") calendar window, profit_target.py's _long_term_channel_bounds(weekly_ohlcv) call to daily_ohlcv, exits.py's tide_flipped_bearish evaluate_tide calls to daily_ohlcv) and confirmed each mutation was caught by the corresponding new discriminating test, then git-checkout-restored each file to a clean diff. Diffed all three files against main myself and confirmed the change is rename/docstring-only with no functional difference (swing mode byte-identical). Independently hand-computed the protective_stop reference value used throughout the new tests (close=[100,102,101,103,104], low=[99,100,99,101,102], EMA(13) via app.indicators.ema) and got 97.93061224489796, matching the asserted 97.930612 reference. Re-ran the full backend suite myself: 1371 passed, 100% line/branch coverage, ruff/mypy/scripts/validate_tasks.py all clean -- matches pr-reviewer's reported numbers exactly. No open human PR comments overriding the accept."
+  },
   "questions": []
 }
