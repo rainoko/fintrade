@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #294's review (identical timestamps on two sequential decisions entries)",
   "area": "backend/data",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups"],
   "references": [
     "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups.json",
@@ -40,5 +40,43 @@
     "pr_url": "https://github.com/rainoko/fintrade/pull/298",
     "pushed_at": "2026-09-24T05:51:28Z"
   },
-  "questions": []
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-24T05:57:04Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/298",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the in-place-edit carve-out genuinely applies: both checklist items on this task explicitly name the parent done task's existing decisions-entry text (the duplicate timestamps; the '~23s' vs '~30s' mismatch) as the thing to fix, matching CLAUDE.md's narrow carve-out and the PR #274 precedent -- which also touched a non-JSON code file (cftc_cot_provider.py) alongside its in-place decisions-text correction, confirming that condition 4 ('doesn't touch code or merge state') refers to the nature of the correction itself (a factual, non-substantive fix) rather than a literal ban on any other file in the same PR.",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 34
+      },
+      {
+        "summary": "Corrected timestamps (02:52:00Z, 03:05:00Z) verified plausible and internally consistent: properly sequenced, ~13 minutes apart as claimed, and both fall before the parent PR's git.pushed_at of 03:15:00Z.",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 34
+      },
+      {
+        "summary": "'~30s' confirmed as the more defensible reconciled figure: it matches the same array's own '~29-31s' fixed-12 baseline, matches frontend/vite.config.ts's original (pre-PR) comment text (only '~23s' in the decisions entry was the outlier), and is independently corroborated by PR #294's own round-2 pr-reviewer measurement (27.34s, recorded in that PR's review comment) and pr-decision's merge-confirmation measurement (27.30-30.55s, recorded in that task's pr_decision.notes).",
+        "file": "docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups.json",
+        "line": 46
+      },
+      {
+        "summary": "frontend/vite.config.ts change confirmed comment-only (spells out the ~29-31s range already referenced) with no logic/config-value change; full frontend suite re-run at the committed config passed 841/841 with 99.76%/99.31%/99.78%/99.82% coverage, matching the PR's own claimed figures exactly.",
+        "file": "frontend/vite.config.ts",
+        "line": 84
+      },
+      {
+        "summary": "scripts/validate_tasks.py clean across 292 task files; eslint and tsc -b --noEmit both clean on frontend. No backend files touched by this PR, so backend pytest/coverage/ruff/mypy are not applicable here. No API/schema touched (openapi.json n/a). No new module/dependency/layer (architecture-review n/a). Not backend/signals or backend/portfolio, and skill is null (verify-elder-signal n/a). No UI surface of its own (only a code comment and task-board JSON changed) -- browser walkthrough and the persisted e2e suite (steps 9/9a) explicitly skipped, not silently omitted. No human PR comments/reviews found on #298. No leftover pr_decision from a prior pass existed to clear.",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+        "line": 1
+      },
+      {
+        "summary": "Non-blocking: this PR's own two new decisions entries (on this task) both carry the identical timestamp 2026-09-24T05:48:53Z -- the same class of evidence-trail imprecision this exact task lineage exists to fix, though lower severity here since both corrections were plausibly made in one edit session rather than describing separate lengthy investigations. Filed as a new follow-up task (backend-cftc-cot-data-followups-followups-followups-followups-followups-followups) rather than blocking on it.",
+        "file": "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+        "line": 30
+      }
+    ],
+    "notes": "Full review of a narrow documentation-reconciliation PR (docs/tasks JSON + one comment-only frontend/vite.config.ts edit, no application code). Ran python3 scripts/validate_tasks.py (clean, 292 files), yarn vitest run --coverage on frontend (841/841 passed, 99.76%/99.31%/99.78%/99.82% coverage, matching the PR's own claimed figures exactly), yarn eslint . and yarn tsc -b --noEmit (both clean). Cross-checked the '~30s' reconciliation against PR #294's actual review/pr_decision records via gh api (comments + reviews), confirming the 27.34s and 27.30-30.55s figures cited in this PR's decisions entries are real, not fabricated. Confirmed the corrected timestamps' sequencing and bounds against the parent task's git.pushed_at. Confirmed the PR #274 precedent for the in-place-edit carve-out by checking its file list (it also touched backend/app/data/cftc_cot_provider.py, a real code file, alongside its in-place decisions-text correction). One non-blocking finding (this PR's own two new decisions entries sharing an identical timestamp) tracked as a new follow-up task since no existing backend-cftc-cot-data-followups-followups-followups-followups-followups-followups task was found in index.json. No blocking findings."
+  }
 }

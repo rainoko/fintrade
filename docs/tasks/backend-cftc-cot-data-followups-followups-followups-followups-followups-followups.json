@@ -1,0 +1,21 @@
+{
+  "id": "backend-cftc-cot-data-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking finding from PR #298's review (identical timestamps on its own two new decisions entries)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/298"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #298 (backend-cftc-cot-data-followups-followups-followups-followups-followups, which correctly and in-place reconciled two timestamps and one wall-clock figure on the parent done task's decisions array, plus a matching frontend/vite.config.ts comment tweak -- all verified accurate and reviewed clean: validate_tasks.py clean across 292 files, frontend suite 841/841 passing with 99.76%/99.31%/99.78%/99.82% coverage, eslint/tsc clean, the corrected timestamps properly sequenced and bounded before the parent PR's git.pushed_at, and the '~30s' reconciled figure independently corroborated against PR #294's own round-2 review (27.34s) and merge-decision (27.30-30.55s) measurements). PR #298 accepted with no blocking findings.",
+  "checklist": [
+    {
+      "step": "PR #298 itself recorded its two new `decisions` entries on `backend-cftc-cot-data-followups-followups-followups-followups-followups.json` with the identical timestamp `2026-09-24T05:48:53Z` for both -- the same class of evidence-trail imprecision this exact task lineage exists to fix (the parent task's checklist item 1 flagged the analogous case: two sequential decisions entries sharing one timestamp). Low severity here since these two corrections were plausibly made back-to-back in the same edit/commit session rather than describing two lengthy separate investigations (unlike the original case), so simultaneity is at least plausible rather than provably impossible. Still worth a quick pass to give them distinct, sequential timestamps (or a note explaining why simultaneity is accurate here) the next time this task's decisions array is touched, for consistency with the standard this lineage otherwise holds everyone else to.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
