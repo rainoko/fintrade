@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #317's review (backend-day-trader-timeframe-mode-portfolio-risk)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-portfolio-risk"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json",
@@ -31,5 +31,33 @@
       "rationale": "Editing the parenthetical in place (rather than appending a new bullet) was chosen because this is normal living-documentation maintenance on an active (non-done) task's checklist item that explicitly named the stale text as the thing to fix — the append-only-decisions-array convention in CLAUDE.md governs a *done* task's own already-recorded decisions entries, not doc prose describing current app behavior, which docs/Analyse.md's own header already treats as continuously-maintained source-of-truth text (unlike docs/ideas.md's scratch-pad carve-out or docs/tasks/*.json's historical-record carve-out, both of which scripts/check_profit_target_wording.py explicitly excludes from its guard for that exact reason). Verified scripts/check_profit_target_wording.py still passes after the edit (weekly-chart wording elsewhere in the same §7 section is untouched, so its known-file positive check still finds 'weekly' near the channel/Autoenvelope context), and scripts/validate_tasks.py still passes."
     }
   ],
+  "review": {
+    "reviewed_at": "2026-09-24T23:39:32Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/318",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Read backend/app/portfolio/profit_target.py's current docstring and PR #317's decisions entry directly (not just the task-worker's paraphrase) and confirmed the new docs/Analyse.md §7 wording genuinely matches both: the third Elder ch. 53 technique still isn't implemented because it addresses a different exit signal (first sign of opposing divergence), not because the app lacks an intraday use case -- this is a real correction, not just a rephrase that happens to sound plausible.",
+        "file": "docs/Analyse.md",
+        "line": 262
+      },
+      {
+        "summary": "Checked the rest of §7 (SafeZone stop, trailing/profit-protecting stop, the two profit-target technique bullets, the reward:risk rule, the BUY-only/open-position paragraphs) and the two other day-trader-mode Analyse.md bullets (~line 77, ~line 384) for anything that now reads inconsistently with the correction -- none found; nothing else in the doc assumed the old 'no intraday use case' rationale.",
+        "file": "docs/Analyse.md",
+        "line": null
+      },
+      {
+        "summary": "Ran scripts/check_profit_target_wording.py (264 files + 8 known locations, clean) and scripts/validate_tasks.py (313 task files, clean) myself. Also ran the full backend test suite as a cheap sanity check even though this PR touches no code: 1371 passed, no regressions. Ran static-verify's backend (ruff, mypy) and frontend (eslint, tsc) checks -- all clean, as expected for a docs-only diff. No UI-facing surface touched (docs + task-board JSON only), so the browser walkthrough and e2e-test steps don't apply -- explicitly skipped rather than silently omitted.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Non-blocking: the edited paragraph's closing sentence now ends '...for the full reasoning:' immediately before the Swing-style/Position-style bullet list, but that list describes the two implemented techniques, not 'the full reasoning' for why the third technique doesn't apply -- the colon's antecedent no longer matches the list that follows it (the pre-PR wording didn't have this problem, since its own colon's antecedent was 'the two techniques' and the list matched exactly). A documentation clarity nit, not a factual/methodology error. Tracked as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json rather than blocking this PR on it.",
+        "file": "docs/Analyse.md",
+        "line": 262
+      }
+    ],
+    "notes": "Accepted. Docs-only PR: verified the corrected §7 Profit target wording against backend/app/portfolio/profit_target.py's docstring and PR #317's decisions entry directly, confirmed no other part of docs/Analyse.md now reads inconsistently, ran scripts/check_profit_target_wording.py and scripts/validate_tasks.py, ran the full backend suite (1371 passed) and static-verify (ruff/mypy/eslint/tsc all clean) as sanity checks even though no code changed, and ran a code-review pass plus a verify-elder-signal pass given this task's area is backend/portfolio. One non-blocking documentation-clarity finding (a colon/list-antecedent mismatch introduced by the edit) filed as docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups-followups.json rather than blocking on a wording nit."
+  },
   "questions": []
 }
