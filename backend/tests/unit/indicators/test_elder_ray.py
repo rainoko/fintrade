@@ -9,8 +9,8 @@ EMA used elsewhere for the tide/impulse gate (docs/tasks/indicator-ema.json).
 import pandas as pd
 import pytest
 
-from app.indicators.ema import ema
 from app.indicators.elder_ray import bear_power, bull_power
+from app.indicators.ema import ema
 
 
 class TestBullPower:

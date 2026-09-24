@@ -282,6 +282,8 @@ Request:
 
 Adding a ticker that's already held **merges** into the existing position rather than creating a duplicate row: `quantity` is summed, `avg_cost_basis` becomes the quantity-weighted average of the existing and incoming cost bases, and `entry_date` keeps the earlier of the two dates (see the `api-portfolio-add-position` task's `decisions` for the full rationale). `entry_notes` merges by **appending**: an incoming note is added to the existing one separated by a blank line rather than overwriting it (so notes from multiple buys into the same position are all preserved); a merge with no incoming note leaves the existing note untouched — see the `backend-trade-journal-entry-notes` task's `decisions`. `strategy` merges differently, by **overwriting**: an incoming `strategy` replaces the existing tag outright rather than being concatenated onto it, so this field stays a single clean value for future strategy-segmented grouping/equity-curve use (`docs/ideas.md`'s ch. 59 "equity curves segmented by strategy" idea); a merge with no incoming `strategy` leaves the existing one untouched — see the `backend-trade-strategy-tagging` task's `decisions`.
 
+A same-ticker merge also locks in `PositionORM.trailing_stop_high_water_mark` (the persisted floor behind `GET /api/portfolio/risk`'s `trailing_stop` hard ratchet — see that route's own section below): `app.portfolio.risk.trailing_stop_floor_before_merge` computes whatever the ratchet would report for this position's OLD, pre-merge `avg_cost_basis`/`entry_date` right now, before they're overwritten, and persists it — this is the *only* write path for that column (`GET /api/portfolio/risk` never writes). A market-data fetch failure for this ticker at merge time degrades to leaving any existing floor untouched, never blocking the merge itself — see the `backend-trailing-profit-stop` task's `decisions` for the full round-2 history.
+
 ### `DELETE /api/portfolio/positions/{id}`
 
 Removes a position. `204 No Content` on success.
@@ -304,6 +306,7 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
       "id": "pos_123",
       "ticker": "AAPL",
       "protective_stop": 210.15,
+      "trailing_stop": 216.67,
       "position_risk_pct": 1.8,
       "two_percent_rule_breached": false,
       "exit_flags": [],
@@ -323,6 +326,8 @@ Portfolio-level 2%/6% rule evaluation (Analyse.md §7).
 `exit_flags` is a list of strings drawn from Analyse.md §7's existing-position exit conditions, e.g. `["stop_hit", "tide_flipped_bearish", "six_percent_rule_contributor"]` — empty if none apply.
 
 `profit_target` is the same `ProfitTargetOut` shape as `GET /api/stocks/{ticker}/analysis`'s own `profit_target` field (see above), computed from `app.portfolio.profit_target.suggest_profit_target` the same way — but, unlike that field, **not** gated on this ticker's current live signal being BUY: this is an already-open long position with a real entry, and Analyse.md §7's "Profit target" section explains why an open position's target isn't gated to a fresh BUY signal the way a new-entry candidate's is (`backend-profit-target-open-position` task's `decisions`). Null when neither target technique currently produces a candidate for this position, or under the rare column-validation failure any other per-position computation on this response could hit — independently of, and without excluding, the rest of that position's fields (see the `api-portfolio-risk` task's `decisions` for why every *other* field here is instead all-or-nothing per position).
+
+`trailing_stop` is a separate, trailing/profit-protecting stop (Elder ch. 54 "Don't Let a Winning Trade Turn into a Loss" and its companion "Move Your Stop Only in the Direction of Your Trade") — distinct from `protective_stop` (the static, volatility-only SafeZone stop above it): as this position's unrealized profit grows past a threshold, it "cuffs the trade" to breakeven and then protects a growing share of profit earned beyond that point, and is a **hard ratchet** — never lower than any value this endpoint has ever reported for this position before, even if a fresh computation from today's price alone would suggest a lower number (`app.portfolio.risk.trailing_profit_stop`/`ratchet_trailing_profit_stop`). Two layers make that ratchet hold: a stateless re-fold of this position's own full price history since entry every call, floored by a **persisted** `PositionORM.trailing_stop_high_water_mark` — needed because the stateless fold alone can't survive `POST /api/portfolio/positions`'s same-ticker merge, which can raise `avg_cost_basis` with no price movement at all. That column is written *only* by the merge itself (`app.portfolio.risk.trailing_stop_floor_before_merge`, against the position's OLD, pre-merge cost basis, before it's overwritten) — **this GET route never writes to the database**; it only ever reads the persisted floor — see the `backend-trailing-profit-stop` task's `decisions` for the exact threshold/fraction chosen and the full history of why the write lives at the merge path rather than here. Equal to `protective_stop` while this position's profit has never crossed the trigger; can be tighter or looser than `protective_stop` once triggered — the two are independent stop-setting techniques to consider together, not one superseding the other. Required (never null) on every `positions` entry, same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags`.
 
 `total_open_risk_pct` is the book's actual *two-part* 6% Rule total (Analyse.md §7, per `docs/ideas.md`'s ch. 51 cross-check — the book's own worked example sums "the sum of your losses for the current month" AND "the risks in open trades"): `realized_losses_this_month_pct` (this calendar month's realized losses from `closed_trades`, populated by `DELETE /api/portfolio/positions/{id}` — only losing trades count, a profitable month contributes 0) plus the sum of `position_risk_pct` across every open position with a known stop. The field keeps its original name despite now covering both halves (see the `backend-trade-history-table` task's `decisions`).
 
@@ -361,6 +366,8 @@ Trade history (the `closed_trades` table `DELETE /api/portfolio/positions/{id}` 
 The three grade fields are `null` whenever they can't currently be computed — the ticker's daily-history fetch failed, `entry_date`/`exit_date` isn't an exact trading-day row in that history (e.g. it predates the fetched history), or (`trade_grade_pct` only) `entry_date` falls inside the Autoenvelope/channel's own ~100-bar warm-up window (same warm-up `GET /api/stocks/{ticker}/analysis`'s `indicators.channel_upper`/`channel_lower` document) — never a request-level error; the row itself is always present with its recorded price/date/P&L fields intact. See `app.portfolio.grading` for the formulas themselves.
 
 `trade_letter_grade` is Elder's own A/B/C/D letter grade (ch. 55 "Is This an A-Trade?" footnote: "A is excellent, B good, C mediocre, and D poor"), derived from `trade_grade_pct`: `A` >= 30%, `B` in [20%, 30%), `C` in [10%, 20%), `D` < 10% (no floor — a losing trade is still "poor"). The book only gives two numeric anchors (>=30% "A", ~10% "C"); the B/D thresholds fill that gap by even 10-point-per-letter spacing implied by those two anchors — see the `backend-trade-grade-letter` task's `decisions` for the full rationale and alternatives considered. `null` exactly when `trade_grade_pct` is `null`. `buy_grade_pct`/`sell_grade_pct` deliberately stay percentage-only — the book gives them no letter-grade scale at all, only a single ">50% = very good" anchor each.
+
+`exit_reason` is reported as `"unspecified"` for any row whose stored value falls outside the current taxonomy (e.g. hand-inserted/legacy data predating today's `ExitReason` enum) rather than failing the request — see the `backend-closed-trades-legacy-exit-reason-500` task's `decisions` entry for why a fallback was chosen over widening the taxonomy. The first time a given out-of-taxonomy value is seen in the running process it's logged as a warning; the same value is then silently suppressed for the rest of that process's lifetime, so a single long-lived legacy row doesn't produce identical warning-log noise on every subsequent request (`backend-closed-trades-legacy-exit-reason-500-followups`). As additional defense in depth, a row that still fails to build for any other, unanticipated reason is silently dropped from `items` (logged server-side, per-row) rather than 500ing every other trade in the same response; when at least one row is dropped this way, a single aggregate error-level log line also reports the dropped count/total/percentage for the request, so a systemic failure (most/all rows dropped) is distinguishable from an isolated bad row by log volume alone, without requiring an on-call reader to tail every per-row traceback (`backend-closed-trades-legacy-exit-reason-500-followups`'s `decisions` entry for why this stayed a log line rather than a new response field).
 
 `entry_notes` is carried over verbatim from the position's own `entry_notes` (Elder ch. 59 Trade Journal Section A) at the moment it was closed — `null` if the position never had a note recorded. `strategy` is carried over the same way (Elder ch. 55/56/58/59's personal named strategy tag) — `null` if the position never had a strategy tag recorded.
 
@@ -630,6 +637,42 @@ None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day
 
 'disabled'/`gateway_unreachable`/`not_authenticated` states behave exactly like `POST /api/ibkr/scanner/run` — a normal `200` response, never an HTTP error, with every other field `null`. Being rate-limited or a transient scanner-call failure against an otherwise-`available` gateway are surfaced as `429`/`503` respectively, exactly like `POST /api/ibkr/scanner/run` — both only reachable on a cache miss (today's first request for this `series_key`).
 
+### `GET /api/cftc/cot`
+
+Elder ch. 37's Commitments of Traders (COT) framing (docs/ideas.md's ch. 37 entry) — follow commercials (historically the successful group), fade small speculators (historically the unsuccessful group), read current positioning against historical norms rather than an absolute level — for a small, fixed set of major futures markets: Euro, Yen, Oil, Gold, Bonds (matching the ch. 57 daily-homework idea's own list; `app.data.cftc_cot_provider.COT_MARKETS`). This is a genuinely separate, informational surface — futures-market context, not something that plugs into any per-stock-ticker signal the way insider clusters or short interest do — see this task's `decisions` entry.
+
+Sourced from the CFTC's own public Socrata Open Data JSON API (`https://publicreporting.cftc.gov/resource/6dca-aqww.json`, the "Legacy"/"Futures Only" report — the classic Commercial/Non-Commercial/Non-Reportable three-way breakdown Elder describes), fetched fresh on every request — no local caching in this minimal scope, since the underlying data changes at most weekly. See this task's `decisions` entry for the full research writeup and the specific contract code chosen for each of the 5 markets.
+
+```json
+{
+  "markets": [
+    {
+      "market_key": "gold",
+      "display_name": "GOLD - COMMODITY EXCHANGE INC.",
+      "report_date": "2026-09-15",
+      "open_interest": 409899,
+      "commercial_long": 56417,
+      "commercial_short": 318138,
+      "commercial_net": -261721,
+      "large_speculator_long": 258059,
+      "large_speculator_short": 27721,
+      "large_speculator_net": 230338,
+      "small_speculator_long": 47460,
+      "small_speculator_short": 16077,
+      "small_speculator_net": 31383,
+      "weeks_of_history": 52,
+      "commercial_cot_index_52w": 87.5,
+      "large_speculator_cot_index_52w": 12.0,
+      "small_speculator_cot_index_52w": 40.3
+    }
+  ]
+}
+```
+
+`markets` always has exactly 5 entries, one per `market_key` (`eur | jpy | oil | gold | bonds`), in that fixed order. `commercial_net`/`large_speculator_net`/`small_speculator_net` are each group's long minus short. `*_cot_index_52w` is the classic Williams "COT Index": where that group's current net position sits within its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest reading) to 100 (at/above its highest) — the standard way to operationalize "against historical norms", since a raw net-position count isn't comparable across time as overall open interest grows/shrinks. Null if `weeks_of_history` < 2 or the window's range is zero-width (undefined, not a misleading 50/neutral default).
+
+Raises `503` if the CFTC's request itself fails, or unexpectedly returns no rows at all for one of the 5 fixed contract codes — there is no per-market "not found" case the way there is for an arbitrary user-supplied stock ticker, since these are all long-established, actively-traded futures contracts.
+
 ## Error Cases to Cover in Tests
 
 - Unknown ticker (`GET /api/stocks/{ticker}/...`) → `404`.
@@ -648,6 +691,7 @@ None of ch. 34-36's own numeric thresholds (weekly NH-NL −4,000/+2,500, 20-day
 - The scanner-params/scanner-run call itself fails transiently against a gateway a fresh check still reports `available` (distinct from the gateway/session genuinely being unavailable) → `503` on `GET /api/ibkr/scanner/params` or `POST /api/ibkr/scanner/run`, never `state: "available"` with `categories`/`results` left `null` (see both endpoints above).
 - IBKR disabled/gateway unreachable/not authenticated on `POST /api/ibkr/breadth/snapshot` → a normal `200` with the corresponding `state`, every other field `null`, never a failed request; same `429`/`503` treatment as `POST /api/ibkr/scanner/run` for rate-limiting/a transient scan-call failure, both only reachable on a cache miss (see `POST /api/ibkr/breadth/snapshot` above).
 - An invalid `series_key` (not `^[a-z0-9_-]{1,40}$`) on `POST /api/ibkr/breadth/snapshot` → `422` (standard per-field validation error shape).
+- `GET /api/cftc/cot`'s upstream CFTC request fails, or comes back missing rows for one of the fixed 5 markets → `503` (see `GET /api/cftc/cot` above).
 
 ## Contract Snapshot & Parallel Development
 

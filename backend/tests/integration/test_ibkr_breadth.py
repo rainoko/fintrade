@@ -13,7 +13,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_ibkr_provider
@@ -354,3 +354,50 @@ class TestRecordBreadthSnapshot:
         assert body["count"] == 99
         assert body["days_recorded"] == 1
         assert db_session.query(IBKRBreadthSnapshotORM).filter_by(series_key="nh").count() == 1
+
+    def test_operational_error_with_no_same_key_winner_returns_503(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Narrows the `except (IntegrityError, OperationalError)` fallback's assumption
+        (see this task's `decisions` entry): unlike `IntegrityError` (this table's only
+        constraint is the composite PK, so it can only mean the same-key race the fallback
+        is written for), SQLite's whole-file write locking can raise `OperationalError`
+        ("database is locked") from *any* concurrent write anywhere in the file -- not only
+        a race on this exact (series_key, snapshot_date). In that case `db.get(...)` for the
+        supposed winner's row legitimately finds nothing. This must surface as a clean `503`
+        (not a bare `assert`'s `AssertionError`, and not silently returning `row=None`
+        under `python -O`), and must not persist anything.
+        """
+        original_commit = db_session.commit
+
+        def _commit_raises_operational_error_with_no_winner() -> None:
+            monkeypatch.setattr(db_session, "commit", original_commit)
+            # The loser's own attempted insert is discarded, and -- unlike the IntegrityError
+            # test above -- no concurrent committer ever wins this exact key; the lock
+            # contention was against some unrelated write elsewhere in the file.
+            db_session.rollback()
+            raise OperationalError("INSERT", {}, Exception("database is locked"))
+
+        monkeypatch.setattr(db_session, "commit", _commit_raises_operational_error_with_no_winner)
+        _override(_StubIBKRProvider(run_scanner_result=[ScannerResult(conid=1, symbol=None, company_name=None, rank=None)]))
+
+        response = client.post(
+            "/api/ibkr/breadth/snapshot", json={"series_key": "nh", "scan_config": _SCAN_CONFIG}
+        )
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        # Exact match, not just `"nh" in detail`: a substring check alone would still pass
+        # if a future edit re-adds `({type(exc).__name__}: {exc})` (or any other raw
+        # exception interpolation) to this `HTTPException`'s `detail`, since the leaked
+        # SQL/params text would still contain "nh" somewhere -- that's exactly the leak
+        # PR #283 fixed. Pinning the full string (and independently asserting known
+        # leak-indicator substrings are absent) makes a reintroduction fail loudly here.
+        assert detail == (
+            "Transient write conflict recording breadth snapshot for series_key='nh'; retry."
+        )
+        assert "OperationalError" not in detail
+        assert "database is locked" not in detail
+        assert "INSERT" not in detail
+        assert "sqlalche.me" not in detail
+        assert db_session.query(IBKRBreadthSnapshotORM).filter_by(series_key="nh").count() == 0

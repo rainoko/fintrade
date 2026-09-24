@@ -26,8 +26,25 @@ function watchlistRow(page: Page) {
  * idempotent no-op on a duplicate add, API.md) — both matter because playwright.config.ts's
  * webServer only guarantees a clean database at the start of a whole `yarn test:e2e`
  * invocation, not before each individual spec file.
+ *
+ * The 'removing the ticker' test below is the asserted UI-driven cleanup path, but it isn't the
+ * only one: `test.afterAll` below backs it up with a direct API delete, so a flake/timeout in
+ * either of the tests spliced in between add and remove (the signal-badge or personal-breadth
+ * assertions) can't strand GOOGL for the rest of the suite run even though `playwright.config.ts`
+ * sets `retries: 0` and `describe.serial` skips every remaining test in the block once one fails
+ * (frontend-market-breadth-widget-followups-followups-followups).
  */
 test.describe.serial('watchlist: view, add, and remove a ticker', () => {
+  test.afterAll(async ({ request }) => {
+    // Safety-net cleanup, not the primary assertion: guarantees GOOGL is gone after this block
+    // regardless of which test above failed. A normal completed run has already removed it via
+    // the UI in 'removing the ticker takes it out of the table', so this 404s (ticker already
+    // gone) far more often than it 204s -- both are expected outcomes, not a failure, unlike an
+    // unexpected status (e.g. a 5xx) which would still fail this hook and the run.
+    const response = await request.delete(`/api/watchlist/${TICKER}`)
+    expect([204, 404]).toContain(response.status())
+  })
+
   test('watchlist page loads with a watchlist table', async ({ page }) => {
     await page.goto('/watchlist')
     await expect(page.getByRole('heading', { level: 1, name: 'Watchlist' })).toBeVisible()
@@ -56,6 +73,34 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
     )
   })
 
+  test('adding a ticker updates the personal breadth card with a Bullish/Bearish/Neutral breakdown', async ({
+    page,
+  }) => {
+    await page.goto('/watchlist')
+
+    // Regression check for PersonalBreadthCard (frontend-market-breadth-widget-followups-
+    // followups): unlike MarketBreadthCard's IBKR-gated disabled panel above, this card's data
+    // comes straight from GET /api/watchlist/breadth over the real (fixture-backed) backend, so
+    // once the previous test's GOOGL add makes tracked_ticker_count >= 1, the card renders its
+    // three stat cards instead of the "add a ticker" empty state. Scoped to `main` for the same
+    // reason as the market-breadth assertions above (nothing else on the page renders these
+    // labels today, but scoping keeps this robust to that changing).
+    const main = page.getByRole('main')
+    await expect(
+      main.getByRole('heading', { level: 2, name: 'Personal Breadth (Watchlist + Portfolio)' }),
+    ).toBeVisible()
+
+    // Asserted structurally (labels present, values shaped like "N (P.P%)") rather than
+    // pinning which bucket GOOGL's fixture series actually lands in -- same reasoning
+    // fixture_provider.py's own docstring gives for why e2e specs assert shape, not an exact
+    // signal outcome, and duplicating app.signals.engine's Tide computation here just to
+    // predict it would be both fragile and redundant with the pytest suite's job.
+    await expect(main.getByText('Bullish')).toBeVisible()
+    await expect(main.getByText('Bearish')).toBeVisible()
+    await expect(main.getByText('Neutral')).toBeVisible()
+    await expect(main.getByText(/^\d+ \(\d+\.\d%\)$/)).toHaveCount(3)
+  })
+
   test('removing the ticker takes it out of the table', async ({ page }) => {
     await page.goto('/watchlist')
 
@@ -70,4 +115,36 @@ test.describe.serial('watchlist: view, add, and remove a ticker', () => {
 
     await expect(watchlistRow(page)).toHaveCount(0)
   })
+})
+
+// Regression check for MarketBreadthCard (frontend-market-breadth-widget-followups): the e2e
+// stack always runs with IBKR disabled (backend/app/config.py's `ibkr_enabled: bool = False`
+// default -- playwright.config.ts's webServer never overrides it), so this card is guaranteed to
+// always render its disabled/unavailable panel here, never the real advance/decline data -- a
+// stable, deterministic thing to assert as a persisted e2e check, unlike the "available" state
+// (which would need a stub IBKR gateway this suite doesn't run). Kept outside the
+// `describe.serial` block above since it neither depends on nor mutates the add/remove flow's
+// watchlist state -- a failure here shouldn't skip that flow's remaining steps, or vice versa.
+// PersonalBreadthCard now gets its own equivalent e2e assertion inside the `describe.serial`
+// block above (frontend-market-breadth-widget-followups-followups) -- placed there rather than
+// out here since, unlike this card, its "has tracked tickers" state genuinely depends on the
+// add/remove flow's watchlist mutation.
+test('market breadth card shows the disabled panel when IBKR is not connected', async ({
+  page,
+}) => {
+  await page.goto('/watchlist')
+
+  // Scoped to `main` since the app shell's own header IbkrStatusIndicator (AppShell.tsx)
+  // renders the same "IBKR: Disabled" chip text outside this card -- a plain page-wide
+  // `getByText` would match both and fail Playwright's strict-mode uniqueness check.
+  const main = page.getByRole('main')
+  await expect(
+    main.getByRole('heading', { level: 2, name: 'Market Breadth (IBKR, Whole Market)' }),
+  ).toBeVisible()
+  await expect(
+    main.getByText(
+      "Real market breadth isn't available right now — it needs the optional IBKR Client Portal Gateway integration connected.",
+    ),
+  ).toBeVisible()
+  await expect(main.getByText('IBKR: Disabled')).toBeVisible()
 })

@@ -88,6 +88,32 @@ describe('PortfolioPage', () => {
     expect(screen.getByText('Connection error')).toBeInTheDocument()
   })
 
+  // Regression test for the PR #258 review finding: PositionsTable and
+  // RiskPanel both independently call usePortfolioRisk(), and both render on
+  // this page -- a GET /api/portfolio/risk failure must surface exactly one
+  // role="alert" ErrorState (RiskPanel's), not two identical stacked ones.
+  it('surfaces exactly one ErrorState (RiskPanel\'s) when GET /api/portfolio/risk fails, not a duplicate from PositionsTable', async () => {
+    server.use(
+      http.get('/api/portfolio/risk', () =>
+        HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 }),
+      ),
+    )
+
+    renderPortfolioPage()
+
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Market data provider unavailable')).toBeInTheDocument()
+    // The positions table itself still renders, with its risk columns
+    // falling back to '—' rather than duplicating RiskPanel's own alert.
+    expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument()
+  })
+
   // This test's own timeout is raised above vitest's 5000ms default (see
   // backend-indicator-seasons-followups task decisions): it renders the
   // whole PortfolioPage (positions table + risk panel + trade journal, all
@@ -142,7 +168,7 @@ describe('PortfolioPage', () => {
     await waitFor(() => expect(screen.getByText('AAPL')).toBeInTheDocument())
 
     await user.click(screen.getByRole('button', { name: 'Delete AAPL' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Close Position' }))
 
     await waitFor(() =>
       expect(

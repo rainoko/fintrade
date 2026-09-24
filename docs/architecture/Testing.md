@@ -93,8 +93,9 @@ structurally (a signal badge renders one of BUY/SELL/HOLD, a confidence score re
 value for the fixture data — that precision is what the backend's hand-derived-reference-
 value unit tests already cover (see `verify-elder-signal`). Golden-path flows covered:
 dashboard, stock search + analysis (signal/confidence/screens/indicators/chart, plus an
-unknown-ticker 404), portfolio (view/add/delete a position, the risk panel), and app-shell
-navigation between all three pages.
+unknown-ticker 404), portfolio (view/add/delete a position, the risk panel, and recording a
+two-months-later follow-up review on a trade due for one), and app-shell navigation between
+all three pages.
 
 ## What 90% Coverage Does *Not* Guarantee
 

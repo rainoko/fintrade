@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.portfolio.grading import TradeLetterGrade
+
 Signal = Literal["BUY", "SELL", "HOLD"]
 ConfidenceBand = Literal["Low", "Medium", "High"]
 Interval = Literal["daily", "weekly"]
@@ -405,11 +407,17 @@ class PositionIn(BaseModel):
         "breakout with a divergence,' 'pullback to value'). Free-text rather than a fixed, "
         "predefined list, since Elder's own framing is that a trader's strategies are "
         "personal and evolve over time -- see the backend-trade-strategy-tagging task's "
-        "`decisions`. On merge with an existing position for the same ticker, an incoming "
-        "`strategy` *overwrites* the existing one (unlike `entry_notes`, which appends) -- a "
-        "merge with no incoming `strategy` leaves the existing one untouched. Carried through "
-        "unchanged to the resulting `ClosedTradeOut.strategy` if/when this position is later "
-        "closed.",
+        "`decisions`. Leading/trailing whitespace is stripped, and an empty or "
+        "whitespace-only tag normalizes to null (mirrors `entry_notes`' own strip/normalize "
+        "convention -- see the backend-trade-strategy-tagging-followups task's `decisions`). "
+        "Casing is preserved as typed -- two tags differing only in case (e.g. 'Pullback to "
+        "value' vs. 'pullback to value') are NOT folded into one on write; see that same "
+        "task's `decisions` for why. On merge with an existing position for the same ticker, "
+        "an incoming `strategy` *overwrites* the existing one (unlike `entry_notes`, which "
+        "appends) -- a merge with no incoming `strategy` leaves the existing one untouched. "
+        "A whitespace-only incoming tag normalizes to null before the merge check runs, so it "
+        "never overwrites an existing tag. Carried through unchanged to the resulting "
+        "`ClosedTradeOut.strategy` if/when this position is later closed.",
     )
 
     @field_validator("ticker")
@@ -420,9 +428,9 @@ class PositionIn(BaseModel):
             raise ValueError("ticker must not be blank or whitespace-only")
         return stripped
 
-    @field_validator("entry_notes")
+    @field_validator("entry_notes", "strategy")
     @classmethod
-    def _strip_and_normalize_entry_notes(cls, value: str | None) -> str | None:
+    def _strip_and_normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()
@@ -440,6 +448,7 @@ class RiskPosition(BaseModel):
     two_percent_rule_breached: bool
     exit_flags: list[str] = Field(description="Risk-driven exit reasons, e.g. 'stop_hit', 'tide_flipped_bearish' (docs/Analyse.md §7). Independent of this stock's fresh entry signal — can be non-empty even when /analysis says HOLD.")
     profit_target: ProfitTargetOut | None = Field(default=None, description="Suggested profit target + reward:risk ratio for this position (docs/Analyse.md §7, Elder ch. 53), computed from this ticker's current daily/weekly OHLCV the same way as AnalysisResponse.profit_target -- but, unlike that field, NOT gated on this ticker's current live signal being BUY: this is an already-open long position with a real entry, so ch. 53 read directly ('a target set at entry ... is meant to be tracked for the life of the trade, not recomputed only while the signal happens to say BUY') means a target keeps showing even once the live signal has drifted to HOLD or SELL -- see the backend-profit-target-open-position task's `decisions` entry, which revisits AnalysisResponse.profit_target's original BUY-only rationale for this open-position case specifically. Null when neither target technique currently produces a candidate for this position (e.g. under ~100 weeks of weekly history and no yet-detected resistance zone above current price), or under the same rare column-validation failure any other per-position field on this schema could degrade under.")
+    trailing_stop: float = Field(description="Trailing/profit-protecting stop for this position (Elder ch. 54 'Don't Let a Winning Trade Turn into a Loss' and its companion 'Move Your Stop Only in the Direction of Your Trade') -- distinct from protective_stop above (which is the static, volatility-only SafeZone stop): as this position's unrealized profit grows past a threshold, this value 'cuffs the trade' to breakeven and then keeps protecting a growing share of profit earned beyond that point, and is a hard ratchet -- guaranteed never lower than any value this endpoint has ever reported for this position before, even if today's profit/protective_stop alone would suggest a lower number. Equal to protective_stop while this position's profit has never crossed the trigger (see app.portfolio.risk.trailing_profit_stop/ratchet_trailing_profit_stop for the exact mechanics and the backend-trailing-profit-stop task's `decisions` entry for the threshold/fraction chosen). Can be tighter (higher) OR looser (lower) than protective_stop on any given day once triggered -- the two are independent stop-setting techniques a trader is meant to consider together, not one superseding the other.")
 
 
 class RiskResponse(BaseModel):
@@ -615,7 +624,7 @@ class ClosedTradeOut(BaseModel):
         "available -- the ticker's fetched daily history doesn't reach back to entry_date, "
         "or entry_date falls inside the Autoenvelope's own ~100-bar warm-up window.",
     )
-    trade_letter_grade: Literal["A", "B", "C", "D"] | None = Field(
+    trade_letter_grade: TradeLetterGrade | None = Field(
         default=None,
         description="Elder's own A/B/C/D letter grade (ch. 55 footnote: 'A is excellent, B "
         "good, C mediocre, and D poor') derived from trade_grade_pct: A >= 30%, B in "
@@ -1069,6 +1078,77 @@ class YesterdayTradingSuggestionOut(BaseModel):
         "this endpoint never guesses a value with nothing to base it on. The caller decides "
         "whether to use it; this app never writes `yesterday_trading_score` on the user's "
         "behalf -- see the backend-daily-homework-self-test task's `decisions` entry.",
+    )
+
+
+# --- /api/cftc/cot ----------------------------------------------------------
+
+# Stable, short labels for `app.data.cftc_cot_provider.COT_MARKETS`' fixed futures list
+# (docs/ideas.md's ch. 37 CFTC COT entry; ch. 57 daily-homework's own Euro/Yen/Oil/Gold/
+# Bonds list) -- kept here (rather than only in the provider module) so this schema's own
+# `market_key` field can document the exact closed set a caller will see, matching how
+# `Impulse`/`Season` etc. are defined at this module's top.
+CFTCMarketKey = Literal["eur", "jpy", "oil", "gold", "bonds"]
+
+
+class CFTCCOTMarketOut(BaseModel):
+    market_key: CFTCMarketKey = Field(
+        description="Which of this app's fixed 5 futures markets this entry is for."
+    )
+    display_name: str = Field(
+        description="The CFTC's own `market_and_exchange_names` string for this contract "
+        "(e.g. \"GOLD - COMMODITY EXCHANGE INC.\")."
+    )
+    report_date: date = Field(
+        description="The CFTC report's as-of date (always a Tuesday) -- reports are "
+        "published the following Friday, so this lags 'today' by several days even when "
+        "freshly fetched."
+    )
+    open_interest: int = Field(description="Total open interest (all contract-month combined).")
+    commercial_long: int = Field(description="Commercial ('follow this group', per Elder ch. 37) long positions.")
+    commercial_short: int = Field(description="Commercial short positions.")
+    commercial_net: int = Field(
+        description="`commercial_long - commercial_short`. Positive = commercials net long."
+    )
+    large_speculator_long: int = Field(
+        description="CFTC 'Non-Commercial' long positions -- Elder's large speculators."
+    )
+    large_speculator_short: int = Field(description="CFTC 'Non-Commercial' short positions.")
+    large_speculator_net: int = Field(description="`large_speculator_long - large_speculator_short`.")
+    small_speculator_long: int = Field(
+        description="CFTC 'Non-Reportable' long positions -- Elder's small speculators "
+        "('fade this group', per ch. 37)."
+    )
+    small_speculator_short: int = Field(description="CFTC 'Non-Reportable' short positions.")
+    small_speculator_net: int = Field(description="`small_speculator_long - small_speculator_short`.")
+    weeks_of_history: int = Field(
+        description="How many weekly reports (including this one) this entry's "
+        "`commercial_cot_index_52w`/etc. fields below are computed over -- less than "
+        "`app.data.cftc_cot_provider.WEEKS_OF_HISTORY` only if the CFTC's own published "
+        "history for this contract doesn't go back that far."
+    )
+    commercial_cot_index_52w: float | None = Field(
+        default=None,
+        description="The classic Williams 'COT Index': where `commercial_net` sits within "
+        "its own trailing `weeks_of_history` range, scaled 0 (at/below the window's lowest "
+        "net reading) to 100 (at/above its highest) -- Elder's 'read current positioning "
+        "against historical norms' framing operationalized, since a raw net-position count "
+        "isn't comparable across time as overall open interest grows/shrinks. Null if "
+        "`weeks_of_history` < 2 or every value in the window is identical (an undefined, "
+        "zero-width range) -- see `app.data.cftc_cot_provider.cot_index`.",
+    )
+    large_speculator_cot_index_52w: float | None = Field(
+        default=None, description="Same computation as `commercial_cot_index_52w`, over `large_speculator_net`."
+    )
+    small_speculator_cot_index_52w: float | None = Field(
+        default=None, description="Same computation as `commercial_cot_index_52w`, over `small_speculator_net`."
+    )
+
+
+class CFTCCOTResponse(BaseModel):
+    markets: list[CFTCCOTMarketOut] = Field(
+        description="One entry per `app.data.cftc_cot_provider.COT_MARKETS` key, in that "
+        "dict's own fixed order (eur, jpy, oil, gold, bonds)."
     )
 
 

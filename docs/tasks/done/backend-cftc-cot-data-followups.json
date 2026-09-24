@@ -1,0 +1,56 @@
+{
+  "id": "backend-cftc-cot-data-followups",
+  "title": "Non-blocking findings from PR #270's review (CFTC COT data)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-cftc-cot-data"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-data.json#review",
+    "https://github.com/rainoko/fintrade/pull/270"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #270 (backend-cftc-cot-data), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges. This review's blocking finding (a KeyError that can escape get_all_recent() as an unhandled 500 instead of the documented 503) is recorded separately in that task's own review.comments and requires a code fix before merge -- only genuinely non-blocking items are tracked here.",
+  "checklist": [
+    {
+      "step": "The task's `decisions` entry for the 5 fixed cftc_contract_market_code values, and the matching inline code comments in app/data/cftc_cot_provider.py (COT_MARKETS dict), record `market_and_exchange_names` display text for the oil (067651) and bonds (020601) contracts that no longer matches what the live CFTC Socrata endpoint actually returns today: oil was recorded as \"CRUDE OIL, LIGHT SWEET (WTI) - NEW YORK MERCANTILE EXCHANGE\" but the live endpoint now returns \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\" for that same code; bonds was recorded as \"U.S. TREASURY BONDS - CHICAGO BOARD OF TRADE\" but the live endpoint now returns \"UST BOND - CHICAGO BOARD OF TRADE\". Confirmed (via a historical lookback query on the same contract code) that CFTC renamed both contracts at some point after the names in the decisions entry were presumably valid -- the contract codes themselves are still correct/live and unaffected, and the endpoint's own `display_name` response field is always populated live from the API response rather than hardcoded, so this is a documentation-accuracy issue only, not a functional bug. Worth a small comment/decisions-text update next time this file is touched, so a future reader cross-checking the decision against a live query isn't confused by the mismatch.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T18:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the display-name mismatch by making the illustrative names in `app/data/cftc_cot_provider.py`'s `COT_MARKETS` inline comments explicitly illustrative-only (added a block comment above the dict stating these are non-authoritative labels for a human skimmer, never read by code, that CFTC does rename contracts over time, and that the live `market_and_exchange_names` field on a fetched `COTWeeklyReport` is the only authoritative source), and appended a `oil`/`bonds`-specific note recording the two confirmed renames (067651 -> \"WTI-PHYSICAL - NEW YORK MERCANTILE EXCHANGE\", 020601 -> \"UST BOND - CHICAGO BOARD OF TRADE\") without deleting the original research-time names. Also appended a NOTE to the `backend-cftc-cot-data` task's own second `decisions` entry (in docs/tasks/done/backend-cftc-cot-data.json) recording the same drift, so a reader of that historical decision record isn't misled either.",
+      "rationale": "Chose 'mark as illustrative + append the current known drift' over silently rewriting the original names to their new live values, because the original names were correct at research time and rewriting them in place would erase that history without leaving a trace that CFTC renaming is an ongoing risk (the same drift could recur again later for these or the other three markets). Chose an in-place amendment of the already-done task's decisions entry (rather than only a new comment/decisions entry on this followup task) because the misleading claim lives specifically in that entry's own text -- a reader who opens `backend-cftc-cot-data.json` looking for the current display name has no reason to also check this followup task's file unless the original entry itself points them there. This is a narrow, additive correction (nothing deleted, decision itself unchanged, only appended text distinguishing 'name at research time' from 'name today'), not a rewrite of what was decided or a touch to code/merge state -- CLAUDE.md's stricter 'additive-comment-only' rule specifically targets *merged PR descriptions*, not a task board decisions entry, and there is no code/functional behavior change here since the endpoint's own live `display_name`/`market_and_exchange_names` field was never hardcoded in the first place."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups",
+    "pr_number": 274,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/274",
+    "pushed_at": "2026-09-22T19:50:16Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T19:54:34Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/274",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Confirmed genuinely comment/documentation-only: the diff to backend/app/data/cftc_cot_provider.py only adds/rewords comments above and inside the COT_MARKETS dict (a new block comment, plus two split trailing comments for the oil/bonds entries) -- the dict's keys, values, and code paths are byte-for-byte unchanged. Backend suite: 1194 passed, 100% line/branch coverage (matches PR's own claim). ruff/mypy clean on all changed files. scripts/validate_tasks.py: no violations (index.json state/path mirror correct). No schema/route change, so the PR's claim that backend/openapi.json regeneration isn't needed is correct. No UI surface (backend-only diff, no frontend files touched) -- browser walkthrough and e2e suite explicitly skipped, not silently omitted. code-review skill (medium effort) run separately: zero findings.",
+        "file": "backend/app/data/cftc_cot_provider.py",
+        "line": 61
+      },
+      {
+        "summary": "Reviewed the specific judgment call this task called out: amending the already-done backend-cftc-cot-data task's own decisions entry in place (appending clarifying text to the existing `decision` field) rather than leaving it untouched and only noting the drift elsewhere. task-worker's distinction that CLAUDE.md's stricter 'additive-comment-only' rule targets merged PR *descriptions* specifically, not task decisions entries, is textually correct, and the edit satisfies every condition that rule lists for the analogous PR-description case anyway (narrow additive factual correction, nothing deleted, recoverable via git history, also recorded as a new decisions entry with rationale on this followups task, no code/merge-state touched) -- including the carve-out precedent CLAUDE.md itself cites for PR #227, where an in-place edit was justified because the task/checklist explicitly called out the description itself as the thing to fix (this task's own checklist literally said 'decisions-text update'). Judged sound and non-blocking. Flagging one non-blocking alternative worth recording as a convention going forward: the `decisions` array is structurally an append-only chronological log, so appending a brand-new entry to backend-cftc-cot-data.json (rather than mutating an existing entry's `decision` field text) would have been an equally discoverable, strictly append-only way to achieve the same correction. Tracked as a follow-up task (backend-cftc-cot-data-followups-followups) rather than left only in this PR comment.",
+        "file": "docs/tasks/done/backend-cftc-cot-data.json",
+        "line": 28
+      }
+    ],
+    "notes": "Small-scope review per the dispatch instructions: backend suite (1194 passed, 100% coverage), ruff/mypy clean, scripts/validate_tasks.py clean, manual diff read confirming comment-only change, and the code-review skill (medium effort, background) returned zero findings. area is backend/data, not backend/signals or backend/portfolio, so verify-elder-signal doesn't apply; no new module/dependency/layer, so architecture-review doesn't apply; no frontend/API/schema changes, so no openapi regen, browser walkthrough, or e2e run applies (each stated explicitly rather than silently skipped). No checklist item phrased as 'decide X' lacks a decisions entry -- the one checklist item here has a matching, well-reasoned decisions entry. One non-blocking finding (see comments) tracked on backend-cftc-cot-data-followups-followups. Verdict: accepted."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T19:58:43Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv/bin/pytest --cov=app --cov-report=term-missing myself: 1194 passed, 100% line/branch coverage, matching pr-reviewer's reported numbers exactly. Also re-ran ruff/mypy on the changed file (clean) and scripts/validate_tasks.py (no violations). Read git diff origin/main...HEAD in full: the only code change is to backend/app/data/cftc_cot_provider.py's comments (COT_MARKETS dict keys/values byte-for-byte unchanged), confirming the accept's comment-only claim; the rest of the diff is task-board bookkeeping (this task's done-move, the backend-cftc-cot-data-followups-followups follow-up task, index.json mirror, and an additive in-place amendment to backend-cftc-cot-data.json's existing decisions entry that appends a NOTE without deleting the original text). Sanity-checked the decisions-entry-editing judgment call: CLAUDE.md's 'additive-comment-only' default applies textually to merged PR descriptions, not task decisions entries, so it doesn't strictly govern this edit -- but the edit satisfies that rule's own listed conditions anyway (narrow additive factual correction, nothing deleted, recoverable via git history, also recorded as a fresh decisions entry with rationale on this task, no code/merge-state touched), and pr-reviewer already correctly flagged the append-only-array alternative as a non-blocking convention question, tracked on backend-cftc-cot-data-followups-followups rather than left unresolved. Accept holds."
+  }
+}

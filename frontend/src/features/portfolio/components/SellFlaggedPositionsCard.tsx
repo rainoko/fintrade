@@ -10,6 +10,34 @@ import TickerLink from '../../../components/common/TickerLink/TickerLink'
 import ExitFlagChips from './ExitFlagChips'
 import { usePortfolioRisk } from '../hooks/usePortfolioRisk'
 
+export interface SellFlaggedPositionsCardProps {
+  /**
+   * Set by a caller that already renders another component surfacing the
+   * exact same `GET /api/portfolio/risk` failure (today: `DashboardPage`
+   * passes `true` because `RiskSummaryCard`, mounted alongside this card,
+   * already fully gates its own body — and shows a `common/ErrorState` —
+   * on `usePortfolioRisk`'s `isError`; both components share the identical
+   * hook/query key, so rendering a second `ErrorState` here would just
+   * duplicate the first one). Defaults to `false`, so a standalone mount of
+   * this card (no such sibling) still surfaces a real fetch failure instead
+   * of silently rendering nothing.
+   *
+   * This is an explicit, caller-supplied contract rather than an implicit
+   * "whichever sibling happens to render first/already handles it" rule —
+   * see this task's `decisions` entry (frontend-position-risk-columns-
+   * followups-followups-followups) for why: the previous implementation
+   * always returned `null` on `isError` unconditionally, which relied on
+   * `RiskSummaryCard` always being mounted as a sibling that fully gates on
+   * this same failure. Nothing enforced that pairing — a future page that
+   * mounted this card alone, or before its error-owning sibling, would have
+   * shown nothing at all on a genuine failure, with no visible error and no
+   * console warning. Requiring the caller to say so explicitly makes the
+   * dependency visible at the composition site and keeps the safe default
+   * (show the error) for any caller that doesn't opt out of it.
+   */
+  errorSurfacedBySibling?: boolean
+}
+
 const columns: DataTableColumn<RiskPosition>[] = [
   {
     key: 'ticker',
@@ -41,14 +69,29 @@ const columns: DataTableColumn<RiskPosition>[] = [
  * ticker, an exit flag) is a portfolio-risk domain concept, and it owns its
  * own `usePortfolioRisk` call so DashboardPage stays a thin composition
  * (Frontend.md §3) — same reasoning as RiskSummaryCard/RiskPanel.
+ *
+ * On `riskQuery.isError`, renders its own `common/ErrorState` UNLESS the
+ * caller passes `errorSurfacedBySibling` (see that prop's own doc comment
+ * for the sibling-duplication history this guards against and why it's an
+ * explicit opt-in rather than an implicit render-order assumption).
+ * `DashboardPage` passes `true` since `RiskSummaryCard` (its sibling here)
+ * already fully gates its own body on this exact `GET /api/portfolio/risk`
+ * failure — the same sibling-duplication shape `pr-reviewer` found blocking
+ * on PortfolioPage's PositionsTable/RiskPanel (PR #258). This card has no
+ * unaffected content of its own to fall back to when suppressing (unlike
+ * PositionsTable's other, risk-independent columns), so suppressing means
+ * rendering nothing at all rather than a degraded placeholder.
  */
-export default function SellFlaggedPositionsCard() {
+export default function SellFlaggedPositionsCard({
+  errorSurfacedBySibling = false,
+}: SellFlaggedPositionsCardProps) {
   const riskQuery = usePortfolioRisk()
 
+  if (riskQuery.isError) {
+    return errorSurfacedBySibling ? null : <ErrorState error={riskQuery.error} />
+  }
+
   if (!riskQuery.data) {
-    if (riskQuery.isError) {
-      return <ErrorState error={riskQuery.error} />
-    }
     return <LoadingState message="Loading sell-flagged positions..." />
   }
 

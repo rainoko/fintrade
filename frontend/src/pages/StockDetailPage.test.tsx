@@ -1,4 +1,5 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,6 +8,7 @@ import {
   createTestQueryClient,
   renderWithProviders,
 } from '../../tests/renderWithProviders'
+import { portfolioKeys } from '../features/portfolio/hooks/queryKeys'
 import StockDetailPage from './StockDetailPage'
 
 // StockCharts (rendered below IndicatorsPanel) composes PriceChart and
@@ -540,6 +542,70 @@ describe('StockDetailPage', () => {
       expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
     )
     expect(requestCount).toBe(1)
+  })
+
+  it('shows a Trade Apgar button once analysis loads, opening TradeApgarDialog for that ticker', async () => {
+    const user = userEvent.setup()
+    renderStockDetail('AAPL')
+
+    // Not shown while loading/erroring -- there's no valid ticker to score yet.
+    expect(screen.queryByRole('button', { name: 'Trade Apgar' })).not.toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Trade Apgar' }))
+
+    expect(screen.getByText('Trade Apgar: AAPL')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Trade Apgar: AAPL')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('does not show a Trade Apgar button for an unknown/errored ticker', async () => {
+    renderStockDetail('UNKNOWN')
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Trade Apgar' })).not.toBeInTheDocument()
+  })
+
+  it('shows the held-position banner with entry price, stop, and target for a ticker the user holds (frontend-position-risk-columns)', async () => {
+    // The default in-memory portfolio store (tests/mocks/handlers.ts) holds
+    // one position, AAPL, and the default risk fixture reports its
+    // protective stop -- no per-test override needed for the happy path.
+    renderStockDetail('AAPL')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signal-badge')).toHaveTextContent('BUY'),
+    )
+
+    const banner = await screen.findByRole('note', { name: 'You hold this position' })
+    expect(within(banner).getByText('$195.30 · 100 sh · 2026-05-14')).toBeInTheDocument()
+    expect(within(banner).getByText('$210.15')).toBeInTheDocument()
+  })
+
+  it('does not show the held-position banner for a ticker the user does not hold', async () => {
+    const queryClient = createTestQueryClient()
+    renderWithProviders(
+      <MemoryRouter initialEntries={['/stocks/MSFT']}>
+        <Routes>
+          <Route path="/stocks/:ticker" element={<StockDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+      { queryClient },
+    )
+
+    // Wait for the portfolio fetch itself to resolve (not just for the
+    // unrelated analysis fetch), so this proves the no-match case rather
+    // than a race that would pass regardless.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(portfolioKeys.all)?.status).toBe('success'),
+    )
+    expect(screen.queryByRole('note', { name: 'You hold this position' })).not.toBeInTheDocument()
   })
 
   it("falls back to a 'Stock Detail' header and skips the query when the route has no ticker param", () => {

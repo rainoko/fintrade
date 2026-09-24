@@ -1,0 +1,46 @@
+{
+  "id": "backend-cftc-cot-data-followups-followups-followups-followups-followups-followups",
+  "title": "Non-blocking finding from PR #298's review (identical timestamps on its own two new decisions entries)",
+  "area": "backend/data",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-cftc-cot-data-followups-followups-followups-followups-followups"],
+  "references": [
+    "docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/298"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #298 (backend-cftc-cot-data-followups-followups-followups-followups-followups, which correctly and in-place reconciled two timestamps and one wall-clock figure on the parent done task's decisions array, plus a matching frontend/vite.config.ts comment tweak -- all verified accurate and reviewed clean: validate_tasks.py clean across 292 files, frontend suite 841/841 passing with 99.76%/99.31%/99.78%/99.82% coverage, eslint/tsc clean, the corrected timestamps properly sequenced and bounded before the parent PR's git.pushed_at, and the '~30s' reconciled figure independently corroborated against PR #294's own round-2 review (27.34s) and merge-decision (27.30-30.55s) measurements). PR #298 accepted with no blocking findings.",
+  "checklist": [
+    {
+      "step": "PR #298 itself recorded its two new `decisions` entries on `backend-cftc-cot-data-followups-followups-followups-followups-followups.json` with the identical timestamp `2026-09-24T05:48:53Z` for both -- the same class of evidence-trail imprecision this exact task lineage exists to fix (the parent task's checklist item 1 flagged the analogous case: two sequential decisions entries sharing one timestamp). Low severity here since these two corrections were plausibly made back-to-back in the same edit/commit session rather than describing two lengthy separate investigations (unlike the original case), so simultaneity is at least plausible rather than provably impossible. Still worth a quick pass to give them distinct, sequential timestamps (or a note explaining why simultaneity is accurate here) the next time this task's decisions array is touched, for consistency with the standard this lineage otherwise holds everyone else to.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T06:06:28Z",
+      "recorded_by": "task-worker",
+      "decision": "Corrected the two identical `2026-09-24T05:48:53Z` timestamps on `docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json`'s two `decisions` entries in place (this checklist item explicitly names those entries' own timestamp text as the thing to fix, satisfying CLAUDE.md's narrow carve-out). Left the first entry (the duplicate-timestamp fix) at `2026-09-24T05:48:53Z` and moved the second entry (the '~23s' vs '~30s' reconciliation) to `2026-09-24T05:48:59Z` -- six seconds later, plausible for two short, comment-only edits made back-to-back in one sitting rather than two lengthy separate investigations, unlike the original PR #294 case this lineage exists to fix.",
+      "rationale": "A few-seconds gap rather than a larger one reflects that both corrections in that PR were narrow text edits (a timestamp swap and a wall-clock-figure reconciliation) with no multi-minute test runs or investigation between them, so a large gap would itself be an implausible fabrication; a small but non-zero gap is the most defensible guess given no other record of the exact sequencing survives. Editing the parent done task's decisions timestamps in place (rather than only adding a pointer entry there) matches this checklist item's explicit instruction and CLAUDE.md's carve-out precedent (PR #298/#274); recording this correction as a fresh entry on this task's own decisions array (rather than only editing the parent's text) satisfies the carve-out's own requirement that an in-place edit also be logged as a fresh decisions entry with rationale."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-cftc-cot-data-followups-followups-followups-followups-followups-followups",
+    "pr_number": 299,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/299",
+    "pushed_at": "2026-09-24T06:07:30Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T06:09:03Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/299",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Documentation-only change, verified with a light-touch review as instructed: diff is limited to docs/tasks/backend-cftc-cot-data-followups-followups-followups-followups-followups-followups.json (checklist item marked done, one new decisions entry recorded, git block added), docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json (second decisions entry's timestamp moved from 2026-09-24T05:48:53Z to 2026-09-24T05:48:59Z, matching this task's checklist item exactly), and docs/tasks/index.json (state mirror). No application code touched. `python3 scripts/validate_tasks.py` passes clean (293 task files). Corrected timestamp is sequenced after the first entry's 05:48:53Z and well before this PR's own commits (06:06:28Z decision entry, 06:07:10Z/06:07:47Z commits, 06:07:30Z pushed_at) -- internally consistent. No pr_decision field was present to clear. No blocking findings. On the requested judgment call: this finding chain (PR #276's original maxWorkers fix -> five further followups rounds, each catching an ever-smaller timestamp/wording nit in the previous round's own bookkeeping) has reached the point of diminishing returns -- this round's finding was a 6-second gap between two timestamps that were themselves only introduced two rounds ago to fix an earlier duplicate-timestamp finding. I looked for a next-level nit (re-checked the new decisions entry's own timestamp for plausibility/sequencing, checked for any other duplicate/out-of-order timestamps introduced by this PR, re-ran validate_tasks.py) and found none. Not manufacturing a new followups-followups... task to keep the chain going; recording zero non-blocking findings and treating this as the natural end of this lineage unless a real defect resurfaces."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T06:12:07Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified: `git diff origin/main...HEAD --name-only` confirms the diff touches only docs/tasks/*.json (the followups task file, its parent done task's timestamp correction, and index.json's state/path mirror) -- no application code. Directly diffed the parent task's decisions entry and confirmed the timestamp change is exactly 2026-09-24T05:48:53Z -> 05:48:59Z as claimed. `python3 scripts/validate_tasks.py` passes clean (293 files). Confirmed the git mv landed correctly (old path absent from HEAD/worktree, file only at docs/tasks/done/...). Checked PR #299 for human comments/reviews -- none found. pr-reviewer's accept holds."
+  },
+  "questions": []
+}

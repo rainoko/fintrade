@@ -1,0 +1,48 @@
+{
+  "id": "frontend-market-breadth-widget-followups-followups-followups",
+  "title": "Non-blocking finding from PR #295's review (watchlist.spec.ts serial-block failure-window)",
+  "area": "frontend/pages/watchlist",
+  "skill": null,
+  "state": "done",
+  "depends_on": [
+    "frontend-market-breadth-widget-followups-followups"
+  ],
+  "references": [
+    "docs/tasks/frontend-market-breadth-widget-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/295"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #295 (frontend-market-breadth-widget-followups-followups), tracked here per CLAUDE.md's autonomous-pipeline rule so it isn't lost once that PR merges. Didn't block acceptance -- tests/coverage/static analysis/code-review/e2e (run twice, no flakiness observed) all passed clean.",
+  "checklist": [
+    {
+      "step": "PR #295's new PersonalBreadthCard e2e assertion ('adding a ticker updates the personal breadth card...', frontend/tests/e2e/watchlist.spec.ts) is spliced into the middle of the existing `describe.serial` add/remove block, between the add step and the removal step. playwright.config.ts sets `retries: 0`, and under `describe.serial` a failing test skips every subsequent test in that block -- so if this new assertion ever flakes or times out (e.g. a slow `GET /api/watchlist/breadth` under load), the 'removing the ticker takes it out of the table' cleanup step never runs, leaving GOOGL stranded in the watchlist for the rest of that suite run. The file's own top-of-file comment already tolerates a pre-existing GOOGL entry from an earlier interrupted run, so this isn't catastrophic, but the new test does measurably widen the window in which that tolerated-but-undesirable state can occur, and it's avoidable: e.g. a `test.afterAll` cleanup that removes GOOGL regardless of which test in the block failed, or restructuring so this assertion's own failure can't gate the removal step. Worth reconsidering if this pattern is repeated for future card-specific assertions spliced into this or other serial blocks.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T05:25:58Z",
+      "recorded_by": "task-worker",
+      "decision": "Added a `test.afterAll` safety-net cleanup (direct `DELETE /api/watchlist/GOOGL`, tolerating both 204 and 404) inside watchlist.spec.ts's `describe.serial` block, rather than restructuring/reordering the existing tests, to guarantee GOOGL is removed after the block regardless of which test failed.",
+      "rationale": "Reordering was rejected: the personal-breadth assertion needs the ticker present, so it can't run after the removal step without breaking that step's own precondition, and merging it into the 'adding a ticker' test wouldn't help either -- describe.serial still skips the remaining removal test on any failure in the merged test. An afterAll-based API cleanup is a proven pattern already used in this suite (portfolio.spec.ts's clearPreexistingDueFollowUpTrades before a beforeAll seed) and needs no UI interaction, so it can't itself be blocked by whatever UI state a mid-block failure left behind. Verified by temporarily throwing inside the personal-breadth assertion: the removal test then reported 'did not run' (skipped by describe.serial) but the afterAll hook still ran and returned 204, confirming GOOGL was removed; reverted immediately after."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-market-breadth-widget-followups-followups-followups",
+    "pr_number": 297,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/297",
+    "pushed_at": "2026-09-24T05:27:03Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T05:34:51Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/297",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend pytest (1203 passed, 100% coverage) and frontend vitest (841 passed, 99.3-99.8% across statements/branches/functions/lines) both clean; backend ruff+mypy and frontend eslint+tsc both clean; scripts/check_profit_target_wording.py and scripts/validate_tasks.py both clean. code-review skill (medium effort) found no issues in the committed diff (it flagged an uncommitted line in my own working tree, which was my own temporary failure-injection from independently reproducing the afterAll behavior below -- reverted via `git checkout --` before that skill ran; confirmed `git status` clean afterward, not a PR issue). Independently reproduced the PR's own claimed verification: injected a throw at the top of the 'adding a ticker updates the personal breadth card...' test, ran `npx playwright test tests/e2e/watchlist.spec.ts` alone, and confirmed the 'removing the ticker' test reported 'did not run' (skipped by describe.serial+retries:0) while `test.afterAll` still fired and issued `DELETE /api/watchlist/GOOGL` (204) -- matching the PR description exactly. Reverted the injected failure immediately (git checkout, working tree clean). Checked the 204/404 tolerance against backend/app/api/routers/watchlist.py's delete_watchlist_item (status_code=204 on success, HTTPException(404) if absent -- no other status is possible in normal operation), so a genuine 500 would still fail the `expect([204, 404]).toContain(...)` assertion loudly rather than being masked. Ran `make e2e` twice end-to-end (24/24 passed both times, no flakiness); confirmed no double-cleanup conflict -- on a normal successful run the 'removing the ticker' test's own DELETE returns 204 and the subsequent afterAll DELETE correctly gets 404 (idempotent, tolerated), and TICKER='GOOGL' is exclusive to this spec file so there's no interference with other e2e specs (AAPL/MSFT). Task's own decisions entry's factual claim (portfolio.spec.ts's clearPreexistingDueFollowUpTrades pattern) verified to exist as described. No UI-facing application code changed (only frontend/tests/e2e/watchlist.spec.ts plus task-board JSON) -- browser MCP walkthrough (step 9) skipped as explicitly out of scope; the e2e suite run above is the applicable check for this PR. No blocking findings; no non-blocking findings either (no follow-up task filed)."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T05:44:42Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything pr-reviewer reported and got matching numbers: backend pytest 1203 passed/100% coverage; frontend vitest 841 passed/99.3-99.8% coverage; backend ruff+mypy and frontend eslint+tsc clean. Skimmed the full diff (only the afterAll hook + doc comment added to watchlist.spec.ts, plus task-board JSON) -- small and matches the description exactly. Ran `make e2e` (24/24 passed) then independently reproduced the failure-injection scenario myself (threw inside the personal-breadth test, ran watchlist.spec.ts alone): 'removing the ticker' reported 'did not run' (describe.serial skip) while test.afterAll still fired and issued DELETE /api/watchlist/GOOGL returning 204, confirming the backstop works as claimed; reverted the injection, working tree left clean. No human PR comments beyond pr-reviewer's own accept. Bookkeeping (state/path/index.json mirror) verified consistent."
+  }
+}

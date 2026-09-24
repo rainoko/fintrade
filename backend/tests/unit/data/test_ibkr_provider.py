@@ -90,6 +90,42 @@ class TestGetGatewayStatus:
         IBKRProvider().get_gateway_status()
 
 
+class TestTickle:
+    """`IBKRProvider.tickle()` (`backend-ibkr-tickle-keepalive`) -- mocks `_request`
+    itself, matching every other data-fetching method's test class above, since
+    `TestRequest` already separately covers `_request`'s own boundary behavior."""
+
+    def test_calls_request_against_tickle_endpoint(self, mocker) -> None:
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request", return_value={"session": "abc"}
+        )
+
+        IBKRProvider().tickle()
+
+        request.assert_called_once_with("GET", "/tickle")
+
+    def test_does_not_check_availability_first(self, mocker) -> None:
+        """Unlike `get_hourly_bars`/`get_scanner_params`/`run_scanner`/`resolve_conid`,
+        `tickle()` must not call `get_gateway_status`/`_require_available` first -- see
+        its own docstring for why (doubling the request volume against the gateway for
+        no benefit)."""
+        status = mocker.patch("app.data.ibkr_provider.IBKRProvider.get_gateway_status")
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={})
+
+        IBKRProvider().tickle()
+
+        status.assert_not_called()
+
+    def test_propagates_ibkr_unavailable_error(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=IBKRUnavailableError("gateway down"),
+        )
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().tickle()
+
+
 class TestGetHourlyBars:
     @staticmethod
     def _bar_at(hours_ago: float, price: float = 100.0) -> dict:
@@ -110,7 +146,7 @@ class TestGetHourlyBars:
         request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
 
         with pytest.raises(IBKRUnavailableError):
-            IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+            IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         request.assert_not_called()
 
@@ -128,7 +164,7 @@ class TestGetHourlyBars:
         }
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert len(bars) == 2
         assert all(isinstance(b, IBKRBar) for b in bars)
@@ -145,12 +181,108 @@ class TestGetHourlyBars:
             return_value={"data": [self._bar_at(hours_ago=1)]},
         )
 
-        IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         _method, path = request.call_args.args
         assert path == "/iserver/marketdata/history"
         assert request.call_args.kwargs["params"]["conid"] == "265598"
         assert request.call_args.kwargs["params"]["bar"] == "1h"
+
+    def test_bar_size_defaults_to_1h_so_existing_callers_are_unaffected(self, mocker) -> None:
+        """No `bar_size` argument at all -- the pre-`backend-ibkr-bar-interval-param`
+        call shape -- must still request `bar=1h`."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": [self._bar_at(hours_ago=1)]},
+        )
+
+        IBKRProvider().get_hourly_bars(265598)
+
+        assert request.call_args.kwargs["params"]["bar"] == "1h"
+
+    def test_explicit_bar_size_is_passed_through(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value={"data": [self._bar_at(hours_ago=1)]},
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=5, bar_size="5min")
+
+        assert request.call_args.kwargs["params"]["bar"] == "5min"
+
+    def test_invalid_bar_size_raises_value_error_without_a_request(self, mocker) -> None:
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(ValueError, match="Unsupported IBKR bar interval"):
+            IBKRProvider().get_hourly_bars(265598, bar_size="39min")
+
+        request.assert_not_called()
+
+    def test_pagination_cursor_steps_by_the_requested_bar_size_not_a_hardcoded_hour(
+        self, mocker
+    ) -> None:
+        """A finer `bar_size` than the `1h` this pagination logic was originally written
+        against must step the `startTime` cursor back by one bar's worth of time, not a
+        hardcoded hour -- otherwise bars between (earliest - one bar) and
+        (earliest - 1h) would be silently skipped."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        first_page = {"data": [self._bar_at(hours_ago=i / 60) for i in range(1000)]}
+        second_page = {"data": [self._bar_at(hours_ago=1000 / 60 + 1)]}
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[first_page, second_page],
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=60, bar_size="1min")
+
+        earliest_first_page = min(
+            datetime.fromtimestamp(row["t"] / 1000, tz=UTC) for row in first_page["data"]
+        )
+        expected_start_time = (earliest_first_page - timedelta(minutes=1)).strftime(
+            "%Y%m%d-%H:%M:%S"
+        )
+        second_call_params = request.call_args_list[1].kwargs["params"]
+        assert second_call_params["startTime"] == expected_start_time
+
+    def test_pagination_cursor_for_monthly_bars_steps_by_27_days_not_30(
+        self, mocker
+    ) -> None:
+        """`bar_size="1m"` (IBKR's monthly bar) must step the pagination cursor back by
+        the 27-day safe underestimate, not the old 30-day approximation which could
+        overshoot a real calendar month shorter than 30 days (e.g. Feb) and skip a bar
+        (docs/tasks/backend-ibkr-bar-interval-param-followups.json)."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        first_page = {"data": [self._bar_at(hours_ago=i * 27 * 24) for i in range(1000)]}
+        second_page = {"data": [self._bar_at(hours_ago=1000 * 27 * 24 + 1)]}
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            side_effect=[first_page, second_page],
+        )
+
+        IBKRProvider().get_hourly_bars(265598, lookback_days=30000, bar_size="1m")
+
+        earliest_first_page = min(
+            datetime.fromtimestamp(row["t"] / 1000, tz=UTC) for row in first_page["data"]
+        )
+        expected_start_time = (earliest_first_page - timedelta(days=27)).strftime(
+            "%Y%m%d-%H:%M:%S"
+        )
+        second_call_params = request.call_args_list[1].kwargs["params"]
+        assert second_call_params["startTime"] == expected_start_time
 
     def test_paginates_backward_when_first_page_is_full(self, mocker) -> None:
         """A full 1,000-bar first page (spanning ~41.6 days back, less than the 60-day
@@ -167,7 +299,7 @@ class TestGetHourlyBars:
             side_effect=[first_page, second_page],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=60)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=60)
 
         assert request.call_count == 2
         second_call_kwargs = request.call_args_list[1].kwargs
@@ -195,7 +327,7 @@ class TestGetHourlyBars:
             side_effect=[first_page, second_page],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=60)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=60)
 
         assert request.call_count == 2
         second_call_kwargs = request.call_args_list[1].kwargs
@@ -217,7 +349,7 @@ class TestGetHourlyBars:
             side_effect=[page_one, AssertionError("should not fetch a second page")],
         )
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=1)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=1)
 
         assert request.call_count == 1
         # Only the bars within the last day survive the cutoff filter, not all 1,000.
@@ -230,7 +362,7 @@ class TestGetHourlyBars:
         )
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"data": []})
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert bars == []
 
@@ -248,7 +380,7 @@ class TestGetHourlyBars:
         }
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert len(bars) == 1
 
@@ -262,7 +394,7 @@ class TestGetHourlyBars:
         )
         mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=["unexpected"])
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=5)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=5)
 
         assert bars == []
 
@@ -287,10 +419,24 @@ class TestGetHourlyBars:
 
         request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request", side_effect=_full_page)
 
-        bars = IBKRProvider().get_hourly_bars("265598", lookback_days=100_000)
+        bars = IBKRProvider().get_hourly_bars(265598, lookback_days=100_000)
 
         assert request.call_count == 20  # _MAX_PAGINATION_PAGES
         assert len(bars) == 20_000
+
+
+class TestBarIntervalStep:
+    def test_monthly_step_never_exceeds_the_shortest_real_calendar_month(self) -> None:
+        """`_BAR_INTERVAL_STEP["1m"]` must stay `<=` every real calendar month's length,
+        including the shortest one (a non-leap February, 28 days) -- an overestimate
+        would push the pagination cursor's `startTime` past the actual preceding bar's
+        timestamp and silently skip it (docs/tasks/backend-ibkr-bar-interval-param-followups.json).
+        Underestimating (as the current 27-day value does) is always safe: it only
+        causes a redundant, already-deduplicated re-fetch of a few days' overlap."""
+        from app.data.ibkr_provider import _BAR_INTERVAL_STEP
+
+        shortest_real_month = timedelta(days=28)  # February in a non-leap year
+        assert _BAR_INTERVAL_STEP["1m"] <= shortest_real_month
 
 
 class TestGetScannerParams:
@@ -502,6 +648,172 @@ class TestRunScanner:
         provider.run_scanner({})
 
         assert request.call_count == 2
+
+
+class TestResolveConid:
+    """docs/tasks/backend-ibkr-symbol-resolution.json -- `GET /iserver/secdef/search`
+    mocked per this module's own no-live-gateway testing constraint."""
+
+    @staticmethod
+    def _stk_entry(symbol: str, conid: int, extra_sections: list[dict] | None = None) -> dict:
+        return {
+            "conid": str(conid),
+            "companyHeader": f"{symbol} INC - NASDAQ",
+            "companyName": f"{symbol} INC",
+            "symbol": symbol,
+            "sections": [{"secType": "STK"}, *(extra_sections or [])],
+        }
+
+    def test_raises_when_gateway_not_available(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="gateway_unreachable", detail=None),
+        )
+        request = mocker.patch("app.data.ibkr_provider.IBKRProvider._request")
+
+        with pytest.raises(IBKRUnavailableError):
+            IBKRProvider().resolve_conid("AAPL")
+
+        request.assert_not_called()
+
+    def test_single_exact_match_resolves(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPL", 265598, extra_sections=[{"secType": "OPT"}])]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        conid = IBKRProvider().resolve_conid("AAPL")
+
+        assert conid == 265598
+
+    def test_request_uses_symbol_query_param(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        request = mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+
+        IBKRProvider().resolve_conid("AAPL")
+
+        _method, path = request.call_args.args
+        assert path == "/iserver/secdef/search"
+        assert request.call_args.kwargs["params"] == {"symbol": "AAPL"}
+
+    def test_match_is_case_insensitive(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider._request",
+            return_value=[self._stk_entry("AAPL", 265598)],
+        )
+
+        conid = IBKRProvider().resolve_conid("aapl")
+
+        assert conid == 265598
+
+    def test_no_match_returns_none(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=[])
+
+        assert IBKRProvider().resolve_conid("NOSUCHTICKER") is None
+
+    def test_ambiguous_multiple_distinct_conids_returns_none(self, mocker) -> None:
+        """The same symbol resolving to two distinct stock conids (e.g. dual listings on
+        different exchanges) is ambiguous -- degrades to `None` rather than guessing."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("BAR", 111), self._stk_entry("BAR", 222)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("BAR") is None
+
+    def test_duplicate_rows_for_the_same_conid_are_not_ambiguous(self, mocker) -> None:
+        """Two rows resolving to the SAME conid (e.g. one row per derivative-bearing
+        section returned as separate entries) isn't genuine ambiguity."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPL", 265598), self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_non_exact_symbol_matches_are_ignored(self, mocker) -> None:
+        """The search endpoint can return fuzzy/partial matches -- only an exact
+        (case-insensitive) symbol match counts."""
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [self._stk_entry("AAPLX", 999), self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_option_only_entry_without_stk_section_is_ignored(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [
+            {"conid": "1", "symbol": "AAPL", "sections": [{"secType": "OPT"}]},
+            self._stk_entry("AAPL", 265598),
+        ]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_malformed_conid_row_is_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [{"conid": "not-a-number", "symbol": "AAPL", "sections": [{"secType": "STK"}]}]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
+
+    def test_non_list_payload_returns_none(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value={"unexpected": "shape"})
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
+
+    def test_non_dict_rows_are_skipped(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = ["unexpected", self._stk_entry("AAPL", 265598)]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") == 265598
+
+    def test_non_list_sections_is_ignored(self, mocker) -> None:
+        mocker.patch(
+            "app.data.ibkr_provider.IBKRProvider.get_gateway_status",
+            return_value=mocker.Mock(state="available", detail=None),
+        )
+        payload = [{"conid": "1", "symbol": "AAPL", "sections": "not-a-list"}]
+        mocker.patch("app.data.ibkr_provider.IBKRProvider._request", return_value=payload)
+
+        assert IBKRProvider().resolve_conid("AAPL") is None
 
 
 class TestRequest:

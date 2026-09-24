@@ -1,0 +1,45 @@
+{
+  "id": "backend-trade-strategy-tagging-followups-followups",
+  "title": "Non-blocking follow-ups from backend-trade-strategy-tagging-followups review (PR #252)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trade-strategy-tagging-followups"],
+  "references": [
+    "docs/tasks/done/backend-trade-strategy-tagging-followups.json",
+    "https://github.com/rainoko/fintrade/pull/252"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #252 (whitespace-normalization field_validator added to PositionIn.strategy), tracked here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "`PositionIn._strip_and_normalize_entry_notes` and `PositionIn._strip_and_normalize_strategy` (backend/app/api/schemas.py) now have byte-for-byte identical bodies (strip; normalize a resulting empty string to None). Pydantic's `field_validator` decorator accepts multiple field names in one call (e.g. `@field_validator(\"entry_notes\", \"strategy\")`), so these could be consolidated into a single validator function to avoid the duplication, rather than keeping two separately-named copies of the same four lines. Worth doing next time either validator needs to change, so the two don't silently drift apart. Non-blocking: no correctness impact today, purely a reuse/simplification cleanup.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Consolidated `PositionIn._strip_and_normalize_entry_notes` and `_strip_and_normalize_strategy` (backend/app/api/schemas.py) into a single `_strip_and_normalize_optional_text` method decorated with `@field_validator(\"entry_notes\", \"strategy\")`, per Pydantic's documented support for multiple field names on one validator. Chose a name describing the shared behavior (strip; normalize empty string to None) rather than keeping one of the two original field-specific names, since neither field name alone is more descriptive of a validator that now applies to both. No behavior, schema, or OpenAPI-shape change -- verified `backend/openapi.json` is byte-identical after `python scripts/export_openapi.py`, and the full backend test suite (1144 tests, including the entry_notes/strategy whitespace/merge regression tests in test_portfolio_positions.py) still passes.",
+      "rationale": "The two validators were byte-for-byte identical in body, differing only in decorated field and function name -- exactly the drift risk this follow-up task called out. Pydantic v2's field_validator explicitly supports multiple field names in one decorator call, so a single shared validator is the straightforward fix with no alternative approach worth considering."
+    }
+  ],
+  "git": {
+    "branch": "task/backend-trade-strategy-tagging-followups-followups",
+    "pr_number": 253,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/253",
+    "pushed_at": "2026-09-22T00:10:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T06:29:17Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/253",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review: backend suite green (1144 passed, 99.95% coverage vs 90% gate), ruff/mypy/profit-target-wording-guard clean, frontend untouched so skipped. Independently confirmed the OpenAPI no-diff claim (git status empty before and after re-running scripts/export_openapi.py). Independently confirmed the consolidated @field_validator(\"entry_notes\", \"strategy\") applies per-field with no cross-field leakage by instantiating PositionIn with differing whitespace/value combinations on both fields simultaneously -- both normalized correctly and independently. Not applicable: verify-elder-signal (no app/signals or app/portfolio computation logic touched, only a PositionIn schema validator), architecture-review (no new module/dependency/layer), frontend component placement (frontend untouched), browser walkthrough / e2e suite (no UI surface in this backend-only refactor). code-review skill ran against the diff with zero findings. Task board: checklist item has a proper decisions entry (decision + rationale); scripts/validate_tasks.py reports 0 violations. No blocking or non-blocking findings."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T06:33:00Z",
+    "verdict": "merge",
+    "notes": "Re-ran full backend suite myself: 1144 passed, 99.95% coverage, matching pr-reviewer's numbers. Re-ran ruff/mypy on schemas.py (clean) and scripts/validate_tasks.py (0 violations). Independently confirmed OpenAPI no-diff by re-running scripts/export_openapi.py (git status empty before/after). Hand-instantiated PositionIn with mixed whitespace/blank entry_notes+strategy combos and confirmed the consolidated field_validator normalizes each field independently with zero cross-field leakage. Diff matches the recorded decisions entry exactly, and no human PR comments override the automated accept."
+  }
+}

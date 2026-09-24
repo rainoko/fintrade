@@ -1,0 +1,46 @@
+{
+  "id": "backend-trade-apgar-followups",
+  "title": "Non-blocking follow-ups from backend-trade-apgar PR #220 review",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["backend-trade-apgar"],
+  "references": [
+    "docs/tasks/backend-trade-apgar.json",
+    "https://github.com/rainoko/fintrade/pull/220"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's review of PR #220 (backend-trade-apgar), recorded here per CLAUDE.md's convention so they aren't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "backend/app/api/routers/portfolio.py:776's POST /api/portfolio/trade-apgar handler is named `get_trade_apgar`, a `get_`-prefixed function name attached to a `@router.post` -- mismatches this file's own verb/method-matching convention (`add_position`/`delete_position`/`get_risk`, etc.) and the endpoint's own declared `operation_id=\"score_trade_apgar\"`. No behavior impact (FastAPI dispatches on the decorator/operation_id, not the Python function name), but rename to something like `score_trade_apgar` (matching the operation_id) to avoid misleading a future reader grepping for `def get_` to find read-only handlers.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Renamed the handler to `evaluate_trade_apgar`, not `score_trade_apgar` as the checklist item's own example suggested.",
+      "rationale": "`score_trade_apgar` is already the name of the imported domain function from `app.portfolio.trade_apgar` (`from app.portfolio.trade_apgar import ... score_trade_apgar`), which the router handler calls on its own body (`apgar = score_trade_apgar(...)`). Renaming the handler itself to that exact same name would shadow the module-level import with the router function object, turning the handler's own internal call into unbounded self-recursion (a real bug, not just a style nit) rather than calling the intended domain-layer scorer. `evaluate_trade_apgar` avoids the collision while still matching this file's existing naming precedent for a POST handler that orchestrates several inputs before delegating to a domain-layer scoring/evaluation function (`app.portfolio.exits.evaluate_exit_flags`, `app.signals.impulse.evaluate_impulse`, `app.signals.triple_screen.evaluate_tide`) rather than persisting or reading state, which is what the `get_`/`add_`/`delete_`/`record_` verbs in this file's other handlers denote. Verified no other reference to `get_trade_apgar` existed anywhere in the backend (tests, docs, other call sites) before renaming, and reran the full `-k apgar` test slice plus the full backend suite afterward to confirm no accidental recursion or breakage."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/backend-trade-apgar-followups",
+    "pr_number": 250,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/250",
+    "pushed_at": "2026-09-22T00:00:00Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T05:22:28Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/250",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Pure rename, commensurately quick full review. Backend suite: 1139 passed, 99.95% line coverage (well above the 90% gate), no regression. ruff check app/ and mypy both clean; scripts/check_profit_target_wording.py clean (unrelated but part of static-verify). Re-ran python scripts/export_openapi.py myself: no diff against the committed backend/openapi.json, confirming the task-worker's claim -- expected, since operation_id (\"score_trade_apgar\") and the route path/response are unchanged, only the Python function identifier changed. Read app/api/routers/portfolio.py directly: confirmed score_trade_apgar is imported at module scope from app.portfolio.trade_apgar and called inside the handler body (apgar = score_trade_apgar(...)), so renaming the handler itself to that same name would indeed shadow the import and cause infinite self-recursion -- the naming-collision rationale in this task's decisions entry is correct, not just plausible. grepped the whole repo for get_trade_apgar: only remaining references are historical (this task's own checklist text and the done backend-trade-apgar.json review note), no live call sites missed. Diff touches only backend/app/api/routers/portfolio.py (rename) plus this task's own JSON and index.json -- app/portfolio/trade_apgar.py and app/api/schemas.py (the actual domain/Elder-methodology-bearing code) are untouched, so verify-elder-signal's checklist doesn't apply beyond confirming that -- no methodology drift possible from an identifier rename with the call site unchanged. Ran the code-review skill (medium) against the PR diff independently; it likewise found zero correctness/reuse/simplification issues. No frontend files touched -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are explicitly skipped, this PR has no UI surface. No checklist item is phrased as \"decide X\" needing a separate decisions entry beyond the one already recorded, and that decision entry has both decision and rationale per CLAUDE.md. No non-blocking findings to file as a follow-up task."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T05:28:46Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran backend/.venv pytest --cov=app: 1139 passed, 99.95% line coverage, matching pr-reviewer's numbers exactly. Re-ran scripts/export_openapi.py: no diff against committed backend/openapi.json. Read app/api/routers/portfolio.py directly: score_trade_apgar is imported at line 56 and called at line 998 inside the renamed evaluate_trade_apgar handler body, confirming the collision/self-recursion rationale in the decisions entry holds. grepped repo for get_trade_apgar: only historical task-JSON prose references remain, no live call sites. Diff is exactly the described single-function rename plus task bookkeeping."
+  }
+}

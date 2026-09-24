@@ -252,6 +252,169 @@ class TestGetClosedTradesGradingDegradesGracefully:
             app.dependency_overrides.pop(get_data_provider, None)
 
 
+class TestGetClosedTradesLegacyExitReasonDegradesGracefully:
+    """backend-closed-trades-legacy-exit-reason-500: a row whose `exit_reason` predates (or
+    otherwise falls outside) the current `ExitReasonOut` taxonomy must not 500 the whole
+    endpoint -- it's reported as `'unspecified'` instead (this app's own existing sentinel for
+    "no real reason known"), and every other row in the same response is unaffected."""
+
+    def test_out_of_taxonomy_exit_reason_reported_as_unspecified(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        [item] = response.json()["items"]
+        assert item["exit_reason"] == "unspecified"
+
+    def test_other_rows_in_the_same_response_are_unaffected(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="legacy", exit_reason="manual")
+        _add_closed_trade(db_session, id="ok", exit_reason=ExitReason.STOP_HIT.value)
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        items = {item["id"]: item for item in response.json()["items"]}
+        assert items["trade_legacy"]["exit_reason"] == "unspecified"
+        assert items["trade_ok"]["exit_reason"] == "stop_hit"
+
+    def test_follow_up_review_on_a_legacy_exit_reason_trade_does_not_500(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        response = client.post(
+            "/api/portfolio/closed-trades/trade_a/follow-up-review",
+            json={"follow_up_notes": "Legacy row, reviewed anyway."},
+        )
+        assert response.status_code == 200
+        assert response.json()["exit_reason"] == "unspecified"
+
+    def test_repeated_requests_with_the_same_out_of_taxonomy_value_warn_only_once(
+        self,
+        client: TestClient,
+        db_session: Session,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """backend-closed-trades-legacy-exit-reason-500-followups checklist item 2:
+        `_normalize_exit_reason`'s `logger.warning` must not repeat identically on every
+        request for the same long-lived out-of-taxonomy value -- only the first sighting of
+        a given distinct value logs a warning in this process's lifetime."""
+        monkeypatch.setattr(portfolio_router, "_warned_exit_reason_values", set())
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        with caplog.at_level("WARNING", logger="app.api.routers.portfolio"):
+            first = client.get("/api/portfolio/closed-trades")
+            second = client.get("/api/portfolio/closed-trades")
+            third = client.get("/api/portfolio/closed-trades")
+
+        assert first.status_code == second.status_code == third.status_code == 200
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_records) == 1
+        assert "manual" in warning_records[0].getMessage()
+
+    def test_a_different_out_of_taxonomy_value_still_warns_after_another_already_warned(
+        self,
+        client: TestClient,
+        db_session: Session,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """De-duplication is per distinct value, not a single global on/off switch --
+        a second, different out-of-taxonomy value must still get its own first warning even
+        after some other value has already been warned about."""
+        monkeypatch.setattr(portfolio_router, "_warned_exit_reason_values", set())
+        _add_closed_trade(db_session, id="a", exit_reason="manual")
+
+        with caplog.at_level("WARNING", logger="app.api.routers.portfolio"):
+            client.get("/api/portfolio/closed-trades")
+            caplog.clear()
+
+            _add_closed_trade(db_session, id="b", exit_reason="legacy_close", ticker="AAPL")
+            client.get("/api/portfolio/closed-trades")
+
+        warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warning_records) == 1
+        assert "legacy_close" in warning_records[0].getMessage()
+        assert "manual" not in warning_records[0].getMessage()
+
+    def test_a_row_that_fails_for_an_unanticipated_reason_is_skipped_not_500ed(
+        self, client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Defense in depth beyond the exit_reason-specific fallback (this task's checklist
+        item 3): any row that still fails `_to_closed_trade_out` for some other,
+        unanticipated reason is dropped from the response and logged, rather than 500ing
+        every other trade in the list."""
+        _add_closed_trade(db_session, id="bad", ticker="AAPL")
+        _add_closed_trade(db_session, id="ok", ticker="AAPL", exit_date=date(2020, 1, 2))
+
+        real_to_closed_trade_out = portfolio_router._to_closed_trade_out
+
+        def _flaky(row: ClosedTradeORM, grade: object) -> object:
+            if row.id == "trade_bad":
+                raise RuntimeError("simulated unanticipated failure")
+            return real_to_closed_trade_out(row, grade)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(portfolio_router, "_to_closed_trade_out", _flaky)
+
+        response = client.get("/api/portfolio/closed-trades")
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()["items"]]
+        assert ids == ["trade_ok"]
+
+    def test_dropped_row_produces_an_aggregate_log_line_with_count_and_ratio(
+        self,
+        client: TestClient,
+        db_session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """backend-closed-trades-legacy-exit-reason-500-followups checklist item 1: beyond
+        the per-row `logger.exception`, a single aggregate `logger.error` line at the end of
+        the request carries the dropped-row count/total/ratio, so a systemic failure (most/
+        all rows dropped) is distinguishable from the single-bad-row case just from log
+        volume/error-rate, without having to tail every per-row traceback."""
+        _add_closed_trade(db_session, id="bad", ticker="AAPL")
+        _add_closed_trade(db_session, id="ok", ticker="AAPL", exit_date=date(2020, 1, 2))
+
+        real_to_closed_trade_out = portfolio_router._to_closed_trade_out
+
+        def _flaky(row: ClosedTradeORM, grade: object) -> object:
+            if row.id == "trade_bad":
+                raise RuntimeError("simulated unanticipated failure")
+            return real_to_closed_trade_out(row, grade)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(portfolio_router, "_to_closed_trade_out", _flaky)
+
+        with caplog.at_level("ERROR", logger="app.api.routers.portfolio"):
+            response = client.get("/api/portfolio/closed-trades")
+
+        assert response.status_code == 200
+        aggregate_records = [
+            r for r in caplog.records if "GET /api/portfolio/closed-trades dropped" in r.getMessage()
+        ]
+        assert len(aggregate_records) == 1
+        message = aggregate_records[0].getMessage()
+        assert aggregate_records[0].levelname == "ERROR"
+        assert "dropped 1/2" in message.lower()
+        assert "50.0%" in message
+        assert "trade_bad" in message
+
+    def test_no_rows_dropped_produces_no_aggregate_log_line(
+        self, client: TestClient, db_session: Session, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _add_closed_trade(db_session, id="ok")
+
+        with caplog.at_level("ERROR", logger="app.api.routers.portfolio"):
+            response = client.get("/api/portfolio/closed-trades")
+
+        assert response.status_code == 200
+        assert [r for r in caplog.records if r.levelname == "ERROR"] == []
+
+
 class TestGetClosedTradesSharesOneFetchPerTicker:
     def test_two_trades_same_ticker_only_fetch_once(
         self, db_session: Session

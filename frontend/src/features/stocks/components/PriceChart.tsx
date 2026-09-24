@@ -2048,7 +2048,33 @@ export default function PriceChart({
         <LoadingState message={`Loading signal overlay for ${ticker}...`} />
       )}
 
-      {showOverlaySection && indicatorsQuery.isError && (
+      {/*
+        Post-review fix (frontend-position-risk-columns-followups-followups-
+        followups-followups): the indicators-ErrorState below is gated on
+        `overlayEnabled` alone, NOT `showOverlaySection` (which also requires
+        `historyQuery.isSuccess && hasBars` — a condition about price
+        history, unrelated to whether `/indicators` itself failed).
+        `OscillatorChart`/`VolumeIndicatorsChart`/`TrendStrengthChart` all
+        suppress their own `indicatorsQuery.isError` ErrorState now (their
+        own `errorSurfacedBySibling` prop, set by `StockCharts.tsx`), relying
+        on this one to be the shared failure's sole surface — but while it
+        was still gated on `showOverlaySection`, a `GET
+        /api/stocks/{ticker}/history` failure (or a zero-usable-bars success,
+        e.g. every bar filtered out by `hasFiniteOhlc`) made
+        `showOverlaySection` false, so a genuine, simultaneous `/indicators`
+        failure never rendered anywhere at all. `overlayEnabled` (daily
+        interval only — see its own comment above) is the only gate that's
+        actually about whether `/indicators` is even fetched at all: when
+        it's `false`, `useIndicatorHistory` itself is disabled and
+        `indicatorsQuery.isError` can never be `true`, so this condition
+        still never fires spuriously while a weekly interval is selected.
+        Decision (this task's `decisions` entry): un-gating this one state
+        from `showOverlaySection` rather than having one of the three
+        siblings fall back to its own ErrorState when `!showOverlaySection`
+        — see that entry for the alternative considered and why this was
+        chosen instead.
+      */}
+      {overlayEnabled && indicatorsQuery.isError && (
         <ErrorState error={indicatorsQuery.error} />
       )}
 

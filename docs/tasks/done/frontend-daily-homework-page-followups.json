@@ -1,0 +1,99 @@
+{
+  "id": "frontend-daily-homework-page-followups",
+  "title": "Non-blocking findings from PR #271's review (Daily Homework self-test page)",
+  "area": "frontend/pages",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-daily-homework-page"],
+  "references": [
+    "docs/tasks/frontend-daily-homework-page.json#review",
+    "https://github.com/rainoko/fintrade/pull/271"
+  ],
+  "description": "Non-blocking findings from pr-reviewer's full review of PR #271 (frontend-daily-homework-page), tracked here per CLAUDE.md's autonomous-pipeline rule so they aren't lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "No `frontend/tests/e2e/*.spec.ts` spec was added for the new `/homework` flow (nav to the page, submit the form, see the color-coded score banner) -- the e2e-test skill's own \"Relationship to Other Checks\" section calls for a new UI flow to get e2e coverage alongside its MSW-mocked component tests. Component tests plus a one-off manual browser walkthrough (both done for this PR's review) cover the behavior today, but the persisted regression suite has no spec that would catch a future unrelated change silently breaking this page.",
+      "done": true
+    },
+    {
+      "step": "HomeworkScoreBanner's two \"yellow\" bands (5-6 \"trade cautiously\" vs. 9-10 Elder's \"too perfect\" caution) render with an identical MUI Alert severity=\"warning\" (same icon, same color) and are distinguished only by the body text underneath. Verified in a real browser walkthrough that the text itself is correct and different for each band, but a fast glance that skims past the paragraph could conflate two behaviorally very different messages. Worth reconsidering a secondary visual cue (e.g. a distinct icon, or a small label variant for the high-yellow case) -- a genuinely arguable UX call, not a clear-cut miss, so left as a follow-up rather than blocking.",
+      "done": true
+    },
+    {
+      "step": "DailyHomeworkForm.tsx's render gate is `todayQuery.isLoading || suggestionQuery.isLoading`, so the entire 5-question form stays behind a loading spinner until *both* queries settle, not just the one field (`yesterday_trading_score`) the suggestion actually feeds. In production (main.tsx's real QueryClient has `retry: 1`, unlike tests' `retry: false`), a slow/failing suggestion endpoint adds a real, bounded-but-noticeable extra delay before any field renders, larger than the 'sub-second, imperceptible' wait this task's own decisions entry assumed. Consider decoupling the two: render the form as soon as `todayQuery` settles, treating `suggestionQuery` as still-loading (falling back to the neutral default) rather than gating the whole form on it.",
+      "done": true
+    },
+    {
+      "step": "When today's entry already exists, `suggestedScore` is never used (the `existingEntry ? scoresFromEntry(existingEntry) : {...}` branch discards it entirely) -- yet the render gate still waits on `suggestionQuery` to settle before showing anything. A user re-opening the page after already recording today's homework waits on a network call whose result is provably irrelevant to what they'll see. Consider skipping the wait on `suggestionQuery` once `todayQuery` resolves with a non-null `entry`.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-22T17:36:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Give the 9-10 \"too perfect\" yellow band a distinct icon (`SelfImprovementIcon`) and a `(too perfect)` label suffix in `HomeworkScoreBanner`, while keeping both yellow bands on the same `severity=\"warning\"` (amber) MUI `Alert` color.",
+      "rationale": "The two yellow bands mean genuinely different things (5-6: a middling score, be cautious; 9-10: an over-perfect score, Elder's own caution against overconfidence), and the original review flagged that a fast glance skimming past the body paragraph could conflate them since they render identically otherwise. Considered and rejected: (1) a different `severity`/color (e.g. `info` or a custom palette entry) for the high-yellow case -- this would falsely imply the 9-10 band is somehow less risky or a different category than 5-6, when Elder frames it as its own kind of caution, not a lesser one; keeping both amber preserves 'this is a caution band' as the shared signal. (2) Leaving it text-only as before -- rejected per the review's own finding that body copy alone is too easy to skim past. (3) A generic warning-variant icon (e.g. `PriorityHighIcon`) -- rejected in favor of `SelfImprovementIcon`, which is thematically apt for '(Elder's own) don't let overconfidence change your discipline' rather than an arbitrary second exclamation mark. The label suffix is a low-cost, redundant-with-the-icon cue for anyone not relying on icon recognition (e.g. screen magnification, unfamiliarity with this specific icon)."
+    },
+    {
+      "timestamp": "2026-09-22T17:36:00Z",
+      "recorded_by": "task-worker",
+      "decision": "DailyHomeworkForm's render gate now waits only on `todayQuery.isLoading`, not `suggestionQuery.isLoading`. `suggestedScore` is read only from `suggestionQuery` once it has settled successfully (`suggestionQuery.isSuccess`), and is never consulted at all in the `existingEntry` (today already recorded) branch. A suggestion that is still pending, has failed, or resolves to `null` all fall back to the neutral default for `yesterday_trading_score` exactly as a failed suggestion already did before this change.",
+      "rationale": "This directly implements the two loading-gate follow-up findings: (1) the whole 5-question form no longer waits on the optional suggestion query -- only the one field it feeds can be affected, and only when there's no existing entry to make it moot; (2) when today's entry already exists, `suggestionQuery`'s result is genuinely unused, so the component no longer waits on it at all, confirmed by a new test that never lets that request resolve (`delay('infinite')`) and asserts the banner still renders immediately. Accepted tradeoff, matching the parent task's own established 'no seed-after-mount effect, initial `useState` only' design (see frontend-daily-homework-page's decisions): if the suggestion is still in flight when `HomeworkQuestionsForm` first mounts, `yesterday_trading_score` starts at the neutral default and is *not* retroactively swapped in if the suggestion arrives moments later, since doing so would require exactly the re-seed-after-mount effect that design already rejected (or introduce a remount-via-`key` that could just as easily discard an in-progress edit). This narrows an already-accepted, bounded, non-data-affecting race rather than introducing a new one -- verified with a component test asserting the neutral default renders and is not blocked on when the suggestion endpoint never resolves. Rejected alternatives: keeping the block only for the no-existing-entry case (still needlessly delays the common case of a merely-slow suggestion, contradicting the follow-up's explicit ask); resyncing via a `key` prop tied to the suggestion's settle time (would remount `HomeworkQuestionsForm` and could discard in-progress edits, functionally the same re-seed-after-mount pattern this component's own design already rejects)."
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-daily-homework-page-followups",
+    "pr_number": 272,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/272",
+    "pushed_at": "2026-09-22T17:39:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-22T17:50:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/272",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Backend unchanged by this PR (frontend-only follow-up): ruff/mypy clean, pytest 1194 passed, 100% line/branch coverage. backend/openapi.json correctly needs no regeneration since no schema/route changed.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "Frontend: eslint/tsc clean, profit-target stale-wording guard clean. vitest --coverage: 822/822 tests pass (84/84 files) at 99.76%/99.3%/99.78%/99.82% statements/branches/functions/lines, well above the 90% gate. One run under default 5000ms timeout flaked on AddPositionDialog.test.tsx's 'sends the trimmed notes as entry_notes' case (not touched by this PR) -- re-ran that file alone with --testTimeout=20000 and it passed 9/9, confirming it's the same pre-existing environment-timing flake PR #271's own review already identified and ruled out as a regression, not a new one.",
+        "file": null,
+        "line": null
+      },
+      {
+        "summary": "e2e suite (`make e2e`): 22/22 specs pass, including the new frontend/tests/e2e/daily-homework.spec.ts (nav, submit, color-coded 'too perfect' banner, persistence across reload) added by this PR -- closes the first checklist item cleanly.",
+        "file": "frontend/tests/e2e/daily-homework.spec.ts",
+        "line": null
+      },
+      {
+        "summary": "Scrutinized the specific risk called out for this review (decoupling DailyHomeworkForm's render gate from suggestionQuery re-introducing a stale-value bug): it does not. Ran a real-browser walkthrough (fixture-mode backend + vite dev server, driven via a standalone Playwright script since no interactive Playwright MCP tool was available this session) covering all three requested cases: (1) no existing entry + fast suggestion (a seeded closed trade with net_realized_pnl=150 'yesterday') -- yesterday_trading_score correctly prefills to the suggested value (2) once the suggestion settles; (2) no existing entry + a suggestion request delayed 8s -- the form (all 5 fields) rendered in ~1.2s with yesterday_trading_score at its neutral default (1), and confirmed the field does *not* retroactively pick up the suggestion once it arrives ~9s later (still shows the neutral default) -- exactly the documented, intentional tradeoff in this task's second `decisions` entry (no seed-after-mount effect, consistent with the parent task's own established design), not a new bug; (3) existing entry already recorded -- form+banner rendered in ~1.2s from the existing entry without waiting on a suggestion request that was artificially delayed 10s. No console errors or failed/5xx requests observed in any case.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkForm.tsx",
+        "line": 254
+      },
+      {
+        "summary": "Both recorded `decisions` entries (the too-perfect icon/label choice, and the render-gate decoupling with its explicitly-accepted narrowed stale-suggestion tradeoff) are substantive -- what was decided plus rejected alternatives with rationale -- and match what the diff actually does. No checklist item is phrased as 'decide X' without a matching decision.",
+        "file": "docs/tasks/frontend-daily-homework-page-followups.json",
+        "line": null
+      },
+      {
+        "summary": "Non-blocking (verified independently and corroborated by a backgrounded code-review pass): `useYesterdayTradingSuggestion()` is still called unconditionally with no `enabled` gate, so the suggestion request keeps firing (confirmed via the browser walkthrough's existing-entry case, with the request visibly in flight) even when today's entry already exists and the result is provably unused -- the component's own doc comment overstates this as the query being 'skipped entirely' in that case, when only the *wait* on it was actually skipped, per the checklist item's own narrower wording. Filed as a follow-up rather than blocking, since implementing the checklist item's literal ask (skip the wait) was done correctly and this is a pure efficiency/wording gap, not a functional bug.",
+        "file": "frontend/src/features/homework/components/DailyHomeworkForm.tsx",
+        "line": 229
+      },
+      {
+        "summary": "Non-blocking (code-review finding, verified): HomeworkScoreBanner.tsx's 'is this the high-yellow (9-10) too-perfect band' condition (`band === 'yellow' && totalScore >= 9`) is duplicated three times (iconFor, the inline JSX label suffix, and implicitly inside messageFor's yellow branch) instead of being computed once and reused -- a future threshold/naming change could update some call sites and miss others, producing a disagreeing icon/label/message. Filed as a follow-up.",
+        "file": "frontend/src/features/homework/components/HomeworkScoreBanner.tsx",
+        "line": 48
+      }
+    ],
+    "notes": "Checked out PR #272. Backend unaffected (frontend-only PR): ruff/mypy clean, pytest 1194 passed, 100% coverage. Frontend: eslint/tsc clean, profit-target wording guard clean, vitest --coverage 822/822 passed (99.76%/99.3%/99.78%/99.82%, gate 90%) -- one unrelated pre-existing flake (AddPositionDialog.test.tsx, already characterized as such in PR #271's own review) reproduced under default timeout and passed cleanly with --testTimeout=20000, ruling out a regression. e2e suite (make e2e): 22/22 passed, including the new daily-homework.spec.ts. Real-browser walkthrough via a standalone Playwright script (no interactive Playwright MCP tool available this session) against a freshly-started fixture-mode backend (seeded with a closed trade dated 'yesterday' to exercise the fast-suggestion case) + vite dev server: covered fast-suggestion, slow/never-picked-up-suggestion, and existing-entry cases exactly as asked, confirming the render-gate decoupling does not reintroduce a stale-value bug -- the one behavior change (a late-arriving suggestion no longer gets adopted once the form has mounted with the neutral default) is the same accepted, already-documented tradeoff the parent task's design established, just narrowed in scope, not a new risk. Two non-blocking findings (suggestion query still fires unconditionally even when unused, contradicting its own doc comment; a duplicated band/score threshold check in HomeworkScoreBanner.tsx) were independently found during this review and corroborated by a backgrounded code-review pass -- filed on a new frontend-daily-homework-page-followups-followups task rather than left only in this comment. Both recorded `decisions` entries are substantive and accurate against the diff. No pr_decision existed on this task from a prior pass, so nothing to clear."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-22T18:03:11Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran everything: backend pytest 1194 passed/100% coverage (matches); frontend vitest --coverage 820/822 passed with the same pre-existing AddPositionDialog.test.tsx flake (untouched by this diff), which I re-ran in isolation with --testTimeout=20000 and got 9/9 passing, confirming it's not a regression; eslint/tsc both clean; make e2e 22/22 passed including the new daily-homework.spec.ts. Read the full diff myself: confirmed DailyHomeworkForm.tsx's render gate now only waits on todayQuery, suggestedScore is read only via suggestionQuery.isSuccess, and HomeworkQuestionsForm seeds state via `useState<Scores>(initialScores)` (first-mount-only, no re-seed effect), which architecturally guarantees a late-arriving suggestion cannot retroactively overwrite the field -- this substantiates the no-stale-value-regression claim beyond just the manual walkthrough, and matches both decisions entries exactly. Independently verified both non-blocking findings are accurate (useYesterdayTradingSuggestion() has no `enabled` gate, so it fires even when existingEntry is set; the totalScore >= 9 band check is duplicated in iconFor, the JSX label, and implicitly in messageFor) and correctly filed onto frontend-daily-homework-page-followups-followups.json rather than dropped. validate_tasks.py and the index.json mirror/done-path invariants are clean. No human PR comments present to override the accept."
+  }
+}

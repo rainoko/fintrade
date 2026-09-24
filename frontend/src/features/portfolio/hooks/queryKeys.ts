@@ -21,8 +21,17 @@
 // via TanStack Query's prefix-matching invalidation, with no extra call
 // needed in useDeletePosition itself (frontend-trade-journal's `decisions`
 // entry).
+// `dueForFollowUpTrades` nests one level deeper under `closedTrades` (rather
+// than being a sibling top-level key) since it's the *same* underlying
+// resource with `?due_for_follow_up=true` applied (API.md) -- nesting it
+// means `useRecordFollowUpReview`'s invalidation of `portfolioKeys.all`
+// refreshes both the unfiltered journal table and the due-list in one call,
+// with no separate explicit invalidation needed, same prefix-matching
+// rationale as `risk`/`closedTrades` above (frontend-trade-journal-followup-review
+// task's `decisions` entry).
 export const portfolioKeys = {
   all: ['portfolio'] as const,
   risk: ['portfolio', 'risk'] as const,
   closedTrades: ['portfolio', 'closed-trades'] as const,
+  dueForFollowUpTrades: ['portfolio', 'closed-trades', 'due-for-follow-up'] as const,
 }
