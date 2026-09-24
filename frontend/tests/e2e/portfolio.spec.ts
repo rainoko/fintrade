@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { isoDateWeeksAgo } from '../dateFixtures'
 
 // A fixture ticker (see backend/app/data/fixture_provider.py) distinct from the one
 // navigation/stock-analysis specs use (AAPL), so this spec's add/delete cycle can't be
@@ -111,10 +112,34 @@ function dueForFollowUpRow(page: Page) {
     .getByRole('row', { name: new RegExp(`^${FOLLOW_UP_TICKER}\\b`) })
 }
 
-function isoDateWeeksAgo(weeks: number): string {
-  const date = new Date()
-  date.setUTCDate(date.getUTCDate() - weeks * 7)
-  return date.toISOString().slice(0, 10)
+/**
+ * Reviews away any `FOLLOW_UP_TICKER` trade that's already due for follow-up review before
+ * `seedDueForFollowUpTrade` seeds a fresh one -- defensive tweak mirroring the sibling 'view,
+ * add, and close a position' block's own tolerance for a pre-existing MSFT position (see that
+ * block's doc comment): `playwright.config.ts`'s webServer only guarantees a clean database at
+ * the start of a whole `yarn test:e2e` invocation, not before each individual spec file, so an
+ * earlier run interrupted between this block's `beforeAll` seed and its last test's review
+ * would otherwise leave a stray unreviewed due TSLA trade behind. Left untouched by the
+ * routine `make e2e`/`yarn test:e2e` path (which always wipes the database fresh, so this is
+ * always a no-op there), but matters for `yarn test:e2e:ui` interactive debugging, whose
+ * webServer persists across reruns. Without this, `seedDueForFollowUpTrade` would seed a
+ * second unreviewed due TSLA trade and `dueForFollowUpRow(page)` would resolve to two rows,
+ * turning every subsequent assertion/click on it into a Playwright strict-mode violation.
+ */
+async function clearPreexistingDueFollowUpTrades(request: APIRequestContext): Promise<void> {
+  const dueResponse = await request.get('/api/portfolio/closed-trades', {
+    params: { due_for_follow_up: true },
+  })
+  expect(dueResponse.ok()).toBe(true)
+  const { items } = (await dueResponse.json()) as { items: Array<{ id: string; ticker: string }> }
+
+  for (const trade of items.filter((item) => item.ticker === FOLLOW_UP_TICKER)) {
+    const reviewResponse = await request.post(
+      `/api/portfolio/closed-trades/${encodeURIComponent(trade.id)}/follow-up-review`,
+      { data: { follow_up_notes: 'Cleared by e2e setup: leftover from an earlier interrupted run.' } },
+    )
+    expect(reviewResponse.ok()).toBe(true)
+  }
 }
 
 /**
@@ -130,6 +155,8 @@ function isoDateWeeksAgo(weeks: number): string {
  * before the intended exit, then `DELETE` it with an explicit `exit_price`/`exit_date` pair.
  */
 async function seedDueForFollowUpTrade(request: APIRequestContext): Promise<void> {
+  await clearPreexistingDueFollowUpTrades(request)
+
   const addResponse = await request.post('/api/portfolio/positions', {
     data: {
       ticker: FOLLOW_UP_TICKER,

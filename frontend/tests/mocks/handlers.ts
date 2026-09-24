@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import type { HttpHandler } from 'msw'
+import { isoDateWeeksAgo } from '../dateFixtures'
 import type {
   DailyHomeworkIn,
   DailyHomeworkOut,
@@ -279,12 +280,6 @@ const closedTradesFixture: ClosedTradesResponse = {
       follow_up_reviewed_at: null,
     },
   ],
-}
-
-function isoDateWeeksAgo(weeks: number): string {
-  const date = new Date()
-  date.setUTCDate(date.getUTCDate() - weeks * 7)
-  return date.toISOString().slice(0, 10)
 }
 
 // A third row dated *relative to now* (unlike the two fixed-date rows
