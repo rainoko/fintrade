@@ -80,5 +80,10 @@
       }
     ],
     "notes": "Accepted. Three non-blocking findings (an untested _short_term_ohlcv_already_clean discriminating-effect gap, a checklist item 4 'mocked-IBKR end-to-end' gap explainable by this task's own deferred-glue-code scope decision, and a one-line style nit in ibkr_provider.py) filed to docs/tasks/backend-day-trader-timeframe-mode-history-followups.json."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-24T22:51:14Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full backend suite myself (1362 passed, 100% line/branch coverage, ruff/mypy/validate_tasks clean) -- matches pr-reviewer's numbers exactly. Re-ran one of the two mutation tests from scratch (bypassed `_long_term_through_bar_date`'s truncation call in `analyse_history_day_trader` by assigning `long_term_window = long_term_ohlcv` directly): `test_tide_recomputed_as_of_each_bar_date_not_held_at_todays_value` failed with the early bar's tide flipping to the full-series BEARISH value, exactly as claimed; reverted and confirmed all 9 TestAnalyseHistoryDayTrader tests pass again with an empty `git diff`. Diffed `analyse()`'s clean-guard myself: `if short_term_ohlcv is not None and not _short_term_ohlcv_already_clean:` is byte-for-byte equivalent to the old `if short_term_ohlcv is not None:` when the new parameter is left at its default `False`. Verified the mixed-triple edge case is genuinely unreachable today by reading `app/api/day_trader_signal.py`'s `_is_fully_intraday` gate directly (not just the docstring/Backend.md claim) -- `compute_day_trader_signal` returns `unavailable` before ever calling `analyse_day_trader`/`analyse_history_day_trader` for any triple with a non-MINUTE-unit leg, and `analyse_history_day_trader` itself has no real caller yet (grepped for callers outside tests)."
   }
 }
