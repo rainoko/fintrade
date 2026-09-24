@@ -41,5 +41,11 @@
       "rationale": "Location for the shared helper: no existing convention in this repo shares a helper across `tests/mocks/` (vitest/MSW) and `tests/e2e/` (Playwright) layers, but both `tsconfig.app.json` and vitest's config already include the whole `tests/` directory (not just `tests/src/` or similar), and several other cross-cutting helpers (`renderWithProviders.tsx`, `renderWithTheme.tsx`, `mockMatchMedia.ts`, `setup.ts`) already live directly at `tests/` root rather than nested under a layer-specific subdirectory -- `tests/dateFixtures.ts` follows that existing pattern rather than inventing a new `tests/shared/` directory for a single one-function file. Rejected keeping it under `tests/mocks/` and having the e2e spec import across that boundary: `tests/mocks/` is MSW-specific tooling (its own `server.ts` sets up vitest-only interception), so importing from it into a Playwright spec would be a confusing, one-directional dependency on a directory named for a concept (mocking) the e2e suite explicitly doesn't use. Rejected the 'accept a pre-existing due row' alternative for the second item because, unlike the sibling MSFT block (where 'Added' vs 'Merged' is a one-line assertion swap), tolerating a genuine second matching row here would require every one of `dueForFollowUpRow`'s several call sites across all three tests in the block to pick a specific one deterministically, which is more invasive than clearing the leftover state once at seed time. Verified the cleanup path actually works (not just that it's a no-op on a clean DB, which the routine `make e2e` run alone would not have caught) by manually seeding a stray unreviewed due TSLA trade against a locally-run fixture-mode backend and confirming the same GET-then-POST sequence clears it to zero before re-seeding."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-trade-journal-followup-review-followups-followups",
+    "pr_number": 290,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/290",
+    "pushed_at": "2026-09-24T01:47:00Z"
+  }
 }
