@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from backend-ibkr-tickle-keepalive-followups-followups's review (PR #269)",
   "area": "backend/data",
   "skill": null,
-  "state": "planned",
+  "state": "implementing",
   "depends_on": ["backend-ibkr-tickle-keepalive-followups-followups"],
   "references": [
     "docs/tasks/backend-ibkr-tickle-keepalive-followups-followups.json",
@@ -13,7 +13,7 @@
   "checklist": [
     {
       "step": "backend/app/main.py's lifespan() finally-block comment (the reworded aside pointing at task `backend-ibkr-tickle-keepalive-followups`) says the task's file location 'moves once the task is done', which is slightly imprecise -- per CLAUDE.md's task-board section, a task's file also moves back out of docs/tasks/done/ if it's ever reopened (state reverted away from done), not only forward into done/ once it becomes done. This doesn't affect the comment's actual instruction (resolve the current location via docs/tasks/index.json rather than assuming a literal path) and doesn't reintroduce the staleness bug PR #269 fixed, but the wording could be tightened (e.g. 'since its file location can change over its lifecycle' instead of 'since it moves once the task is done') to avoid implying the move is one-directional.",
-      "done": false
+      "done": true
     }
   ],
   "decisions": [],

@@ -103,7 +103,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # ever read back from it). Verified with a real-timing repro (see the
             # `decisions` on task `backend-ibkr-tickle-keepalive-followups` -- resolve
             # its current file location via docs/tasks/index.json rather than assuming
-            # a literal path, since it moves once the task is done) rather than assumed.
+            # a literal path, since its file location can change over its lifecycle)
+            # rather than assumed.
             with contextlib.suppress(asyncio.CancelledError):
                 await tickle_task
 
