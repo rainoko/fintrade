@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from frontend-position-risk-columns-followups-followups-followups review (PR #260)",
   "area": "frontend/pages/portfolio",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-position-risk-columns-followups-followups-followups"],
   "references": [
     "docs/tasks/done/frontend-position-risk-columns-followups-followups-followups.json",
@@ -13,13 +13,26 @@
   "checklist": [
     {
       "step": "Compound-failure gap introduced by this PR on StockCharts: PriceChart's own `indicatorsQuery.isError` ErrorState (the one OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart now rely on as their shared failure's sole surface) is gated behind `showOverlaySection = historyQuery.isSuccess && hasBars && overlayEnabled` (PriceChart.tsx), not just `indicatorsQuery.isError` alone -- a pre-existing gate unrelated to error ownership. If `GET /api/stocks/{ticker}/history` itself fails, or succeeds with zero usable bars (e.g. every returned bar filtered out by `hasFiniteOhlc`, such as a very thin/new ticker with only a still-forming latest bar), `showOverlaySection` is false, so PriceChart's own indicators-ErrorState never renders -- even if `GET /api/stocks/{ticker}/indicators` genuinely failed at the same time (e.g. a 422 for insufficient weekly history). Before this PR, each of the three now-suppressed charts rendered its own independent, ungated ErrorState in that scenario, so a real indicators failure was still visible somewhere; after this PR, in that specific compound-failure case, nothing surfaces the indicators failure at all (the user only sees PriceChart's own 'No price history available' EmptyState/its own historyQuery ErrorState, with three silently blank chart sections below it). Independently confirmed by pr-reviewer's own read of PriceChart.tsx and corroborated by a parallel code-review pass. Worth deciding whether PriceChart's indicators-ErrorState should be un-gated from `showOverlaySection` for this specific error path, or whether one of the three siblings should fall back to showing its own ErrorState when `!showOverlaySection` is also true.",
-      "done": false
+      "done": true
     },
     {
       "step": "OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart's suppression of their own `indicatorsQuery.isError` ErrorState is a hard-coded, unconditional assumption baked into each component (not an opt-in prop) that PriceChart is always mounted as a sibling and owns this failure -- the same implicit-render-order/co-occurrence coupling this same PR explicitly identified and fixed via an opt-in `errorSurfacedBySibling` prop for SellFlaggedPositionsCard, but deliberately did not apply here (per this task's own `decisions` entry, which explicitly scoped that robustness question to SellFlaggedPositionsCard only, per the checklist item's own wording instructing replication of existing precedent). Confirmed by grep that only `StockCharts.tsx` currently imports/uses these three components, so the assumption holds today, but nothing structurally prevents a future standalone reuse (a new page, a Storybook story, a narrower composition) from silently losing this specific error's visibility, the exact same failure mode already fixed once this PR for SellFlaggedPositionsCard. Worth applying the same explicit-prop (or equivalent order-independent) treatment here if/when these components are ever reused outside StockCharts.tsx, or documenting the coupling more explicitly in the meantime (e.g. a runtime dev-mode warning, or a lint rule) rather than only a code comment.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-24T00:00:00Z",
+      "recorded_by": "task-worker",
+      "decision": "Fixed the compound-failure gap (checklist item 1) by un-gating PriceChart's own `indicatorsQuery.isError` ErrorState from `showOverlaySection`, gating it on `overlayEnabled` alone instead (PriceChart.tsx, the block right after the candlestick-chart states in the render).",
+      "rationale": "The checklist item itself offered two options: un-gate PriceChart's ErrorState from `showOverlaySection` for this one error path, or have one of the three suppressing siblings fall back to its own ErrorState when `!showOverlaySection`. Chose the former: `overlayEnabled` (daily interval only) is the only part of `showOverlaySection` that actually determines whether `/indicators` is fetched at all -- `useIndicatorHistory` itself is passed `{ enabled: overlayEnabled }`, so `indicatorsQuery.isError` can never be true while `overlayEnabled` is false, meaning this change can't spuriously fire during a weekly-interval selection. The other half of `showOverlaySection` (`historyQuery.isSuccess && hasBars`) is about price history, not about whether `/indicators` failed, and was exactly the unrelated condition causing the bug. This keeps the fix entirely inside PriceChart.tsx (the component that already owns the ErrorState for this shared failure) rather than adding an order-dependent fallback to one of the three siblings, which would have re-introduced a second implicit assumption (which particular sibling is 'the fallback one') right after checklist item 2 fixed the first one (removing the implicit PriceChart-is-always-a-sibling assumption from those same three components). Alternative considered and rejected: having one of OscillatorChart/VolumeIndicatorsChart/TrendStrengthChart render its own ErrorState when `!showOverlaySection` (an order-independent per-sibling fallback, similar in spirit to `errorSurfacedBySibling`) -- rejected because it would need every one of the three siblings to know about `showOverlaySection` (a PriceChart-internal computed value, not naturally available to them) or an equivalent condition duplicated three times, and would still require picking exactly one of the three as the designated fallback, reintroducing an implicit ordering/ownership assumption of the same shape checklist item 2 exists to remove."
+    },
+    {
+      "timestamp": "2026-09-24T00:00:01Z",
+      "recorded_by": "task-worker",
+      "decision": "Extended the `errorSurfacedBySibling` opt-in prop (the same contract `SellFlaggedPositionsCard` already established) to `OscillatorChart`, `VolumeIndicatorsChart`, and `TrendStrengthChart` (checklist item 2). Each now renders its own `common/ErrorState` on `indicatorsQuery.isError` by default (`errorSurfacedBySibling = false`), and only suppresses it when a caller explicitly passes `errorSurfacedBySibling`. `StockCharts.tsx` now passes it to all three, since `PriceChart` (mounted first there) already owns the `GET /api/stocks/{ticker}/indicators` failure's ErrorState.",
+      "rationale": "This flips the previous default from 'always suppressed, PriceChart assumed to be a sibling' to 'shown by default, suppressed only on explicit opt-in' -- the same safe-default posture `SellFlaggedPositionsCard`'s own prop doc comment documents (a standalone mount, a future page, or a Storybook story that doesn't pass the prop still surfaces a real fetch failure instead of silently rendering nothing). Making the coupling an explicit prop at the `StockCharts.tsx` composition site, rather than a hard-coded assumption baked into each of the three chart components, is exactly what the checklist item asked for: the dependency on PriceChart existing as a sibling is now structurally visible (a prop passed at the call site) and order-independent (doesn't depend on PriceChart literally being rendered first, just on the same `errorSurfacedBySibling` contract being honored), rather than only documented in a code comment that nothing enforces."
+    }
+  ],
   "questions": []
 }

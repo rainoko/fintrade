@@ -210,13 +210,26 @@ describe('TrendStrengthChart', () => {
 
   // This chart shares the exact same useIndicatorHistory hook/query key with
   // PriceChart, OscillatorChart, and VolumeIndicatorsChart (all composed
-  // together by StockCharts.tsx), so it no longer renders its own
-  // common/ErrorState for indicatorsQuery.isError -- PriceChart, rendered
-  // first, is the sole error surface for this shared failure (see this
-  // component's own doc comment and the frontend-position-risk-columns-
-  // followups-followups-followups task's decisions entry).
-  it('renders nothing (no own ErrorState) on a 404 for an unknown ticker, since PriceChart owns this shared failure', async () => {
+  // together by StockCharts.tsx). By default it still renders its own
+  // common/ErrorState on indicatorsQuery.isError -- a standalone mount (no
+  // errorSurfacedBySibling-passing sibling) must still surface a real fetch
+  // failure. Only a caller that explicitly passes errorSurfacedBySibling
+  // (StockCharts.tsx, since PriceChart already owns this shared failure's
+  // ErrorState) opts out -- see this component's own prop doc comment and
+  // the frontend-position-risk-columns-followups-followups-followups-
+  // followups task's decisions entry.
+  it('renders its own ErrorState on a 404 for an unknown ticker by default (no errorSurfacedBySibling)', async () => {
     renderWithProviders(<TrendStrengthChart ticker="UNKNOWN" range="1y" />)
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByText('Not found')).toBeInTheDocument()
+    expect(screen.queryByTestId('trend-strength-chart-canvas')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing (no own ErrorState) on a 404 when errorSurfacedBySibling is passed, since PriceChart owns this shared failure', async () => {
+    renderWithProviders(
+      <TrendStrengthChart ticker="UNKNOWN" range="1y" errorSurfacedBySibling />,
+    )
 
     await waitFor(() =>
       expect(

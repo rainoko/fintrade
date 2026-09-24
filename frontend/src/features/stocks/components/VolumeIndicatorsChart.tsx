@@ -6,6 +6,7 @@ import { LineSeries, type IChartApi, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import type { IndicatorHistoryPoint, IndicatorHistoryResponse } from '../../../api/stocks'
 import EmptyState from '../../../components/common/EmptyState/EmptyState'
+import ErrorState from '../../../components/common/ErrorState/ErrorState'
 import LoadingState from '../../../components/common/LoadingState/LoadingState'
 import MetricHelp from '../../../components/common/MetricHelp/MetricHelp'
 import { useIndicatorHistory } from '../hooks/useIndicatorHistory'
@@ -27,6 +28,29 @@ export interface VolumeIndicatorsChartProps {
    * interval it may not otherwise track.
    */
   enabled?: boolean
+  /**
+   * Set by a caller that already renders another component surfacing the
+   * exact same `GET /api/stocks/{ticker}/indicators` failure (today:
+   * `StockCharts` passes `true` because `PriceChart`, mounted alongside this
+   * chart, already owns this shared failure's ErrorState — both components
+   * share the identical `useIndicatorHistory` hook/query key, so rendering a
+   * second `ErrorState` here would just duplicate the first one). Defaults
+   * to `false`, so a standalone mount of this chart (no such sibling, e.g. a
+   * future page or Storybook story) still surfaces a real fetch failure
+   * instead of silently rendering nothing.
+   *
+   * Explicit, caller-supplied opt-in rather than an implicit "whichever
+   * sibling happens to render first/already handles it" assumption — same
+   * `errorSurfacedBySibling` contract `SellFlaggedPositionsCard`/
+   * `OscillatorChart` already establish (see either's own prop doc comment)
+   * and the same shape this task's own checklist calls out: before this
+   * prop existed, this chart's suppression of its own ErrorState was a
+   * hard-coded, unconditional assumption baked into the component that
+   * `PriceChart` is always mounted as a sibling, which nothing structurally
+   * enforced (see this task's `decisions` entry,
+   * frontend-position-risk-columns-followups-followups-followups-followups).
+   */
+  errorSurfacedBySibling?: boolean
 }
 
 const CHART_HEIGHT = 420
@@ -150,6 +174,7 @@ export default function VolumeIndicatorsChart({
   ticker,
   range,
   enabled = true,
+  errorSurfacedBySibling = false,
 }: VolumeIndicatorsChartProps) {
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -274,17 +299,23 @@ export default function VolumeIndicatorsChart({
       )}
 
       {/*
-        No own common/ErrorState on indicatorsQuery.isError: this chart
-        shares the exact same useIndicatorHistory hook/query key with
-        PriceChart, OscillatorChart, and TrendStrengthChart (all composed
-        together by StockCharts.tsx), so a single underlying
+        common/ErrorState on indicatorsQuery.isError, UNLESS the caller
+        passes errorSurfacedBySibling (see that prop's own doc comment).
+        This chart shares the exact same useIndicatorHistory hook/query key
+        with PriceChart, OscillatorChart, and TrendStrengthChart (all
+        composed together by StockCharts.tsx), so a single underlying
         GET /api/stocks/{ticker}/indicators failure would otherwise render
         four identical stacked alerts -- the same sibling-duplication shape
         already fixed on PortfolioPage (PR #258) and DashboardPage (PR #259).
-        PriceChart, rendered first by StockCharts.tsx, owns this failure's
-        ErrorState; see this task's decisions entry
-        (frontend-position-risk-columns-followups-followups-followups).
+        StockCharts.tsx passes errorSurfacedBySibling since PriceChart, its
+        sibling here, already owns this failure's ErrorState; see this
+        task's decisions entry
+        (frontend-position-risk-columns-followups-followups-followups-
+        followups).
       */}
+      {!errorSurfacedBySibling && indicatorsQuery.isError && (
+        <ErrorState error={indicatorsQuery.error} />
+      )}
 
       {indicatorsQuery.isSuccess && !hasPoints && (
         <EmptyState message={`No volume indicator history available for ${ticker}.`} />
