@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-trailing-profit-stop review (PR #240)",
   "area": "backend/portfolio",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-trailing-profit-stop"],
   "references": [
     "docs/tasks/backend-trailing-profit-stop.json",
@@ -64,5 +64,43 @@
     "pr_number": 301,
     "pr_url": "https://github.com/rainoko/fintrade/pull/301",
     "pushed_at": "2026-09-24T10:17:44Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T10:28:23Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/301",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Vectorization correctness independently verified beyond the PR's own tests: hand-derived the edge cases the review brief called out (all-below-threshold, a series that crosses the threshold then drops back below it ending on a non-qualifying row, a single-row series above and below threshold, and a series whose very first row is at/above threshold) and additionally ran 2000 randomized comparisons of the new vectorized fold against a from-scratch reimplementation of the original per-row Python loop -- zero mismatches. The `.cummax().ffill()` fix for cummax's NaN-at-masked-row behavior is correct: cummax's skipna=True carries the true running max forward internally even though it reports NaN at the exact position of a masked-out (non-qualifying) input, and `.ffill()` correctly recovers that carried value at the final position when the last row happens to be non-qualifying. This exact scenario is (and was, pre-PR) exercised by the pre-existing `test_extending_history_with_more_calls_never_lowers_the_result` test (its final call's last close, 105, sits below the 10% breakeven trigger), which the PR's own decisions entry notes caught a first, incorrect vectorization attempt.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 419
+      },
+      {
+        "summary": "The internal `drop_malformed_daily_bars` filtering added to `ratchet_trailing_profit_stop`/`trailing_stop_floor_before_merge` is safely idempotent when a caller has already externally filtered: `drop_malformed_daily_bars` is a `dropna(subset=...)` call, a no-op on an already-clean frame, so `get_risk`/`add_position` (both of which still filter externally, since that same filtered frame is needed for other computations in the same request) see no behavior change. `trailing_stop_floor_before_merge`'s pre-filter and post-filter `len(daily_ohlcv) < 2` checks are both necessary and correctly ordered (a frame that only reaches 2 raw rows by counting bars the internal filter then drops is exactly as uncomputable as one that never had 2 rows) -- confirmed via the PR's own new `test_too_short_after_internal_filtering_returns_none`.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 481
+      },
+      {
+        "summary": "The 'keep trailing_stop detection-only, not wired into evaluate_exit_flags' decision is well-reasoned, not a scope-avoidance shortcut: cross-checked against docs/Analyse.md's own §7 text (line 258 in the current doc), which already states 'Detection + exposure only ... independent of protective_stop -- a trader is meant to consider both, not treat one as superseding the other' -- language this decision correctly cites and reaffirms rather than invents after the fact. The rationale's core argument (protective_stop's doc explicitly frames a close below it as an unconditional SELL trigger; trailing_stop's doc never makes that claim, and trailing_stop is frequently ABOVE protective_stop post-trigger, so auto-flagging on it would mechanically propose exiting many still-profitable positions on an ordinary pullback below a rising floor) is sound and consistent with Triple Screen's stay-with-the-trend philosophy. The considered-and-rejected alternative (a yesterday's-value-gated exit flag) is also correctly identified as needing a signature/behavior redesign this non-blocking-followups task shouldn't absorb.",
+        "file": "docs/tasks/backend-trailing-profit-stop-followups.json",
+        "line": 52
+      },
+      {
+        "summary": "Independently re-ran the full backend suite (1244 passed, 100% coverage on app/portfolio/risk.py and the whole app/ tree), ruff check app/ tests/ and mypy app/ (both clean), scripts/check_profit_target_wording.py (clean), and scripts/validate_tasks.py (296 files, clean) -- all match the PR's own claimed numbers. No API/schema change in this diff (only backend/app/portfolio/risk.py, two test files, and task-board JSON), and backend/openapi.json is confirmed untouched, consistent with the PR description. This PR touches no frontend/UI surface at all, so the browser walkthrough and persisted e2e suite steps were explicitly skipped rather than silently omitted. A parallel high-effort code-review skill pass (forked run) independently reached the same conclusion: no correctness bugs, only two minor observations (the redundant-but-idempotent double filtering, already weighed and accepted in the PR's own decisions entry, and a now-vestigial NaN-close-handling comment/branch made unreachable by the new unconditional internal filtering) -- the second is new and tracked below since it wasn't already captured anywhere durable.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 0
+      },
+      {
+        "summary": "Non-blocking (tracked on backend-trailing-profit-stop-followups-followups): the three new `decisions` entries this PR added all share the identical timestamp 2026-09-24T10:14:28Z, despite describing three distinct, substantial pieces of work (including one that involved a failed first vectorization attempt, a test failure, and debugging pandas' cummax-at-masked-row NaN behavior) that could not plausibly have all been recorded at the same instant. Same class of evidence-trail imprecision this project has already flagged and fixed twice on an unrelated task lineage (PR #294, PR #298).",
+        "file": "docs/tasks/backend-trailing-profit-stop-followups.json",
+        "line": 44
+      },
+      {
+        "summary": "Non-blocking (tracked on backend-trailing-profit-stop-followups-followups, from the parallel code-review skill pass): `ratchet_trailing_profit_stop`'s vectorized-fold comment explaining that a NaN close 'naturally produces NaN profit ... excluded from the ratchet ... with no separate NaN check needed here' now describes an unreachable case in practice, since the function's own new unconditional `drop_malformed_daily_bars` call immediately above guarantees no remaining row has a NaN close. Harmless (defense-in-depth, useful if that filtering call is ever removed), not a bug.",
+        "file": "backend/app/portfolio/risk.py",
+        "line": 397
+      }
+    ],
+    "notes": "Full review of PR #301 (backend-trailing-profit-stop-followups), which implements the 3 remaining checklist items from the parent task's own followups (vectorize ratchet_trailing_profit_stop, decide trailing_stop's exit-flag scope, filter malformed bars internally). No blocking findings. Verified independently, not just re-reading the PR's own claims: (1) the vectorization is genuinely behavior-identical to the original loop across hand-constructed edge cases and 2000 randomized trials, and the .ffill() fix for cummax's NaN-at-masked-row quirk is correct and already covered by a pre-existing test; (2) the internal malformed-bar filtering is idempotent and doesn't change behavior for either existing caller; (3) the 'keep trailing_stop detection-only' decision faithfully reflects docs/Analyse.md's own existing wording and is soundly reasoned, not work avoidance; (4) full backend suite/coverage/ruff/mypy/validate_tasks.py/profit-target-wording-guard all independently re-run and clean, matching the PR's claims; (5) no API/schema change, so no openapi.json regeneration needed; (6) no frontend/UI surface touched, so the browser walkthrough and e2e suite steps are explicitly skipped, not silently omitted. A parallel forked code-review skill pass reached the same no-blocking-bugs conclusion. Two non-blocking findings (identical timestamps across this PR's three new decisions entries; a now-vestigial NaN-close-handling comment made unreachable by the new internal filtering) are filed on a new backend-trailing-profit-stop-followups-followups task. Accepting. Task moved to docs/tasks/done/backend-trailing-profit-stop-followups.json, state: done. Not merging -- that's pr-decision/pr-merger's job."
   }
 }
