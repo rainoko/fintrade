@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-day-trader-timeframe-mode PR #309 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "planned",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode.json",
@@ -22,6 +22,12 @@
       "recorded_by": "task-worker",
       "decision": "All 4 non-blocking findings fixed directly on backend-day-trader-timeframe-mode's own PR #309 (task/backend-day-trader-timeframe-mode branch) while fixing that PR's 2 blocking findings, rather than as this task's own separate PR.",
       "rationale": "The dispatch that sent task-worker back to PR #309 to fix its blocking findings explicitly offered the choice to also fold these 4 non-blocking fixes into the same PR, since they're small, low-risk, and in the same area of the codebase already open for the blocking fix (app/signals/timeframe.py, app/api/schemas.py, app/api/routers/settings.py's module docstring, docs/architecture/Backend.md, tests/unit/signals/test_timeframe.py). Landing them together avoids a second PR/review round-trip for work that's already in front of the same reviewer for the blocking fix. Rejected leaving them for a separate dispatch on this task: no benefit once the same files are already open, and this task's own checklist items are marked done here with the fix traceable to PR #309's commits."
+    },
+    {
+      "timestamp": "2026-09-24T17:41:28Z",
+      "recorded_by": "manual",
+      "decision": "Marked this task done directly (board bookkeeping only, no separate PR) rather than sending it through the full task-worker/pr-reviewer/pr-decision/pr-merger pipeline.",
+      "rationale": "All 4 checklist items were already implemented, reviewed (as part of PR #309's own round-2 review, which explicitly verified each fix), and merged into main via PR #309 -- there is no remaining code diff for this task to produce. Running a fresh, empty PR through the full pipeline would be pure overhead with no incremental review value, since the actual code was already independently reviewed and confirmed. Matches this repo's established precedent for pure task-board bookkeeping (e.g. PR #277, #279, #306)."
     }
   ],
   "questions": []
