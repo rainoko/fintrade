@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #287's review (MarketBreadthCard followups)",
   "area": "frontend/pages/watchlist",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-market-breadth-widget-followups"
   ],
@@ -41,5 +41,18 @@
     "pr_number": 295,
     "pr_url": "https://github.com/rainoko/fintrade/pull/295",
     "pushed_at": "2026-09-24T04:36:06Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T04:48:23Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/295",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "New PersonalBreadthCard e2e assertion is spliced into the middle of the existing describe.serial add/remove block (between add and remove). Under retries: 0 and describe.serial semantics, if this new network-dependent assertion ever flakes/times out, the removal cleanup step is skipped, leaving GOOGL stranded in the watchlist for the rest of the run -- a real but non-blocking widening of an already-tolerated failure mode (the file's own doc comment already tolerates a leftover GOOGL from an interrupted run). Confirmed via two consecutive full `make e2e` runs (24/24 passed both times) that this isn't currently flaky in practice. Tracked as a follow-up rather than blocking, since it's a design tradeoff the task's own `decisions` entry considered, not a correctness bug.",
+        "file": "frontend/tests/e2e/watchlist.spec.ts",
+        "line": 59
+      }
+    ],
+    "notes": "Full review: gh pr checkout 295, then re-ran backend pytest --cov=app --cov-fail-under=90 (100% coverage, 1203 passed) and frontend yarn vitest run --coverage (841 passed, 99.7%+ across all four coverage dimensions) -- no regressions on either side, both already comfortably above the 90% gate before this PR. static-verify: backend ruff/mypy clean, frontend eslint/tsc clean, profit-target wording guard clean. code-review (medium effort) traced the new test against PersonalBreadthCard.tsx/StatCard.tsx/MetricHelp.tsx/InfoBalloon.tsx (confirmed the help-balloon popover is unmounted by default, so it can't leak extra Bullish/percentage-shaped text into the DOM), watchlist.py's breadth-percentage calc (division-by-zero guarded, no NaN text possible), and playwright.config.ts (workers: 1/fullyParallel: false, ruling out cross-spec-file races over GOOGL) -- one non-blocking finding (recorded above and filed as a follow-up checklist item on frontend-market-breadth-widget-followups-followups-followups). Independently verified the PR's own placement/ordering claims: traced portfolio.spec.ts (both its describe.serial blocks fully close/delete their MSFT and TSLA positions by end of file, and closed positions move from PositionORM to ClosedTradeORM per backend/app/db/models.py, so they don't count toward tracked_ticker_count) and confirmed via two consecutive `make e2e` runs that file execution order is alphabetical (daily-homework, dashboard, methodology, navigation, portfolio, stock-analysis, watchlist) under workers:1/fullyParallel:false, so GOOGL genuinely is the only tracked ticker when the new assertion runs -- the PR's central technical claim holds. Confirmed the regex /^\\d+ \\(\\d+\\.\\d%\\)$/ matches PersonalBreadthCard.tsx's actual `${count} (${pct.toFixed(1)}%)` rendering exactly. Confirmed the append-only handling of the PR #287 decisions-timestamp finding is a reasonable, well-justified interpretation of CLAUDE.md's append-only convention (recording the acknowledgment on this task rather than touching the already-done frontend-market-breadth-widget-followups.json, since that task's checklist item never called out the existing entry's own text as needing correction -- it was framed as a forward-looking process note, not a factual correction of the past entry's claims). No API/schema changes (openapi.json untouched, correctly). No new component/module (only a test file + task JSON changed), so architecture-review/frontend-placement checks don't apply. No UI-facing application code changed by this PR itself (only a persisted e2e spec), so no separate exploratory browser-walkthrough (step 9) was run beyond the e2e suite itself (step 9a, run twice via `make e2e`, 24/24 both times, no console/network errors observed in the runs). No checklist item phrased as \"decide X\" without a corresponding decisions entry -- both checklist items got a decisions entry. validate_tasks.py: 290 files, no violations."
   }
 }
