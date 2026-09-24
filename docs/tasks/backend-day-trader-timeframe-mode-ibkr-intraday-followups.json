@@ -48,5 +48,11 @@
       "rationale": "The two implementations were byte-for-byte identical except for the resample rule string and (in `_resample_weekly`'s case only) an explicit `weekly.index.name = \"date\"` line after resampling -- `app.data.base` (already the shared home for `DataProvider`'s own OHLCV-shape contract/`ExtendedData`) was the natural place to put the extraction, per the task's own suggestion, rather than either provider module depending on the other. Setting `index.name = \"date\"` unconditionally in the shared helper (rather than only for the weekly case) is a no-op for `_resample_to_target`'s callers today (`_bars_to_frame` already names its `DatetimeIndex` `\"date\"`, and resampling preserves that name), so this doesn't change `day_trader_intraday.py`'s observed behavior, confirmed by the full test suite (including `TestSelectIbkrBarSizeAndResampling`'s existing resampling-shape assertions) passing unchanged."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-ibkr-intraday-followups",
+    "pr_number": 314,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/314",
+    "pushed_at": "2026-09-24T21:26:31Z"
+  }
 }
