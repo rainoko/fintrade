@@ -1923,8 +1923,15 @@
       "id": "backend-day-trader-timeframe-mode-portfolio-risk",
       "area": "backend/portfolio",
       "skill": "verify-elder-signal",
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-portfolio-risk.json"
+    },
+    {
+      "id": "backend-day-trader-timeframe-mode-portfolio-risk-followups",
+      "area": "backend/portfolio",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json"
+      "path": "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk-followups.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-history",

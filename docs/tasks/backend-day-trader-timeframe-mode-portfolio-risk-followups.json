@@ -1,0 +1,22 @@
+{
+  "id": "backend-day-trader-timeframe-mode-portfolio-risk-followups",
+  "title": "Non-blocking findings from PR #317's review (backend-day-trader-timeframe-mode-portfolio-risk)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-portfolio-risk"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-portfolio-risk.json",
+    "https://github.com/rainoko/fintrade/pull/317",
+    "docs/Analyse.md#7"
+  ],
+  "description": "Non-blocking finding recorded by pr-reviewer's independent elder-signal-reviewer pass on PR #317, tracked here per CLAUDE.md's 'every non-blocking finding becomes a tracked task' rule so it isn't lost once the PR merges.",
+  "checklist": [
+    {
+      "step": "docs/Analyse.md's §7 'Profit target' section still says the two implemented target techniques are the ones 'relevant to a swing/position-holding use case (the third ... doesn't apply, since this app has no intraday use case)'. That parenthetical is now stale: day-trader (intraday) mode exists in the codebase as of backend-day-trader-timeframe-mode-signal-engine (PR #312) onward, and this PR's own code docstring in app/portfolio/profit_target.py was updated with a more accurate explanation (day-trader mode still doesn't use the third technique, but not because the app 'has no intraday use case' -- it's because that third technique addresses a different exit signal, not because the value-zone/channel target technique stops applying once timeframes are intraday). docs/Analyse.md itself was not updated to match, even though the sibling PRs in this same feature arc (see docs/Analyse.md's own day-trader-mode bullets at line ~77 and ~384) did update Analyse.md alongside the code change they documented. Update Analyse.md's §7 Profit target section's parenthetical to stop claiming the app has no intraday use case, and instead explain (briefly, referencing app.portfolio.profit_target's own docstring and this task's decisions entry) why the third technique still doesn't apply in day-trader mode.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

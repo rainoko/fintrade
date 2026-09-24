@@ -63,10 +63,20 @@ def evaluate_exit_flags(
       same-day transition from a prior non-RED bar -- see this task's `decisions` entry for
       why "turning" is read that way here (in contrast to 'tide_flipped_bearish' below, which
       *is* implemented as an explicit transition).
-    - ``'tide_flipped_bearish'``: the weekly Tide (``app.signals.triple_screen.evaluate_tide``)
-      is BEARISH as of the latest weekly bar but was BULLISH as of the prior weekly bar --
+    - ``'tide_flipped_bearish'``: Tide (``app.signals.triple_screen.evaluate_tide``, run on
+      ``weekly_ohlcv``) is BEARISH as of the latest bar but was BULLISH as of the prior bar --
       §7's literal "flips from BULLISH to BEARISH" (this app is long-only, so every position
-      is implicitly "currently long" -- see risk.py's ``protective_stop`` docstring).
+      is implicitly "currently long" -- see risk.py's ``protective_stop`` docstring). Despite
+      the parameter's name, ``evaluate_tide`` has no calendar-week-specific logic of its own
+      (it's the weekly -- or, generically, long-term-role -- Impulse System color, per that
+      function's own docstring), so this flag is timeframe-agnostic the same way
+      ``protective_stop``'s own ``daily_ohlcv`` is (see that function's docstring and the
+      `backend-day-trader-timeframe-mode-portfolio-risk` task's `decisions` entry) -- it's
+      exercised here only against literal weekly bars in production today (this function's own
+      caller, ``GET /api/portfolio/risk``, doesn't read day-trader-mode data yet, per
+      `docs/architecture/Backend.md` §10's "Not yet landed" list), but nothing about this
+      function's own implementation would need to change for a future caller to pass
+      day-trader mode's own long-term-leg OHLCV here instead.
 
     None of these are gated by, or suppress, a fresh-entry HOLD/BUY/SELL from
     ``app.signals.engine.analyse`` -- this function doesn't take a signal as input at all, by

@@ -154,6 +154,73 @@ class TestChannelBasedTarget:
         assert target.price == pytest.approx(109.0, abs=1e-9)
 
 
+class TestChannelIsTimeframeAgnostic:
+    """`backend-day-trader-timeframe-mode-portfolio-risk`'s checklist item 2: confirms the
+    `weekly_ohlcv`-role channel candidate (`_long_term_channel_bounds`, renamed from
+    `_weekly_channel_bounds`) genuinely reads whatever `pd.DataFrame` is passed for that role
+    (a day-trader-mode `long_term` leg, once a future caller wires one through), rather than
+    silently only working for a literal weekly-frequency `DatetimeIndex` -- `autoenvelope`
+    itself never inspects the index, only the `close` column, so this should hold unchanged
+    once the index is minute-spaced instead of weekly-spaced."""
+
+    def test_minute_spaced_long_term_role_frame_produces_the_identical_channel_target(
+        self,
+    ) -> None:
+        """The exact `_WEEKLY_OHLCV_WIDE_CHANNEL` close series, reused unchanged except for a
+        minute-spaced ``DatetimeIndex`` in place of the fixture's default ``RangeIndex`` --
+        `suggest_profit_target` must produce the byte-identical target either way, since
+        neither it nor `_long_term_channel_bounds` ever reads the index."""
+        intraday_long_term_ohlcv = _WEEKLY_OHLCV_WIDE_CHANNEL.copy()
+        intraday_long_term_ohlcv.index = pd.date_range(
+            "2026-01-05 09:30", periods=len(intraday_long_term_ohlcv), freq="25min"
+        )
+
+        target_weekly = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV, zones=[], weekly_ohlcv=_WEEKLY_OHLCV_WIDE_CHANNEL
+        )
+        target_intraday = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV, zones=[], weekly_ohlcv=intraday_long_term_ohlcv
+        )
+
+        assert target_weekly is not None
+        assert target_intraday is not None
+        assert target_intraday.price == pytest.approx(target_weekly.price)
+        assert target_intraday.source == target_weekly.source == "channel"
+
+    def test_swapping_the_long_term_role_frame_genuinely_changes_the_channel_target(
+        self,
+    ) -> None:
+        """Discriminating counterpart to the test above: two DIFFERENT intraday-labeled
+        long-term-role frames (the wide- vs. narrow-channel fixtures, both re-indexed to
+        minute-spaced timestamps) must still produce genuinely DIFFERENT channel targets --
+        confirming the frame's own `close` values (not just its presence) actually drive the
+        result, rather than the function silently falling back to some fixed/cached value once
+        the index stops looking like a literal weekly one."""
+        wide_intraday = _WEEKLY_OHLCV_WIDE_CHANNEL.copy()
+        wide_intraday.index = pd.date_range(
+            "2026-01-05 09:30", periods=len(wide_intraday), freq="25min"
+        )
+        narrow_intraday = _WEEKLY_OHLCV_NARROW_CHANNEL.copy()
+        narrow_intraday.index = pd.date_range(
+            "2026-01-05 09:30", periods=len(narrow_intraday), freq="25min"
+        )
+
+        target_wide = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV, zones=[], weekly_ohlcv=wide_intraday
+        )
+        target_narrow = suggest_profit_target(
+            _STOP_FIXTURE_DAILY_OHLCV, zones=[], weekly_ohlcv=narrow_intraday
+        )
+
+        assert target_wide is not None
+        assert target_narrow is not None
+        assert target_wide.price != pytest.approx(target_narrow.price)
+        assert target_wide.price == pytest.approx(_CURRENT_PRICE + 0.30 * _WIDE_HEIGHT, abs=1e-6)
+        assert target_narrow.price == pytest.approx(
+            _CURRENT_PRICE + 0.30 * _NARROW_HEIGHT, abs=1e-6
+        )
+
+
 class TestSupportResistanceTighterTarget:
     def test_support_resistance_gives_tighter_target_than_channel(self) -> None:
         """A resistance zone at 110 (distance 6.0 from current price 104) is tighter than the
