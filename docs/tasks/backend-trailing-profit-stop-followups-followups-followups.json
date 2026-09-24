@@ -18,5 +18,11 @@
     }
   ],
   "decisions": [],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-trailing-profit-stop-followups-followups-followups",
+    "pr_number": 304,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/304",
+    "pushed_at": "2026-09-24T11:34:07Z"
+  }
 }
