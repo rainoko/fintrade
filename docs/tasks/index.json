@@ -2000,7 +2000,7 @@
       "id": "backend-static-verify-cleanup-followups-followups",
       "area": "backend",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/backend-static-verify-cleanup-followups-followups.json"
     },
     {
