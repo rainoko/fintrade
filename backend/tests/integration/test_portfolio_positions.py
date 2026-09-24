@@ -35,7 +35,11 @@ from app.db.models import PositionORM
 from app.db.session import get_db
 from app.main import app
 from app.portfolio.models import Position
-from app.portfolio.risk import protective_stop, ratchet_trailing_profit_stop
+from app.portfolio.risk import (
+    protective_stop,
+    ratchet_trailing_profit_stop,
+    trailing_stop_floor_before_merge,
+)
 from app.signals.engine import drop_malformed_daily_bars
 
 
@@ -1082,14 +1086,18 @@ class TestAddPositionCapturesTrailingStopFloorAtMerge:
         expected_stop = protective_stop(old_position, filtered.iloc[:-1])
         expected_floor = ratchet_trailing_profit_stop(old_position, filtered, expected_stop)
 
-        # Sanity check that this fixture really does reproduce the bug when left unfiltered
-        # (mirroring the reviewer's own 1730.0-vs-97.0 repro): the malformed bar's garbage
-        # $5000 close would, if it reached the ratchet fold unfiltered, itself cross the 10%
-        # breakeven trigger and permanently lock the floor in at an absurd value.
-        unfiltered_stop = protective_stop(old_position, daily.iloc[:-1])
-        unfiltered_floor = ratchet_trailing_profit_stop(old_position, daily, unfiltered_stop)
-        assert unfiltered_floor > expected_floor + 100
+        # Defense-in-depth check (backend-trailing-profit-stop-followups): now that
+        # `trailing_stop_floor_before_merge`/`ratchet_trailing_profit_stop` filter malformed
+        # bars internally rather than only trusting the caller to have already done so, even
+        # feeding this function the RAW, unfiltered `daily` frame directly (bypassing the
+        # router's own external `drop_malformed_daily_bars` call entirely, unlike the real
+        # `add_position` request flow this test drives above) must produce the exact same,
+        # correctly-filtered floor -- not the pre-fix bug's arbitrarily wrong, unrecoverable
+        # value (the reviewer's own 1730.0-vs-97.0 repro).
+        floor_from_unfiltered_input = trailing_stop_floor_before_merge(
+            old_position, daily, persisted_high_water_mark=None
+        )
+        assert floor_from_unfiltered_input == pytest.approx(expected_floor)
 
         row = db_session.get(PositionORM, position_id)
         assert row.trailing_stop_high_water_mark == pytest.approx(expected_floor)
-        assert row.trailing_stop_high_water_mark != pytest.approx(unfiltered_floor)

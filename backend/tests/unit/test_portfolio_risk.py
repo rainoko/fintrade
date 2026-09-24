@@ -667,6 +667,72 @@ class TestRatchetTrailingProfitStop:
 
         assert with_none == pytest.approx(without_kwarg)
 
+    def test_filters_a_malformed_interior_bar_internally_even_when_caller_did_not(self) -> None:
+        """backend-trailing-profit-stop-followups: this function no longer trusts the caller to
+        have already run `daily_ohlcv` through `drop_malformed_daily_bars` (the PR #240 round-3
+        bug class -- a single malformed bar permanently locking in an arbitrarily wrong
+        high-water-mark floor) -- it filters internally now, so even a caller that skipped that
+        convention entirely gets the same safe result a filtering caller would have."""
+        position = _position(avg_cost_basis=100.0)
+        # A flat $100 series (never crosses the 10% trigger on its own) with one interior bar
+        # corrupted to a garbage $5000 close -- if that bar reached the fold unfiltered, it
+        # alone would cross the trigger and permanently lock in an absurd floor.
+        daily = pd.DataFrame(
+            {
+                "open": [100.0] * 10,
+                "high": [101.0] * 10,
+                "low": [99.0] * 10,
+                "close": [100.0] * 10,
+            },
+            index=pd.date_range(date(2026, 1, 1), periods=10, freq="D", name="date"),
+        )
+        daily.iloc[5, daily.columns.get_loc("open")] = float("nan")
+        daily.iloc[5, daily.columns.get_loc("high")] = float("nan")
+        daily.iloc[5, daily.columns.get_loc("close")] = 5000.0
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        # Never actually crosses the trigger once the garbage bar is filtered out -- the flat
+        # $100 series alone is only breakeven, never +10% profit.
+        assert result == pytest.approx(90.0)
+
+    def test_entirely_malformed_frame_falls_back_to_safezone_stop(self) -> None:
+        """Every row unusable (even the latest bar's own `close` is NaN) after internal
+        filtering leaves no day to inform the ratchet at all -- degrades to `safezone_stop`
+        verbatim rather than raising, matching the "nothing ever qualified" fallback."""
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame(
+            {
+                "open": [float("nan")] * 3,
+                "high": [float("nan")] * 3,
+                "low": [float("nan")] * 3,
+                "close": [float("nan")] * 3,
+            },
+            index=pd.date_range(date(2026, 1, 1), periods=3, freq="D", name="date"),
+        )
+
+        result = ratchet_trailing_profit_stop(position, daily, safezone_stop=90.0)
+
+        assert result == pytest.approx(90.0)
+
+    def test_entirely_malformed_frame_still_respects_the_persisted_floor(self) -> None:
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame(
+            {
+                "open": [float("nan")] * 3,
+                "high": [float("nan")] * 3,
+                "low": [float("nan")] * 3,
+                "close": [float("nan")] * 3,
+            },
+            index=pd.date_range(date(2026, 1, 1), periods=3, freq="D", name="date"),
+        )
+
+        result = ratchet_trailing_profit_stop(
+            position, daily, safezone_stop=90.0, persisted_high_water_mark=101.666667
+        )
+
+        assert result == pytest.approx(101.666667)
+
 
 def _daily_ohlcv_frame_since(entry: date, closes: list[float]) -> pd.DataFrame:
     """Like `_daily_frame_since` above, but with a `low` column too (`close - 1.0` throughout)
@@ -762,3 +828,44 @@ class TestTrailingStopFloorBeforeMerge:
 
         assert result == pytest.approx(101.666667, abs=1e-4)
         assert result >= 101.666667 - 1e-9
+
+    def test_filters_a_malformed_interior_bar_internally_even_when_caller_did_not(self) -> None:
+        """backend-trailing-profit-stop-followups: this function no longer trusts the caller
+        to have already run `daily_ohlcv` through `drop_malformed_daily_bars` -- it filters
+        internally now (see its own docstring), so a raw, unfiltered frame with one malformed
+        interior bar produces the exact same result a pre-filtered one would."""
+        position = _position(avg_cost_basis=100.0)
+        closes = [100.0 + 15.0 * i / 14.0 for i in range(15)]
+        daily = pd.DataFrame(
+            {"close": closes, "low": [c - 1.0 for c in closes]},
+            index=pd.date_range(date(2026, 1, 1), periods=15, freq="D", name="date"),
+        )
+        # Corrupt one interior bar's `low` (NaN) -- `drop_malformed_daily_bars` requires every
+        # present column to be a real number on a non-latest bar, so this alone makes the row
+        # unusable, exactly like a real settling-data glitch.
+        daily.iloc[7, daily.columns.get_loc("low")] = float("nan")
+
+        result = trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+
+        filtered = daily.dropna(subset=["low", "close"])
+        expected_stop = protective_stop(position, filtered.iloc[:-1])
+        expected = ratchet_trailing_profit_stop(position, filtered, expected_stop)
+        assert result == pytest.approx(expected)
+
+    def test_too_short_after_internal_filtering_returns_none(self) -> None:
+        """A frame with >= 2 raw rows that internal filtering then collapses to < 2 usable rows
+        is exactly as uncomputable as one that never had 2 rows at all -- degrades to `None`,
+        not a stale/short-lived `ValueError`. The 2 raw rows here are: an interior (non-latest)
+        bar with a NaN `low` -- dropped, since only the LATEST bar's own open/high/low are
+        exempt from `drop_malformed_daily_bars`'s check -- and the latest bar itself (valid
+        `close`, so it alone survives), leaving exactly 1 usable row."""
+        position = _position(avg_cost_basis=100.0)
+        daily = pd.DataFrame(
+            {"close": [100.0, 110.0], "low": [float("nan"), 109.0]},
+            index=pd.date_range(date(2026, 1, 1), periods=2, freq="D", name="date"),
+        )
+
+        assert (
+            trailing_stop_floor_before_merge(position, daily, persisted_high_water_mark=None)
+            is None
+        )
