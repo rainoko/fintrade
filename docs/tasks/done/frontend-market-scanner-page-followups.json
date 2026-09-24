@@ -3,7 +3,7 @@
   "title": "Scanner page -- non-blocking pr-reviewer follow-ups",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-market-scanner-page"
   ],
@@ -61,5 +61,12 @@
     "pr_number": 302,
     "pr_url": "https://github.com/rainoko/fintrade/pull/302",
     "pushed_at": "2026-09-24T10:52:32Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T11:04:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/302",
+    "verdict": "accepted",
+    "comments": [],
+    "notes": "Full review of PR #302: checked out task/frontend-market-scanner-page-followups, ran backend pytest+coverage (1244 passed, 100% line/branch coverage) and frontend vitest+coverage (882 passed, 99.7%+ statements/branches), ran static-verify (backend ruff+mypy clean, frontend eslint+tsc clean, profit-target wording guard clean), `npx prettier --check` on every touched file (clean; the repo-wide check flags 85 pre-existing unrelated files, none touched by this PR), and `scripts/validate_tasks.py` (clean). Ran `make e2e` twice (26/26 passed both times, including the two new scanner.spec.ts specs) to check for flakiness -- none observed; also ran the touched vitest files three times in isolation with identical results. Manually traced: (1) the new e2e spec's page.route() stubbing of GET /api/ibkr/scanner/params and POST /api/ibkr/scanner/run against the real ScannerPage/ScannerPanel component tree and confirmed the aria labels/roles used in the spec (heading 'Scanner', combobox 'Scan category', table 'Scanner results') match the actual rendered markup; (2) the role=\"status\"->\"alert\" switch plus new data-testid=\"error-state\" on common/ErrorState -- confirmed no other test in the touched files or elsewhere in the suite queries getByTestId('error-state') (so no cross-test collision), and that the per-row always-mounted role=\"alert\" Box in ScannerAddToWatchlistButton is a structurally distinct element from ErrorState's own role=\"alert\"+data-testid=\"error-state\" root (the two never coexist in the same render branch), and confirmed ScannerPanel.test.tsx's own queryByRole('alert') absence assertion only fires in the gateway_unreachable branch where ScannerResultsTable (and its per-row alert boxes) is never rendered at all, so the role switch didn't break that assertion; (3) UnavailableState's message?.trim() change against its two call sites (ScannerPage/ScannerPanel) and its new blank/whitespace-string tests; (4) the terminal 'Added' button's `if (added) return` guard via the new regression test, which counts actual POST /api/watchlist calls (not just button label) and confirms exactly one POST fires despite three clicks. Backend was untouched by this PR (frontend-only diff) -- no OpenAPI/API route changes, so no snapshot regeneration was needed. No new module/component/layer was added (only existing common/ and feature components edited), so architecture-review and the common/-vs-feature placement check (step 7a) don't apply here. Independently ran the code-review skill (high effort) in parallel, which reached the same conclusion (zero findings) after its own separate verification pass (icon import path exists, role=\"alert\" usage traced across the whole test suite, backend watchlist route assumptions confirmed). No blocking or non-blocking findings from either pass."
   }
 }
