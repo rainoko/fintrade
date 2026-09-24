@@ -1,0 +1,26 @@
+{
+  "id": "backend-trailing-profit-stop-followups-followups",
+  "title": "Non-blocking findings from PR #301's review (backend-trailing-profit-stop-followups)",
+  "area": "backend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-trailing-profit-stop-followups"],
+  "references": [
+    "docs/tasks/backend-trailing-profit-stop-followups.json",
+    "https://github.com/rainoko/fintrade/pull/301",
+    "backend/app/portfolio/risk.py"
+  ],
+  "description": "Non-blocking findings from the pr-reviewer pass on PR #301 (backend-trailing-profit-stop-followups, which vectorized ratchet_trailing_profit_stop's per-call fold, recorded a decisions entry keeping RiskPosition.trailing_stop detection-only, and added internal drop_malformed_daily_bars filtering to ratchet_trailing_profit_stop/trailing_stop_floor_before_merge). PR #301 was accepted with no blocking findings: the vectorization was independently verified behavior-identical to the original loop (2000 random-case comparisons plus hand-derived edge cases -- all-below-threshold, crosses-then-drops-back-below, single-row, first-row-at-threshold -- all matched the old per-row fold; the `.cummax().ffill()` fix for cummax's NaN-at-masked-row behavior is correct and already exercised by the pre-existing `test_extending_history_with_more_calls_never_lowers_the_result` test), the 'keep trailing_stop detection-only' decision was cross-checked against docs/Analyse.md's own §7 text (which already states 'Detection + exposure only ... independent of protective_stop' verbatim) and found well-reasoned rather than work-avoidant, the internal malformed-bar filtering is idempotent on an already-filtered frame (drop_malformed_daily_bars uses dropna, a no-op on clean data) so it doesn't double-filter in a way that changes behavior, and the full backend suite (1244 passed, 100% coverage on app/portfolio/risk.py), ruff/mypy, and validate_tasks.py all passed clean. No API/schema change, so no openapi.json regeneration was needed; no frontend/UI surface was touched, so the browser walkthrough and e2e suite steps were explicitly skipped rather than silently omitted.",
+  "checklist": [
+    {
+      "step": "PR #301 recorded three new `decisions` entries on `backend-trailing-profit-stop-followups.json` (the vectorization, the trailing_stop exit-flag-scope choice, and the internal-filtering choice) all sharing the identical timestamp `2026-09-24T10:14:28Z`, despite describing three distinct, substantial engineering efforts (including one that involved writing a vectorized implementation, having it fail against an existing test, and debugging pandas' cummax-at-masked-row NaN behavior to fix it) that could not plausibly have all been recorded at the same instant. This is the same class of evidence-trail imprecision this project has already flagged and fixed twice before on an unrelated task lineage (docs/tasks/done/backend-cftc-cot-data-followups-followups-followups-followups-followups.json's first checklist item, PR #294; and its own follow-up, PR #298) -- worth a quick pass to give these three entries distinct, plausibly-sequenced timestamps (or a note explaining why simultaneity is accurate here) the next time this task's decisions array is touched.",
+      "done": false
+    },
+    {
+      "step": "`ratchet_trailing_profit_stop`'s vectorized fold still carries an explicit code comment/design note for 'a NaN close ... naturally produces NaN profit, which makes mask False ... excluded from the ratchet the same way, with no separate NaN check needed here' -- but now that this same function unconditionally filters `daily_ohlcv` through `drop_malformed_daily_bars` immediately above (this PR's own change), no row reaching that fold can have a NaN close anymore, making that specific reasoning describe an unreachable case in practice (harmless dead documentation/defense-in-depth, not a bug, and useful if the internal filtering call is ever removed later, but worth a note or simplification next time this function's docstring/comments are touched for consistency with the new guarantee).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

@@ -2,6 +2,7 @@ import pandas as pd
 
 from app.indicators.ema import ema
 from app.portfolio.models import Account, Position
+from app.signals.engine import drop_malformed_daily_bars
 
 # "Recent" swing low + volatility-buffer lookback, in trading days (~2 weeks).
 # docs/Analyse.md §7 specifies the SafeZone-style concept but not exact
@@ -311,14 +312,23 @@ def ratchet_trailing_profit_stop(
     matching `protective_stop`'s own free-to-move-either-way behavior -- there's no "winning
     trade" yet for this mechanic to protect.
 
-    ``position.entry_date`` rows with a NaN close are skipped (can't inform the ratchet either
-    way). If no row in ``daily_ohlcv`` is on or after ``position.entry_date`` at all (a
-    malformed/incomplete history that doesn't reach back to entry -- see
-    `app.portfolio.grading.grade_trade_from_filtered_history`'s identical concern), the whole
-    frame is used instead of raising, since a stop somewhat too conservative (ignoring
+    ``daily_ohlcv`` is filtered internally through `app.signals.engine.drop_malformed_daily_bars`
+    (``require_full_ohlc_on_latest_bar=False`, since this function never reads the latest bar's
+    own open/high/low, only its close) before anything else below -- callers no longer need to
+    pre-filter it themselves as a docstring-enforced convention (though `get_risk`/`add_position`
+    still do, since that same filtered frame is also needed for other computations of theirs);
+    see this task's (backend-trailing-profit-stop-followups) `decisions` entry for why this
+    became an unconditional internal guarantee rather than a caller contract. ``position
+    .entry_date`` rows with a NaN close (whether original or a byproduct of this filtering) are
+    skipped (can't inform the ratchet either way). If no row in ``daily_ohlcv`` is on or after
+    ``position.entry_date`` at all (a malformed/incomplete history that doesn't reach back to
+    entry -- see `app.portfolio.grading.grade_trade_from_filtered_history`'s identical concern),
+    the whole frame is used instead of raising, since a stop somewhat too conservative (ignoring
     genuinely-pre-entry bars can only ever be MORE conservative here, never less, given the
     ratchet is a `max`) is preferable to excluding the position from `positions` entirely over
-    a data-completeness gap unrelated to whether a stop can be computed at all.
+    a data-completeness gap unrelated to whether a stop can be computed at all. If filtering
+    leaves no rows in ``daily_ohlcv`` at all (an entirely malformed frame), this degrades to
+    ``safezone_stop`` verbatim -- the same "nothing ever qualified" fallback below.
 
     ``persisted_high_water_mark``, if given, floors the result at that value (see layer 2
     above); omit it (the default, `None`) for a position with no persisted value yet (e.g. its
@@ -337,6 +347,17 @@ def ratchet_trailing_profit_stop(
     if position.avg_cost_basis <= 0:
         raise ValueError("entry_price must be positive to compute a trailing profit stop")
 
+    # Filters out any malformed bar (NaN open/high/low/close, except the latest bar's own
+    # open/high/low -- see `drop_malformed_daily_bars`'s own docstring for why that one bar is
+    # exempted) BEFORE the fold below, rather than trusting every caller to have already done
+    # this -- see this task's (backend-trailing-profit-stop-followups) `decisions` entry for why
+    # this moved from a caller-docstring convention (duplicated across `get_risk` and
+    # `add_position`'s merge branch, and the exact PR #240 round-3 bug class -- a single
+    # malformed bar locking in an unrecoverable wrong high-water-mark floor -- if a future
+    # caller ever forgot it) to an unconditional internal guarantee. Idempotent (a no-op) on a
+    # frame a caller has already filtered, which every caller today still does.
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+
     # `daily_ohlcv.index` is a real `pd.DatetimeIndex` for every genuine `DataProvider` frame
     # (see `stop_from_price_action`'s own column-shape reference), but a caller-constructed
     # test fixture can hand this a plain `RangeIndex` (e.g. a `pd.concat(..., ignore_index=
@@ -353,20 +374,51 @@ def ratchet_trailing_profit_stop(
 
     entry_price = position.avg_cost_basis
     threshold_profit = entry_price * _TRAILING_STOP_BREAKEVEN_TRIGGER_PCT
-    ratcheted: float | None = None
-    for close in since_entry["close"]:
-        if pd.isna(close):
-            continue
-        # Whether *this specific day* ever triggered is checked directly against the same
-        # profit/threshold comparison `trailing_profit_stop` itself makes -- not inferred by
-        # comparing its return value to `safezone_stop`, which could coincidentally match a
-        # genuinely post-trigger candidate and wrongly exclude it from the ratchet.
-        if (float(close) - entry_price) < threshold_profit:
-            continue
-        candidate = trailing_profit_stop(entry_price, float(close), safezone_stop)
-        ratcheted = candidate if ratcheted is None else max(ratcheted, candidate)
 
-    fresh_candidate = safezone_stop if ratcheted is None else ratcheted
+    # `since_entry` can still be empty here -- not from the two fallbacks above (which only
+    # trade one non-empty frame for another), but when the malformed-bar filter above dropped
+    # every single row of `daily_ohlcv` itself (e.g. a caller-fetched frame that turned out to
+    # be entirely garbage). No day is left to inform the ratchet either way in that case, so
+    # this degrades to `safezone_stop` verbatim -- the same "nothing ever qualified" fallback
+    # as an ordinary never-triggered position -- rather than letting `.iloc[-1]` below raise
+    # `IndexError` on an empty Series.
+    if since_entry.empty:
+        fresh_candidate = safezone_stop
+    else:
+        # Vectorized equivalent of folding `trailing_profit_stop` over every close in
+        # `since_entry` and taking the running max of every day that ever crossed the trigger
+        # -- see this task's (backend-trailing-profit-stop-followups) `decisions` entry for why
+        # this replaced an earlier per-row Python `for` loop (mathematically identical, but
+        # O(N) Python-level work plus a full `trailing_profit_stop` call per row per position
+        # per GET /api/portfolio/risk poll, for no behavioral difference). `profit`/`mask`/
+        # `candidate` mirror `trailing_profit_stop`'s own formula exactly: `candidate` is only
+        # ever meaningful (and only ever consulted, via `.where(mask)`) on a row where `mask`
+        # holds, i.e. where profit has reached the breakeven trigger -- matching that
+        # function's own "at or above that threshold" branch. A NaN close (skipped by the
+        # original loop's explicit `pd.isna(close): continue`) naturally produces NaN
+        # `profit`, which makes `mask` False (a NaN comparison is never True) -- excluded from
+        # the ratchet the same way, with no separate NaN check needed here. `cummax()`
+        # defaults to `skipna=True`, so a NaN entry in `.where`'s masked-out rows never resets
+        # the running max already reached by an earlier qualifying row -- but pandas'
+        # `cummax()` still reports NaN, not the carried-forward max, AT the position of a
+        # masked-out/NaN input itself (e.g. `[nan, 100, 106.667].cummax() ==
+        # [nan, 100, 106.667]`, but appending a trailing masked-out row gives `[..., nan]`,
+        # not `[..., 106.667]`) -- so a naive `.cummax().iloc[-1]` would wrongly report NaN (or
+        # a stale non-final max) whenever the LAST row in `since_entry` happens to be
+        # non-qualifying (e.g. a pullback on the most recent day after an earlier rally already
+        # crossed the trigger). `.ffill()` after `.cummax()` carries the running max forward
+        # through any such trailing gap, so `.iloc[-1]` always reflects the true running max as
+        # of the last row. The result is NaN only when no row in `since_entry` ever qualified
+        # at all, in which case `fresh_candidate` falls back to `safezone_stop` verbatim,
+        # matching the original loop's `ratcheted is None` fallback.
+        profit = since_entry["close"] - entry_price
+        mask = profit >= threshold_profit
+        candidate = entry_price + _TRAILING_STOP_PROFIT_PROTECTION_FRACTION * (
+            profit - threshold_profit
+        )
+        last_ratchet = candidate.where(mask).cummax().ffill().iloc[-1]
+        fresh_candidate = safezone_stop if pd.isna(last_ratchet) else float(last_ratchet)
+
     if persisted_high_water_mark is None:
         return fresh_candidate
     return max(fresh_candidate, persisted_high_water_mark)
@@ -393,27 +445,41 @@ def trailing_stop_floor_before_merge(
     pre-trigger pass-through value a real `GET /api/portfolio/risk` call would have used for
     this position at this exact moment, folded against `persisted_high_water_mark` the same way.
 
-    `daily_ohlcv` is this ticker's latest available daily history, most recent row last, and
-    -- like every other daily-OHLCV consumer in `app.api.routers.portfolio` (`get_portfolio`,
-    `get_risk`) -- must already be filtered through `app.signals.engine
-    .drop_malformed_daily_bars` (with `require_full_ohlc_on_latest_bar=False`, since the most
-    recent bar here can legitimately be today's still-settling one) by the caller before it
-    reaches this function; this function itself doesn't filter, matching `protective_stop`'s own
-    "caller's responsibility" convention. This matters specifically because
-    `persisted_high_water_mark` is a permanent MAX-floor: a single malformed bar (NaN
-    open/high/low, a garbage/partial close) fed in unfiltered could lock in an arbitrarily wrong
-    value that no future correct computation could ever bring back down -- see the PR #240
-    round-3 review finding this docstring update accompanies. Returns `None` (meaning: leave
+    `daily_ohlcv` is this ticker's latest available daily history, most recent row last. It's
+    filtered internally through `app.signals.engine.drop_malformed_daily_bars` (with
+    `require_full_ohlc_on_latest_bar=False`, since the most recent bar here can legitimately be
+    today's still-settling one) as this function's own first step, before either `protective_stop`
+    or `ratchet_trailing_profit_stop` sees it -- like every other daily-OHLCV consumer in
+    `app.api.routers.portfolio` (`get_portfolio`, `get_risk`), the caller (`add_position`) still
+    filters its own copy the same way before calling this function (that filtered frame is also
+    needed for this handler's own logging/error messages), so this internal filtering is
+    idempotent/redundant there today -- but it's no longer purely a docstring-enforced "caller's
+    responsibility" convention the way `protective_stop`'s own column-validation still is (that
+    function is unaffected by this change; only this function and `ratchet_trailing_profit_stop`,
+    the two `persisted_high_water_mark`-touching functions this checklist item named, gained
+    internal filtering). This matters specifically because `persisted_high_water_mark` is a
+    permanent MAX-floor: a single malformed bar (NaN open/high/low, a garbage/partial close) fed
+    in unfiltered could lock in an arbitrarily wrong value that no future correct computation
+    could ever bring back down -- see the PR #240 round-3 review finding that first motivated the
+    caller-side filter, and this task's (backend-trailing-profit-stop-followups) `decisions` entry
+    for why that convention became an internal guarantee instead, closing the same bug class
+    against every future caller, not just today's two. Returns `None` (meaning: leave
     `persisted_high_water_mark` exactly as it was) when `daily_ohlcv` is `None` (the caller's own
-    price fetch already failed) or has fewer than 2 rows, or when
-    `protective_stop`/`ratchet_trailing_profit_stop` raise `ValueError` for it (a malformed/
-    incomplete frame) -- a data-provider hiccup at merge time must never block adding a
-    position, and an un-advanced floor is still safe (it can only ever be too conservative,
-    never so low it lets the ratchet actually decrease later), just possibly stale until a later
-    merge succeeds in advancing it. Otherwise always returns a value `>= persisted_high_water_mark`
-    (whichever is higher), since `ratchet_trailing_profit_stop` itself guarantees that.
+    price fetch already failed), has fewer than 2 rows (before OR after this internal filtering
+    -- a frame that only reaches 2 rows by counting bars this filtering then drops is exactly as
+    uncomputable as one that never had 2 rows at all), or when `protective_stop`/
+    `ratchet_trailing_profit_stop` raise `ValueError` for it (a still-malformed-in-some-other-way
+    frame, e.g. missing a required column) -- a data-provider hiccup at merge time must never
+    block adding a position, and an un-advanced floor is still safe (it can only ever be too
+    conservative, never so low it lets the ratchet actually decrease later), just possibly stale
+    until a later merge succeeds in advancing it. Otherwise always returns a value
+    `>= persisted_high_water_mark` (whichever is higher), since `ratchet_trailing_profit_stop`
+    itself guarantees that.
     """
     if daily_ohlcv is None or len(daily_ohlcv) < 2:
+        return None
+    daily_ohlcv = drop_malformed_daily_bars(daily_ohlcv, require_full_ohlc_on_latest_bar=False)
+    if len(daily_ohlcv) < 2:
         return None
     try:
         safezone_stop = protective_stop(position, daily_ohlcv.iloc[:-1])
