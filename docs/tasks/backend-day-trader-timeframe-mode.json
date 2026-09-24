@@ -98,7 +98,7 @@
     "pushed_at": "2026-09-24T16:55:22Z"
   },
   "review": {
-    "reviewed_at": "2026-09-24T17:06:09Z",
+    "reviewed_at": "2026-09-24T17:10:25Z",
     "pr_url": "https://github.com/rainoko/fintrade/pull/309",
     "verdict": "needs_work",
     "comments": [
@@ -106,6 +106,11 @@
         "summary": "Blocking: PUT /api/settings/trading-mode doesn't ignore day_trader_timeframe_triple when mode='swing' -- update_trading_mode parses and persists any supplied triple regardless of mode, contradicting TradingModeIn.day_trader_timeframe_triple's own documented 'ignored ... when mode is swing' contract and silently overwriting a previously-preserved day-trader triple. Reproduced directly against a live TestClient: PUT day_trader with triple A, then PUT swing with triple B, then GET -- the stored triple becomes B, not preserved A. No test exercises mode='swing' + a supplied triple.",
         "file": "backend/app/api/routers/settings.py",
         "line": 87
+      },
+      {
+        "summary": "Blocking: PUT /api/settings/trading-mode's 422 responses entry declares only a description string, with no content/schema -- unlike the 'dual-422-shape convention' it explicitly claims to follow (GET /api/stocks/{ticker}/history, which declares an explicit content.application/json.schema with anyOf: [HTTPValidationError, ErrorDetail]). Confirmed in the regenerated backend/openapi.json: this 422 has no content key at all, so frontend/src/api/types.ts generates content?: never for it. Violates CLAUDE.md's API documentation standard ('every documented error case declared in responses={...} ... using the ErrorDetail schema').",
+        "file": "backend/app/api/routers/settings.py",
+        "line": 61
       },
       {
         "summary": "Non-blocking: factor_of_five_warnings()'s returned message text, TimeframeTripleOut's OpenAPI field description, and a test comment all still say the guideline band is '3-8x'/'3x-8x', but the actually-implemented band (_FACTOR_OF_FIVE_MIN_RATIO/_MAX_RATIO) is 2x-10x -- stale wording left over from the earlier 3x-8x draft the task's own decisions entry says was widened.",
@@ -128,6 +133,6 @@
         "line": 122
       }
     ],
-    "notes": "Independently re-ran: pytest --cov=app (1287 passed, 100% line/branch coverage), ruff check + mypy (clean), yarn tsc -b --noEmit + yarn eslint (clean), alembic upgrade head / downgrade -1 against a throwaway DB (clean), scripts/export_openapi.py + yarn generate:api-types re-run and diffed byte-for-byte against committed backend/openapi.json + frontend/src/api/types.ts (no diff), scripts/validate_tasks.py (no violations). No UI surface in this PR (settings UI deferred to frontend-day-trader-timeframe-mode-settings) -- browser walkthrough and e2e suite both explicitly skipped. TimeframeTriple model, migration, and the 4-way task split are all sound; the one blocking finding is the swing-mode triple-overwrite bug above."
+    "notes": "Independently re-ran: pytest --cov=app (1287 passed, 100% line/branch coverage), ruff check + mypy (clean), yarn tsc -b --noEmit + yarn eslint (clean), alembic upgrade head / downgrade -1 against a throwaway DB (clean), scripts/export_openapi.py + yarn generate:api-types re-run and diffed byte-for-byte against committed backend/openapi.json + frontend/src/api/types.ts (no diff), scripts/validate_tasks.py (no violations). No UI surface in this PR (settings UI deferred to frontend-day-trader-timeframe-mode-settings) -- browser walkthrough and e2e suite both explicitly skipped. TimeframeTriple model, migration, and the 4-way task split are all sound; the two blocking findings are the swing-mode triple-overwrite bug and the missing 422 content schema on PUT /api/settings/trading-mode above (the latter surfaced by a background code-review pass dispatched during this review and confirmed independently before being added here)."
   }
 }
