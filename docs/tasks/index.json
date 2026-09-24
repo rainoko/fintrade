@@ -1734,8 +1734,8 @@
       "id": "frontend-daily-homework-page-followups-followups-followups",
       "area": "frontend/pages",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/frontend-daily-homework-page-followups-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-daily-homework-page-followups-followups-followups.json"
     },
     {
       "id": "frontend-trade-journal-entry-notes",

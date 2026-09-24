@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #273's round-2 review (DailyHomeworkForm suggestion-gate fix)",
   "area": "frontend/pages",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": [
     "frontend-daily-homework-page-followups-followups"
   ],
@@ -51,5 +51,28 @@
     "pr_number": 288,
     "pr_url": "https://github.com/rainoko/fintrade/pull/288",
     "pushed_at": "2026-09-24T00:26:43Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T00:43:56Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/288",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified `useOnValueChange<T>` is a behavior-identical generalization of `useResetOnSubjectChange`'s prior hand-rolled logic: `useResetOnSubjectChange(subjectId, onReset)` now delegates to `useOnValueChange(subjectId, onReset)` with the exact same compare-prev-value-during-render semantics. All three pre-existing call sites (TradeApgarDialog, FollowUpReviewDialog, ClosePositionDialog) are untouched by the diff; their own test suites (31/31) pass unchanged, and a live browser check of ClosePositionDialog switching between AAPL and MSFT confirmed each dialog opens fresh with no stale prior-subject state and no console errors. `DailyHomeworkForm.tsx`'s new `useOnValueChange(suggestedScore, (newSuggestedScore) => {...})` call site is also a faithful port of the prior `prevSuggestedScore`/`if (suggestedScore !== prevSuggestedScore)` block -- confirmed both by diff inspection and a real-browser race-condition test (delayed suggestion response via Playwright route interception, user edits the field first) showing the suggestion never clobbers the user's own answer.",
+        "file": "frontend/src/features/portfolio/hooks/useResetOnSubjectChange.ts",
+        "line": 28
+      },
+      {
+        "summary": "Confirmed via `yarn vitest run src/features/homework/components/DailyHomeworkForm.test.tsx --reporter=verbose` that the three rewritten tests (the two strengthened 'falls back to neutral' tests plus the new 'does not overwrite a user's own answer' test) now pass with zero React act()-warnings, and that the rewrite is not a tautology: each still asserts the real expected DOM text after the `queryClient.getQueryState(...)?.status` wait settles (e.g. the race-condition test still asserts '0 — Poorly', which differs from the mocked suggested value '2 — Well', so the final assertion is a genuine behavioral check, not a no-op).",
+        "file": "frontend/src/features/homework/components/DailyHomeworkForm.test.tsx",
+        "line": 62
+      },
+      {
+        "summary": "Checklist item 3 correctly treated as a no-op: re-confirmed `DailyHomeworkForm.tsx`'s `suggestionQuery` is still gated on `enabled: todayQuery.isSuccess && !existingEntry`, unchanged by this PR, and the tradeoff is already fully rationalized in the parent task's own prior `decisions` entry. Closing it with a fresh confirming `decisions` entry (rather than re-litigating or amending the original entry) is the correct move per CLAUDE.md's append-only decisions-log default.",
+        "file": "docs/tasks/frontend-daily-homework-page-followups-followups-followups.json",
+        "line": 42
+      }
+    ],
+    "notes": "Full review performed: backend suite 1203 passed, 100% coverage; frontend suite passing with 99.76%/99.3%/99.78%/99.82% statements/branches/functions/lines coverage (well above the 90% gate); backend ruff+mypy and frontend eslint+tsc+profit-target-wording guard+validate_tasks.py all clean; independent `code-review` skill pass (medium effort) against the PR diff found no issues, including a specific check of the useResetOnSubjectChange/useOnValueChange cross-feature-import placement question (already recorded as a considered-and-rejected alternative in this task's own decisions). Area is frontend/pages (not backend/signals or backend/portfolio, skill is null) so verify-elder-signal wasn't applicable; no new module/dependency/layer was added so a full architecture-review pass wasn't loaded, though the hook-placement question was checked against docs/architecture/Frontend.md §3's hooks rule directly (scoped to API-concern hooks, which useOnValueChange isn't -- a genuinely arguable, non-blocking placement call already reasoned through in the PR's own decisions entry). No backend/API/schema changes, so no openapi.json regeneration was needed. Browser walkthrough covered the Daily Homework page (golden path prefill plus a live route-interception race-condition edge case) and the ClosePositionDialog for two different tickers (AAPL, MSFT) in a real headless Chromium session (no chromium-cli available in this environment, so driven directly via the `playwright` npm package already vendored in frontend/node_modules) -- no console/page errors in either. Did not get a live click-through of TradeApgarDialog/FollowUpReviewDialog specifically (StockDetailPage's live analysis query stalled indefinitely in my ad hoc manual session for reasons unrelated to this diff -- StockDetailPage.tsx/useStockAnalysis are untouched by this PR, and the full persisted e2e suite's own stock-analysis.spec.ts exercises that same page successfully, so this looks like an artifact of my own throwaway script/session rather than an app regression); relied instead on diff-level equivalence (the wrapper is a one-line delegation with an unchanged call signature) plus each dialog's own full unit test suite passing (31/31 total across the three portfolio dialogs). Ran the persisted e2e suite (`make e2e`): 23/23 specs passed. No blocking findings; no non-blocking findings needed tracking as a follow-up task either (nothing survived scrutiny as an actual open item -- see comments above, all of which confirm correctness rather than flag anything to fix later)."
   }
 }
