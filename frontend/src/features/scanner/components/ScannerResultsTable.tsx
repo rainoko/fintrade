@@ -1,10 +1,11 @@
 import AddIcon from '@mui/icons-material/Add'
 import CheckIcon from '@mui/icons-material/Check'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlined'
+import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { IBKRScannerResultOut } from '../../../api/ibkr'
 import DataTable, { type DataTableColumn } from '../../../components/common/DataTable/DataTable'
 import TickerLink from '../../../components/common/TickerLink/TickerLink'
@@ -39,42 +40,92 @@ export interface ScannerResultsTableProps {
  * `mutate()` call) and carries the failure detail as both its Tooltip title
  * and its `aria-label`, so it's discoverable without adding any visible
  * vertical space to the row.
+ *
+ * Two accessibility properties the round-3 fix above initially dropped
+ * (round-4 finding, PR #243) are restored here without reintroducing the
+ * layout regression the round-3 fix itself fixed:
+ *
+ * 1. Focus is moved programmatically to the retry `IconButton` the moment
+ *    `isError` becomes true (the `useEffect` below) — swapping from
+ *    `<Button>` to `<IconButton>` unmounts the focused node and mounts a new
+ *    one in its place, so without this the browser drops focus to
+ *    `document.body`, forcing a keyboard user to tab from the top of the
+ *    page to reach the retry control instead of just pressing Enter again.
+ * 2. A visually-hidden `role="status"` element (always mounted, so its text
+ *    mutating on failure is a reliable live-region update regardless of
+ *    mount timing) announces the failure to assistive tech even for a user
+ *    who has already moved focus elsewhere (e.g. to check another row while
+ *    this row's request is still in flight) — `role="status"`, not
+ *    `role="alert"`, so it doesn't reintroduce the "full ErrorState block"
+ *    landmark this component's own tests assert is gone (see
+ *    ScannerResultsTable.test.tsx's `queryByRole('alert')` assertion).
  */
 function ScannerAddToWatchlistButton({ ticker }: { ticker: string }) {
   const addWatchlistItem = useAddWatchlistItem()
   const [added, setAdded] = useState(false)
+  const retryButtonRef = useRef<HTMLButtonElement>(null)
 
   const handleAdd = () =>
     addWatchlistItem.mutate({ ticker }, { onSuccess: () => setAdded(true) })
 
-  if (addWatchlistItem.isError) {
-    return (
-      <Tooltip title={`${addWatchlistItem.error.detail} Click to retry.`}>
-        <span>
-          <IconButton
-            aria-label={`Retry adding ${ticker} to watchlist`}
-            size="small"
-            color="error"
-            disabled={addWatchlistItem.isPending}
-            onClick={handleAdd}
-          >
-            <ErrorOutlineIcon fontSize="small" />
-          </IconButton>
-        </span>
-      </Tooltip>
-    )
-  }
+  useEffect(() => {
+    if (addWatchlistItem.isError) {
+      retryButtonRef.current?.focus()
+    }
+  }, [addWatchlistItem.isError])
+
+  const failureAnnouncement = addWatchlistItem.isError
+    ? `Failed to add ${ticker} to watchlist: ${addWatchlistItem.error.detail}`
+    : ''
 
   return (
-    <Button
-      size="small"
-      startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
-      disabled={added}
-      loading={addWatchlistItem.isPending}
-      onClick={handleAdd}
-    >
-      {added ? 'Added' : 'Add to watchlist'}
-    </Button>
+    <>
+      {/* Always mounted (only its text content changes) so the live-region
+          update is announced reliably rather than depending on the element
+          itself being freshly inserted into the DOM. */}
+      <Box
+        role="status"
+        sx={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        {failureAnnouncement}
+      </Box>
+      {addWatchlistItem.isError ? (
+        <Tooltip title={`${addWatchlistItem.error.detail} Click to retry.`}>
+          <span>
+            <IconButton
+              ref={retryButtonRef}
+              aria-label={`Retry adding ${ticker} to watchlist`}
+              size="small"
+              color="error"
+              disabled={addWatchlistItem.isPending}
+              onClick={handleAdd}
+            >
+              <ErrorOutlineIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      ) : (
+        <Button
+          size="small"
+          startIcon={added ? <CheckIcon fontSize="small" /> : <AddIcon fontSize="small" />}
+          disabled={added}
+          loading={addWatchlistItem.isPending}
+          onClick={handleAdd}
+        >
+          {added ? 'Added' : 'Add to watchlist'}
+        </Button>
+      )}
+    </>
   )
 }
 

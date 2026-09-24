@@ -141,4 +141,52 @@ describe('ScannerResultsTable', () => {
       expect(screen.getByRole('button', { name: 'Added' })).toBeInTheDocument(),
     )
   })
+
+  it('moves focus to the retry control on a failed add (regression, PR #243 round 4)', async () => {
+    // The round-3 fix (compact inline retry icon) swaps <Button> for a
+    // different <IconButton> element on failure -- React unmounts the
+    // focused node and mounts a new one, which drops keyboard focus to
+    // document.body unless it's moved programmatically.
+    server.use(
+      http.post('/api/watchlist', () =>
+        HttpResponse.json({ detail: 'Something went wrong.' }, { status: 422 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderResultsTable(results)
+
+    const addButton = screen.getAllByRole('button', { name: 'Add to watchlist' })[0]
+    addButton.focus()
+    await user.click(addButton)
+
+    const retryButton = await screen.findByRole('button', {
+      name: 'Retry adding AAPL to watchlist',
+    })
+    await waitFor(() => expect(document.activeElement).toBe(retryButton))
+  })
+
+  it('announces a failed add via a live region, even for a user not focused on that row (regression, PR #243 round 4)', async () => {
+    // role="status" doesn't support "name from content" (ARIA accname spec),
+    // so this asserts on the live region's textContent rather than its
+    // accessible name.
+    server.use(
+      http.post('/api/watchlist', () =>
+        HttpResponse.json({ detail: 'Something went wrong.' }, { status: 422 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderResultsTable(results)
+
+    // No announcement before anything fails -- one silent live region per row.
+    expect(screen.getAllByRole('status').map((el) => el.textContent)).toEqual(['', ''])
+
+    await user.click(screen.getAllByRole('button', { name: 'Add to watchlist' })[0])
+    await screen.findByRole('button', { name: 'Retry adding AAPL to watchlist' })
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('status').map((el) => el.textContent)).toContain(
+        'Failed to add AAPL to watchlist: Something went wrong.',
+      )
+    })
+  })
 })
