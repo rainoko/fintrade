@@ -34,5 +34,11 @@
       "rationale": "This flips the previous default from 'always suppressed, PriceChart assumed to be a sibling' to 'shown by default, suppressed only on explicit opt-in' -- the same safe-default posture `SellFlaggedPositionsCard`'s own prop doc comment documents (a standalone mount, a future page, or a Storybook story that doesn't pass the prop still surfaces a real fetch failure instead of silently rendering nothing). Making the coupling an explicit prop at the `StockCharts.tsx` composition site, rather than a hard-coded assumption baked into each of the three chart components, is exactly what the checklist item asked for: the dependency on PriceChart existing as a sibling is now structurally visible (a prop passed at the call site) and order-independent (doesn't depend on PriceChart literally being rendered first, just on the same `errorSurfacedBySibling` contract being honored), rather than only documented in a code comment that nothing enforces."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-position-risk-columns-followups-followups-followups-followups",
+    "pr_number": 289,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/289",
+    "pushed_at": "2026-09-24T01:05:00Z"
+  }
 }
