@@ -1,0 +1,22 @@
+{
+  "id": "backend-profit-target-weekly-channel-followups-followups-followups-followups",
+  "title": "Non-blocking follow-up from backend-profit-target-weekly-channel-followups-followups-followups PR #307 review",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-profit-target-weekly-channel-followups-followups-followups"],
+  "references": [
+    "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json",
+    "https://github.com/rainoko/fintrade/pull/307",
+    "scripts/check_profit_target_wording.py"
+  ],
+  "description": "Non-blocking finding from pr-reviewer's full review of PR #307 (backend-profit-target-weekly-channel-followups-followups-followups, aligning check_profit_target_wording.py's run-based dedup key to (pattern_index, lineno) and adding 3 regression tests). PR #307's blocking finding (the nested-f-string regression test not genuinely exercising _find_fstring_end_index's depth-tracking branch) sent the task itself back to implementing -- this is a separate, independently-verified, non-blocking gap found during the same review pass, worth tracking so it isn't lost once the parent task re-merges.",
+  "checklist": [
+    {
+      "step": "`_find_run_violations`'s `reported` dedup set is local to a single implicit-concatenation-run invocation, both before and after PR #307's dedup-key change from `lineno`-only to `(pattern_index, lineno)`. Two *separate* implicit-concatenation runs that happen to sit on the same physical source line (e.g. two statements separated by a semicolon, each its own run) and both match the same banned pattern each get their own fresh `reported` set inside `_find_run_violations`, so `check_banned_patterns` ends up emitting two duplicate violation strings for the same `(pattern_index, lineno)` instead of deduping across runs. Verified directly: `x = \"today's \" \"Autoenvelope\"; y = \"today's \" \"Autoenvelope\"` on one line produces 2 identical violation strings both on `main` before PR #307 and after it -- confirming PR #307's dedup-key change did not introduce this (per the parent task's own verification ask), but also that it didn't fix this pre-existing, narrower gap either. Cosmetic duplicate reporting only (the guard still correctly fails and points at the right line; no missed regression), and the two-runs-on-one-line shape it requires (semicolon-separated statements using implicit string concatenation) isn't used anywhere in this codebase's actual style today. Worth threading a per-file `reported` set into `_find_run_violations` (or having `check_banned_patterns` dedupe across all of a file's per-run violations at the call site) so a rare same-line multi-run case doesn't double-count, for the same dedup-granularity-consistency reason PR #307's own fix cited.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

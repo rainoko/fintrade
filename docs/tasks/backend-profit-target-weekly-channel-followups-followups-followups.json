@@ -3,7 +3,7 @@
   "title": "Non-blocking follow-ups from backend-profit-target-weekly-channel-followups-followups PR #226 review",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["backend-profit-target-weekly-channel-followups-followups"],
   "references": [
     "docs/tasks/backend-profit-target-weekly-channel-followups-followups.json",
@@ -41,8 +41,8 @@
       "done": true
     },
     {
-      "step": "(Round 7 review, PR #226) None of the 4 new round-7 regression tests exercise `_find_fstring_end_index`'s nesting-depth-tracking branch (a genuinely nested f-string, e.g. `f\"outer {f'inner'}\"`) or its defensive fallback return -- confirmed via `coverage run --branch -m unittest discover -s scripts/tests` against `scripts/check_profit_target_wording.py`: lines 302->296 (the depth-increment branch on a nested FSTRING_START) and 307 (the fallback) are never hit by the existing 63 tests. Manually verified directly (outside the test suite) that a nested f-string is handled correctly -- `_find_fstring_end_index` correctly returns the *outer* FSTRING_END's index, not the inner one, confirmed via a depth-tracking dump -- so this is a coverage gap for correctly-behaving code, not a live bug. But given this exact function's history (three separate axes of bugs across 6 rounds before this one), and that nested f-strings were explicitly one of the round-7 dispatch's named stress-test scenarios, it's worth locking this in with an actual regression test (e.g. `f\"outer {f'inner {1}'} today's Autoenvelope\"` implicitly concatenated to a trailing real string) rather than relying on a one-off manual review check.",
-      "done": true
+      "step": "(Round 7 review, PR #226) None of the 4 new round-7 regression tests exercise `_find_fstring_end_index`'s nesting-depth-tracking branch (a genuinely nested f-string, e.g. `f\"outer {f'inner'}\"`) or its defensive fallback return -- confirmed via `coverage run --branch -m unittest discover -s scripts/tests` against `scripts/check_profit_target_wording.py`: lines 302->296 (the depth-increment branch on a nested FSTRING_START) and 307 (the fallback) are never hit by the existing 63 tests. Manually verified directly (outside the test suite) that a nested f-string is handled correctly -- `_find_fstring_end_index` correctly returns the *outer* FSTRING_END's index, not the inner one, confirmed via a depth-tracking dump -- so this is a coverage gap for correctly-behaving code, not a live bug. But given this exact function's history (three separate axes of bugs across 6 rounds before this one), and that nested f-strings were explicitly one of the round-7 dispatch's named stress-test scenarios, it's worth locking this in with an actual regression test (e.g. `f\"outer {f'inner {1}'} today's Autoenvelope\"` implicitly concatenated to a trailing real string) rather than relying on a one-off manual review check. PR #307 REVIEW FINDING (blocking): the `test_nested_fstring_end_index_is_found_correctly` test PR #307 added for this item does not actually verify `_find_fstring_end_index`'s depth-tracking correctness -- see this task's `review.comments` for the reproduced evidence (monkey-patching a depth-tracking-free `_find_fstring_end_index` still passes this exact test and the full 66-test suite). Left `done: false` until a genuinely discriminating regression test replaces it.",
+      "done": false
     }
   ],
   "decisions": [
@@ -83,5 +83,33 @@
     "pr_number": 307,
     "pr_url": "https://github.com/rainoko/fintrade/pull/307",
     "pushed_at": "2026-09-24T15:26:48Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-24T15:39:46Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/307",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "BLOCKING. The new `test_nested_fstring_end_index_is_found_correctly` test (meant to close checklist item 8) does not actually exercise/verify `_find_fstring_end_index`'s nesting-depth-tracking branch -- it passes identically whether that function correctly tracks nesting or not. Verified directly two ways: (1) monkey-patching `_find_fstring_end_index` to ignore nesting entirely (return the first `FSTRING_END` encountered, as if depth tracking were deleted) still makes this exact new test -- and the entire 66-test suite -- pass. (2) Root cause: under the broken version, `_iter_implicit_concat_runs` stops the run early (after only [STRING, FSTRING_START], never reaching the trailing \"Autoenvelope\" string), and separately, even the CORRECT 3-member run ([STRING, FSTRING_START, STRING]) short-circuits `_find_run_violations` to `[]` the instant it hits the undecodable f-string member -- before whichever index `_find_fstring_end_index` returned could ever affect the outcome. So `assertEqual(check_banned_patterns([path]), [])` holds under both correct and completely-broken depth tracking. This directly fails to accomplish what checklist item 8 and the PR description both claim it accomplishes, on the exact function that's had three separate axes of bugs across 6 prior review rounds. Fix: assert directly on `_find_fstring_end_index`'s own return value (e.g. call it on the tokenized stream and assert the returned index's token is the true outer `FSTRING_END`, distinguished by position/identity from the inner one), or assert on `_iter_implicit_concat_runs`'s returned run shape (3 members, correctly including the trailing string) rather than relying on the full pipeline's decode-short-circuit to mask the difference. Independently reproduced by a backgrounded `code-review` (effort high) pass against this same diff, which found the identical gap via its own from-scratch monkey-patch probe.",
+        "file": "scripts/tests/test_check_profit_target_wording.py",
+        "line": 472
+      },
+      {
+        "summary": "Confirmed non-blocking: checklist items 1 and 2 (the quote-stripped 'found' excerpt, and _STRING_CONCAT_JOIN_RE's same-quote-character backreference) genuinely describe dead/superseded code. Independently verified via `git log --all -p -- scripts/check_profit_target_wording.py`: `_join_implicit_string_concatenation`/`_STRING_CONCAT_JOIN_RE` only ever appear with a '-' (removed) in the diff history of PR #226's review-round commits, never with a '+' in the single squashed commit (7b0a489) that actually landed on `main` -- and `grep` on the current file confirms neither identifier exists today. Task-worker's `decisions` entries for these two items are accurate.",
+        "file": "docs/tasks/backend-profit-target-weekly-channel-followups-followups-followups.json",
+        "line": 16
+      },
+      {
+        "summary": "Confirmed non-blocking: the dedup-key change from `lineno`-only to `(pattern_index, lineno)` is safe and matches the per-line scan's own dedup granularity (`check_banned_patterns`'s own `reported` set uses the identical key shape). Verified the specific over-counting scenario named in the review request (the same pattern matching twice on one line via two different runs) does NOT get newly introduced by this change -- reproduced identically on `main` before this PR (old lineno-only dedup already produced 2 duplicate violations for two implicit-concat runs on one semicolon-separated line) and after it. This pre-existing, narrower gap is filed as a non-blocking follow-up (see the `-followups` task) since it's real but orthogonal to what this PR changed.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 653
+      },
+      {
+        "summary": "Confirmed non-blocking/safe: the dead `member = tok._replace(end=tokens[end_index].end)` removal (checklist item 7) is genuinely safe. Repo-wide `grep -n \"\\.end\\b\"` on the post-fix file confirms no downstream code reads a run member's tokenize `.end` for an f-string member -- the only other `.end`-shaped names are the unrelated `_PieceSpan.end` field (computed from `cursor + len(value)`, never from `tok.end`) and `re.Match.end()`.",
+        "file": "scripts/check_profit_target_wording.py",
+        "line": 349
+      }
+    ],
+    "notes": "Backend: ruff/mypy clean, pytest 1244 passed, 100% coverage. Frontend: lint/tsc clean, vitest 882 passed, coverage well above 90% gate. scripts/tests/: 66 tests pass; live guard run (`python3 scripts/check_profit_target_wording.py`) clean against the real repo tree; `scripts/validate_tasks.py` reports a structurally valid board. No frontend/UI surface touched by this PR (scripts/ + docs/tasks/ only) -- browser walkthrough (step 9) and the persisted e2e suite (step 9a) are both explicitly skipped as not applicable. `area: backend/signals` per task metadata, but the diff itself doesn't touch app/signals or app/portfolio -- verify-elder-signal's methodology check doesn't materially apply beyond confirming the new doc comment's description of the guard's own scope boundary is accurate (it is). No new module/dependency/layer added -- architecture-review not applicable. This PR's own dispatch explicitly asked for scrutiny of the dedup-key change and the nested-f-string test; both were checked with direct empirical repro (monkey-patching/probing the actual functions), not just a read-through, and one of those two checks (the nested-f-string test) is the basis for the needs_work verdict."
   }
 }
