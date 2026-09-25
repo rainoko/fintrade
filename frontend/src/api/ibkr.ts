@@ -1,8 +1,10 @@
 // Typed endpoint functions for /api/ibkr* (docs/architecture/API.md): the
 // gateway status/breadth-snapshot slice (GET /api/ibkr/status, POST
-// /api/ibkr/breadth/snapshot) and the market-scanner slice (GET
-// /api/ibkr/scanner/params, POST /api/ibkr/scanner/run). Response shapes come
-// straight from the generated types.ts.
+// /api/ibkr/breadth/snapshot), the market-scanner slice (GET
+// /api/ibkr/scanner/params, POST /api/ibkr/scanner/run), and the
+// portfolio-preload slice (GET /api/ibkr/portfolio-preview, POST
+// /api/ibkr/portfolio-preload -- frontend-ibkr-portfolio-preload). Response
+// shapes come straight from the generated types.ts.
 
 import { request } from './client'
 import type { components } from './types'
@@ -14,6 +16,12 @@ export type IBKRScannerParamsResponse = components['schemas']['IBKRScannerParams
 export type IBKRScannerRunRequest = components['schemas']['IBKRScannerRunRequest']
 export type IBKRScannerRunResponse = components['schemas']['IBKRScannerRunResponse']
 export type IBKRScannerResultOut = components['schemas']['IBKRScannerResultOut']
+export type IBKRPortfolioPreviewResponse = components['schemas']['IBKRPortfolioPreviewResponse']
+export type IBKRPortfolioPreviewPositionOut =
+  components['schemas']['IBKRPortfolioPreviewPositionOut']
+export type IBKRPortfolioPreloadResponse = components['schemas']['IBKRPortfolioPreloadResponse']
+export type IBKRPortfolioPreloadImportedPositionOut =
+  components['schemas']['IBKRPortfolioPreloadImportedPositionOut']
 
 /**
  * `GET /api/ibkr/status` — whether the optional IBKR Client Portal Gateway
@@ -70,5 +78,36 @@ export function runIbkrScanner(payload: IBKRScannerRunRequest): Promise<IBKRScan
   return request<IBKRScannerRunResponse>('/api/ibkr/scanner/run', {
     method: 'POST',
     body: payload,
+  })
+}
+
+/**
+ * `GET /api/ibkr/portfolio-preview` — read-only preview of the connected
+ * IBKR account's current equity positions, each flagged with whether it
+ * conflicts with an existing local `positions` row right now. Makes no DB
+ * writes. Same never-rejects-for-unavailability convention as
+ * `getIbkrScannerParams` above (`disabled`/`gateway_unreachable`/
+ * `not_authenticated` are ordinary `200` bodies with `positions: null`) —
+ * only a genuine transient fetch failure rejects with a `503` `ApiError`.
+ */
+export function getIbkrPortfolioPreview(): Promise<IBKRPortfolioPreviewResponse> {
+  return request<IBKRPortfolioPreviewResponse>('/api/ibkr/portfolio-preview')
+}
+
+/**
+ * `POST /api/ibkr/portfolio-preload` — re-fetches IBKR positions, re-checks
+ * each against the local `positions` table's CURRENT state, and imports
+ * every ticker that still doesn't conflict. Takes no request body (every
+ * currently non-conflicting position is imported in one call — see
+ * `backend-ibkr-portfolio-preload`'s own `decisions` entry for why there's
+ * no per-ticker selection parameter); the caller controls what "currently
+ * non-conflicting" means only by choosing which local positions to delete
+ * first via `deletePosition` before calling this. Same
+ * never-rejects-for-unavailability convention as `getIbkrPortfolioPreview`
+ * above.
+ */
+export function preloadIbkrPortfolio(): Promise<IBKRPortfolioPreloadResponse> {
+  return request<IBKRPortfolioPreloadResponse>('/api/ibkr/portfolio-preload', {
+    method: 'POST',
   })
 }

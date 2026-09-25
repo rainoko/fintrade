@@ -1,9 +1,23 @@
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { resetPortfolioStore } from '../../tests/mocks/handlers'
 import { server } from '../../tests/mocks/server'
-import { getIbkrScannerParams, getIbkrStatus, runIbkrScanner } from './ibkr'
+import {
+  getIbkrPortfolioPreview,
+  getIbkrScannerParams,
+  getIbkrStatus,
+  preloadIbkrPortfolio,
+  runIbkrScanner,
+} from './ibkr'
 
 describe('api/ibkr', () => {
+  // preloadIbkrPortfolio's own test below mutates the shared in-memory
+  // `positions` store (it actually imports NVDA) -- reset it so a later test
+  // added to this file can't silently inherit that mutation.
+  afterEach(() => {
+    resetPortfolioStore()
+  })
+
   it('getIbkrStatus returns the default disabled state, matching the real backend default', async () => {
     const status = await getIbkrStatus()
 
@@ -80,5 +94,74 @@ describe('api/ibkr', () => {
     await expect(
       runIbkrScanner({ scan_config: { instrument: 'STK', location: 'STK.US.MAJOR', type: 'X' } }),
     ).rejects.toMatchObject({ status: 429, retryAfterSeconds: 1 })
+  })
+
+  it('getIbkrPortfolioPreview returns the available positions fixture, flagging the AAPL conflict', async () => {
+    const response = await getIbkrPortfolioPreview()
+
+    expect(response.state).toBe('available')
+    expect(response.positions).toEqual([
+      {
+        conid: 265598,
+        ticker: 'AAPL',
+        quantity: 50,
+        avg_cost: 150.25,
+        conflicts_with_existing_position: true,
+      },
+      {
+        conid: 272093,
+        ticker: 'NVDA',
+        quantity: 10,
+        avg_cost: 900.5,
+        conflicts_with_existing_position: false,
+      },
+    ])
+  })
+
+  it('getIbkrPortfolioPreview surfaces a disabled state as a normal (never rejecting) response', async () => {
+    server.use(
+      http.get('/api/ibkr/portfolio-preview', () =>
+        HttpResponse.json({
+          state: 'disabled',
+          detail: 'IBKR integration is disabled.',
+          positions: null,
+        }),
+      ),
+    )
+
+    const response = await getIbkrPortfolioPreview()
+
+    expect(response.state).toBe('disabled')
+    expect(response.positions).toBeNull()
+  })
+
+  it('getIbkrPortfolioPreview rejects with an ApiError on a 503', async () => {
+    server.use(
+      http.get('/api/ibkr/portfolio-preview', () =>
+        HttpResponse.json({ detail: 'Account-positions fetch failed.' }, { status: 503 }),
+      ),
+    )
+
+    await expect(getIbkrPortfolioPreview()).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('preloadIbkrPortfolio imports the non-conflicting NVDA position, skipping conflicting AAPL', async () => {
+    const response = await preloadIbkrPortfolio()
+
+    expect(response.state).toBe('available')
+    expect(response.imported).toEqual([
+      expect.objectContaining({ ticker: 'NVDA', quantity: 10, avg_cost_basis: 900.5 }),
+    ])
+    expect(response.skipped_conflicting_tickers).toEqual(['AAPL'])
+  })
+
+  it('preloadIbkrPortfolio rejects with an ApiError on a 503', async () => {
+    server.use(
+      http.post('/api/ibkr/portfolio-preload', () =>
+        HttpResponse.json({ detail: 'Account-positions fetch failed.' }, { status: 503 }),
+      ),
+    )
+
+    await expect(preloadIbkrPortfolio()).rejects.toMatchObject({ status: 503 })
   })
 })

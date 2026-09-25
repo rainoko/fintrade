@@ -29,9 +29,17 @@
 // with no separate explicit invalidation needed, same prefix-matching
 // rationale as `risk`/`closedTrades` above (frontend-trade-journal-followup-review
 // task's `decisions` entry).
+// `ibkrPreview` nests under `all` for the same reason: `useIbkrPortfolioPreload`'s
+// `onSettled` invalidation of `portfolioKeys.all` (frontend-ibkr-portfolio-preload)
+// also invalidates this preview query via the same prefix-matching, so a
+// re-opened IbkrPreloadDialog after a completed (or partially-failed)
+// preload attempt never shows a stale conflict read against positions that
+// were just deleted/imported -- no separate explicit invalidation call
+// needed in that hook.
 export const portfolioKeys = {
   all: ['portfolio'] as const,
   risk: ['portfolio', 'risk'] as const,
   closedTrades: ['portfolio', 'closed-trades'] as const,
   dueForFollowUpTrades: ['portfolio', 'closed-trades', 'due-for-follow-up'] as const,
+  ibkrPreview: ['portfolio', 'ibkr-preview'] as const,
 }

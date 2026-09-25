@@ -2273,8 +2273,8 @@
       "id": "frontend-ibkr-portfolio-preload",
       "area": "frontend/portfolio",
       "skill": "add-frontend-feature",
-      "state": "planned",
-      "path": "docs/tasks/frontend-ibkr-portfolio-preload.json"
+      "state": "done",
+      "path": "docs/tasks/done/frontend-ibkr-portfolio-preload.json"
     },
     {
       "id": "backend-ibkr-portfolio-preload-followups",
@@ -2282,6 +2282,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-ibkr-portfolio-preload-followups.json"
+    },
+    {
+      "id": "frontend-ibkr-portfolio-preload-followups",
+      "area": "frontend/portfolio",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-ibkr-portfolio-preload-followups.json"
     }
   ]
 }
