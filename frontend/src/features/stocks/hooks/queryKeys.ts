@@ -8,7 +8,17 @@
 // — GET /api/stocks/{ticker}/indicators has no such param, see
 // useIndicatorHistory.ts), consistent with `history`'s range-keying
 // convention per the frontend-chart-signal-overlay task's checklist.
+//
+// `all` is the shared top-level prefix every one of the above keys already
+// nests under (`['stocks', ...]`) — added for
+// frontend-day-trader-timeframe-mode-settings-followups so
+// useUpdateTradingMode can invalidate every stocks-feature query via
+// TanStack Query's own prefix-matching `invalidateQueries`, the same
+// `xKeys.all` convention useAddPosition/useAddWatchlistItem already use for
+// their own feature, without needing a second, independently-typed literal
+// `['stocks']` array kept in sync by hand.
 export const stocksKeys = {
+  all: ['stocks'] as const,
   analysis: (ticker: string) => ['stocks', 'analysis', ticker] as const,
   history: (ticker: string, range: string, interval: string) =>
     ['stocks', 'history', ticker, range, interval] as const,
