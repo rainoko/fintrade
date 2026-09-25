@@ -1,0 +1,72 @@
+{
+  "id": "frontend-ux-block-layout-audit-followups",
+  "title": "Non-blocking finding from PR #331's review (frontend-ux-block-layout-audit)",
+  "area": "frontend/ux",
+  "skill": null,
+  "state": "done",
+  "depends_on": ["frontend-ux-block-layout-audit"],
+  "references": [
+    "docs/tasks/done/frontend-ux-block-layout-audit.json",
+    "https://github.com/rainoko/fintrade/pull/331"
+  ],
+  "description": "Tracked follow-up for a single non-blocking finding raised in pr-reviewer's review of PR #331 (frontend-ux-block-layout-audit) -- a minor citation-attribution looseness in the audit's own closing `decisions` entry, not a factual error in any individual per-view entry, so it doesn't block the accept but is worth correcting so a future reader doesn't have to re-derive which citation actually backs which claim.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/frontend-ux-block-layout-audit.json's closing 'Audit conclusion' decisions entry cites all four tasks it references anywhere in the audit (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags) as a single parenthetical list backing 'the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering)'. In fact only frontend-position-risk-columns and frontend-dashboard-page actually justify those two specific first-glance-questionable items (per the audit's own Portfolio and Dashboard per-view decisions entries, which cite them individually and correctly). frontend-indicator-seasons-badge backs an unrelated per-view judgment (Stock Detail's Season card placement) and frontend-dashboard-sell-flags backs another unrelated one (Dashboard's SellFlaggedPositionsCard placement/scope) -- neither is actually about the two flagged-as-questionable arrangements the closing sentence's phrasing implies they support. Each individual citation is itself accurate (verified against the cited tasks' own decisions text during PR #331's review) -- this is a wording/attribution-grouping nit in the closing summary only, not a factual error in any per-view entry. Fix: append a new `decisions` entry (per CLAUDE.md's append-only-by-default rule for correcting an existing entry) narrowing the closing entry's citation list to the two tasks that actually back the two first-glance-questionable items, and noting the other two are cited elsewhere in the audit for unrelated points.",
+      "done": true
+    }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T16:32:36Z",
+      "recorded_by": "task-worker",
+      "decision": "No further edit to docs/tasks/done/frontend-ux-block-layout-audit.json is needed -- the checklist's requested fix (append a new decisions entry narrowing the closing 'Audit conclusion' entry's citation list to the two tasks that actually back the two first-glance-questionable items, frontend-position-risk-columns and frontend-dashboard-page, and noting that frontend-indicator-seasons-badge and frontend-dashboard-sell-flags are cited elsewhere in the audit for unrelated points) was already carried out during PR #331's own review pass: pr-reviewer appended exactly that corrective decisions entry (timestamped 2026-09-25T16:19:38Z, 'Narrowing note on the Audit conclusion entry above') before the PR merged, and it landed on main as part of that merge. Re-read the merged file directly (not just this follow-up task's own paraphrase of the finding) to confirm the appended text does state the narrowed two-task attribution and does note the other two are 'correctly cited in their own per-view entries above'.",
+      "rationale": "CLAUDE.md's append-only-by-default convention calls for a *new* decisions entry to correct the stale grouping, not an in-place edit of the original closing entry's text -- and this task's own checklist item asks for exactly that append, not for rewriting the closing entry's own wording (the narrower carve-out for in-place amendment doesn't apply here since the checklist never calls out the closing entry's own text as the thing to fix). Since that append already exists and independently says what this task's checklist asked for, doing it again would create a second, redundant correction entry for the same finding rather than adding new information -- which the append-only log's own point (a self-describing timeline of when each correction was made) doesn't call for once a correction has already been made once. Filing a duplicate would also misrepresent the review as having missed this rather than having already caught and fixed it during PR #331. This follow-up task itself still serves its purpose per CLAUDE.md's tracked-follow-up rule (a PR-comment-only record disappears once the PR merges) by giving the finding a durable board entry with this closing note, even though the underlying correction needed no new code/doc change beyond what pr-reviewer already committed."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ux-block-layout-audit-followups",
+    "pr_number": 332,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/332",
+    "pushed_at": "2026-09-25T16:34:08Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T16:40:22Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/332",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified firsthand (not just trusting task-worker's claim) by reading docs/tasks/done/frontend-ux-block-layout-audit.json directly: the 'Narrowing note on the Audit conclusion entry above' decisions entry, timestamped 2026-09-25T16:19:38Z and recorded_by pr-reviewer, genuinely already exists on main and does narrow the closing entry's citation list to frontend-position-risk-columns/frontend-dashboard-page for the two first-glance-questionable items, noting the other two are cited elsewhere -- exactly what this followup task's checklist item asked for. No duplicate correction was needed, and none was made.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 100
+      },
+      {
+        "summary": "Confirmed via `git diff main...HEAD --stat` that this PR touches only docs/tasks/frontend-ux-block-layout-audit-followups.json and docs/tasks/index.json -- no edit to the already-done frontend-ux-block-layout-audit.json, matching the PR description's own claim.",
+        "file": "docs/tasks/index.json",
+        "line": 1
+      },
+      {
+        "summary": "'Verify already resolved, don't duplicate' was the right call: re-filing the same correction would have created a redundant second decisions entry for the same finding and misrepresented the review as having missed something it had actually already caught and fixed during PR #331. Recording the verification as a fresh decisions entry on this follow-up task itself (rather than silently closing the checklist item with no trace) correctly gives the finding a durable board entry per CLAUDE.md's tracked-follow-up rule, even though no new doc edit was required.",
+        "file": "docs/tasks/frontend-ux-block-layout-audit-followups.json",
+        "line": 23
+      },
+      {
+        "summary": "New finding (non-blocking, doesn't affect this PR's own diff correctness): the already-merged 'Narrowing note' entry on docs/tasks/done/frontend-ux-block-layout-audit.json itself contains a minor inaccuracy it was meant to fix -- it claims frontend-dashboard-sell-flags is 'correctly cited in their own per-view entries above', but grep-confirmed the task id 'frontend-dashboard-sell-flags' is never actually cited by name in any per-view decisions entry (the Dashboard entry names only frontend-dashboard-page, for RiskSummaryCard; the 'Positions Flagged to Sell' card it also describes is never explicitly attributed to frontend-dashboard-sell-flags by id, even though that task did introduce that card). Doesn't affect the audit's substantive conclusion or PR #332's own changes. Filed as a checklist item on docs/tasks/frontend-ux-block-layout-audit-followups-followups.json per CLAUDE.md's append-only-by-default convention for correcting an already-done task's decisions text.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 46
+      },
+      {
+        "summary": "Ran the full verification suite even though this is a task-board-only diff with no application code: backend `ruff check .` and `mypy` clean; `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` -- 1406 passed, 100% coverage; frontend `yarn lint` and `yarn tsc -b --noEmit` clean; `yarn test:coverage` -- 99.78%/99.1%/99.8%/99.83% stmt/branch/func/line, all above the 90% gate, no regression. `python3 scripts/validate_tasks.py` clean (321 files); `python3 scripts/check_profit_target_wording.py` clean. code-review skill (medium effort) found zero correctness issues.",
+        "file": "docs/tasks/frontend-ux-block-layout-audit-followups.json",
+        "line": 1
+      }
+    ],
+    "notes": "Full review of PR #332, a task-board-only PR (docs/tasks/frontend-ux-block-layout-audit-followups.json + docs/tasks/index.json, no application code). Per this review's specific instructions: (1) read docs/tasks/done/frontend-ux-block-layout-audit.json directly and confirmed the 'Narrowing note' decisions entry the task-worker cites genuinely already exists, was appended during PR #331's review, and genuinely resolves this followup task's checklist item; (2) confirmed via `git diff main...HEAD --stat` the diff is limited to the two expected files, no edit to the already-done audit task; (3) judged the 'verify already resolved, don't duplicate' call as correct -- re-appending the same correction would have been redundant and would have misrepresented the review history; (4) ran `scripts/check_profit_target_wording.py` and `scripts/validate_tasks.py` myself, both clean.\n\nBeyond the requested checks, while re-reading the cited Narrowing note closely enough to confirm its accuracy (not just its existence), I found it itself contains a minor citation inaccuracy: it claims frontend-dashboard-sell-flags is cited in a per-view entry above, but that task id is never actually named in the Dashboard per-view entry (only frontend-dashboard-page is). This doesn't undermine anything PR #332 itself changed or claims -- the task-worker accurately reported that the Narrowing note exists and states the narrowed two-task attribution, which is true; the note's own secondary claim about where frontend-dashboard-sell-flags is cited is what's slightly off, and that note was authored during PR #331's review (an earlier session), not by this PR. Filed as a non-blocking follow-up per CLAUDE.md's rule for correcting a stale claim in an already-done task's decisions text (fresh entry, not in-place edit) rather than treating it as a defect in PR #332.\n\nRan full backend+frontend test/coverage suites, static analysis (ruff/mypy/eslint/tsc), the profit-target wording guard, and validate_tasks.py -- all clean, no regressions (unsurprising for a docs/tasks-only diff, but verified rather than assumed). code-review skill (medium effort, backgrounded) independently found zero correctness issues on the diff, corroborating my own read.\n\nNo UI surface in this PR (task-board bookkeeping only) -- browser walkthrough (review step 9) and the persisted e2e suite (step 9a) are explicitly skipped as not applicable, not silently omitted. `area` is frontend/ux and `skill` is null, so verify-elder-signal/architecture-review don't apply; no frontend component added/changed, so the 7a placement check doesn't apply; no API route/schema touched, so the openapi.json check doesn't apply. This task's checklist item required a genuine judgment call (verify vs. re-append) and that judgment is recorded as a decisions entry with rationale, satisfying the decision-memory cross-check.\n\nNo `pr_decision` field existed on this task prior to this review, so nothing to clear per step 12.\n\nOverall: accepted. Posting as a `gh pr review --comment` (COMMENTED), never --approve/--request-changes; not merging -- that's pr-decision + pr-merger's job."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T16:46:12Z",
+    "verdict": "merge",
+    "notes": "Independently re-verified rather than trusting the accept: read docs/tasks/done/frontend-ux-block-layout-audit.json directly and confirmed the 'Narrowing note' decisions entry (timestamped 2026-09-25T16:19:38Z, recorded_by pr-reviewer) genuinely already exists and genuinely resolves this followup's checklist item. Confirmed via `git diff main...HEAD --stat` this PR edits only docs/tasks/frontend-ux-block-layout-audit-followups.json (moved to done/), docs/tasks/frontend-ux-block-layout-audit-followups-followups.json (new), and docs/tasks/index.json -- no edit to the already-done audit task. Grep-confirmed pr-reviewer's new finding is accurate: 'frontend-dashboard-sell-flags' is never named in any per-view decisions entry (only in the closing 'Audit conclusion' summary, the Narrowing note itself, review comments, and pr_decision notes) -- the Dashboard per-view entry names only frontend-dashboard-page -- and this is correctly tracked as a checklist item on docs/tasks/frontend-ux-block-layout-audit-followups-followups.json. Re-ran backend `pytest --cov=app --cov-report=term-missing`: 1406 passed, 100% coverage, matching pr-reviewer's reported figures exactly. `python3 scripts/validate_tasks.py` clean (322 files). index.json mirrors state/path correctly for all three tasks (audit, followups, followups-followups). No human PR comments/reviews found overriding the automated accept. Accept holds; no override warranted."
+  }
+}
