@@ -1,0 +1,37 @@
+{
+  "id": "frontend-ibkr-portfolio-preload",
+  "title": "Preload-from-IBKR button on the Portfolio page: conflict review + delete-then-import flow",
+  "area": "frontend/portfolio",
+  "skill": "add-frontend-feature",
+  "state": "planned",
+  "depends_on": ["backend-ibkr-portfolio-preload"],
+  "references": [
+    "docs/architecture/Frontend.md",
+    "docs/tasks/backend-ibkr-portfolio-preload.json"
+  ],
+  "description": "Frontend half of the user-requested IBKR portfolio-preload feature (see `backend-ibkr-portfolio-preload`'s description for the full 5 numbered requirements and the resolved scope: source is the connected IBKR account's real positions, target is `PositionORM`/the Portfolio page, never merged with an existing same-ticker position).\n\nFlow: a 'Preload from IBKR' button on the Portfolio page (`frontend/src/pages/PortfolioPage.tsx` or wherever the page-level actions live), visible/enabled only when IBKR is actually usable right now (`GET /api/ibkr/status` reporting `state: \"available\"` -- check how the Scanner page already gates its own IBKR-dependent UI on this same status for the established pattern to follow). Clicking it calls the backend's preview endpoint and shows: which IBKR positions will be preloaded as-is (no conflict), and which conflict with an existing local position -- for each conflicting local ticker, a way to choose whether to delete it. Confirming the flow deletes exactly the chosen local positions first, then imports every non-conflicting IBKR position -- no existing, non-deleted local position is ever touched/merged.",
+  "checklist": [
+    {
+      "step": "Add a 'Preload from IBKR' button to the Portfolio page, following this app's existing `common/`-vs-feature-specific placement convention. Gate its visibility/enabled state on `GET /api/ibkr/status` reporting `state: \"available\"` (reuse whatever existing hook/pattern the Scanner page already uses for this same gating, rather than reinventing it).",
+      "done": false
+    },
+    {
+      "step": "On click, call the backend's preview endpoint and render a review UI: the list of non-conflicting IBKR positions that will be preloaded, and the list of conflicting tickers (IBKR position vs. existing local position) with a per-ticker checkbox/control letting the user choose which existing local positions to delete.",
+      "done": false
+    },
+    {
+      "step": "A confirm/apply action that deletes exactly the user-selected local positions first, then calls the preload endpoint to import every non-conflicting IBKR position -- matching the backend's required ordering (delete chosen conflicts, then preload). Never presents this as a 'merge' or 'update' of an existing position the user didn't choose to delete.",
+      "done": false
+    },
+    {
+      "step": "Handle the no-conflicts and nothing-new-to-preload edge cases with clear empty-state messaging rather than a blank/confusing review screen.",
+      "done": false
+    },
+    {
+      "step": "Tests (vitest/Testing Library/MSW, no live network calls): the IBKR-availability gating on the button itself, the conflict-review rendering (both non-conflicting and conflicting cases), and the delete-then-preload call ordering. Storybook coverage for any new component placed under `components/common/`.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
