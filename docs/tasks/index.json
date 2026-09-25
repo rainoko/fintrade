@@ -2252,7 +2252,7 @@
       "id": "frontend-ux-block-layout-audit-followups",
       "area": "frontend/ux",
       "skill": null,
-      "state": "planned",
+      "state": "testing",
       "path": "docs/tasks/frontend-ux-block-layout-audit-followups.json"
     }
   ]

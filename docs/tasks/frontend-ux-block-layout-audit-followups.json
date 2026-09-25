@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #331's review (frontend-ux-block-layout-audit)",
   "area": "frontend/ux",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["frontend-ux-block-layout-audit"],
   "references": [
     "docs/tasks/done/frontend-ux-block-layout-audit.json",
@@ -13,9 +13,16 @@
   "checklist": [
     {
       "step": "docs/tasks/done/frontend-ux-block-layout-audit.json's closing 'Audit conclusion' decisions entry cites all four tasks it references anywhere in the audit (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags) as a single parenthetical list backing 'the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering)'. In fact only frontend-position-risk-columns and frontend-dashboard-page actually justify those two specific first-glance-questionable items (per the audit's own Portfolio and Dashboard per-view decisions entries, which cite them individually and correctly). frontend-indicator-seasons-badge backs an unrelated per-view judgment (Stock Detail's Season card placement) and frontend-dashboard-sell-flags backs another unrelated one (Dashboard's SellFlaggedPositionsCard placement/scope) -- neither is actually about the two flagged-as-questionable arrangements the closing sentence's phrasing implies they support. Each individual citation is itself accurate (verified against the cited tasks' own decisions text during PR #331's review) -- this is a wording/attribution-grouping nit in the closing summary only, not a factual error in any per-view entry. Fix: append a new `decisions` entry (per CLAUDE.md's append-only-by-default rule for correcting an existing entry) narrowing the closing entry's citation list to the two tasks that actually back the two first-glance-questionable items, and noting the other two are cited elsewhere in the audit for unrelated points.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T16:32:36Z",
+      "recorded_by": "task-worker",
+      "decision": "No further edit to docs/tasks/done/frontend-ux-block-layout-audit.json is needed -- the checklist's requested fix (append a new decisions entry narrowing the closing 'Audit conclusion' entry's citation list to the two tasks that actually back the two first-glance-questionable items, frontend-position-risk-columns and frontend-dashboard-page, and noting that frontend-indicator-seasons-badge and frontend-dashboard-sell-flags are cited elsewhere in the audit for unrelated points) was already carried out during PR #331's own review pass: pr-reviewer appended exactly that corrective decisions entry (timestamped 2026-09-25T16:19:38Z, 'Narrowing note on the Audit conclusion entry above') before the PR merged, and it landed on main as part of that merge. Re-read the merged file directly (not just this follow-up task's own paraphrase of the finding) to confirm the appended text does state the narrowed two-task attribution and does note the other two are 'correctly cited in their own per-view entries above'.",
+      "rationale": "CLAUDE.md's append-only-by-default convention calls for a *new* decisions entry to correct the stale grouping, not an in-place edit of the original closing entry's text -- and this task's own checklist item asks for exactly that append, not for rewriting the closing entry's own wording (the narrower carve-out for in-place amendment doesn't apply here since the checklist never calls out the closing entry's own text as the thing to fix). Since that append already exists and independently says what this task's checklist asked for, doing it again would create a second, redundant correction entry for the same finding rather than adding new information -- which the append-only log's own point (a self-describing timeline of when each correction was made) doesn't call for once a correction has already been made once. Filing a duplicate would also misrepresent the review as having missed this rather than having already caught and fixed it during PR #331. This follow-up task itself still serves its purpose per CLAUDE.md's tracked-follow-up rule (a PR-comment-only record disappears once the PR merges) by giving the finding a durable board entry with this closing note, even though the underlying correction needed no new code/doc change beyond what pr-reviewer already committed."
+    }
+  ],
   "questions": []
 }
