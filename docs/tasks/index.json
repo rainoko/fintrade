@@ -2000,8 +2000,15 @@
       "id": "frontend-day-trader-timeframe-mode-settings",
       "area": "frontend/settings",
       "skill": "add-frontend-feature",
+      "state": "done",
+      "path": "docs/tasks/done/frontend-day-trader-timeframe-mode-settings.json"
+    },
+    {
+      "id": "frontend-day-trader-timeframe-mode-settings-followups",
+      "area": "frontend/settings",
+      "skill": null,
       "state": "planned",
-      "path": "docs/tasks/frontend-day-trader-timeframe-mode-settings.json"
+      "path": "docs/tasks/frontend-day-trader-timeframe-mode-settings-followups.json"
     },
     {
       "id": "backend-daily-homework-self-test-followups",

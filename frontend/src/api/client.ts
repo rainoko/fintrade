@@ -95,7 +95,7 @@ async function safeParseJson(response: Response): Promise<unknown> {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
 }
 

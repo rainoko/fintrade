@@ -1,0 +1,25 @@
+{
+  "id": "frontend-day-trader-timeframe-mode-settings-followups",
+  "title": "Non-blocking findings from PR #327's review (frontend-day-trader-timeframe-mode-settings)",
+  "area": "frontend/settings",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-day-trader-timeframe-mode-settings"],
+  "references": [
+    "docs/tasks/done/frontend-day-trader-timeframe-mode-settings.json",
+    "https://github.com/rainoko/fintrade/pull/327"
+  ],
+  "description": "Tracked follow-ups for non-blocking findings raised in pr-reviewer's review of PR #327 (frontend-day-trader-timeframe-mode-settings) -- one found during the review's own manual browser walkthrough, one corroborated (plus one additional) by the code-review skill run in the background during that same review -- so neither is lost once that PR merges.",
+  "checklist": [
+    {
+      "step": "TradingModeSettingsForm's client-side validation errors (the `errors` state in `TradingModeFields`, frontend/src/features/settings/components/TradingModeSettingsForm.tsx) are only recomputed inside `handleSubmit`, never cleared or re-validated as the user edits a field or toggles the mode radio. Reproduced live: (1) switch to Day Trader mode, type an invalid long-term leg (e.g. 'abc'), click Save -- the format error appears correctly; (2) without clicking Save again, correct the field to a valid value (e.g. '25m') -- the red error border and 'Must be a positive whole number...' helper text remain displayed even though the current field value is now valid, until the user clicks Save again (which re-validates and clears it). The same gap applies to `handleModeChange`: toggling Swing -> Day Trader re-shows the triple fields with whatever stale `errors` were set on the previous attempt, before any new edit or submit. Momentary/cosmetic (the final submitted data is always correctly validated), but misleading mid-edit. Fix: clear (or re-validate) the affected leg's entry in `errors` inside `handleTripleChange`/`handleModeChange` as the user edits, not only inside `handleSubmit`.",
+      "done": false
+    },
+    {
+      "step": "`useUpdateTradingMode`'s `onSuccess` calls `queryClient.invalidateQueries()` with no filter (frontend/src/features/settings/hooks/useUpdateTradingMode.ts), refetching every mounted query app-wide on every trading-mode save, not just the documented trading-mode-dependent set (stocks/watchlist/portfolio queries). This is a deliberate, already-justified tradeoff (see the parent task's own `decisions` entry and this PR's review notes) rather than an oversight, and isn't blocking -- but worth reconsidering later if this ever causes a noticeable request burst in practice (e.g. once the settings feature or another feature's `queryKeys.ts` registry makes an explicit, maintainable invalidation list cheaper to keep in sync than it is today).",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}

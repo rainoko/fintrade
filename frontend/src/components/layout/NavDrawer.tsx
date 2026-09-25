@@ -3,6 +3,7 @@ import ChecklistIcon from '@mui/icons-material/Checklist'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import RadarIcon from '@mui/icons-material/Radar'
+import SettingsIcon from '@mui/icons-material/Settings'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
@@ -35,7 +36,11 @@ interface NavItem {
 // Daily Homework ('/homework', frontend-daily-homework-page) is the same
 // kind of standalone destination — a daily ritual with no ticker/position to
 // drill in from — see that task's `decisions` entry for the full placement
-// rationale.
+// rationale. Settings ('/settings', frontend-day-trader-timeframe-mode-settings)
+// is likewise a standalone destination — an app-wide global setting (the
+// active trading mode), not something reached by drilling into any specific
+// ticker/position — placed last since it's a rarely-visited configuration
+// screen rather than a daily-use page.
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
   { label: 'Portfolio', path: '/portfolio', icon: <AccountBalanceWalletIcon /> },
@@ -43,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Scanner', path: '/scanner', icon: <RadarIcon /> },
   { label: 'Daily Homework', path: '/homework', icon: <ChecklistIcon /> },
   { label: 'Methodology', path: '/methodology', icon: <MenuBookIcon /> },
+  { label: 'Settings', path: '/settings', icon: <SettingsIcon /> },
 ]
 
 interface NavDrawerProps {

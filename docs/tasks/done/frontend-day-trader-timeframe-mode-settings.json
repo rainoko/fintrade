@@ -1,0 +1,101 @@
+{
+  "id": "frontend-day-trader-timeframe-mode-settings",
+  "title": "Day-trader mode: settings UI to view/switch trading mode and configure the timeframe triple",
+  "area": "frontend/settings",
+  "skill": "add-frontend-feature",
+  "state": "done",
+  "depends_on": ["backend-day-trader-timeframe-mode-api"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode.json",
+    "docs/architecture/API.md",
+    "docs/architecture/Frontend.md"
+  ],
+  "description": "Last of four dependent follow-up tasks splitting docs/tasks/backend-day-trader-timeframe-mode.json's original checklist item 7 out of that task (see its `decisions` entry for the full split rationale). Adds a settings UI backed by `GET`/`PUT /api/settings/trading-mode` (already implemented, backend-day-trader-timeframe-mode) letting the user view/switch the global trading mode (swing vs. day-trader) and, when day-trader mode is selected, configure the long-term/intermediate/short-term timeframe triple (three interval-code inputs, e.g. '25m'/'5m'/'2m') with the backend's non-blocking factor-of-five guideline warnings surfaced (not blocking submission). Depends on backend-day-trader-timeframe-mode-api (not directly on backend-day-trader-timeframe-mode-signal-engine) since this UI only needs the settings read/write contract and whatever the API task decides other endpoints report while day-trader mode is active -- it doesn't itself need to understand the signal-engine internals.",
+  "checklist": [
+    { "step": "Decide (per add-frontend-feature's own common/-vs-feature-specific placement decision) where this settings UI lives -- a new settings page/route vs. a section of an existing page.", "done": true },
+    { "step": "TanStack Query hook(s) for GET/PUT /api/settings/trading-mode.", "done": true },
+    { "step": "Form/controls for switching mode and entering the three timeframe-interval codes when day-trader mode is selected, with client-side format validation matching the backend's accepted interval-code pattern and surfacing the response's factor_of_five_warnings as a non-blocking notice.", "done": true },
+    { "step": "Storybook coverage for any new common/ component; vitest/Testing Library tests for the feature.", "done": true }
+  ],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "New standalone page/route (`SettingsPage.tsx` at `/settings`, added to `NavDrawer`'s nav list, placed last), not a section folded into an existing page (e.g. Dashboard or a new tab on Portfolio).",
+      "rationale": "The global trading mode is an app-wide setting with no natural ticker/position/domain-object it belongs to, unlike every other page's content (Portfolio's positions, Watchlist's tracked tickers, Stock Detail's ticker) -- there's no existing page whose own subject this setting is a sub-property of. Daily Homework (`frontend-daily-homework-page`) already established the precedent of a standalone nav destination for exactly this kind of no-natural-parent-page content. Rejected alternative: a settings section under Dashboard (Dashboard is a landing/overview page composing other features' summaries, not itself a natural owner of a write-capable settings form) or Portfolio (portfolio positions are unrelated to which trading mode computes their signals -- the setting is watchlist/stocks-page-relevant too, not portfolio-specific)."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "The entire settings UI (`TradingModeSettingsForm`, its radio group, and its three timeframe-triple leg fields) lives under `features/settings/components/`, not `components/common/`. No new `components/common/` component was introduced by this task.",
+      "rationale": "Per add-frontend-feature's own placement test (Frontend.md §3): a component belongs in `common/` only if it doesn't know what a domain concept is. Every piece of this form is domain-specific -- the swing/day_trader enum is this app's own trading-mode concept, and the timeframe-triple legs (long_term/intermediate/short_term, Tide/Wave/Trigger) are Elder ch. 39/Triple-Screen-specific, not generic reusable controls. Checked for a near-duplicate already in `common/` (per the skill's own step 2 instruction) -- none exists; the closest precedent (`AddPositionDialog`'s TextField-based form pattern) is itself feature-specific, not a `common/` component, for the same reason. Also considered whether a generic 'interval code text field' (label/value/onChange/error props only, no domain knowledge beyond a string-format regex) could itself be promoted to `common/`, since its own validation logic doesn't reference 'position'/'signal'/portfolio concepts -- decided against it: it has exactly one call site (this form's three legs, rendered via one shared `TRIPLE_LEGS.map(...)` loop in the same file), and `common/` is meant to catalog genuinely reusable, Storybook-documented controls; extracting a single-consumer field into a new `common/` component (with the story/test overhead Frontend.md §4 requires for anything placed there) purely because its validation logic happens to be domain-agnostic would be premature generalization with no second consumer yet to justify it. If a second, unrelated feature ever needs the same interval-code input, promoting it then (mirroring `utils/validation.ts`'s own extraction precedent, done only once a second call site existed) is the better time to do it."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Each timeframe-triple leg (long_term/intermediate/short_term) is a single free-text field accepting the whole canonical interval code string (e.g. '25m'), not a split numeric-count field plus an m/d/w unit dropdown.",
+      "rationale": "The wire format (`TimeframeTripleIn.long_term`/`.intermediate`/`.short_term`, `TimeframeTripleOut` likewise) is already exactly that one string -- a single text field maps to it directly with no join/split step needed on submit or on pre-fill from an already-persisted `GET` response. The checklist item's own wording ('entering the three timeframe-interval codes') already frames this as entering codes, not assembling them from parts. Rejected alternative: a count-number-input + unit-select pair per leg, joined into the code string on submit and split back into count/unit for pre-fill. This would be more UI surface (6 controls instead of 3) and extra parse/join logic duplicating `app.signals.timeframe.TimeframeInterval.parse`'s own count+suffix decomposition in TypeScript, for a marginal UX gain (day-trader mode's target users are the kind of trader already comfortable typing '25m'-style codes directly, per ch. 39's own worked examples using exactly that notation) that didn't seem worth the added complexity."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Client-side validation of the timeframe-triple legs is format-only (each leg matches `/^[1-9][0-9]*[mdw]$/`, mirroring `app.signals.timeframe._CODE_PATTERN` exactly) plus a required-when-day-trader check. The strictly-decreasing `long_term > intermediate > short_term` ordering rule and the factor-of-five spacing guideline are NOT re-validated/re-computed client-side -- both are left entirely to the backend's own 422 response / `factor_of_five_warnings` field.",
+      "rationale": "Matches the checklist item's own precise wording ('client-side format validation matching the backend's accepted interval-code pattern') -- it calls out format validation specifically, not the ordering rule. Duplicating the ordering check (which requires converting each leg to a comparable trading-minutes value, `TimeframeInterval.approx_trading_minutes`'s own DAY/WEEK-aware conversion) or the factor-of-five ratio computation in TypeScript would re-implement business logic the backend already owns in a second language with no test-cross-checking -- the same 'confidence scores and signals are computed entirely in the backend... one place, testable once' principle Frontend.md §5 already applies to indicator math, extended here to this settings validation. A malformed-order submission still gets a clear, real-time answer -- just from the backend's 422 (surfaced via the existing `common/ErrorState`) on submit, one extra round-trip later, rather than a client-side pre-check."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "`useUpdateTradingMode`'s `onSuccess` calls `queryClient.invalidateQueries()` with no filter (invalidates every cached query app-wide), rather than an explicit list of the query keys the trading mode is documented to affect.",
+      "rationale": "Unlike this app's other mutations (which invalidate a narrow, identifiable slice -- e.g. `useAddPosition` invalidates only `portfolioKeys.all`), the trading mode is a single global setting that API.md documents as affecting `GET /api/stocks/{ticker}/analysis`, `GET /api/stocks/{ticker}/indicators`, `GET /api/watchlist`, `GET /api/watchlist/breadth`, `GET /api/portfolio`, and `GET /api/portfolio/risk` all at once -- essentially every other feature's signal/confidence/risk data. Scoping this to an explicit list would require the settings feature to import every other feature's `queryKeys.ts` (a much worse cross-feature coupling than the watchlist/portfolio precedent `features/watchlist/hooks/queryKeys.ts` already declines for a narrower, single-relationship case) and would silently under-invalidate the moment a future mode-aware endpoint is added without this list being updated in lockstep. A blanket invalidation's downside (every mounted query everywhere refetches once after a genuinely rare action -- switching trading mode is not a hot-path write like adding a position) was judged an acceptable, safer default for a setting with this much fan-out."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "`factor_of_five_warnings` is only ever rendered from the backend's own last-known response (either the just-submitted `PUT` response, or the persisted triple from the initial `GET` if nothing has been submitted this session) -- never recomputed client-side as the user edits the triple fields before submitting.",
+      "rationale": "Recomputing ch. 39's guideline-band ratio check in TypeScript (`TimeframeTriple.factor_of_five_warnings`'s own trading-minutes conversion and 2x-10x band) would duplicate backend business logic for a purely informational, non-blocking notice -- not worth a second implementation with no test-cross-checking, per the same Frontend.md §5 'one place, testable once' principle the ordering-validation decision above also relies on. The tradeoff (warnings shown can lag one edit behind what the user is currently typing, until they submit) was judged acceptable since these are explicitly non-blocking guideline notices, not validation the user needs live feedback on to proceed."
+    }
+  ],
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-day-trader-timeframe-mode-settings",
+    "pr_number": 327,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/327",
+    "pushed_at": "2026-09-25T03:36:04Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T03:49:59Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/327",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified the client-side interval-code regex (`/^[1-9][0-9]*[mdw]$/`) is character-for-character identical to the backend's `_TIMEFRAME_INTERVAL_CODE_PATTERN`/`_CODE_PATTERN` (backend/app/api/schemas.py, backend/app/signals/timeframe.py) -- no drift.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx",
+        "line": 30
+      },
+      {
+        "summary": "Placement check per Frontend.md §3: TradingModeSettingsForm and its radio/leg fields all reference this app's own trading-mode/timeframe-triple domain concepts, so features/settings/components/ (not components/common/) is correct; no near-duplicate of an existing common/ component was introduced. No placement finding.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx"
+      },
+      {
+        "summary": "useUpdateTradingMode's unfiltered queryClient.invalidateQueries() on success is a reasonable, well-justified choice given the setting's documented app-wide fan-out (API.md) -- confirmed via browser walkthrough it does not cause a jarring refetch flash (only the currently-mounted settings query is active at invalidation time; other pages refetch naturally on next mount, which already shows their normal loading state). Not blocking, but the code-review skill (run in parallel during this review) independently flagged the same blanket-invalidation choice as a real, measurable efficiency cost worth tracking even though it's a deliberate, already-documented tradeoff -- filed on frontend-day-trader-timeframe-mode-settings-followups per this project's 'track every non-blocking finding' rule rather than left as comment-only.",
+        "file": "frontend/src/features/settings/hooks/useUpdateTradingMode.ts",
+        "line": 33
+      },
+      {
+        "summary": "Browser walkthrough (Playwright, scripted since no Playwright MCP tool was available in this session -- launched a real Chromium against the running dev stack instead): golden path (view mode, switch to day-trader, fill a valid triple, submit, reload to confirm persistence) and edge cases (empty-required-fields client error, invalid-format client error, backend 422 ordering-violation surfaced via common/ErrorState with the real backend message, factor_of_five_warnings displayed non-blockingly alongside a success message, switch back to swing with the previously-configured triple preserved-but-hidden) all behaved as designed. With day-trader mode active and FINTRADE_IBKR_ENABLED=false, GET /api/stocks/{ticker}/analysis correctly 503s and the Stock Detail page shows a graceful 'Service unavailable' state (common/ErrorState), not a crash or stuck spinner.",
+        "file": "frontend/src/pages/SettingsPage.tsx"
+      },
+      {
+        "summary": "Non-blocking: TradingModeFields's client-side validation `errors` state is only recomputed inside handleSubmit, never cleared/re-validated on change (also applies to handleModeChange re-showing stale errors when toggling back to Day Trader). Reproduced independently both live (submit an invalid leg, then correct it to a valid value without resubmitting -- the red error border/helper text stays displayed until the next Save click) and by the code-review skill run in parallel during this review, which found the same root cause by static reading. Cosmetic only (final submitted data is always correctly (re-)validated); filed as frontend-day-trader-timeframe-mode-settings-followups.",
+        "file": "frontend/src/features/settings/components/TradingModeSettingsForm.tsx",
+        "line": 136
+      }
+    ],
+    "notes": "Full review: backend suite untouched by this PR (confirmed via `gh pr view --json files`) -- backend pytest --cov=app stays at 100% (1406 passed), no regression. Frontend: `vitest run --coverage` 902/902 tests passing at 99.78%/99.09%/99.8%/99.83% stmt/branch/fn/line (>=90% gate). Static analysis clean both sides: backend ruff+mypy clean, frontend eslint+tsc -b clean, profit-target stale-wording guard clean. `yarn build-storybook` succeeds (no new common/ component added, consistent with the placement decision). Persisted e2e suite (`make e2e`, step 9a) run in full: 26/26 specs passed across dashboard/navigation/portfolio/scanner/stock-analysis/watchlist -- no regression from this PR (it adds no new e2e spec of its own, which is acceptable since add-frontend-feature doesn't mandate one and the vitest/Testing-Library coverage of the new feature is thorough: 13 TradingModeSettingsForm tests, 6 api/settings.ts tests, SettingsPage/App/NavDrawer wiring tests, covering every checklist item's golden path and edge case). The `code-review` skill (medium effort) was also run against this PR's diff in parallel with the manual review below; it independently corroborated the stale-validation-error finding and additionally flagged the blanket query invalidation as a real efficiency cost (while itself noting that's a deliberate, already-documented tradeoff, not an oversight) -- both are captured in review.comments and tracked on frontend-day-trader-timeframe-mode-settings-followups; it raised no other correctness/reuse/simplification issue. All 6 recorded `decisions` entries have real, non-circular rationale and reject a concrete alternative each; the checklist's 4 items are all `done: true` and match what's actually implemented. No backend files touched -- backend/openapi.json correctly unaffected (CLAUDE.md's API-doc-sync standard doesn't apply here). Two non-blocking findings (see review.comments) filed as frontend-day-trader-timeframe-mode-settings-followups rather than blocking on either. Playwright MCP tools were not present in this review session's toolset, so the required browser walkthrough was performed by scripting a real Chromium browser via the frontend's own installed @playwright/test package against the actual running dev stack (make dev) instead -- same real-browser guarantee, different driving mechanism; noted here for transparency, not a shortcut taken."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T03:58:17Z",
+    "verdict": "merge",
+    "notes": "No browser MCP tool available in this session either, so drove a real Chromium via @playwright/test myself against a freshly-started `make dev` stack (backend+frontend): golden path (load /settings, switch to Day Trader, fill a valid 25m/5m/1m triple, submit, success message, reload confirms persistence) and the invalid-format edge case both passed, and I independently reproduced finding #1's stale-validation-error bug live (correcting an invalid leg to a valid value without resubmitting leaves the red error/helper text displayed) by reading TradingModeFields in TradingModeSettingsForm.tsx -- confirmed cosmetic/non-blocking since handleSubmit always re-validates before mutate() runs, so submitted data is never wrong. Character-diffed the frontend's `/^[1-9][0-9]*[mdw]$/` against backend/app/api/schemas.py's `_TIMEFRAME_INTERVAL_CODE_PATTERN` and backend/app/signals/timeframe.py's `_CODE_PATTERN` myself -- identical modulo non-capturing vs capturing groups, no behavioral difference. Re-ran backend pytest --cov=app (1406 passed, 100% coverage) and frontend yarn lint/tsc -b/test:coverage (902/902 passed, 99.78%/99.09%/99.8%/99.83%) and yarn build-storybook (succeeds) myself -- all numbers match pr-reviewer's report exactly. Confirmed via `gh pr view --json files` that no backend files are in this diff. Followups task frontend-day-trader-timeframe-mode-settings-followups exists with both non-blocking findings as checklist items. Accept holds up."
+  }
+}
