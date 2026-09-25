@@ -89,5 +89,11 @@
       "rationale": "The helper's actual logic (distinguish a gateway/session genuinely being unavailable from a transient failure of one specific call against an otherwise-`available` gateway, surfacing the latter as `503`) was already fully generic -- only its name and docstring were scanner-specific, a leftover from when it had exactly two callers. Renaming it once, now that a third and fourth caller exist, keeps the code honest about what it actually does instead of leaving a misleading 'scanner' name on a helper four unrelated routes now share; a mechanical rename with no behavior change carries negligible risk and was verified by the full existing scanner/breadth test suite continuing to pass unchanged."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-portfolio-preload",
+    "pr_number": 335,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/335",
+    "pushed_at": "2026-09-25T20:37:21Z"
+  }
 }
