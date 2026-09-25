@@ -3,7 +3,7 @@
   "title": "Non-blocking finding from PR #338's review (frontend-ibkr-portfolio-preload-followups)",
   "area": "frontend/portfolio",
   "skill": null,
-  "state": "implementing",
+  "state": "testing",
   "depends_on": ["frontend-ibkr-portfolio-preload-followups"],
   "references": [
     "docs/tasks/done/frontend-ibkr-portfolio-preload-followups.json",
@@ -25,5 +25,11 @@
       "context": "`ClosePositionDialog.tsx`, `FollowUpReviewDialog.tsx`, and `TradeApgarDialog.tsx` were found to have the same unguarded onClose-while-pending pattern during this task, but none of them are in this task's checklist scope -- left untouched and unfixed here; a future task should decide whether to extend `useGuardedDialogClose` to them too."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-portfolio-preload-followups-followups",
+    "pr_number": 339,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/339",
+    "pushed_at": "2026-09-25T23:33:28Z"
+  }
 }
