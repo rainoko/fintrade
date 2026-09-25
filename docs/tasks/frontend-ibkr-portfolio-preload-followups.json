@@ -59,5 +59,11 @@
       "rationale": "`portfolioKeys.risk`/`closedTrades`/`dueForFollowUpTrades`/`ibkrPreview` all nest under `portfolioKeys.all` specifically so a single invalidation of `all` also invalidates them (queryKeys.ts's own documented rationale) -- invalidating `all` here would trigger extra refetches of the risk panel and trade journal on every single 'Preload from IBKR' click, which is unrelated to this task's actual staleness concern (only `usePortfolio()`'s own `positions` list feeds `IbkrPreloadDialog`'s `existingPositions` prop). Calling `refetch()` directly on the already-held `usePortfolio()` query result refreshes exactly the data this dialog actually reads, with no unrelated side-fetches."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/frontend-ibkr-portfolio-preload-followups",
+    "pr_number": 338,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/338",
+    "pushed_at": "2026-09-25T22:57:00Z"
+  }
 }
