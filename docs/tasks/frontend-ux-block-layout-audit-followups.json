@@ -1,0 +1,21 @@
+{
+  "id": "frontend-ux-block-layout-audit-followups",
+  "title": "Non-blocking finding from PR #331's review (frontend-ux-block-layout-audit)",
+  "area": "frontend/ux",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-ux-block-layout-audit"],
+  "references": [
+    "docs/tasks/done/frontend-ux-block-layout-audit.json",
+    "https://github.com/rainoko/fintrade/pull/331"
+  ],
+  "description": "Tracked follow-up for a single non-blocking finding raised in pr-reviewer's review of PR #331 (frontend-ux-block-layout-audit) -- a minor citation-attribution looseness in the audit's own closing `decisions` entry, not a factual error in any individual per-view entry, so it doesn't block the accept but is worth correcting so a future reader doesn't have to re-derive which citation actually backs which claim.",
+  "checklist": [
+    {
+      "step": "docs/tasks/done/frontend-ux-block-layout-audit.json's closing 'Audit conclusion' decisions entry cites all four tasks it references anywhere in the audit (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags) as a single parenthetical list backing 'the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering)'. In fact only frontend-position-risk-columns and frontend-dashboard-page actually justify those two specific first-glance-questionable items (per the audit's own Portfolio and Dashboard per-view decisions entries, which cite them individually and correctly). frontend-indicator-seasons-badge backs an unrelated per-view judgment (Stock Detail's Season card placement) and frontend-dashboard-sell-flags backs another unrelated one (Dashboard's SellFlaggedPositionsCard placement/scope) -- neither is actually about the two flagged-as-questionable arrangements the closing sentence's phrasing implies they support. Each individual citation is itself accurate (verified against the cited tasks' own decisions text during PR #331's review) -- this is a wording/attribution-grouping nit in the closing summary only, not a factual error in any per-view entry. Fix: append a new `decisions` entry (per CLAUDE.md's append-only-by-default rule for correcting an existing entry) narrowing the closing entry's citation list to the two tasks that actually back the two first-glance-questionable items, and noting the other two are cited elsewhere in the audit for unrelated points.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
