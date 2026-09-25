@@ -1150,12 +1150,13 @@ class IBKRPortfolioPreviewPositionOut(BaseModel):
     quantity: float = Field(description="Number of shares currently held in this IBKR position.")
     avg_cost: float | None = Field(
         default=None,
-        description="Average cost per share as reported by IBKR, if available. Null "
-        "positions are still shown here for visibility, but "
-        "`POST /api/ibkr/portfolio-preload` will not import one -- a `PositionORM` row "
-        "requires a known cost basis (`PositionIn.avg_cost_basis` is a required, "
-        "positive field) and IBKR's own response can omit this even for an otherwise "
-        "well-formed equity position.",
+        description="Average cost per share as reported by IBKR. Always non-null, finite, "
+        "and positive here -- a position with a missing, non-finite, zero, or negative "
+        "avg_cost is excluded from `positions` entirely (never shown with a null "
+        "avg_cost), because a `PositionORM` row requires a known cost basis "
+        "(`PositionIn.avg_cost_basis` is a required, positive field). This field stays "
+        "`float | None`-typed only because it mirrors `IBKRAccountPosition.avg_cost`, "
+        "which is nullable at the provider layer before this filtering is applied.",
     )
     conflicts_with_existing_position: bool = Field(
         description="True if this ticker already has a position in the local `positions` "
@@ -1180,11 +1181,14 @@ class IBKRPortfolioPreviewResponse(BaseModel):
     )
     positions: list[IBKRPortfolioPreviewPositionOut] | None = Field(
         default=None,
-        description="Every IBKR equity position this app could resolve a ticker for, each "
-        "flagged with whether it conflicts with an existing local position right now. "
-        "Non-null if and only if `state` is 'available'; an empty list is a valid response "
-        "(the IBKR account currently holds no equity positions this app can represent). "
-        "No DB writes happen from calling this endpoint.",
+        description="Every IBKR equity position this app could resolve a ticker for AND "
+        "that carries a usable cost basis (see `IBKRPortfolioPreviewPositionOut.avg_cost`), "
+        "each flagged with whether it conflicts with an existing local position right now. "
+        "A position with a missing, non-finite, zero, or negative avg_cost is excluded "
+        "from this list entirely, not shown as an unimportable candidate. Non-null if and "
+        "only if `state` is 'available'; an empty list is a valid response (the IBKR "
+        "account currently holds no equity positions this app can represent). No DB "
+        "writes happen from calling this endpoint.",
     )
 
 

@@ -208,7 +208,11 @@ export interface paths {
          *     `GET /api/ibkr/portfolio-preview` -- a normal `200` response, never an HTTP error, with
          *     `imported`/`skipped_conflicting_tickers` both left null and nothing written to the DB.
          *     A transient failure of the account-positions fetch itself is surfaced as `503`, same
-         *     convention as every other IBKR data-fetching route in this module.
+         *     convention as every other IBKR data-fetching route in this module. A `503` is also
+         *     raised if a concurrent write (another overlapping preload call, or an unrelated `POST
+         *     /api/portfolio/positions` for the same ticker) races this import's own commit -- see
+         *     this task's `decisions` entry for why the whole batch is rolled back rather than
+         *     partially recovered.
          */
         post: operations["preload_ibkr_portfolio"];
         delete?: never;
@@ -1844,7 +1848,7 @@ export interface components {
         IBKRPortfolioPreviewPositionOut: {
             /**
              * Avg Cost
-             * @description Average cost per share as reported by IBKR, if available. Null positions are still shown here for visibility, but `POST /api/ibkr/portfolio-preload` will not import one -- a `PositionORM` row requires a known cost basis (`PositionIn.avg_cost_basis` is a required, positive field) and IBKR's own response can omit this even for an otherwise well-formed equity position.
+             * @description Average cost per share as reported by IBKR. Always non-null, finite, and positive here -- a position with a missing, non-finite, zero, or negative avg_cost is excluded from `positions` entirely (never shown with a null avg_cost), because a `PositionORM` row requires a known cost basis (`PositionIn.avg_cost_basis` is a required, positive field). This field stays `float | None`-typed only because it mirrors `IBKRAccountPosition.avg_cost`, which is nullable at the provider layer before this filtering is applied.
              */
             avg_cost?: number | null;
             /**
@@ -1877,7 +1881,7 @@ export interface components {
             detail?: string | null;
             /**
              * Positions
-             * @description Every IBKR equity position this app could resolve a ticker for, each flagged with whether it conflicts with an existing local position right now. Non-null if and only if `state` is 'available'; an empty list is a valid response (the IBKR account currently holds no equity positions this app can represent). No DB writes happen from calling this endpoint.
+             * @description Every IBKR equity position this app could resolve a ticker for AND that carries a usable cost basis (see `IBKRPortfolioPreviewPositionOut.avg_cost`), each flagged with whether it conflicts with an existing local position right now. A position with a missing, non-finite, zero, or negative avg_cost is excluded from this list entirely, not shown as an unimportable candidate. Non-null if and only if `state` is 'available'; an empty list is a valid response (the IBKR account currently holds no equity positions this app can represent). No DB writes happen from calling this endpoint.
              */
             positions?: components["schemas"]["IBKRPortfolioPreviewPositionOut"][] | null;
             /**
@@ -3030,7 +3034,7 @@ export interface operations {
                     "application/json": components["schemas"]["IBKRPortfolioPreloadResponse"];
                 };
             };
-            /** @description The account-positions fetch itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that) */
+            /** @description Either the account-positions fetch itself failed transiently (not a gateway/session unavailability -- see GET /api/ibkr/status for that), or a concurrent write raced this import's own commit (see this task's `decisions` entry) -- both transient, safe to retry. */
             503: {
                 headers: {
                     [name: string]: unknown;

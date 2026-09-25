@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #335's review (backend-ibkr-portfolio-preload)",
   "area": "backend/api",
   "skill": null,
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-ibkr-portfolio-preload"],
   "references": [
     "docs/tasks/backend-ibkr-portfolio-preload.json",
@@ -13,17 +13,24 @@
   "checklist": [
     {
       "step": "`IBKRPortfolioPreviewPositionOut.avg_cost`'s Field description (backend/app/api/schemas.py, ~line 1151-1158) says 'Null positions are still shown here for visibility, but POST /api/ibkr/portfolio-preload will not import one' -- this is stale/incorrect. The actual implementation (`_valid_import_candidates` in backend/app/api/routers/ibkr.py, applied identically by both GET /api/ibkr/portfolio-preview and POST /api/ibkr/portfolio-preload) excludes a position with a null/non-finite/non-positive avg_cost from the preview's `positions` list entirely -- it is never shown with a null avg_cost. This matches the task's own `decisions` entry ('An IBKR position with a missing, non-finite, zero, or negative avg_cost is excluded entirely from both GET /api/ibkr/portfolio-preview's positions list and from anything POST /api/ibkr/portfolio-preload would import -- it is not shown as an unimportable candidate') and `_valid_import_candidates`'s own docstring, both of which are accurate -- only this schema Field description text (and the committed backend/openapi.json / frontend/src/api/types.ts snapshots generated from it) is wrong. The same stale claim also appears in `IBKRAccountPosition`'s dataclass docstring in backend/app/data/ibkr_provider.py (~line 249-253: 'a position with no known cost basis is still worth surfacing in a preview even though it can't actually be imported'). Fix both docstrings to match the actual behavior (excluded entirely, never shown with a null avg_cost), and regenerate backend/openapi.json + frontend/src/api/types.ts. While here, also tighten `IBKRPortfolioPreviewResponse.positions`'s Field description, which currently only says 'Every IBKR equity position this app could resolve a ticker for' without mentioning the avg_cost filter that GET /api/ibkr/portfolio-preview's own route docstring documents.",
-      "done": false
+      "done": true
     },
     {
       "step": "`preload_ibkr_portfolio`'s single `db.commit()` after its insert loop (backend/app/api/routers/ibkr.py, ~line 661) has no IntegrityError/OperationalError handling, unlike `record_ibkr_breadth_snapshot` earlier in the same file, which explicitly catches this exact exception pair for an analogous same-key concurrent-write race. `existing_tickers` is read once via `_existing_position_tickers(db)` before the insert loop, so a same-ticker row inserted concurrently (a second overlapping POST /api/ibkr/portfolio-preload call, or a concurrent POST /api/portfolio/positions for the same ticker) between that read and this commit would violate PositionORM.ticker's uniqueness constraint on commit, raising an uncaught IntegrityError -> a raw 500 instead of a graceful, documented error -- and because the whole batch shares one commit, every other non-conflicting position imported in the same call would be rolled back and silently lost too, not just the one colliding ticker. The task's own `decisions` entry shows awareness of this exact IntegrityError risk for the intra-batch duplicate case (guarded via `seen_this_batch`) but didn't extend the same handling to a concurrent external write. Low real-world likelihood for a personal single-user app (same reasoning the task's own bulk-delete `decisions` entry used to decide against a bulk-delete endpoint), but worth the same defensive handling `record_ibkr_breadth_snapshot` already has for consistency, or an explicit `decisions` entry recording why it's deliberately omitted here.",
-      "done": false
+      "done": true
     },
     {
       "step": "This PR renamed `app/api/routers/ibkr.py`'s private `_resolve_scanner_unavailable` helper to `_resolve_ibkr_call_unavailable` (per its own `decisions` entry), but left 3 stale cross-file references to the old name unfixed: `backend/app/data/day_trader_intraday.py:102` and `:238` (comments pointing a reader at 'app.api.routers.ibkr._resolve_scanner_unavailable's HTTPException(503) case'/'exact reasoning'), and `backend/tests/unit/data/test_day_trader_intraday.py:311` (a docstring citing the same old name). A future reader following these comments into app/api/routers/ibkr.py will find no such symbol. Update all 3 references to `_resolve_ibkr_call_unavailable`.",
-      "done": false
+      "done": true
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T21:01:10Z",
+      "recorded_by": "task-worker",
+      "decision": "Added `except (IntegrityError, OperationalError)` handling around `preload_ibkr_portfolio`'s `db.commit()`, matching `record_ibkr_breadth_snapshot`'s exception pair -- but on catch, roll back and surface a 503 ('retry') for the whole request rather than attempting `record_ibkr_breadth_snapshot`'s single-row winner-fallback pattern.",
+      "rationale": "record_ibkr_breadth_snapshot's fallback reads a still-useful value (the concurrently-committed winner's own row) after rollback, because that route only ever writes one row keyed by (series_key, snapshot_date). preload_ibkr_portfolio's insert loop shares ONE commit across every non-conflicting candidate in the batch, so a same-ticker collision on any one candidate rolls back every other, unrelated position too -- there is no single 'winner row' to fall back to, and partially recovering (e.g. re-querying which tickers now exist and re-attempting the rest) would need a second commit and duplicate the batch's own conflict-skip logic for uncertain benefit on what's already a rare race for a personal single-user app. Retrying the whole POST is safe and cheap (re-running `_existing_position_tickers`/`_valid_import_candidates` from scratch correctly reclassifies whatever ticker just landed as conflicting), so a clean 503 was chosen over building out partial-recovery machinery for this endpoint specifically."
+    }
+  ],
   "questions": []
 }
