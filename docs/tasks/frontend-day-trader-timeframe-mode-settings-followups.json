@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #327's review (frontend-day-trader-timeframe-mode-settings)",
   "area": "frontend/settings",
   "skill": null,
-  "state": "testing",
+  "state": "implementing",
   "depends_on": ["frontend-day-trader-timeframe-mode-settings"],
   "references": [
     "docs/tasks/done/frontend-day-trader-timeframe-mode-settings.json",
@@ -17,7 +17,7 @@
     },
     {
       "step": "`useUpdateTradingMode`'s `onSuccess` calls `queryClient.invalidateQueries()` with no filter (frontend/src/features/settings/hooks/useUpdateTradingMode.ts), refetching every mounted query app-wide on every trading-mode save, not just the documented trading-mode-dependent set (stocks/watchlist/portfolio queries). This is a deliberate, already-justified tradeoff (see the parent task's own `decisions` entry and this PR's review notes) rather than an oversight, and isn't blocking -- but worth reconsidering later if this ever causes a noticeable request burst in practice (e.g. once the settings feature or another feature's `queryKeys.ts` registry makes an explicit, maintainable invalidation list cheaper to keep in sync than it is today).",
-      "done": true
+      "done": false
     }
   ],
   "decisions": [
@@ -40,5 +40,18 @@
     "pr_number": 328,
     "pr_url": "https://github.com/rainoko/fintrade/pull/328",
     "pushed_at": "2026-09-25T04:11:20Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T04:23:21Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/328",
+    "verdict": "needs_work",
+    "comments": [
+      {
+        "summary": "Blocking: the scoped invalidation (stocksKeys.all/watchlistKeys.all/portfolioKeys.all) drops settingsKeys.tradingMode (['settings', 'trading-mode']), which the previous unfiltered queryClient.invalidateQueries() used to also cover. Reproduced live with Playwright against `make dev`: switch mode to Day Trader, Save (PUT succeeds, server persists day_trader), then client-side-navigate away (e.g. to Dashboard via the nav link -- a real SPA route change, not a full page reload) and back to Settings within the 60s global staleTime (main.tsx) -- useTradingMode()'s cached pre-save response is still considered fresh, so TradingModeSettingsForm re-mounts showing the stale (pre-save) mode/triple even though the backend already persisted the new one. Confirmed this is a genuine regression introduced by this PR and not pre-existing: checked out main's copy of useUpdateTradingMode.ts, which calls the unfiltered invalidateQueries() with no filter at all, so it did cover this key before. None of the 3 new unit tests catch it since they only assert invalidateQueries' call count/args, not the resulting staleness of settingsKeys.tradingMode itself. Fix: also invalidate settingsKeys.tradingMode in onSuccess (or setQueryData the mutation response directly).",
+        "file": "frontend/src/features/settings/hooks/useUpdateTradingMode.ts",
+        "line": 35
+      }
+    ],
+    "notes": "Full review: backend pytest --cov=app -- 1406 passed, 100% coverage (unchanged baseline, no backend files touched). Frontend yarn vitest run -- 905/905 passing; yarn test:coverage -- 99.78%/99.1%/99.8%/99.83% stmt/branch/fn/line, above the 90% gate. Backend ruff+mypy clean; frontend eslint+tsc clean; scripts/check_profit_target_wording.py clean; scripts/validate_tasks.py clean (319 files, no violations). code-review skill (background) independently found the same settingsKeys.tradingMode gap as the one blocking finding above, plus confirmed the stale-validation-error fix (handleModeChange/handleTripleChange clearing `errors`) and the new stocksKeys.all addition both check out correctly. Did a live browser walkthrough (Playwright driven directly against `make dev`, no MCP browser tool available in this session) confirming both of this PR's intended fixes genuinely work: an invalid-format error clears immediately when the field is corrected without resubmitting, and toggling the mode radio clears stale 'Required.' errors from a prior failed attempt before any new edit/submit -- no console errors or failed requests seen in either case. Ran `make e2e`: 26/26 specs passing (dashboard/navigation/portfolio/scanner/stock-analysis/watchlist), no regression. Verified docs/architecture/API.md's GET/PUT /api/settings/trading-mode section documents exactly stocks/watchlist/portfolio as the trading-mode-dependent endpoint set, matching this PR's claimed scope -- no other feature area is documented as mode-dependent, so the *scope choice itself* (which endpoints to invalidate) is correct; the blocking finding is a different gap (the settings feature's own query for its own mutation was dropped, not a missed dependent endpoint). Verified stocksKeys.all (['stocks']) doesn't collide with the existing analysis/history/indicators keys (each already nests under the 'stocks' prefix) and mirrors watchlistKeys.all/portfolioKeys.all's existing convention exactly; its only other consumers (useStockAnalysis/useStockHistory/useIndicatorHistory) are unaffected, it's a pure addition. No backend files touched, so backend/openapi.json is correctly untouched. Both checklist items have decisions entries with genuine rationale + rejected alternatives recorded. No new components added (only useUpdateTradingMode.ts/TradingModeSettingsForm.tsx/queryKeys.ts modified, no new component), so no common/-vs-feature-specific placement question applies. No non-blocking findings beyond the one blocking finding, so no follow-up task filed this round. Posted as two gh pr review --comment (COMMENTED) reviews: one inline on the offending line, one structured summary -- never --approve/--request-changes."
   }
 }
