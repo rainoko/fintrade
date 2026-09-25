@@ -24,5 +24,11 @@
       "rationale": "Two separate helpers (rather than one combined one) because the daily+weekly BUY pair and the single malformed row are reused independently -- `test_end_to_end_buy_after_pullback_and_trigger` needs only the former (no malformed row at all), while the short-term-OHLCV call sites need only the latter (composed with a *different* base series, `_short_term_ohlcv_that_fires_a_bullish_trigger()`, not the daily+weekly pair). A single fused 'BUY-fixture-plus-malformed-row' helper would have forced an awkward parameter to opt out of the malformed row for the one call site that doesn't want it. Module-level (not class-level) placement mirrors the file's existing `_daily_ohlcv`/`_weekly_ohlcv`/`_nan_tolerant_equal` helpers immediately above, and lets `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning` (a different test class than `TestAnalyseEndToEnd`) reuse `_buy_fixture_daily_and_weekly()` without an awkward cross-class static-method reference, matching the existing convention used elsewhere in the file for cross-class reuse of `TestAnalyseShortTermOhlcvGenericTrigger`'s own static methods (which stayed class-scoped since only two other classes needed them and both already import the class). Pure refactor, zero test-behavior change: verified by running `pytest tests/unit/signals/test_engine.py` (98 passed, matching the pre-refactor count) and the full backend suite (`pytest --cov=app`: 1402 passed, 100% line/branch coverage, matching PR #323's own review notes) both before and after -- same assertions, same pass/fail outcomes, only the fixture-construction code moved."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-history-followups-followups",
+    "pr_number": 324,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/324",
+    "pushed_at": "2026-09-25T02:30:35Z"
+  }
 }
