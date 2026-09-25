@@ -24,5 +24,11 @@
       "rationale": "Matched the existing style §2's Screen 3 bullet (line 77) and §9's Screen 3 note (line 384) already use for this exact kind of day-trader-mode caveat: a bolded '**Day-trader mode** (`task-id`): ...' clause appended directly onto the pre-existing prose it qualifies, in-line, rather than a separate footnote apparatus -- both of those precedents modify the sentence/bullet in place instead of adding an asterisk/superscript marker plus a below-the-table note. A markdown table cell can hold arbitrarily long prose (this doc already has far longer single lines elsewhere, e.g. §2's Force Index bullet), so no table-structure change was needed. Content-wise, the footnote restates (in the reader-facing terms §6 itself uses -- 'intermediate leg' vs 'short-term leg', 'rolling average', 'trigger bar volume') the same keep-as-is rationale already recorded in app/signals/engine.py's `analyse()` docstring paragraph near `short_term_ohlcv` and in `backend-day-trader-timeframe-mode-signal-engine-followups`'s own `decisions` entry (the rolling-average-scale-mismatch argument, independently re-verified sound by both that task's pr-reviewer and pr-decision passes), and points back to that task by id for the full derivation rather than duplicating the entire multi-paragraph rationale into the methodology doc itself. This closes the gap PR #315's review flagged: a reader of Analyse.md alone, without cross-referencing engine.py or the task board, can now learn that 'trigger bar volume' is not literally what day-trader mode computes for this component, matching what §2/§9 already do for Screen 3 itself."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-day-trader-timeframe-mode-signal-engine-followups-followups",
+    "pr_number": 322,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/322",
+    "pushed_at": "2026-09-25T01:54:36Z"
+  }
 }
