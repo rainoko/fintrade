@@ -32,5 +32,11 @@
       "rationale": "record_ibkr_breadth_snapshot's fallback reads a still-useful value (the concurrently-committed winner's own row) after rollback, because that route only ever writes one row keyed by (series_key, snapshot_date). preload_ibkr_portfolio's insert loop shares ONE commit across every non-conflicting candidate in the batch, so a same-ticker collision on any one candidate rolls back every other, unrelated position too -- there is no single 'winner row' to fall back to, and partially recovering (e.g. re-querying which tickers now exist and re-attempting the rest) would need a second commit and duplicate the batch's own conflict-skip logic for uncertain benefit on what's already a rare race for a personal single-user app. Retrying the whole POST is safe and cheap (re-running `_existing_position_tickers`/`_valid_import_candidates` from scratch correctly reclassifies whatever ticker just landed as conflicting), so a clean 503 was chosen over building out partial-recovery machinery for this endpoint specifically."
     }
   ],
-  "questions": []
+  "questions": [],
+  "git": {
+    "branch": "task/backend-ibkr-portfolio-preload-followups",
+    "pr_number": 336,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/336",
+    "pushed_at": "2026-09-25T21:04:59Z"
+  }
 }
