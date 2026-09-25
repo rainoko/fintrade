@@ -1965,8 +1965,8 @@
       "id": "backend-day-trader-timeframe-mode-history-followups-followups",
       "area": "backend/signals",
       "skill": null,
-      "state": "testing",
-      "path": "docs/tasks/backend-day-trader-timeframe-mode-history-followups-followups.json"
+      "state": "done",
+      "path": "docs/tasks/done/backend-day-trader-timeframe-mode-history-followups-followups.json"
     },
     {
       "id": "backend-day-trader-timeframe-mode-api",
