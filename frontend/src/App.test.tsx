@@ -19,6 +19,7 @@ describe('App', () => {
     ['/stocks/AAPL', 'AAPL'],
     ['/methodology', 'Signals We Considered'],
     ['/homework', 'Daily Homework'],
+    ['/settings', 'Settings'],
   ])('renders the page mapped to %s', (path, heading) => {
     renderWithProviders(
       <MemoryRouter initialEntries={[path]}>

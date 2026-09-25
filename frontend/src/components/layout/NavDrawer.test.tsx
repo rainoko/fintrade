@@ -37,6 +37,10 @@ describe('NavDrawer', () => {
       'href',
       '/homework',
     )
+    expect(screen.getByRole('link', { name: /settings/i })).toHaveAttribute(
+      'href',
+      '/settings',
+    )
   })
 
   it('highlights the Dashboard link as active on /', () => {
@@ -94,6 +98,15 @@ describe('NavDrawer', () => {
     renderAt('/homework')
 
     expect(screen.getByRole('link', { name: /daily homework/i })).toHaveClass('Mui-selected')
+    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveClass(
+      'Mui-selected',
+    )
+  })
+
+  it('highlights the Settings link as active on /settings', () => {
+    renderAt('/settings')
+
+    expect(screen.getByRole('link', { name: /settings/i })).toHaveClass('Mui-selected')
     expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveClass(
       'Mui-selected',
     )

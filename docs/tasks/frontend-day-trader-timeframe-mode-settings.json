@@ -3,7 +3,7 @@
   "title": "Day-trader mode: settings UI to view/switch trading mode and configure the timeframe triple",
   "area": "frontend/settings",
   "skill": "add-frontend-feature",
-  "state": "planned",
+  "state": "testing",
   "depends_on": ["backend-day-trader-timeframe-mode-api"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode.json",
@@ -12,11 +12,48 @@
   ],
   "description": "Last of four dependent follow-up tasks splitting docs/tasks/backend-day-trader-timeframe-mode.json's original checklist item 7 out of that task (see its `decisions` entry for the full split rationale). Adds a settings UI backed by `GET`/`PUT /api/settings/trading-mode` (already implemented, backend-day-trader-timeframe-mode) letting the user view/switch the global trading mode (swing vs. day-trader) and, when day-trader mode is selected, configure the long-term/intermediate/short-term timeframe triple (three interval-code inputs, e.g. '25m'/'5m'/'2m') with the backend's non-blocking factor-of-five guideline warnings surfaced (not blocking submission). Depends on backend-day-trader-timeframe-mode-api (not directly on backend-day-trader-timeframe-mode-signal-engine) since this UI only needs the settings read/write contract and whatever the API task decides other endpoints report while day-trader mode is active -- it doesn't itself need to understand the signal-engine internals.",
   "checklist": [
-    { "step": "Decide (per add-frontend-feature's own common/-vs-feature-specific placement decision) where this settings UI lives -- a new settings page/route vs. a section of an existing page.", "done": false },
-    { "step": "TanStack Query hook(s) for GET/PUT /api/settings/trading-mode.", "done": false },
-    { "step": "Form/controls for switching mode and entering the three timeframe-interval codes when day-trader mode is selected, with client-side format validation matching the backend's accepted interval-code pattern and surfacing the response's factor_of_five_warnings as a non-blocking notice.", "done": false },
-    { "step": "Storybook coverage for any new common/ component; vitest/Testing Library tests for the feature.", "done": false }
+    { "step": "Decide (per add-frontend-feature's own common/-vs-feature-specific placement decision) where this settings UI lives -- a new settings page/route vs. a section of an existing page.", "done": true },
+    { "step": "TanStack Query hook(s) for GET/PUT /api/settings/trading-mode.", "done": true },
+    { "step": "Form/controls for switching mode and entering the three timeframe-interval codes when day-trader mode is selected, with client-side format validation matching the backend's accepted interval-code pattern and surfacing the response's factor_of_five_warnings as a non-blocking notice.", "done": true },
+    { "step": "Storybook coverage for any new common/ component; vitest/Testing Library tests for the feature.", "done": true }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "New standalone page/route (`SettingsPage.tsx` at `/settings`, added to `NavDrawer`'s nav list, placed last), not a section folded into an existing page (e.g. Dashboard or a new tab on Portfolio).",
+      "rationale": "The global trading mode is an app-wide setting with no natural ticker/position/domain-object it belongs to, unlike every other page's content (Portfolio's positions, Watchlist's tracked tickers, Stock Detail's ticker) -- there's no existing page whose own subject this setting is a sub-property of. Daily Homework (`frontend-daily-homework-page`) already established the precedent of a standalone nav destination for exactly this kind of no-natural-parent-page content. Rejected alternative: a settings section under Dashboard (Dashboard is a landing/overview page composing other features' summaries, not itself a natural owner of a write-capable settings form) or Portfolio (portfolio positions are unrelated to which trading mode computes their signals -- the setting is watchlist/stocks-page-relevant too, not portfolio-specific)."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "The entire settings UI (`TradingModeSettingsForm`, its radio group, and its three timeframe-triple leg fields) lives under `features/settings/components/`, not `components/common/`. No new `components/common/` component was introduced by this task.",
+      "rationale": "Per add-frontend-feature's own placement test (Frontend.md §3): a component belongs in `common/` only if it doesn't know what a domain concept is. Every piece of this form is domain-specific -- the swing/day_trader enum is this app's own trading-mode concept, and the timeframe-triple legs (long_term/intermediate/short_term, Tide/Wave/Trigger) are Elder ch. 39/Triple-Screen-specific, not generic reusable controls. Checked for a near-duplicate already in `common/` (per the skill's own step 2 instruction) -- none exists; the closest precedent (`AddPositionDialog`'s TextField-based form pattern) is itself feature-specific, not a `common/` component, for the same reason. Also considered whether a generic 'interval code text field' (label/value/onChange/error props only, no domain knowledge beyond a string-format regex) could itself be promoted to `common/`, since its own validation logic doesn't reference 'position'/'signal'/portfolio concepts -- decided against it: it has exactly one call site (this form's three legs, rendered via one shared `TRIPLE_LEGS.map(...)` loop in the same file), and `common/` is meant to catalog genuinely reusable, Storybook-documented controls; extracting a single-consumer field into a new `common/` component (with the story/test overhead Frontend.md §4 requires for anything placed there) purely because its validation logic happens to be domain-agnostic would be premature generalization with no second consumer yet to justify it. If a second, unrelated feature ever needs the same interval-code input, promoting it then (mirroring `utils/validation.ts`'s own extraction precedent, done only once a second call site existed) is the better time to do it."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Each timeframe-triple leg (long_term/intermediate/short_term) is a single free-text field accepting the whole canonical interval code string (e.g. '25m'), not a split numeric-count field plus an m/d/w unit dropdown.",
+      "rationale": "The wire format (`TimeframeTripleIn.long_term`/`.intermediate`/`.short_term`, `TimeframeTripleOut` likewise) is already exactly that one string -- a single text field maps to it directly with no join/split step needed on submit or on pre-fill from an already-persisted `GET` response. The checklist item's own wording ('entering the three timeframe-interval codes') already frames this as entering codes, not assembling them from parts. Rejected alternative: a count-number-input + unit-select pair per leg, joined into the code string on submit and split back into count/unit for pre-fill. This would be more UI surface (6 controls instead of 3) and extra parse/join logic duplicating `app.signals.timeframe.TimeframeInterval.parse`'s own count+suffix decomposition in TypeScript, for a marginal UX gain (day-trader mode's target users are the kind of trader already comfortable typing '25m'-style codes directly, per ch. 39's own worked examples using exactly that notation) that didn't seem worth the added complexity."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "Client-side validation of the timeframe-triple legs is format-only (each leg matches `/^[1-9][0-9]*[mdw]$/`, mirroring `app.signals.timeframe._CODE_PATTERN` exactly) plus a required-when-day-trader check. The strictly-decreasing `long_term > intermediate > short_term` ordering rule and the factor-of-five spacing guideline are NOT re-validated/re-computed client-side -- both are left entirely to the backend's own 422 response / `factor_of_five_warnings` field.",
+      "rationale": "Matches the checklist item's own precise wording ('client-side format validation matching the backend's accepted interval-code pattern') -- it calls out format validation specifically, not the ordering rule. Duplicating the ordering check (which requires converting each leg to a comparable trading-minutes value, `TimeframeInterval.approx_trading_minutes`'s own DAY/WEEK-aware conversion) or the factor-of-five ratio computation in TypeScript would re-implement business logic the backend already owns in a second language with no test-cross-checking -- the same 'confidence scores and signals are computed entirely in the backend... one place, testable once' principle Frontend.md §5 already applies to indicator math, extended here to this settings validation. A malformed-order submission still gets a clear, real-time answer -- just from the backend's 422 (surfaced via the existing `common/ErrorState`) on submit, one extra round-trip later, rather than a client-side pre-check."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "`useUpdateTradingMode`'s `onSuccess` calls `queryClient.invalidateQueries()` with no filter (invalidates every cached query app-wide), rather than an explicit list of the query keys the trading mode is documented to affect.",
+      "rationale": "Unlike this app's other mutations (which invalidate a narrow, identifiable slice -- e.g. `useAddPosition` invalidates only `portfolioKeys.all`), the trading mode is a single global setting that API.md documents as affecting `GET /api/stocks/{ticker}/analysis`, `GET /api/stocks/{ticker}/indicators`, `GET /api/watchlist`, `GET /api/watchlist/breadth`, `GET /api/portfolio`, and `GET /api/portfolio/risk` all at once -- essentially every other feature's signal/confidence/risk data. Scoping this to an explicit list would require the settings feature to import every other feature's `queryKeys.ts` (a much worse cross-feature coupling than the watchlist/portfolio precedent `features/watchlist/hooks/queryKeys.ts` already declines for a narrower, single-relationship case) and would silently under-invalidate the moment a future mode-aware endpoint is added without this list being updated in lockstep. A blanket invalidation's downside (every mounted query everywhere refetches once after a genuinely rare action -- switching trading mode is not a hot-path write like adding a position) was judged an acceptable, safer default for a setting with this much fan-out."
+    },
+    {
+      "timestamp": "2026-09-25T03:32:52Z",
+      "recorded_by": "task-worker",
+      "decision": "`factor_of_five_warnings` is only ever rendered from the backend's own last-known response (either the just-submitted `PUT` response, or the persisted triple from the initial `GET` if nothing has been submitted this session) -- never recomputed client-side as the user edits the triple fields before submitting.",
+      "rationale": "Recomputing ch. 39's guideline-band ratio check in TypeScript (`TimeframeTriple.factor_of_five_warnings`'s own trading-minutes conversion and 2x-10x band) would duplicate backend business logic for a purely informational, non-blocking notice -- not worth a second implementation with no test-cross-checking, per the same Frontend.md §5 'one place, testable once' principle the ordering-validation decision above also relies on. The tradeoff (warnings shown can lag one edit behind what the user is currently typing, until they submit) was judged acceptable since these are explicitly non-blocking guideline notices, not validation the user needs live feedback on to proceed."
+    }
+  ],
   "questions": []
 }

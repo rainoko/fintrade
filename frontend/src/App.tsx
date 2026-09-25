@@ -6,6 +6,7 @@ import MethodologyPage from './pages/MethodologyPage'
 import NotFoundPage from './pages/NotFoundPage'
 import PortfolioPage from './pages/PortfolioPage'
 import ScannerPage from './pages/ScannerPage'
+import SettingsPage from './pages/SettingsPage'
 import StockDetailPage from './pages/StockDetailPage'
 import WatchlistPage from './pages/WatchlistPage'
 
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/stocks/:ticker" element={<StockDetailPage />} />
         <Route path="/methodology" element={<MethodologyPage />} />
         <Route path="/homework" element={<DailyHomeworkPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

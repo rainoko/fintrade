@@ -36,6 +36,7 @@ import type {
   IBKRScannerResultOut,
   IBKRScannerRunResponse,
 } from '../../src/api/ibkr'
+import type { TradingModeIn, TradingModeOut } from '../../src/api/settings'
 
 // Handlers mirroring docs/architecture/API.md, including every error case
 // listed in API.md's "Error Cases to Cover in Tests" section (see
@@ -625,6 +626,68 @@ const yesterdayTradingSuggestionFixture: YesterdayTradingSuggestionOut = {
   suggested_score: 2,
 }
 
+// Mutable in-memory GET/PUT /api/settings/trading-mode store
+// (frontend-day-trader-timeframe-mode-settings). `resetTradingModeStore`
+// restores the real backend's own documented default -- 'swing' with a
+// null triple, the starting state for a database that has never had this
+// setting written (docs/architecture/API.md) -- between tests.
+const DEFAULT_TRADING_MODE_SETTING: TradingModeOut = {
+  mode: 'swing',
+  day_trader_timeframe_triple: null,
+}
+
+let tradingModeSetting: TradingModeOut = { ...DEFAULT_TRADING_MODE_SETTING }
+
+export function resetTradingModeStore(): void {
+  tradingModeSetting = { ...DEFAULT_TRADING_MODE_SETTING }
+}
+
+// A minimal, mock-only reimplementation of
+// `app.signals.timeframe.TimeframeInterval.approx_trading_minutes` /
+// `TimeframeTriple.factor_of_five_warnings` -- good enough to let a test
+// exercise the ordering-violation 422 and a populated
+// `factor_of_five_warnings` list, without this test-only file needing to
+// import backend code. Not a claim that this belongs in `src/` (see
+// TradingModeSettingsForm's own `decisions`-referenced rationale for why
+// the *real* frontend deliberately does NOT duplicate this computation).
+const TRADING_MINUTES_PER_UNIT: Record<string, number> = { m: 1, d: 390, w: 1950 }
+
+function approxTradingMinutes(code: string): number | null {
+  const match = /^([1-9][0-9]*)([mdw])$/.exec(code)
+  if (!match) {
+    return null
+  }
+  const [, countStr, suffix] = match
+  return Number(countStr) * TRADING_MINUTES_PER_UNIT[suffix]
+}
+
+function factorOfFiveWarnings(triple: {
+  long_term: string
+  intermediate: string
+  short_term: string
+}): string[] {
+  const longTerm = approxTradingMinutes(triple.long_term)
+  const intermediate = approxTradingMinutes(triple.intermediate)
+  const shortTerm = approxTradingMinutes(triple.short_term)
+  if (longTerm === null || intermediate === null || shortTerm === null) {
+    return []
+  }
+  const warnings: string[] = []
+  const longToIntermediateRatio = longTerm / intermediate
+  const intermediateToShortRatio = intermediate / shortTerm
+  if (longToIntermediateRatio < 2 || longToIntermediateRatio > 10) {
+    warnings.push(
+      `The long-term/intermediate ratio (${longToIntermediateRatio.toFixed(1)}x) falls outside ch. 39's roughly-factor-of-five guideline band.`,
+    )
+  }
+  if (intermediateToShortRatio < 2 || intermediateToShortRatio > 10) {
+    warnings.push(
+      `The intermediate/short-term ratio (${intermediateToShortRatio.toFixed(1)}x) falls outside ch. 39's roughly-factor-of-five guideline band.`,
+    )
+  }
+  return warnings
+}
+
 const defaultIbkrStatusResponse: IBKRStatusResponse = {
   state: 'disabled',
   detail: 'IBKR integration is disabled (FINTRADE_IBKR_ENABLED is not set).',
@@ -1100,4 +1163,67 @@ export const handlers: HttpHandler[] = [
   http.get('/api/daily-homework/yesterday-trading-suggestion', () =>
     HttpResponse.json(yesterdayTradingSuggestionFixture),
   ),
+
+  http.get('/api/settings/trading-mode', () => HttpResponse.json(tradingModeSetting)),
+
+  http.put('/api/settings/trading-mode', async ({ request }) => {
+    const body = (await request.json()) as TradingModeIn
+
+    if (body.mode === 'day_trader') {
+      const triple = body.day_trader_timeframe_triple
+      if (!triple) {
+        return HttpResponse.json(
+          {
+            detail: [
+              {
+                loc: ['body', 'day_trader_timeframe_triple'],
+                msg: "day_trader_timeframe_triple is required when mode is 'day_trader'.",
+                type: 'value_error',
+              },
+            ],
+          },
+          { status: 422 },
+        )
+      }
+
+      const longTerm = approxTradingMinutes(triple.long_term)
+      const intermediate = approxTradingMinutes(triple.intermediate)
+      const shortTerm = approxTradingMinutes(triple.short_term)
+      if (
+        longTerm === null ||
+        intermediate === null ||
+        shortTerm === null ||
+        !(longTerm > intermediate && intermediate > shortTerm)
+      ) {
+        return HttpResponse.json(
+          {
+            detail:
+              'Timeframe triple legs must be in strictly-decreasing long_term > intermediate > ' +
+              'short_term order.',
+          },
+          { status: 422 },
+        )
+      }
+
+      tradingModeSetting = {
+        mode: 'day_trader',
+        day_trader_timeframe_triple: {
+          long_term: triple.long_term,
+          intermediate: triple.intermediate,
+          short_term: triple.short_term,
+          factor_of_five_warnings: factorOfFiveWarnings(triple),
+        },
+      }
+      return HttpResponse.json(tradingModeSetting)
+    }
+
+    // 'swing': a previously-configured triple is left untouched in storage
+    // and echoed back unchanged, matching the real backend's own documented
+    // behavior (API.md, PUT /api/settings/trading-mode).
+    tradingModeSetting = {
+      mode: 'swing',
+      day_trader_timeframe_triple: tradingModeSetting.day_trader_timeframe_triple,
+    }
+    return HttpResponse.json(tradingModeSetting)
+  }),
 ]
