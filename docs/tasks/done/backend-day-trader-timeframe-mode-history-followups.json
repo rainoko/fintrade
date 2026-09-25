@@ -3,7 +3,7 @@
   "title": "Non-blocking findings from PR #316's review (backend-day-trader-timeframe-mode-history)",
   "area": "backend/signals",
   "skill": null,
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-day-trader-timeframe-mode-history"],
   "references": [
     "docs/tasks/backend-day-trader-timeframe-mode-history.json",
@@ -44,5 +44,18 @@
     "pr_number": 323,
     "pr_url": "https://github.com/rainoko/fintrade/pull/323",
     "pushed_at": "2026-09-25T02:11:19Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T02:17:54Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/323",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Non-blocking: the malformed daily+weekly OHLCV fixture construction is now duplicated inline across at least three spots in test_engine.py (TestAnalyseEndToEnd's two tests plus this PR's new _malformed_daily_and_weekly), and the malformed single-row NaN fixture is duplicated within this PR's own new class itself. Pre-existing pattern, not introduced fresh here, but worth extracting a shared helper. Tracked as backend-day-trader-timeframe-mode-history-followups-followups.",
+        "file": "backend/tests/unit/signals/test_engine.py",
+        "line": 1204
+      }
+    ],
+    "notes": "Full review of PR #323 (3 items closing PR #316's non-blocking findings). Item 1 (discriminating tests for the two `_already_clean` escape hatches): independently re-verified by mutation -- temporarily made both `if not _daily_ohlcv_already_clean:` / `if short_term_ohlcv is not None and not _short_term_ohlcv_already_clean:` guards in app/signals/engine.py's analyse() into unconditional `drop_malformed_daily_bars` calls (removing any effect of the flags), re-ran `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning`, and confirmed both new tests fail under that mutation (assert True is False on `left_dirty.screens['trigger']['fired']`) before reverting the file (git diff clean afterward) -- proving both tests are genuinely discriminating, not just plausible-looking. Item 2 ('already covered' claim for the mocked-IBKR chaining test): independently verified by reading code, not trusting the PR description -- backend/app/api/routers/stocks.py's `_get_day_trader_indicator_history` (line 641) calls `app.api.day_trader_signal.fetch_day_trader_history_legs`, which itself calls `app.data.day_trader_intraday.get_intraday_history_bars_for_triple`, and feeds the result into `app.signals.engine.analyse_history_day_trader` (line 668) -- the real production chain the checklist item named. `backend/tests/integration/test_stocks_indicator_history.py::TestDayTraderMode::test_fully_intraday_triple_replays_a_real_walk_forward_history` drives this exact chain through a TestClient request against the router with a mocked IBKR provider, and its assertion `points[0]['signal'] != 'BUY' or points[0]['confidence'] != last_point['confidence']` is genuinely discriminating (would fail if a bug reused the single latest-bar snapshot for every point instead of a real walk-forward replay) -- confirmed by re-running the full TestDayTraderMode class (8 passed). No duplicate test was needed; the decision to not add one is properly recorded. Item 3 (style nit): diffed backend/app/data/ibkr_provider.py -- a single added blank line before `max_lookback_days_for_bar_size`, no behavior change. Independently re-ran the full backend suite: pytest --cov=app -- 1402 passed, 100% line/branch coverage (no regression, gate exceeded). Static analysis clean: ruff check ., mypy, scripts/check_profit_target_wording.py all clean. scripts/validate_tasks.py: 316 task files validated, no violations. No frontend files touched by this PR (git diff --stat confirms only backend/app/data/ibkr_provider.py, backend/tests/unit/signals/test_engine.py, and two docs/tasks/ JSON files) -- frontend lint/tsc/tests explicitly skipped as not applicable, last known state clean. No API route or schema changed, so no backend/openapi.json regeneration is required. No UI surface is touched (pure backend test/whitespace change) -- the browser walkthrough (step 9) and persisted e2e suite (step 9a) are explicitly not applicable here, not skipped by omission. area is backend/signals, so verify-elder-signal's checklist was walked: this PR adds no new methodology/signal logic (only test coverage for an existing, already-reviewed `_already_clean` escape hatch and a whitespace fix), so there is nothing new to check against docs/Analyse.md; no divergence introduced. A dedicated code-review skill pass was launched in the background for the diff; given the diff's small, fully self-contained size (2 source-adjacent files, ~140 lines, almost entirely new test code) it was also reviewed manually line-by-line for correctness/reuse/efficiency in the meantime -- one non-blocking reuse/duplication finding surfaced (see comments) and no correctness bugs. No checklist item in this task is phrased as 'decide X' needing a decisions entry beyond what's already recorded (two decisions entries already document the item-1 mutation verification and the item-2 already-covered judgment, both with rationale). No stale pr_decision existed on this task to clear."
   }
 }

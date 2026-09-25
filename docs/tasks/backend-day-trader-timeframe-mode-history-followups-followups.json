@@ -1,0 +1,21 @@
+{
+  "id": "backend-day-trader-timeframe-mode-history-followups-followups",
+  "title": "Non-blocking finding from PR #323's review (backend-day-trader-timeframe-mode-history-followups)",
+  "area": "backend/signals",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["backend-day-trader-timeframe-mode-history-followups"],
+  "references": [
+    "docs/tasks/backend-day-trader-timeframe-mode-history-followups.json",
+    "https://github.com/rainoko/fintrade/pull/323"
+  ],
+  "description": "Non-blocking finding recorded by pr-reviewer while accepting PR #323, which closed the three non-blocking findings from PR #316's review (a new discriminating test class for the `_already_clean` escape hatches in `backend/tests/unit/signals/test_engine.py`, a decision documenting existing coverage for the mocked-IBKR end-to-end chaining test, and a whitespace fix in `backend/app/data/ibkr_provider.py`). None of this blocked the accept -- the two new tests were independently re-verified as genuinely discriminating (reproduced by temporarily making both `_daily_ohlcv_already_clean`/`_short_term_ohlcv_already_clean` unconditional no-ops in `app/signals/engine.py`'s `analyse()` and confirming both new tests then fail, then reverting), the 'already covered' claim for the mocked-IBKR chaining test was independently re-verified by reading `app/api/routers/stocks.py`'s `_get_day_trader_indicator_history` and `app/api/day_trader_signal.py`'s `fetch_day_trader_history_legs` to confirm the real call chain (`get_intraday_history_bars_for_triple` -> `analyse_history_day_trader`) and by reading `test_stocks_indicator_history.py::TestDayTraderMode::test_fully_intraday_triple_replays_a_real_walk_forward_history`'s assertions (discriminating: an earlier replay point must differ from the latest one, not the same snapshot repeated), and the style nit was confirmed to be a pure whitespace-only change.",
+  "checklist": [
+    {
+      "step": "The malformed daily+weekly OHLCV fixture construction (20 rising closes + 5-day selloff + one rally bar, paired with a 40-week 5%/week-growth weekly series) is now duplicated inline in at least three places in `backend/tests/unit/signals/test_engine.py`: `TestAnalyseEndToEnd.test_end_to_end_buy_after_pullback_and_trigger`, `TestAnalyseEndToEnd.test_malformed_latest_bar_is_excluded_and_does_not_change_signal`, and this PR's new `TestAlreadyCleanEscapeHatchesGenuinelySkipCleaning._malformed_daily_and_weekly`. Separately, the malformed (`NaN` open/high/low/close, populated volume) single-row fixture is duplicated within this PR's own new class -- once inside `_malformed_daily_and_weekly` and once directly inside `test_short_term_ohlcv_already_clean_true_leaves_the_malformed_latest_bar_in_place`. Not a correctness issue and not introduced as a net-new pattern by this PR (the daily/weekly duplication predates it), but worth extracting a shared module-level helper (or two: one for the BUY-fixture daily+weekly pair, one for the single malformed NaN row) that all of these call sites reuse, so a future change to the fixture shape doesn't need to be applied by hand in 3+ places.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
