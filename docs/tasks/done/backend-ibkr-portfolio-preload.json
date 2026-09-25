@@ -3,7 +3,7 @@
   "title": "IBKR-backed portfolio preload: preview conflicts, delete-then-import without merging",
   "area": "backend/api",
   "skill": "add-api-endpoint",
-  "state": "testing",
+  "state": "done",
   "depends_on": [],
   "references": [
     "docs/architecture/API.md",
@@ -95,5 +95,38 @@
     "pr_number": 335,
     "pr_url": "https://github.com/rainoko/fintrade/pull/335",
     "pushed_at": "2026-09-25T20:37:21Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T20:46:16Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/335",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Verified firsthand rather than trusting task-worker's claims: (1) mutation-tested test_skips_ticker_still_present_locally_never_merges myself by temporarily making preload_ibkr_portfolio's insert loop merge into the existing row instead of skipping -- the test failed exactly as claimed, then reverted cleanly (git diff empty). (2) Verified the .env/FINTRADE_IBKR_BASE_URL pre-existing-failure claim: moved backend/.env aside, ran the full backend suite (1442 passed, 0 failed, 100% coverage), restored .env byte-for-byte (md5 matched before/after); with .env restored, only test_ibkr_base_url_defaults_to_localhost_gateway fails, confirming it's genuinely pre-existing/environment-caused and unrelated to this branch. (3) Read preload_ibkr_portfolio directly: _existing_position_tickers(db) is queried fresh inside the request handler itself (not cached from a prior preview call), so the delete-then-preload ordering requirement holds. (4) FINTRADE_IBKR_ENABLED confirmed still 'false' in backend/.env. (5) Independently regenerated backend/openapi.json and frontend/src/api/types.ts -- both already in sync (git diff empty after regen). (6) ruff/mypy/eslint/tsc/check_profit_target_wording.py/validate_tasks.py all clean.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 617
+      },
+      {
+        "summary": "The entry_date=today/entry_notes=generated-caveat/strategy=null defaults for imported positions were a reasonable engineering call, not something that should have been escalated to a questions entry: the checklist item itself explicitly offered the worker the choice ('record as a decisions entry, or a questions entry if it's genuinely the user's call'), and the recorded decisions entry's rationale for each of the three fields (entry_date: no real date exists to backfill with, today's is the only non-fabricated option; entry_notes: cheap, informational-only caveat so a later reader isn't misled about entry_date's meaning; strategy: left null rather than guessing, since IBKR's response carries no signal mappable onto a personal strategy tag and a fabricated one would pollute strategy-based aggregation) is sound and leaves no live product ambiguity for the user to resolve.",
+        "file": "docs/tasks/backend-ibkr-portfolio-preload.json",
+        "line": 70
+      },
+      {
+        "summary": "Non-blocking: IBKRPortfolioPreviewPositionOut.avg_cost's Field description (and IBKRAccountPosition's dataclass docstring in ibkr_provider.py) claims a null-avg_cost position is 'still shown here for visibility' in the preview -- this is stale/incorrect. _valid_import_candidates actually excludes such a position from GET /api/ibkr/portfolio-preview's positions list entirely (matching the task's own decisions entry and _valid_import_candidates's own docstring, both of which are accurate) -- only these two docstrings, and the openapi.json/types.ts snapshots generated from the schema one, are wrong. Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/api/schemas.py",
+        "line": 1151
+      },
+      {
+        "summary": "Non-blocking: preload_ibkr_portfolio's single db.commit() after its insert loop has no IntegrityError/OperationalError handling, unlike record_ibkr_breadth_snapshot earlier in the same file, which explicitly catches this exact pair for an analogous same-key concurrent-write race. existing_tickers is read once before the insert loop, so a same-ticker row inserted concurrently between that read and this commit (a second overlapping preload call, or a concurrent POST /api/portfolio/positions) would raise an uncaught IntegrityError -> a raw 500, rolling back the whole batch (every other non-conflicting position in the same call, not just the colliding ticker). Low real-world likelihood for a personal single-user app, but inconsistent with this file's own established pattern. Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/api/routers/ibkr.py",
+        "line": 661
+      },
+      {
+        "summary": "Non-blocking: this PR's rename of _resolve_scanner_unavailable to _resolve_ibkr_call_unavailable left 3 stale cross-file references to the old name unfixed (app/data/day_trader_intraday.py:102 and :238, tests/unit/data/test_day_trader_intraday.py:311). Filed as a checklist item on backend-ibkr-portfolio-preload-followups.",
+        "file": "backend/app/data/day_trader_intraday.py",
+        "line": 102
+      }
+    ],
+    "notes": "No blocking findings. Full backend suite (1442 tests) green with .env removed (confirming the one .env-caused failure is genuinely pre-existing/unrelated); 100% backend coverage; ruff/mypy/eslint/tsc clean; validate_tasks.py clean; openapi.json/types.ts independently regenerated and confirmed already in sync. code-review skill (high effort) run independently and corroborated the concurrent-write-race and stale-comment-rename findings above. architecture-review checklist walked explicitly: module placement, doc updates (API.md/Backend.md both updated in the same change), no new dependency/DB/ORM, thin routers with business logic in small module-level helpers -- no architecture violations found. This PR has no UI surface (only backend/app, backend/tests, docs, and generated openapi.json/types.ts changed) -- the frontend half is the separate, still-planned frontend-ibkr-portfolio-preload task -- so the browser walkthrough (step 9) and e2e suite (step 9a) were explicitly skipped rather than silently omitted."
   }
 }
