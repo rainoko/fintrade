@@ -3,7 +3,7 @@
   "title": "Preload-from-IBKR button on the Portfolio page: conflict review + delete-then-import flow",
   "area": "frontend/portfolio",
   "skill": "add-frontend-feature",
-  "state": "testing",
+  "state": "done",
   "depends_on": ["backend-ibkr-portfolio-preload"],
   "references": [
     "docs/architecture/Frontend.md",
@@ -76,5 +76,38 @@
     "pr_number": 337,
     "pr_url": "https://github.com/rainoko/fintrade/pull/337",
     "pushed_at": "2026-09-25T21:46:50Z"
+  },
+  "review": {
+    "reviewed_at": "2026-09-25T22:04:12Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/337",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "importCount (nonConflicting.length + selectedDeleteIds.size) doesn't account for the backend's own documented within-one-fetch same-ticker dedup (POST /api/ibkr/portfolio-preload imports only the first of two same-ticker candidates from one IBKR fetch), so the dialog can promise more imports than actually happen in that rare edge case. The success screen itself remains accurate about what was actually imported. Non-blocking; filed on frontend-ibkr-portfolio-preload-followups.",
+        "file": "frontend/src/features/portfolio/components/IbkrPreloadDialog.tsx",
+        "line": 141
+      },
+      {
+        "summary": "PortfolioPage's preloadTooltip falls back to 'Checking IBKR availability…' whenever ibkrStatusQuery.data is undefined, without checking isError first -- unlike the sibling IbkrStatusIndicator (same useIbkrStatus hook), which explicitly checks isError before !data so a genuine transport failure is never mistaken for 'still loading'. Non-blocking (the button itself still correctly stays disabled); filed on frontend-ibkr-portfolio-preload-followups.",
+        "file": "frontend/src/pages/PortfolioPage.tsx",
+        "line": 51
+      },
+      {
+        "summary": "IbkrPreloadDialog's Dialog onClose (Escape/backdrop) isn't guarded by preloadMutation.isPending -- only the Cancel button is -- so a user can dismiss the dialog mid delete-then-import. The mutation keeps running and onSettled still invalidates correctly (no data loss), but the success/error outcome is silently discarded on reopen. AddPositionDialog has the identical gap already, so this isn't a regression unique to this PR. Non-blocking; filed on frontend-ibkr-portfolio-preload-followups.",
+        "file": "frontend/src/features/portfolio/components/IbkrPreloadDialog.tsx",
+        "line": 169
+      },
+      {
+        "summary": "In the same rare duplicate-ticker-in-one-fetch scenario as the importCount finding, two conflicting rows resolving to the same ticker would render identical checkbox aria-labels and share the same selectedDeleteIds entry (row.local.id), so checking one toggles the same underlying selection as the other. Non-blocking; filed on frontend-ibkr-portfolio-preload-followups.",
+        "file": "frontend/src/features/portfolio/components/IbkrPreloadDialog.tsx",
+        "line": 265
+      },
+      {
+        "summary": "existingPositions (used to resolve a conflicting ticker's local id) comes from usePortfolio()'s 60s-staleTime cache rather than a fresh read, while the dialog's own preview query uses staleTime: 0 -- a ticker added/removed locally in the last 60s not yet reflected in that cache could render as 'Not found locally' (blocking deletion) even though the fresh preview correctly flags it as conflicting. Already handled gracefully with its own test; non-blocking. Filed on frontend-ibkr-portfolio-preload-followups.",
+        "file": "frontend/src/pages/PortfolioPage.tsx",
+        "line": 118
+      }
+    ],
+    "notes": "Independently re-ran yarn test:coverage (95 files/933 tests passed, 99.78%/99.13%/99.81%/99.83% stmt/branch/func/line coverage, IbkrPreloadDialog.tsx 100% line+branch), yarn lint, yarn tsc -b, yarn build-storybook, validate_tasks.py, check_profit_target_wording.py -- all clean. Confirmed via gh pr view --json files that no backend files are touched. Ran the persisted e2e suite (make e2e): all 26 specs passed (no spec yet exercises the new IBKR-preload flow, which wasn't required by this task's checklist). Real-browser walkthrough: FINTRADE_IBKR_ENABLED=false in this dev container and there's no browser-side MSW worker for dev mode, so I drove the actual running dev stack with a real headless Chromium via the Playwright library directly (no MCP browser tool available in this session), intercepting only GET /api/ibkr/status, GET /api/ibkr/portfolio-preview, and POST /api/ibkr/portfolio-preload at the network layer with fixtures mirroring the real backend's documented contract (the mocked preload handler dynamically re-checked conflicts against a live GET /api/portfolio call, and performed real imports via the real POST /api/portfolio/positions endpoint). Every other call (add/delete/get position, portfolio summary) hit the real running backend. Verified: (a) disabled+tooltip state when unavailable; (b) conflict-review dialog correctly split conflicting/non-conflicting; (c) confirming without selecting a conflict left the original conflicting position's id untouched and only imported the non-conflicting ticker (verified via real GET /api/portfolio before/after); (d) confirming with the conflict selected actually deleted the original position (id gone) and imported a new one for the freed ticker (verified via real GET /api/portfolio); (e) empty-state (no IBKR positions at all) rendered correctly. No console errors. One requestfailed (net::ERR_ABORTED) was logged for the real DELETE call in scenario (d); investigated via the raw response event, which showed the DELETE already completed with 204 one millisecond before the spurious failure fired -- a benign dev-proxy/connection-teardown artifact, not a real app bug (confirmed the position really was deleted). Restored the dev container's shared backend/fintrade.db to its original single-AAPL-position state afterward. Verified the 404-swallow/retry-safety claim and the sequential (not Promise.all) delete ordering by direct code read of useIbkrPortfolioPreload.ts, corroborated by its own tests. Verified the onSettled/portfolioKeys.all invalidation choice covers every other useQuery call site in features/portfolio/hooks/*.ts via the same prefix-nesting pattern risk/closedTrades/dueForFollowUpTrades already use -- no PR #328-style dropped key. Judged exitReason: 'unspecified' reasonable given ExitReason's real taxonomy doesn't fit this case and it's already the backend's own default. Component placement (IbkrPreloadDialog under features/portfolio/components/, no new common/ component) is correct per Frontend.md §3 and consistent with AddPositionDialog/ClosePositionDialog precedent; the decisions entry's reasoning for a hand-rolled Table over common/DataTable for the mixed-source conflict row is sound. All checklist judgment calls have corresponding decisions entries. code-review skill (medium effort) run independently and corroborated 4 of the 5 findings above (I added the 5th, the existingPositions staleness gap, myself); no other correctness bugs found. No architecture-review or verify-elder-signal needed (area is frontend/portfolio, no new module/dependency/layer, no signal/portfolio-risk logic touched, only UI/query-plumbing for an already-reviewed backend contract). Filed all 5 non-blocking findings as frontend-ibkr-portfolio-preload-followups (new task, state: planned) since no existing follow-up task for this id was found in index.json."
   }
 }

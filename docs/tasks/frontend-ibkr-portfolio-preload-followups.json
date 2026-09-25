@@ -1,0 +1,37 @@
+{
+  "id": "frontend-ibkr-portfolio-preload-followups",
+  "title": "Non-blocking findings from PR #337's review (frontend-ibkr-portfolio-preload)",
+  "area": "frontend/portfolio",
+  "skill": null,
+  "state": "planned",
+  "depends_on": ["frontend-ibkr-portfolio-preload"],
+  "references": [
+    "docs/tasks/done/frontend-ibkr-portfolio-preload.json",
+    "https://github.com/rainoko/fintrade/pull/337"
+  ],
+  "description": "Tracked follow-ups for non-blocking findings raised in pr-reviewer's review of PR #337 (frontend-ibkr-portfolio-preload) -- none of these block the accept (no functional data-integrity bug, no test/coverage regression, no architecture violation), but each is worth fixing so it isn't lost once PR #337 merges and the review comment disappears from view.",
+  "checklist": [
+    {
+      "step": "`IbkrPreloadDialog.tsx`'s `importCount` (`nonConflicting.length + selectedDeleteIds.size`) doesn't account for the backend's own documented within-one-fetch same-ticker dedup (`POST /api/ibkr/portfolio-preload`'s own docstring: two fetched IBKR positions resolving to the same ticker are de-duplicated within one call, only the first is imported, `PositionORM.ticker`'s uniqueness constraint would otherwise fail the second insert). `GET /api/ibkr/portfolio-preview`'s `conflicts_with_existing_position` only checks against the local DB, not within-batch duplicates, so if the connected IBKR account genuinely reports the same ticker twice (e.g. across sub-accounts) with neither conflicting locally, both rows land in `nonConflicting` and both get counted toward `importCount` -- but confirming only actually imports one of them. The success screen itself is honest about what actually happened (`preloadMutation.data.imported`/`skipped_conflicting_tickers`), so this is a pre-commit count-accuracy gap, not a data-integrity bug. Fix by detecting duplicate tickers among `nonConflicting` client-side and either de-duplicating the promised count or surfacing them as a distinct \"will be skipped as a duplicate\" case before confirming.",
+      "done": false
+    },
+    {
+      "step": "`PortfolioPage.tsx`'s `preloadTooltip` falls back to `'Checking IBKR availability…'` whenever `ibkrStatusQuery.data` is undefined, without checking `isError` first -- unlike the sibling `IbkrStatusIndicator` (`features/ibkr/components/IbkrStatusIndicator.tsx`, same `useIbkrStatus` hook), which explicitly checks `isError` before `!data` specifically so a genuine transport failure (this app's own backend unreachable) is never mistaken for 'still loading.' A backend-unreachable case would leave this tooltip stuck on 'Checking...' forever, even though the button itself correctly stays disabled either way. Mirror `IbkrStatusIndicator`'s `isError`-first check here too.",
+      "done": false
+    },
+    {
+      "step": "`IbkrPreloadDialog.tsx`'s `<Dialog open={open} onClose={onClose} ...>` isn't guarded by `preloadMutation.isPending` -- only the explicit Cancel button is (`disabled={preloadMutation.isPending}`). MUI's `Dialog` fires its own `onClose` on Escape key press and backdrop click regardless of any button's disabled state, so a user can dismiss the dialog mid delete-then-import. The mutation keeps running in the background (the component itself isn't unmounted, only the visual `Dialog` closes) and `onSettled` still invalidates `portfolioKeys.all` correctly either way, so no data is lost -- but the success/error outcome is silently discarded if the dialog is reopened before the mutation settles, since `useOnValueChange`'s reopen effect calls `preloadMutation.reset()` immediately. Note this exact gap already exists in `AddPositionDialog.tsx` (same unguarded `onClose={onClose}` pattern), so this isn't a regression unique to this PR -- consider a shared fix (e.g. a wrapped `onClose` that no-ops while any of this app's dialog mutations are pending) covering both dialogs rather than a point fix here alone.",
+      "done": false
+    },
+    {
+      "step": "In the same rare duplicate-ticker-in-one-fetch edge case as the first item above, two conflicting rows resolving to the same ticker would render identical `aria-label`s (`Delete existing ${ticker} position`) on their checkboxes and share the same `selectedDeleteIds` entry (`row.local.id`, since both rows resolve to the same local position by ticker match) -- checking one checkbox and then the other would toggle the same underlying selection rather than represent two independent choices, and any `getByRole('checkbox', { name })`-style query would no longer uniquely match. Give each conflict row a unique aria-label (e.g. including the IBKR `conid`) rather than relying on ticker text alone.",
+      "done": false
+    },
+    {
+      "step": "`PortfolioPage.tsx` passes `existingPositions={portfolioQuery.data?.positions ?? []}` to `IbkrPreloadDialog`, sourced from `usePortfolio()`'s cache (this app's global 60s `staleTime`), while the dialog's own preview query (`useIbkrPortfolioPreview`) deliberately uses `staleTime: 0` for a fresh read every time it opens. A ticker added or removed locally in the last 60s that isn't yet reflected in `usePortfolio()`'s cache could render as 'Not found locally' in the conflict table (blocking the user from selecting it for deletion, since there's no checkbox in that fallback branch) even though the freshly-fetched preview correctly flags it as conflicting. This is already handled defensively (no crash, its own test: \"renders a conflicting ticker whose local match can't be resolved as 'Not found locally', with no checkbox\"), but consider having `PortfolioPage` refetch (or invalidate) `usePortfolio()` when the preload dialog opens, closing this staleness window entirely rather than only degrading gracefully through it.",
+      "done": false
+    }
+  ],
+  "decisions": [],
+  "questions": []
+}
