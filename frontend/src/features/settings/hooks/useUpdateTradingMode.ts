@@ -4,6 +4,7 @@ import { updateTradingMode, type TradingModeIn, type TradingModeOut } from '../.
 import { portfolioKeys } from '../../portfolio/hooks/queryKeys'
 import { stocksKeys } from '../../stocks/hooks/queryKeys'
 import { watchlistKeys } from '../../watchlist/hooks/queryKeys'
+import { settingsKeys } from './queryKeys'
 
 /**
  * `PUT /api/settings/trading-mode` (docs/architecture/API.md). On success,
@@ -23,6 +24,16 @@ import { watchlistKeys } from '../../watchlist/hooks/queryKeys'
  * why this was judged an acceptable amount of cross-feature coupling where
  * the originally-recorded blanket-invalidation decision judged importing
  * every other feature's query keys too costly.
+ *
+ * Also invalidates `settingsKeys.tradingMode` itself — the query this same
+ * mutation's own `useTradingMode()` reads to pre-fill this form. The
+ * original unfiltered `queryClient.invalidateQueries()` covered this key
+ * for free; the scoped stocks/watchlist/portfolio-only replacement above
+ * dropped it, which meant a client-side navigation away from and back to
+ * Settings within the global 60s `staleTime` window (`main.tsx`) re-mounted
+ * the form from the stale pre-save cache even though the backend had
+ * already persisted the new mode/triple (PR #328 review finding). See this
+ * task's `decisions` entry for how this was verified.
  */
 export function useUpdateTradingMode() {
   const queryClient = useQueryClient()
@@ -33,6 +44,7 @@ export function useUpdateTradingMode() {
       void queryClient.invalidateQueries({ queryKey: stocksKeys.all })
       void queryClient.invalidateQueries({ queryKey: watchlistKeys.all })
       void queryClient.invalidateQueries({ queryKey: portfolioKeys.all })
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.tradingMode })
     },
   })
 }
