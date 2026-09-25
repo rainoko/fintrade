@@ -1,0 +1,143 @@
+{
+  "id": "frontend-ux-block-layout-audit",
+  "title": "Audit UI block layout/arrangement across every frontend view for UX improvements",
+  "area": "frontend/ux",
+  "skill": null,
+  "state": "done",
+  "depends_on": [],
+  "references": ["docs/architecture/Frontend.md", "docs/architecture/Testing.md"],
+  "description": "User-requested review: analyse the arrangement of UI blocks (summary/KPI cards, charts, tables, filters, action controls, nav) across every existing frontend page/view and identify concrete places where rearranging them would improve UX (information hierarchy, workflow order, consistency across comparable pages). This is a review-first task with two, mutually exclusive possible outcomes, not a foregone conclusion that fixes must be made: (a) if genuine, concrete layout flaws are found, this task's job is to turn them into tracked follow-up tasks (the actual UI changes are NOT made by this task itself -- they belong on separate `<id>-followups`-style tasks so each gets its own worker/review/decision/merge cycle) and to generalize what was learned into a new durable `.claude/skills/` skill so future UI work is checked against the same lens, not just this one-time audit; (b) if every view already reads as good UX, this task closes with no follow-up tasks and no new skill at all -- do not manufacture busywork or a skill from nothing. The user's own framing: 'Result must be tasks for UX work or no work at all if everything is already good.'\n\nThis agent has no interactive browser MCP tool (task-worker's toolset is Read/Edit/Write/Bash/Grep/Glob/Skill/ToolSearch) -- to actually SEE each view's rendered layout rather than just its JSX, start the dev stack (`make dev` or equivalent) and drive a headless Playwright script via Bash to capture a full-page screenshot of each top-level view, then use the Read tool (which supports images) to visually inspect each screenshot, cross-referencing against the page's actual component source under `frontend/src/pages/`/`frontend/src/features/` for context on what each block is for.\n\nNote for whoever picks this up: any resulting new/edited file under `.claude/skills/` or `.claude/agents/*.md` falls under CLAUDE.md's 'A PR touching CLAUDE.md or anything under .claude/ needs an explicit human merge' rule -- `pr-reviewer`/`pr-decision` can still review it normally, but `pr-merger` will correctly refuse to run `gh pr merge` on it and will report it as reviewed/ready-but-requiring-human-merge instead. That is expected, not a failure.",
+  "checklist": [
+    {
+      "step": "Start the dev stack and capture a full-page screenshot (via a headless Playwright script run through Bash) of every top-level frontend view -- at minimum Dashboard, Stock Detail/Analysis, Watchlist, Portfolio, Market Scanner, Daily Homework, Trade Journal, and Settings (check `frontend/src/App.tsx`'s routes for the authoritative current list, since new pages may have been added since this task was written). Read each screenshot (image) to visually inspect the actual rendered block layout, not just the JSX.",
+      "done": true
+    },
+    {
+      "step": "For each view, judge whether the arrangement of UI blocks follows a coherent information hierarchy for that page's actual workflow (what a user looks at first, what they act on, what's secondary) and is reasonably consistent with how comparable pages elsewhere in the app are laid out. Record one `decisions` entry per view stating the judgment and why -- including an explicit 'no change warranted' entry for views that are already good, so the audit's reasoning is visible, not just its conclusions.",
+      "done": true
+    },
+    {
+      "step": "If -- and only if -- one or more views have a genuine, concrete layout flaw: file one tracked follow-up task per distinct fix (not a single grab-bag task covering everything found), each describing the specific before/after rearrangement and referencing this audit task and the relevant screenshot/finding.",
+      "done": true
+    },
+    {
+      "step": "If any genuine flaw was found in checklist item 3: author a new `.claude/skills/ux-review` skill (mirroring the shape/structure of the existing `.claude/skills/architecture-review/` or `.claude/skills/verify-elder-signal/` skills) that generalizes what was learned into durable, checkable UX rules/checklist for judging UI block layout and arrangement -- a reusable review lens for future PRs, not a transcript of this specific audit's findings.",
+      "done": true
+    },
+    {
+      "step": "If the new skill was created in checklist item 4: wire it into `.claude/agents/pr-reviewer.md` (dispatched the same way `architecture-review`/`verify-elder-signal` already are, gated on whether a PR touches frontend UI) and into `.claude/agents/task-worker.md` (so new/changed UI work is checked against it while being built, not only caught later at review time). Add the new skill to CLAUDE.md's 'Skills' list and update `pr-reviewer`'s description in CLAUDE.md's 'Agents' section to mention it, matching how `architecture-review`/`verify-elder-signal` are already documented there.",
+      "done": true
+    },
+    {
+      "step": "If NO genuine layout flaw is found across every view checked in checklist items 1-2: do not create any follow-up task and do not create a skill. Close this task with a `decisions` entry stating that explicitly -- listing which views were checked and a one-line reason each was judged adequate -- so a future reader can see the audit actually happened rather than assuming it was skipped.",
+      "done": true
+    }
+  ],
+  "git": {
+    "branch": "task/frontend-ux-block-layout-audit",
+    "pr_number": 331,
+    "pr_url": "https://github.com/rainoko/fintrade/pull/331",
+    "pushed_at": "2026-09-25T16:09:32Z"
+  },
+  "decisions": [
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Dashboard ('/', DashboardPage.tsx) -- no change warranted. Full-page screenshot (dev stack: uvicorn+FixtureDataProvider, yarn dev, headless Playwright at 1440x900, seeded with 3 fixture positions + 2 watchlist tickers) shows: PageHeader with TickerSearchBox action, then five StatCards (Cash/Positions Value/Total Equity/Total Risk/2%-rule-breach count), then 'Positions Flagged to Sell' (an actionable alert table), then the full PositionsGlanceTable.",
+      "rationale": "This is a coherent overview-to-detail hierarchy for an 'at-a-glance triage' page: aggregate numbers first, what-needs-my-attention-right-now second, everything-else last. Confirmed this isn't accidental: frontend-dashboard-page's own decisions entry explicitly built RiskSummaryCard as a deliberately trimmed-down summary (vs. the Portfolio page's full RiskPanel) because a dashboard 'at-a-glance' card, not the full per-position table, is what the task's own checklist wording called for -- the design intent behind this page's block choices is already recorded, not reverse-engineered here."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Portfolio ('/portfolio', PortfolioPage.tsx) -- no change warranted. Screenshot shows: PageHeader with an 'Add Position' action button, three StatCards, PositionsTable (now including Protective Stop/Profit Target columns), RiskPanel (an aggregate 'Total Risk' StatCard plus a per-position risk/exit-flags table), TradeFollowUpDuePanel, then TradeJournalPanel.",
+      "rationale": "PositionsTable's and RiskPanel's tables both show ticker/protective-stop/profit-target/signal for the same rows, which read at first glance like an unexamined duplicate -- but frontend-position-risk-columns' own decisions entry records that those two PositionsTable columns were deliberately added specifically so the primary 'what do I own' view doesn't require cross-referencing the separate RiskPanel table below it, while RiskPanel's table still earns its own place by adding what PositionsTable has no room for (Position Risk %, Exit Flags) anchored under its own aggregate Total Risk stat. So this is two purposefully-reasoned views of the same rows, not one accidentally repeated -- already fixed by an earlier task, not a fresh finding. Table-before-risk-panel ordering here (vs. Dashboard's risk-before-table ordering) also isn't an inconsistency: Portfolio's primary job is managing/adding positions (table first), Dashboard's is triage (risk first) -- different workflows justify different emphasis, and Frontend.md doesn't require identical ordering between pages with different jobs."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Watchlist ('/watchlist', WatchlistPage.tsx) -- no change warranted. Screenshot shows PersonalBreadthCard and MarketBreadthCard grouped together directly under the PageHeader (MarketBreadthCard rendered as UnavailableState since this dev stack has no IBKR gateway), then WatchlistTable below.",
+      "rationale": "WatchlistPage.tsx's own doc comment already states the two breadth widgets are placed adjacent to each other 'since both are breadth widgets a user might otherwise confuse for one another' -- confirmed by this audit's screenshot that the resulting layout matches that stated intent, table-of-individual-tickers appropriately below the two aggregate summary widgets."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Scanner ('/scanner', ScannerPage.tsx) -- no change warranted. Screenshot (IBKR disabled in this dev stack) shows a single centered UnavailableState with heading + explanatory detail; the pick-category/run-scan/review-results/add-to-watchlist flow (ScannerPanel/ScannerResultsTable) only renders once `state === 'available'`, so it wasn't exercised by this audit's screenshot.",
+      "rationale": "The only block-arrangement question decidable from what actually rendered is the disabled-state treatment itself, which correctly matches the documented 'not an error' UnavailableState convention (distinct styling from ErrorState, per ScannerPage.tsx's own doc comment) rather than misrepresenting an IBKR-disabled dev environment as a request failure. ScannerPanel/ScannerResultsTable's own internal arrangement is a separate, already-reviewed component (frontend-market-scanner-page and its PR review) outside this audit's page-level scope."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Stock Detail ('/stocks/:ticker', StockDetailPage.tsx, screenshotted for AAPL) -- no change warranted. Screenshot shows: PageHeader with TickerSearchBox action, a 'Methodology reference' link + 'Trade Apgar' button row, HeldPositionBanner, then (once analysis loads) SignalSummary, FundamentalDataPanel, ScreensPanel (Tide/Impulse/Wave/Trigger cards plus a visually-distinct Season card), IndicatorsPanel, and StockCharts (Price chart, then Oscillators, then Volume Indicators and Trend Strength -- the latter two explicitly labeled 'Informational').",
+      "rationale": "This is the app's most content-dense page by design (docs/Analyse.md's full Triple Screen + Impulse + confidence + fundamentals + multi-pane charts for one ticker), and every block-placement choice visible in the screenshot already has its own recorded rationale from the task that introduced it: FundamentalDataPanel sits high (per StockDetailPage.tsx's own doc comment) so its earnings-date warning banner isn't buried; ScreensPanel's Season card is deliberately NOT a fifth ScreenSection-style card (frontend-indicator-seasons-badge's decisions: dashed border + 'Informational' caption + SeasonBadge specifically to avoid implying a 5th Triple Screen signal); Volume/Trend-Strength charts are placed last and self-labeled 'Informational' since they don't feed the signal. This audit's screenshot re-confirms those decisions still hold, rather than finding anything new to fix."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Methodology ('/methodology', MethodologyPage.tsx) -- no change warranted. Screenshot shows an intro paragraph, four status-filter chips, then one section per Triple Screen stage (Screen 1/2/3, Impulse, Confidence, Portfolio Risk) followed by 'Other Indicators' and 'Considered But Not (Yet) Implemented' catch-alls -- a long page, but a static reference catalog rather than a live dashboard view.",
+      "rationale": "MethodologyPage.tsx's own doc comment records this structure as a deliberate decision (mirrors Analyse.md's own section order, with implementation status as an explicit second filterable dimension). The page's length is inherent to honestly cataloging every indicator this app knows about, not an arrangement flaw -- there's no summary/KPI/action-control mix to get wrong here, just an ordered list of reference sections in the order Elder's own methodology evaluates them."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Daily Homework ('/homework', DailyHomeworkPage.tsx) -- no change warranted. Screenshot shows one explanatory paragraph, then a single card containing the 5-question form and a Save button.",
+      "rationale": "A single-purpose daily ritual page (Elder ch. 57's psychological readiness self-test) with exactly one workflow step (answer 5 questions, save) -- there's nothing to arrange beyond the one form, and it matches the same minimal single-card pattern Settings uses for its own single-purpose form."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Settings ('/settings', SettingsPage.tsx) -- no change warranted. Screenshot shows one explanatory paragraph, then a single card containing the trading-mode radio group and a Save button.",
+      "rationale": "Same minimal single-form pattern as Daily Homework -- consistent with that comparable page rather than diverging from it, and appropriate for a rarely-visited configuration screen with exactly one setting to change (Elder ch. 39's timeframe choice)."
+    },
+    {
+      "timestamp": "2026-09-25T16:04:48Z",
+      "recorded_by": "task-worker",
+      "decision": "Audit conclusion: no genuine, concrete layout flaw was found across any of the 8 top-level views checked (Dashboard, Portfolio, Watchlist, Scanner, Stock Detail, Methodology, Daily Homework, Settings -- the full App.tsx route list excluding the parameterless NotFoundPage, which has no meaningful block arrangement to audit). Per this task's own description, outcome (b) applies: no follow-up task filed, and no new `.claude/skills/ux-review` skill authored.",
+      "rationale": "Every arrangement choice this audit inspected either already reads as a coherent, workflow-appropriate hierarchy on its own (Dashboard's overview->alerts->detail; the two single-form pages; Methodology's static reference structure) or, where the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering), turned out to already be a deliberate, previously-reasoned decision recorded on the task that introduced it (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags), still true as of this audit's screenshots. Manufacturing a follow-up task or a new skill from these re-confirmations, rather than genuinely-new findings, would be exactly the busywork this task's description explicitly says not to produce ('Result must be tasks for UX work or no work at all if everything is already good')."
+    },
+    {
+      "timestamp": "2026-09-25T16:19:38Z",
+      "recorded_by": "pr-reviewer",
+      "decision": "Narrowing note on the 'Audit conclusion' entry above (appended per CLAUDE.md's append-only-by-default correction rule, not amended in place): its parenthetical citation list (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags) is grouped as if all four back 'the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering)'. Only frontend-position-risk-columns and frontend-dashboard-page actually justify those two specific items -- confirmed against each cited task's own decisions text during PR #331's review. frontend-indicator-seasons-badge backs the unrelated Stock Detail Season-card-placement judgment and frontend-dashboard-sell-flags backs the unrelated Dashboard SellFlaggedPositionsCard judgment, both correctly cited in their own per-view entries above, just not specifically relevant to the two first-glance-questionable items the closing sentence's phrasing implies they support.",
+      "rationale": "Each individual citation is independently accurate (re-verified by reading the cited tasks' own decisions/description text, not just trusting that the task ids exist) -- this is a minor attribution-grouping looseness in the closing summary's phrasing only, not a factual error in any per-view entry, so it doesn't change the review's accept verdict. Recorded here (and tracked as a checklist item on docs/tasks/frontend-ux-block-layout-audit-followups.json) so a future reader doesn't have to re-derive which citation backs which specific claim. Not amending the original entry's text in place: the correction is narrow and factual, the original text remains recoverable via git history, and this task's checklist didn't itself call out the closing entry's wording as the thing to fix -- matching CLAUDE.md's narrower carve-out being unmet here, so the additive default applies."
+    }
+  ],
+  "questions": [],
+  "review": {
+    "reviewed_at": "2026-09-25T16:19:38Z",
+    "pr_url": "https://github.com/rainoko/fintrade/pull/331",
+    "verdict": "accepted",
+    "comments": [
+      {
+        "summary": "Independently redid the visual audit rather than trusting the task-worker's screenshots: started a fresh backend (uvicorn + FixtureDataProvider, isolated sqlite db) + frontend (yarn dev) stack, seeded 3 portfolio positions (AAPL/TSLA/MSFT) and 2 watchlist tickers (NVDA/GOOGL) via the live API, and took my own Playwright screenshots of Dashboard, Portfolio, and Stock Detail (AAPL) -- the three most block-dense views. My own screenshots corroborate the audit's descriptions closely: Dashboard's StatCards -> 'Positions Flagged to Sell' alert table -> full PositionsGlanceTable hierarchy; Portfolio's PositionsTable (with Protective Stop/Profit Target columns) followed by RiskPanel's aggregate stat + per-position risk/exit-flags table, itself followed by TradeFollowUpDuePanel/TradeJournalPanel; Stock Detail's HeldPositionBanner -> SignalSummary -> FundamentalDataPanel -> ScreensPanel (with the visually-distinct dashed-border Season card) -> IndicatorsPanel -> StockCharts (Price/Oscillators/Volume/Trend Strength, the latter two labeled Informational). No layout flaw independent of what the audit already examined stood out in any of the three.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 46
+      },
+      {
+        "summary": "Verified all 4 cited prior tasks (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags, resolved via index.json to docs/tasks/done/) genuinely contain the deliberate-decision rationale the audit attributes to them -- read each task's own decisions/description text directly rather than trusting the citation. All four check out as accurate on their own terms (e.g. frontend-position-risk-columns' description literally calls PositionsTable 'the primary what do I own view' with stop/target columns 'only exist[ing] in the separate RiskPanel further down the page', matching the audit's claim almost verbatim; frontend-indicator-seasons-badge's decisions literally describe the dashed-border/Informational-caption treatment 'so it can't be mistaken for a fifth screen feeding the signal'). One minor attribution-grouping looseness found in the closing 'Audit conclusion' entry (see the appended decisions entry and comment below) -- non-blocking, tracked as a follow-up.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 95
+      },
+      {
+        "summary": "Minor, non-blocking: the closing 'Audit conclusion' decisions entry's citation list groups all four cited tasks as if they all back 'the arrangement looked questionable at first glance (Portfolio's two position tables; Portfolio-vs-Dashboard risk-panel ordering)', but only frontend-position-risk-columns and frontend-dashboard-page actually do -- frontend-indicator-seasons-badge and frontend-dashboard-sell-flags back unrelated per-view judgments (Stock Detail's Season card; Dashboard's sell-flags card) that are already correctly cited in their own entries above. Doesn't affect the audit's conclusion or any individual per-view judgment's accuracy. Recorded as a fresh decisions entry on this task (append-only per CLAUDE.md) and tracked as a checklist item on docs/tasks/frontend-ux-block-layout-audit-followups.json.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 95
+      },
+      {
+        "summary": "Confirmed all 8 App.tsx routes (excluding the parameterless NotFoundPage) genuinely each have their own substantive decisions entry, not generic filler -- Dashboard, Portfolio, Watchlist, Scanner, Stock Detail, Methodology, Daily Homework, Settings all present, each citing specific rendered content from that page's own screenshot plus, where relevant, a specific prior task's decision. Scanner's entry is honest about its own scope limitation (IBKR disabled in the audit's dev stack meant only the UnavailableState treatment, not the full category/scan/results flow, could be judged) rather than silently glossing over it.",
+        "file": "docs/tasks/done/frontend-ux-block-layout-audit.json",
+        "line": 63
+      },
+      {
+        "summary": "Confirmed via git diff that this PR touches only docs/tasks/frontend-ux-block-layout-audit.json and docs/tasks/index.json -- no .claude/skills/ or .claude/agents/ changes, consistent with the audit's own conclusion that no flaw warranted a new skill. Working tree was clean before and after checkout (git status --porcelain empty), and the one pre-existing unrelated stash entry (task/indicator-elder-ray) was left untouched throughout.",
+        "file": "docs/tasks/index.json",
+        "line": 1
+      }
+    ],
+    "notes": "Full review of PR #331, a review-only task whose entire deliverable is `decisions` entries on its own task JSON (no application code changed). Ran the standard verification suite as a sanity check per the task's own instructions even though no code changed: `python3 scripts/validate_tasks.py` clean (320 files); `python3 scripts/check_profit_target_wording.py` clean; backend `ruff check .` and `mypy` both clean; `pytest --cov=app --cov-report=term-missing --cov-fail-under=90` -- 1406 passed, 100% coverage; frontend `yarn lint` and `yarn tsc -b --noEmit` both clean; `yarn test:coverage` -- 906/906 tests passing, 99.78%/99.1%/99.8%/99.83% statements/branches/functions/lines, all above the 90% gate. No regressions on either side.\n\nSince the PR itself ships no code, the standard 'browser walkthrough for UI-facing work' (review step 9) doesn't formally apply (no PR-introduced UI change to walk through) and the persisted e2e suite (step 9a) was likewise skipped for the same reason -- 906 existing frontend tests plus this review's own independent visual re-check already cover regression risk for a docs/tasks-only diff. In its place, per this task's own specific review instructions, I independently redid the audit's core visual work: started a fresh dev stack (isolated fixture-provider sqlite db, ports 8000/5180) seeded with 3 portfolio positions and 2 watchlist tickers via the live API, and took my own Playwright screenshots of Dashboard, Portfolio, and Stock Detail (AAPL) -- the three most block-dense views, as suggested. My own independent read of these screenshots corroborates the audit's per-view descriptions and, more importantly, its judgment: the one arrangement that gave me the most pause on first look (Portfolio's PositionsTable and RiskPanel both displaying ticker/protective-stop/profit-target/signal for the same 3 rows) is a genuinely arguable case, not a clear-cut miss -- RiskPanel still earns its place via Position Risk %/Exit Flags columns PositionsTable has no room for, and the duplication of the other four columns was an explicit, already-recorded tradeoff from frontend-position-risk-columns (verified by reading that task's own description/decisions directly, not just trusting the citation), so I did not override the audit's 'no change warranted' call on it.\n\nVerified all 4 cited prior tasks (frontend-position-risk-columns, frontend-dashboard-page, frontend-indicator-seasons-badge, frontend-dashboard-sell-flags) by reading each one's own decisions/description text directly via index.json's path resolution -- all four genuinely contain the rationale the audit attributes to them. Found one minor, non-blocking attribution-grouping looseness in the closing 'Audit conclusion' entry (see comments above) -- recorded as a fresh append-only decisions entry on this task and filed as docs/tasks/frontend-ux-block-layout-audit-followups.json (depends_on this task) rather than left to disappear once this PR merges.\n\nConfirmed all 8 App.tsx routes are genuinely covered with one substantive decisions entry each (not filler), confirmed via `git diff main...HEAD` that this PR touches only the two task-board JSON files (no .claude/ changes, correctly, since no flaw was found), and confirmed the working tree was clean before/after my review with the one pre-existing unrelated stash entry left untouched. No checklist item phrased as 'decide X' was left undecided -- item 2's per-view decision requirement and item 6's closing-decision requirement are both satisfied with genuine, checkable rationale, not generic filler. `area` is frontend/ux and `skill` is null, so `verify-elder-signal`/`architecture-review` don't apply (no signals/portfolio/architecture change); no API route or schema touched, so the openapi.json check doesn't apply either.\n\nOverall: the audit's conclusion (no genuine layout flaw across any of the 8 views, no follow-up task, no new skill) holds up under my own independent re-check. Posting this verdict as a `gh pr review --comment` (COMMENTED), never --approve/--request-changes; not merging -- that's pr-decision + pr-merger's job."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T16:29:11Z",
+    "verdict": "merge",
+    "notes": "Independently re-ran the full suites myself rather than trusting pr-reviewer's numbers: backend `pytest --cov=app --cov-report=term-missing` -- 1406 passed, 100% coverage; frontend `yarn test:coverage` -- 906/906 tests passed, 99.78%/99.1%/99.8%/99.83% stmt/branch/func/line -- both exactly matching pr-reviewer's reported figures. `python3 scripts/validate_tasks.py` clean (321 files). Confirmed via `git diff main...HEAD --stat` the PR touches only docs/tasks/done/frontend-ux-block-layout-audit.json, docs/tasks/frontend-ux-block-layout-audit.json (removed), docs/tasks/frontend-ux-block-layout-audit-followups.json, and docs/tasks/index.json -- no .claude/ or application code. Took my own fresh screenshot of a view neither task-worker nor pr-reviewer emphasized (Watchlist, via a from-scratch dev stack seeded with NVDA/GOOGL through the live API) and independently judged its layout -- PersonalBreadthCard+MarketBreadthCard grouped under the header, WatchlistTable below -- coherent and matching the audit's own description; no flaw found. Spot-checked one of the four cited prior tasks directly (frontend-dashboard-sell-flags, resolved via index.json to docs/tasks/done/) and confirmed its decisions/description text genuinely backs the audit's Dashboard SellFlaggedPositionsCard citation. Confirmed the one non-blocking finding pr-reviewer filed (frontend-ux-block-layout-audit-followups.json, an attribution-grouping wording nit in the closing decisions entry) is itself accurate on inspection and genuinely non-blocking -- it doesn't touch any per-view judgment's correctness. Accept holds; no override warranted."
+  }
+}
