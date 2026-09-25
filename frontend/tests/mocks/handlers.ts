@@ -198,6 +198,7 @@ function buildHistoryFixture(ticker: string, interval: HistoryInterval): History
 function buildIndicatorHistoryFixture(ticker: string): IndicatorHistoryResponse {
   return {
     ticker,
+    trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
     points: [
       {
         date: '2026-09-01',
@@ -347,6 +348,7 @@ export function resetClosedTradesStore(): void {
 }
 
 const riskFixture: RiskResponse = {
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   total_open_risk_pct: 5.4,
   realized_losses_this_month_pct: 0,
   six_percent_rule_breached: false,
@@ -481,6 +483,7 @@ function positionsValue(): number {
 function portfolioResponse(): PortfolioResponse {
   const value = positionsValue()
   return {
+    trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
     equity: { cash: cash(), positions_value: value, total: cash() + value },
     positions: positions.map(enrich),
   }
@@ -529,9 +532,17 @@ function tradeApgarAutoQuestions(ticker: string): {
   price_vs_value: MockPriceVsValue
 } {
   if (ticker === HIGH_AUTO_SCORE_TICKER) {
-    return { weekly_impulse: 'BLUE', daily_impulse: 'BLUE', price_vs_value: 'below_value' }
+    return {
+      weekly_impulse: 'BLUE',
+      daily_impulse: 'BLUE',
+      price_vs_value: 'below_value',
+    }
   }
-  return { weekly_impulse: 'GREEN', daily_impulse: 'GREEN', price_vs_value: 'in_value_zone' }
+  return {
+    weekly_impulse: 'GREEN',
+    daily_impulse: 'GREEN',
+    price_vs_value: 'in_value_zone',
+  }
 }
 
 const RANGE_PATTERN = /^(max|\d{1,4}[dwmy])$/
@@ -643,7 +654,10 @@ export const handlers: HttpHandler[] = [
 
   http.post('/api/ibkr/breadth/snapshot', async ({ request }) => {
     const body = (await request.json()) as { series_key: string }
-    return HttpResponse.json({ ...defaultIbkrBreadthSnapshotResponse, series_key: body.series_key })
+    return HttpResponse.json({
+      ...defaultIbkrBreadthSnapshotResponse,
+      series_key: body.series_key,
+    })
   }),
 
   http.get('/api/portfolio', () => HttpResponse.json(portfolioResponse())),
@@ -657,19 +671,19 @@ export const handlers: HttpHandler[] = [
     return HttpResponse.json({ items })
   }),
 
-  http.post('/api/portfolio/closed-trades/:trade_id/follow-up-review', async ({
-    params,
-    request,
-  }) => {
-    const trade = closedTrades.find((candidate) => candidate.id === params.trade_id)
-    if (!trade) {
-      return HttpResponse.json({ detail: 'Closed trade not found' }, { status: 404 })
-    }
-    const body = (await request.json()) as FollowUpReviewIn
-    trade.follow_up_notes = body.follow_up_notes
-    trade.follow_up_reviewed_at = new Date().toISOString()
-    return HttpResponse.json(trade)
-  }),
+  http.post(
+    '/api/portfolio/closed-trades/:trade_id/follow-up-review',
+    async ({ params, request }) => {
+      const trade = closedTrades.find((candidate) => candidate.id === params.trade_id)
+      if (!trade) {
+        return HttpResponse.json({ detail: 'Closed trade not found' }, { status: 404 })
+      }
+      const body = (await request.json()) as FollowUpReviewIn
+      trade.follow_up_notes = body.follow_up_notes
+      trade.follow_up_reviewed_at = new Date().toISOString()
+      return HttpResponse.json(trade)
+    },
+  ),
 
   http.post('/api/portfolio/positions', async ({ request }) => {
     const body = (await request.json()) as PositionIn

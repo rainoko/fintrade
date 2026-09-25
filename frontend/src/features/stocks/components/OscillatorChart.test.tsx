@@ -158,6 +158,7 @@ const bearishDivergence: DivergenceOut = {
 
 const indicatorPoints: IndicatorHistoryResponse = {
   ticker: 'AAPL',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   points: [
     {
       date: '2026-09-01',
@@ -212,6 +213,7 @@ const indicatorPoints: IndicatorHistoryResponse = {
 // to find the divergence line's own `setData` call among Stochastic/RSI's.
 const indicatorPointsSpanningDivergence: IndicatorHistoryResponse = {
   ticker: 'AAPL',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   points: [
     {
       date: '2026-08-01',
@@ -397,6 +399,7 @@ describe('OscillatorChart', () => {
     // AppErrorBoundary, not just this pane.
     mockIndicators({
       ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       points: [firstEverBarPoint, warmingUpPoint, ...indicatorPoints.points],
     })
 
@@ -454,7 +457,11 @@ describe('OscillatorChart', () => {
   })
 
   it('shows an EmptyState instead of a broken chart when the API returns zero points', async () => {
-    mockIndicators({ ticker: 'AAPL', points: [] })
+    mockIndicators({
+      ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      points: [],
+    })
 
     renderWithProviders(<OscillatorChart ticker="AAPL" range="1y" />)
 
@@ -599,6 +606,7 @@ describe('OscillatorChart', () => {
   it('reports the RSI value as unavailable when the latest bar is still inside the warm-up window', async () => {
     mockIndicators({
       ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       points: [{ ...indicatorPoints.points[0] }, { ...warmingUpPoint }],
     })
     const user = userEvent.setup()
@@ -633,8 +641,7 @@ describe('OscillatorChart', () => {
       expect(addSeriesMock.mock.calls[4][2]).toBe(0)
       const divergenceLineData = setDataMock.mock.calls.find(
         ([, data]) =>
-          Array.isArray(data) &&
-          (data as { time: string }[])[0]?.time === '2026-08-03',
+          Array.isArray(data) && (data as { time: string }[])[0]?.time === '2026-08-03',
       )?.[1] as { time: string; value: number }[]
       expect(divergenceLineData).toEqual([
         { time: '2026-08-03', value: 72.0 },
@@ -671,7 +678,9 @@ describe('OscillatorChart', () => {
         expect(screen.getByTestId('oscillator-chart-canvas')).toBeInTheDocument(),
       )
       await waitFor(() => expect(addSeriesMock).toHaveBeenCalledTimes(4))
-      expect(screen.queryByRole('button', { name: 'Divergence help' })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Divergence help' }),
+      ).not.toBeInTheDocument()
     })
 
     it('shows the Divergence legend naming the actual two dates/values compared for this ticker', async () => {
@@ -806,9 +815,7 @@ describe('OscillatorChart', () => {
       await user.click(screen.getByRole('button', { name: 'Divergence help' }))
 
       expect(screen.getByText(/Bearish Stochastic %K divergence/)).toBeInTheDocument()
-      expect(
-        screen.getByText(/isn’t drawn on the chart right now/),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/isn’t drawn on the chart right now/)).toBeInTheDocument()
     })
 
     // Post-review fix (frontend-divergence-markers-followups): the

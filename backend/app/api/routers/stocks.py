@@ -6,7 +6,11 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.day_trader_signal import compute_day_trader_signal, trading_mode_setting_to_schema
+from app.api.day_trader_signal import (
+    compute_day_trader_signal,
+    fetch_day_trader_history_legs,
+    trading_mode_setting_to_schema,
+)
 from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.api.indicator_history_cache import IndicatorHistoryResponseCache
 from app.api.schemas import (
@@ -28,6 +32,7 @@ from app.api.schemas import (
     Screens,
     SupportResistanceZone,
     TideScreen,
+    TradingModeOut,
     TrendStrength,
 )
 from app.data.base import DataProvider, ExtendedData
@@ -44,11 +49,17 @@ from app.indicators.accumulation_distribution import (
 from app.indicators.obv import obv as compute_obv
 from app.portfolio.profit_target import ProfitTarget, suggest_profit_target
 from app.signals.divergence import Divergence
-from app.signals.engine import SignalResult, analyse, analyse_history, drop_malformed_daily_bars
+from app.signals.engine import (
+    SignalResult,
+    analyse,
+    analyse_history,
+    analyse_history_day_trader,
+    drop_malformed_daily_bars,
+)
 from app.signals.insider_clusters import InsiderCluster, detect_insider_clusters
 from app.signals.kangaroo_tail import KangarooTail
 from app.signals.support_resistance import Zone, detect_support_resistance_zones
-from app.signals.timeframe import TradingMode
+from app.signals.timeframe import TimeframeTriple, TradingMode
 from app.trading_mode import get_trading_mode_setting
 
 # Accepted `range` query values: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'),
@@ -548,6 +559,139 @@ def get_analysis(
     )
 
 
+def _indicator_history_points(
+    history: list[tuple[pd.Timestamp, SignalResult]],
+    *,
+    from_index: int,
+    obv_full: pd.Series,
+    accumulation_distribution_full: pd.Series,
+) -> list[IndicatorHistoryPoint]:
+    """Builds `IndicatorHistoryResponse.points` from `analyse_history`/`analyse_history_day_trader`'s
+    identically-shaped `(bar_date, SignalResult)` return value -- shared by both of
+    `get_indicator_history`'s swing/day-trader branches below (`backend-day-trader-timeframe-
+    mode-api-followups`) since `SignalResult.screens`/`.indicators` have the exact same shape
+    regardless of which `analyse_history*` function produced them (both are just `analyse()`
+    under the hood -- see `app.signals.engine.analyse_day_trader`'s own docstring)."""
+    return [
+        IndicatorHistoryPoint(
+            date=bar_date.date(),
+            # Same cast-only-for-mypy pattern as `get_analysis`'s `screens=cast(Screens, ...)`
+            # above -- `result.screens["tide"]` is always built by `analyse()`/`analyse_history()`
+            # to match `TideScreen`'s shape exactly (`trend` + `weekly_macd_histogram_slope`);
+            # Pydantic validates it at construction time regardless. See this task's `decisions`.
+            tide=cast(TideScreen, result.screens["tide"]),
+            ema_13=result.indicators["ema_13"],
+            ema_26=result.indicators["ema_26"],
+            macd_histogram=result.indicators["macd_histogram"],
+            bull_power=result.indicators["bull_power"],
+            bear_power=result.indicators["bear_power"],
+            stochastic_k=result.screens["wave"]["stochastic_k"],
+            force_index_2ema=result.screens["wave"]["force_index_2ema"],
+            channel_upper=result.indicators["channel_upper"],
+            channel_lower=result.indicators["channel_lower"],
+            rsi=result.indicators["rsi"],
+            season=result.indicators["season"],
+            # Same cast-only-for-mypy pattern as `tide=cast(TideScreen, ...)` above --
+            # `result.indicators["trend_strength"]` is always built by `analyse()`/
+            # `analyse_history()` to match `TrendStrength`'s shape exactly; Pydantic validates
+            # it at construction time regardless.
+            trend_strength=cast(TrendStrength, result.indicators["trend_strength"]),
+            signal=result.signal,
+            confidence=result.confidence,
+            confidence_band=result.confidence_band,
+            divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
+            kangaroo_tail=(
+                _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
+            ),
+            obv=obv_full.iloc[from_index + offset],
+            accumulation_distribution=accumulation_distribution_full.iloc[from_index + offset],
+        )
+        for offset, (bar_date, result) in enumerate(history)
+    ]
+
+
+def _get_day_trader_indicator_history(
+    ticker: str,
+    range_param: str,
+    triple: TimeframeTriple,
+    ibkr_provider: IBKRProvider | None,
+    trading_mode_setting_out: TradingModeOut,
+) -> IndicatorHistoryResponse:
+    """`get_indicator_history`'s day-trader-mode branch (`backend-day-trader-timeframe-mode-
+    api-followups`) -- fetches `triple`'s three legs via IBKR
+    (`app.api.day_trader_signal.fetch_day_trader_history_legs`, which itself wraps
+    `app.data.day_trader_intraday.get_intraday_history_bars_for_triple`) and replays
+    `app.signals.engine.analyse_history_day_trader` over the *intermediate* leg (the leg that
+    plays `analyse_history`'s own `daily_ohlcv`/driving role -- see that function's own
+    docstring), exactly mirroring the swing branch's `analyse_history`/`daily_ohlcv` shape.
+
+    Raises `503` (reusing `GET /api/stocks/{ticker}/analysis`'s day-trader-mode 503 contract)
+    rather than ever returning a partial/degraded body when this ticker's day-trader data isn't
+    available right now -- see `app.api.day_trader_signal.DayTraderLegsOutcome`'s own docstring
+    for every reason that can happen. Never touches
+    `app.api.indicator_history_cache.IndicatorHistoryResponseCache` -- see
+    `IndicatorHistoryResponse.trading_mode`'s own field description for why a whole-calendar-day
+    cache TTL (designed for swing mode's once-a-day cadence) would be actively wrong, not just
+    stale-by-degree, for intraday data. `range_param` is *not* translated into a smaller,
+    explicit `lookback_days` IBKR request -- `fetch_day_trader_history_legs`'s own default
+    (mirroring `analyse_history`'s "always fetch everything available, `range` only trims what's
+    *returned*" convention) is used regardless of `range_param`, then `_trim_to_range` trims the
+    *computed* points the same way the swing branch does -- see this task's `decisions` entry.
+    """
+    legs = fetch_day_trader_history_legs(ticker, triple, provider=ibkr_provider)
+    if legs.unavailable_reason is not None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Day-trader mode indicator history unavailable for '{ticker}': "
+            f"{legs.unavailable_reason}",
+        )
+    # `DayTraderLegsOutcome.unavailable_reason is None` guarantees all three OHLCV frames are
+    # populated -- narrowed explicitly for mypy, matching `app.api.day_trader_signal`'s own
+    # convention elsewhere.
+    assert legs.long_term_ohlcv is not None
+    assert legs.intermediate_ohlcv is not None
+    assert legs.short_term_ohlcv is not None
+
+    # Cleaned up front (mirroring the swing branch's identical `daily_ohlcv = drop_malformed_
+    # daily_bars(daily_ohlcv)` step) so `_trim_to_range`/`from_index`/`obv_full`/
+    # `accumulation_distribution_full` below all agree with what `analyse_history_day_trader`'s
+    # own internal (redundant, idempotent) re-clean of `intermediate_ohlcv` actually operates
+    # over -- see that function's own docstring.
+    intermediate_ohlcv = drop_malformed_daily_bars(legs.intermediate_ohlcv)
+
+    try:
+        visible = _trim_to_range(intermediate_ohlcv, range_param)
+    except _RangeOutOfBoundsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    from_index = len(intermediate_ohlcv) - len(visible)
+    history = analyse_history_day_trader(
+        ticker,
+        long_term_ohlcv=legs.long_term_ohlcv,
+        intermediate_ohlcv=intermediate_ohlcv,
+        short_term_ohlcv=legs.short_term_ohlcv,
+        from_index=from_index,
+    )
+
+    obv_full = compute_obv(intermediate_ohlcv["close"], intermediate_ohlcv["volume"])
+    accumulation_distribution_full = compute_accumulation_distribution(
+        intermediate_ohlcv["open"],
+        intermediate_ohlcv["high"],
+        intermediate_ohlcv["low"],
+        intermediate_ohlcv["close"],
+        intermediate_ohlcv["volume"],
+    )
+    points = _indicator_history_points(
+        history,
+        from_index=from_index,
+        obv_full=obv_full,
+        accumulation_distribution_full=accumulation_distribution_full,
+    )
+    return IndicatorHistoryResponse(
+        ticker=ticker, trading_mode=trading_mode_setting_out, points=points
+    )
+
+
 @router.get(
     "/{ticker}/indicators",
     response_model=IndicatorHistoryResponse,
@@ -560,7 +704,9 @@ def get_analysis(
             "match the accepted pattern (FastAPI's standard HTTPValidationError -- `detail` is a "
             "list of per-field errors), or the ticker has fewer than 26 weeks of weekly history "
             "to compute Screen 1's Tide (`detail` is a single string, ErrorDetail) -- same "
-            "dual-shape pattern as `GET /api/stocks/{ticker}/history`.",
+            "dual-shape pattern as `GET /api/stocks/{ticker}/history`. Both apply to swing mode "
+            "only; day-trader mode's own `range`-out-of-bounds case (an out-of-range `count`, "
+            "not a bad pattern -- see `_RangeOutOfBoundsError`) is the only 422 reachable there.",
             "content": {
                 "application/json": {
                     "schema": {
@@ -572,7 +718,14 @@ def get_analysis(
                 },
             },
         },
-        503: {"model": ErrorDetail, "description": "Market data provider unavailable"},
+        503: {
+            "model": ErrorDetail,
+            "description": "Market data provider unavailable -- either the ordinary yfinance/"
+            "Stooq daily/weekly fetch failed (swing mode), or (day-trader mode only) the active "
+            "day-trader timeframe triple's IBKR intraday history couldn't be fetched right now "
+            "-- same reasons/contract as GET /api/stocks/{ticker}/analysis's own day-trader-mode "
+            "503 (see AnalysisResponse.trading_mode's field description).",
+        },
     },
 )
 def get_indicator_history(
@@ -583,35 +736,48 @@ def get_indicator_history(
         description="Same lookback-window grammar as GET /api/stocks/{ticker}/history's `range`: "
         "'<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available "
         "history. Trimmed from the most recent bar actually returned, not from today's date. "
-        "Daily bars only -- unlike /history, this endpoint has no `interval` param, since every "
-        "indicator/Screen it computes (docs/Analyse.md §4) is itself daily-cadence; see this "
-        "task's `decisions` entry.",
+        "One bar per calendar day in swing mode -- unlike /history, this endpoint has no "
+        "`interval` param, since every indicator/Screen it computes (docs/Analyse.md §4) is "
+        "itself daily-cadence in that mode; see this task's `decisions` entry. In day-trader "
+        "mode, one bar per the active triple's own intermediate-leg width instead (e.g. every "
+        "10 minutes) -- see IndicatorHistoryResponse.trading_mode's own field description.",
     ),
     provider: DataProvider = Depends(get_data_provider),
     db: Session = Depends(get_db),
+    ibkr_provider: IBKRProvider | None = Depends(get_ibkr_provider),
 ) -> IndicatorHistoryResponse:
     """Re-runs the Triple Screen signal engine (`app.signals.engine.analyse`, via
-    `app.signals.engine.analyse_history`) once per daily bar in the requested range, each time
-    using only that bar's own history (no look-ahead) -- so the frontend can plot indicator
-    lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
-    `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
-    task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
-    docstring (plus `app.signals.engine._long_term_through_bar_date`) for how Screen 1/Tide is
-    itself recomputed per bar from only the weekly data available as of that bar's own
-    calendar week -- not held fixed at today's value.
+    `app.signals.engine.analyse_history`/`analyse_history_day_trader`) once per bar in the
+    requested range, each time using only that bar's own history (no look-ahead) -- so the
+    frontend can plot indicator lines and BUY/SELL/HOLD markers over time, instead of only the
+    latest-bar snapshot `GET /api/stocks/{ticker}/analysis` returns. See
+    docs/architecture/Frontend.md §5 and this task's `decisions` entry for the endpoint-shape
+    rationale, and `analyse_history`'s own docstring (plus `app.signals.engine
+    ._long_term_through_bar_date`) for how Screen 1/Tide is itself recomputed per bar from only
+    the long-term-role data available as of that bar's own calendar week/timestamp -- not held
+    fixed at today's value.
 
-    The computed response is served from a same-calendar-day `(ticker, range)`-keyed cache
+    `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes.
+    `trading_mode` (`backend-day-trader-timeframe-mode-api-followups`) echoes the active global
+    trading mode, resolved before anything else in this handler runs -- while `'day_trader'`
+    with a configured triple, this whole request is handled by `_get_day_trader_indicator_history`
+    above instead of everything below (no swing `DataProvider` fetch happens in that branch at
+    all, unlike `GET /api/stocks/{ticker}/analysis`'s own day-trader branch, which still fetches
+    daily/weekly before checking the active mode -- see this task's `decisions` entry for why
+    that inconsistency is left as-is on `/analysis` itself but not repeated here for a route
+    built fresh by this task).
+
+    While `'swing'` (this app's default, everything below): the computed response is served
+    from a same-calendar-day `(ticker, range)`-keyed cache
     (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`,
     docs/tasks/backend-indicator-history-performance.json) when a fresh entry exists -- the
     whole per-bar recompute below, and both OHLCV fetches, are skipped entirely on a cache hit.
     Only a successfully computed response is cached; an error response (404/422/503) never is.
-
-    `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. On a cache
-    miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since neither
-    depends on the other; if either fetch fails, that failure is what's raised, matching this
-    endpoint's previous sequential-fetch error priority (a failing daily fetch takes priority
-    over a failing weekly one, since sequentially the daily fetch would have failed first and
-    the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
+    On a cache miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since
+    neither depends on the other; if either fetch fails, that failure is what's raised, matching
+    this endpoint's previous sequential-fetch error priority (a failing daily fetch takes
+    priority over a failing weekly one, since sequentially the daily fetch would have failed
+    first and the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
     `app.signals.engine.drop_malformed_daily_bars`) are dropped from `daily_ohlcv` up front,
     same as `/analysis`. The full (untrimmed) daily history is always fetched first so every
     emitted point -- including ones near the start of the requested `range` -- has correct
@@ -622,8 +788,26 @@ def get_indicator_history(
     but a same-calendar-day cache hit here can still return a signal computed from an
     earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
     picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
-    `decisions` entry and its `-followups` task for the accepted tradeoff."""
+    `decisions` entry and its `-followups` task for the accepted tradeoff.
+
+    See `_get_day_trader_indicator_history`'s own docstring for the day-trader-mode branch
+    (never cached, no swing `DataProvider` fetch, `range` trims computed points the same way but
+    never shrinks the underlying IBKR fetch itself)."""
     ticker = ticker.upper()
+    trading_mode_setting = get_trading_mode_setting(db)
+    trading_mode_setting_out = trading_mode_setting_to_schema(trading_mode_setting)
+    if (
+        trading_mode_setting.mode is TradingMode.DAY_TRADER
+        and trading_mode_setting.day_trader_timeframe_triple is not None
+    ):
+        return _get_day_trader_indicator_history(
+            ticker,
+            range,
+            trading_mode_setting.day_trader_timeframe_triple,
+            ibkr_provider,
+            trading_mode_setting_out,
+        )
+
     response_cache = IndicatorHistoryResponseCache(db)
     cached_response = response_cache.get(ticker, range)
     if cached_response is not None:
@@ -667,42 +851,14 @@ def get_indicator_history(
         daily_ohlcv["open"], daily_ohlcv["high"], daily_ohlcv["low"], daily_ohlcv["close"], daily_ohlcv["volume"]
     )
 
-    points = [
-        IndicatorHistoryPoint(
-            date=bar_date.date(),
-            # Same cast-only-for-mypy pattern as `get_analysis`'s `screens=cast(Screens, ...)`
-            # above -- `result.screens["tide"]` is always built by `analyse()`/`analyse_history()`
-            # to match `TideScreen`'s shape exactly (`trend` + `weekly_macd_histogram_slope`);
-            # Pydantic validates it at construction time regardless. See this task's `decisions`.
-            tide=cast(TideScreen, result.screens["tide"]),
-            ema_13=result.indicators["ema_13"],
-            ema_26=result.indicators["ema_26"],
-            macd_histogram=result.indicators["macd_histogram"],
-            bull_power=result.indicators["bull_power"],
-            bear_power=result.indicators["bear_power"],
-            stochastic_k=result.screens["wave"]["stochastic_k"],
-            force_index_2ema=result.screens["wave"]["force_index_2ema"],
-            channel_upper=result.indicators["channel_upper"],
-            channel_lower=result.indicators["channel_lower"],
-            rsi=result.indicators["rsi"],
-            season=result.indicators["season"],
-            # Same cast-only-for-mypy pattern as `tide=cast(TideScreen, ...)` above --
-            # `result.indicators["trend_strength"]` is always built by `analyse()`/
-            # `analyse_history()` to match `TrendStrength`'s shape exactly; Pydantic validates
-            # it at construction time regardless.
-            trend_strength=cast(TrendStrength, result.indicators["trend_strength"]),
-            signal=result.signal,
-            confidence=result.confidence,
-            confidence_band=result.confidence_band,
-            divergence=_divergence_to_schema(result.divergence) if result.divergence is not None else None,
-            kangaroo_tail=(
-                _kangaroo_tail_to_schema(result.kangaroo_tail) if result.kangaroo_tail is not None else None
-            ),
-            obv=obv_full.iloc[from_index + offset],
-            accumulation_distribution=accumulation_distribution_full.iloc[from_index + offset],
-        )
-        for offset, (bar_date, result) in enumerate(history)
-    ]
-    response = IndicatorHistoryResponse(ticker=ticker, points=points)
+    points = _indicator_history_points(
+        history,
+        from_index=from_index,
+        obv_full=obv_full,
+        accumulation_distribution_full=accumulation_distribution_full,
+    )
+    response = IndicatorHistoryResponse(
+        ticker=ticker, trading_mode=trading_mode_setting_out, points=points
+    )
     response_cache.set(ticker, range, response)
     return response

@@ -9,18 +9,21 @@ The `db_session` fixture lives in tests/integration/conftest.py; this module kee
 `client` fixture because it additionally needs the get_data_provider override below.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_data_provider
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.data.exceptions import DataProviderUnavailableError, TickerNotFoundError
+from app.data.ibkr_provider import GatewayStatus, IBKRBar
 from app.db.models import AccountORM, PositionORM
 from app.db.session import get_db
 from app.main import app
+from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
+from app.trading_mode import set_trading_mode_setting
 
 
 def _frame(closes: list[float]) -> pd.DataFrame:
@@ -107,6 +110,7 @@ class TestGetPortfolio:
         assert response.status_code == 200
         body = response.json()
         assert body == {
+            "trading_mode": {"mode": "swing", "day_trader_timeframe_triple": None},
             "equity": {"cash": 0.0, "positions_value": 0.0, "total": 0.0},
             "positions": [],
         }
@@ -504,3 +508,211 @@ class TestGetPortfolioSignal:
         assert position["signal"] is None
         assert position["confidence"] is None
         assert position["confidence_band"] is None
+
+
+def _ibkr_bars(
+    closes: list[float], highs: list[float], lows: list[float], volumes: list[float],
+    *, start: datetime, step_minutes: int,
+) -> list[IBKRBar]:
+    # Same shape as tests/integration/test_stocks_analysis.py's/test_watchlist.py's own
+    # identically-purposed helpers -- duplicated per this feature area's own established
+    # per-test-file-fixture convention.
+    return [
+        IBKRBar(
+            timestamp=start + timedelta(minutes=step_minutes * i),
+            open=close, high=highs[i], low=lows[i], close=close, volume=volumes[i],
+        )
+        for i, close in enumerate(closes)
+    ]
+
+
+def _day_trader_long_term_bars() -> list[IBKRBar]:
+    closes = [100 * (1.05**i) for i in range(40)]
+    highs = [c * 1.01 for c in closes]
+    lows = [c * 0.99 for c in closes]
+    volumes = [1_000_000.0] * 40
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60)
+
+
+def _day_trader_intermediate_bars() -> list[IBKRBar]:
+    closes = [100 + i * 0.5 for i in range(20)]
+    closes += [closes[-1] - 3 * i for i in range(1, 6)]
+    closes.append(closes[-1] + 8.0)
+    closes.append(closes[-1] - 1.0)
+    highs = [c + 0.3 for c in closes]
+    lows = [c - 0.3 for c in closes]
+    volumes = [1_000_000.0] * 25 + [9_000_000.0, 3_000_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
+
+
+def _day_trader_short_term_bars() -> list[IBKRBar]:
+    closes = [95.5, 99.5]
+    highs = [96.0, 100.0]
+    lows = [94.0, 98.5]
+    volumes = [500_000.0, 500_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2)
+
+
+_FULLY_INTRADAY_TRIPLE = TimeframeTriple(
+    long_term=TimeframeInterval.parse("60m"),
+    intermediate=TimeframeInterval.parse("10m"),
+    short_term=TimeframeInterval.parse("2m"),
+)
+
+
+class _StubIBKRProvider:
+    """Same convention as test_stocks_analysis.py's own `_StubIBKRProvider`."""
+
+    def __init__(
+        self,
+        *,
+        resolve_conid_result: int | None | Exception = 999,
+        get_hourly_bars_by_bar_size: dict[str, list[IBKRBar]] | None = None,
+    ) -> None:
+        self._resolve_conid_result = resolve_conid_result
+        self._get_hourly_bars_by_bar_size = get_hourly_bars_by_bar_size or {}
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if isinstance(self._resolve_conid_result, Exception):
+            raise self._resolve_conid_result
+        return self._resolve_conid_result
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        return self._get_hourly_bars_by_bar_size[bar_size]
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return GatewayStatus(state="available")
+
+
+def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
+    return _StubIBKRProvider(
+        get_hourly_bars_by_bar_size={
+            "1h": _day_trader_long_term_bars(),
+            "10min": _day_trader_intermediate_bars(),
+            "2min": _day_trader_short_term_bars(),
+        }
+    )
+
+
+class TestDayTraderMode:
+    """`GET /api/portfolio` while the global trading mode is `day_trader`
+    (`backend-day-trader-timeframe-mode-api-followups`) -- `current_price`/`unrealized_pnl_pct`
+    stay swing-provider-derived either way (`PortfolioResponse.trading_mode`'s own field
+    description); only `signal`/`confidence`/`confidence_band` switch to IBKR-derived data."""
+
+    def _client(self, db_session: Session, provider, ibkr_provider: object | None) -> TestClient:
+        def override_get_db():
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_data_provider] = lambda: provider
+        app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
+        return TestClient(app)
+
+    def _get(self, db_session: Session, provider, ibkr_provider: object | None):
+        test_client = self._client(db_session, provider, ibkr_provider)
+        try:
+            return test_client.get("/api/portfolio")
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_data_provider, None)
+            app.dependency_overrides.pop(get_ibkr_provider, None)
+
+    def test_position_gets_a_real_day_trader_mode_signal_while_price_stays_swing_derived(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        # Flat swing daily/weekly (HOLD-shaped) -- deliberately NOT the fixture that would
+        # itself produce a BUY under plain swing `analyse()`, so the BUY asserted below can only
+        # come from the IBKR legs going through `analyse_day_trader`, not a silent swing
+        # fallback (same discriminating-fixture-pairing convention as test_stocks_analysis.py's/
+        # test_watchlist.py's own `TestDayTraderMode`).
+        provider = _StubProvider(prices={"AAPL": [110.0]})
+
+        response = self._get(db_session, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        [position] = body["positions"]
+        assert position["current_price"] == pytest.approx(110.0)
+        assert position["unrealized_pnl_pct"] == pytest.approx((110.0 - 100.0) / 100.0 * 100.0)
+        assert position["signal"] == "BUY"
+        assert 0 <= position["confidence"] <= 100
+
+    def test_ibkr_disabled_nulls_signal_but_price_stays_populated(self, db_session: Session) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(prices={"AAPL": [110.0]})
+
+        response = self._get(db_session, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        # Deliberately NOT gated on the swing price fetch (this task's own decision, contrasting
+        # with GET /api/stocks/{ticker}/analysis's own day-trader branch) -- current_price is
+        # still populated even though signal is null for an entirely different (IBKR) reason.
+        assert position["current_price"] == pytest.approx(110.0)
+        assert position["signal"] is None
+        assert position["confidence"] is None
+        assert position["confidence_band"] is None
+
+    def test_price_fetch_failure_does_not_suppress_an_otherwise_computable_day_trader_signal(
+        self, db_session: Session
+    ) -> None:
+        """The reverse of the swing-mode case (test_price_fetch_failure_also_nulls_signal_fields
+        above): in day-trader mode, this position's signal is computed from entirely independent
+        IBKR data, so a failed swing price fetch must NOT also null out the signal -- see
+        `_compute_position_signal`'s own docstring for why this is a deliberate improvement over
+        GET /api/stocks/{ticker}/analysis's own day-trader branch."""
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="ZZZZ", quantity=10, avg_cost_basis=50.0, entry_date=date(2026, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(failing={"ZZZZ"})
+
+        response = self._get(db_session, provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 200
+        [position] = response.json()["positions"]
+        assert position["current_price"] is None
+        assert position["signal"] == "BUY"
+        assert 0 <= position["confidence"] <= 100
+
+    def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
+        self, db_session: Session
+    ) -> None:
+        db_session.add(AccountORM(id=1, cash=1000.0))
+        db_session.add(
+            PositionORM(id="pos_1", ticker="AAPL", quantity=10, avg_cost_basis=100.0, entry_date=date(2026, 1, 1))
+        )
+        set_trading_mode_setting(
+            db_session, mode=TradingMode.SWING, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        db_session.commit()
+        provider = _StubProvider(prices={"AAPL": [110.0]})
+
+        response = self._get(db_session, provider, ibkr_provider=None)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "swing"
+        [position] = body["positions"]
+        assert position["signal"] == "HOLD"

@@ -18,28 +18,32 @@ the two concerns from interfering.
 """
 
 import threading
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_data_provider
+from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.data.base import ExtendedData
 from app.data.exceptions import (
     DataProviderUnavailableError,
     InsufficientHistoryError,
     TickerNotFoundError,
 )
-from app.db.models import Base
+from app.data.ibkr_provider import GatewayStatus, IBKRBar, IBKRUnavailableError
+from app.db.models import Base, IndicatorHistoryCacheORM
 from app.db.session import get_db
 from app.indicators.accumulation_distribution import (
     accumulation_distribution as compute_accumulation_distribution,
 )
 from app.indicators.obv import obv as compute_obv
 from app.main import app
+from app.signals.timeframe import TimeframeInterval, TimeframeTriple, TradingMode
+from app.trading_mode import set_trading_mode_setting
 
 
 @pytest.fixture(autouse=True)
@@ -822,3 +826,324 @@ class TestObvAndAccumulationDistributionFields:
         assert response.status_code == 200
         assert "obv" not in response.json()["indicators"]
         assert "accumulation_distribution" not in response.json()["indicators"]
+
+
+def _ibkr_bars(
+    closes: list[float],
+    highs: list[float],
+    lows: list[float],
+    volumes: list[float],
+    *,
+    start: datetime,
+    step_minutes: int,
+) -> list[IBKRBar]:
+    # Same shape as tests/integration/test_stocks_analysis.py's own `_ibkr_bars` -- duplicated
+    # here (rather than imported across test modules) matching this feature area's own existing
+    # per-file-fixture-duplication convention (see e.g. test_watchlist.py's/test_stocks_analysis
+    # .py's independently-defined `_day_trader_*_bars`).
+    return [
+        IBKRBar(
+            timestamp=start + timedelta(minutes=step_minutes * i),
+            open=close,
+            high=highs[i],
+            low=lows[i],
+            close=close,
+            volume=volumes[i],
+        )
+        for i, close in enumerate(closes)
+    ]
+
+
+def _day_trader_long_term_bars() -> list[IBKRBar]:
+    # BULLISH Tide -- same shape as test_stocks_analysis.py's own `_day_trader_long_term_bars`.
+    closes = [100 * (1.05**i) for i in range(40)]
+    highs = [c * 1.01 for c in closes]
+    lows = [c * 0.99 for c in closes]
+    volumes = [1_000_000.0] * 40
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=60)
+
+
+def _day_trader_intermediate_bars() -> list[IBKRBar]:
+    # Same oversold-pullback-then-rally sequence as test_stocks_analysis.py's own
+    # `_day_trader_intermediate_bars` -- 25 bars, the *driving* leg for the walk-forward replay
+    # below (`analyse_history_day_trader`'s own `intermediate_ohlcv` role), so `points` in the
+    # tests below is expected to have exactly 25 entries when nothing trims it.
+    closes = [100 + i * 0.5 for i in range(20)]
+    closes += [closes[-1] - 3 * i for i in range(1, 6)]
+    closes.append(closes[-1] + 8.0)
+    closes.append(closes[-1] - 1.0)
+    highs = [c + 0.3 for c in closes]
+    lows = [c - 0.3 for c in closes]
+    volumes = [1_000_000.0] * 25 + [9_000_000.0, 3_000_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=10)
+
+
+def _day_trader_short_term_bars() -> list[IBKRBar]:
+    # A genuine buy-stop trigger (close crosses above prior bar's high) -- same shape as
+    # test_stocks_analysis.py's own `_day_trader_short_term_bars`.
+    closes = [95.5, 99.5]
+    highs = [96.0, 100.0]
+    lows = [94.0, 98.5]
+    volumes = [500_000.0, 500_000.0]
+    return _ibkr_bars(closes, highs, lows, volumes, start=datetime(2026, 1, 5, tzinfo=UTC), step_minutes=2)
+
+
+_FULLY_INTRADAY_TRIPLE = TimeframeTriple(
+    long_term=TimeframeInterval.parse("60m"),
+    intermediate=TimeframeInterval.parse("10m"),
+    short_term=TimeframeInterval.parse("2m"),
+)
+
+
+class _StubIBKRProvider:
+    """Stands in for `IBKRProvider`, exposing only the methods
+    `app.api.day_trader_signal.fetch_day_trader_history_legs`/`app.data.day_trader_intraday`
+    call -- same convention as test_stocks_analysis.py's own `_StubIBKRProvider`. `lookback_days`
+    is accepted but ignored (this stub always returns the same fixed bars regardless of how much
+    history was requested) -- fine for these tests, which only assert on the *computed* replay
+    output, not on what `lookback_days` value `get_intraday_history_bars_for_triple`'s own
+    per-leg clamping produced (that's `test_day_trader_intraday.py`'s own dedicated coverage)."""
+
+    def __init__(
+        self,
+        *,
+        resolve_conid_result: int | None | Exception = 999,
+        get_hourly_bars_by_bar_size: dict[str, list[IBKRBar] | Exception] | None = None,
+        gateway_status: GatewayStatus | None = None,
+    ) -> None:
+        self._resolve_conid_result = resolve_conid_result
+        self._get_hourly_bars_by_bar_size = get_hourly_bars_by_bar_size or {}
+        self._gateway_status = gateway_status or GatewayStatus(state="available")
+
+    def resolve_conid(self, ticker: str) -> int | None:
+        if isinstance(self._resolve_conid_result, Exception):
+            raise self._resolve_conid_result
+        return self._resolve_conid_result
+
+    def get_hourly_bars(self, conid: int, *, lookback_days: int, bar_size: str) -> list[IBKRBar]:
+        result = self._get_hourly_bars_by_bar_size[bar_size]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def get_gateway_status(self) -> GatewayStatus:
+        return self._gateway_status
+
+
+def _all_legs_available_ibkr_provider() -> _StubIBKRProvider:
+    return _StubIBKRProvider(
+        get_hourly_bars_by_bar_size={
+            "1h": _day_trader_long_term_bars(),
+            "10min": _day_trader_intermediate_bars(),
+            "2min": _day_trader_short_term_bars(),
+        }
+    )
+
+
+class TestDayTraderMode:
+    """`GET /api/stocks/{ticker}/indicators` while the global trading mode is `day_trader`
+    (`backend-day-trader-timeframe-mode-api-followups`) -- exercises
+    `app.api.day_trader_signal.fetch_day_trader_history_legs`/`app.signals.engine
+    .analyse_history_day_trader` end to end through this router, mirroring
+    test_stocks_analysis.py's own `TestDayTraderMode` for the single-snapshot endpoint."""
+
+    def _client(self, provider: _StubProvider, ibkr_provider: object | None) -> TestClient:
+        app.dependency_overrides[get_data_provider] = lambda: provider
+        app.dependency_overrides[get_ibkr_provider] = lambda: ibkr_provider
+        return TestClient(app)
+
+    def _get(
+        self,
+        provider: _StubProvider,
+        ibkr_provider: object | None,
+        ticker: str = "AAPL",
+        **params,
+    ):
+        test_client = self._client(provider, ibkr_provider)
+        try:
+            return test_client.get(f"/api/stocks/{ticker}/indicators", params=params)
+        finally:
+            app.dependency_overrides.pop(get_data_provider, None)
+            app.dependency_overrides.pop(get_ibkr_provider, None)
+
+    def test_fully_intraday_triple_replays_a_real_walk_forward_history(
+        self, _isolated_db: Session
+    ) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        # A provider that raises if the day-trader branch ever touches it at all -- proving
+        # this endpoint's day-trader-mode branch never fetches daily/weekly at all (unlike GET
+        # /api/stocks/{ticker}/analysis's own day-trader branch, which still does -- see this
+        # task's `decisions` entry for why that's a deliberate difference), not just that it
+        # happens to ignore whatever those fetches would have returned.
+        provider = _StubProvider(
+            failing_daily={"AAPL": AssertionError("swing provider must not be called")},
+            failing_weekly={"AAPL": AssertionError("swing provider must not be called")},
+        )
+
+        response = self._get(provider, _all_legs_available_ibkr_provider(), range="max")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "day_trader"
+        points = body["points"]
+        # One point per `_day_trader_intermediate_bars()` bar -- the driving leg (27 raw bars:
+        # 20 rising + 5 falling + 2 more, see that fixture's own construction).
+        assert len(points) == 27
+        # The 25 intermediate bars are all within roughly 4 hours of the same UTC calendar day
+        # -- IndicatorHistoryPoint.date is plain `date`, not a full timestamp (see
+        # IndicatorHistoryResponse.trading_mode's own field description for why), so this
+        # documents/proves the known, accepted "multiple points share the same date" limitation
+        # rather than leaving it unverified.
+        assert len({point["date"] for point in points}) == 1
+        # The *last* point matches this same fixture pair's single-snapshot outcome
+        # (test_stocks_analysis.py's TestDayTraderMode.
+        # test_fully_intraday_triple_with_all_legs_available_computes_a_real_signal uses the
+        # identical three fixtures) -- the short-term leg's genuine buy-stop trigger only
+        # exists on the very last bar.
+        last_point = points[-1]
+        assert last_point["tide"]["trend"] == "BULLISH"
+        assert last_point["signal"] == "BUY"
+        assert 0 <= last_point["confidence"] <= 100
+        # An EARLIER point must NOT already show the trigger firing -- proving this is a
+        # genuine per-bar walk-forward replay (analyse_history_day_trader), not the same
+        # snapshot result repeated at every point (which a bug silently reusing `analyse_
+        # day_trader`'s single latest-bar result for every point would produce instead).
+        assert points[0]["signal"] != "BUY" or points[0]["confidence"] != last_point["confidence"]
+
+    def test_never_reads_or_writes_the_swing_response_cache(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider()
+
+        response = self._get(provider, _all_legs_available_ibkr_provider(), range="max")
+
+        assert response.status_code == 200
+        assert _isolated_db.query(IndicatorHistoryCacheORM).count() == 0
+
+    def test_range_trims_the_computed_points_using_a_calendar_day_window(
+        self, _isolated_db: Session
+    ) -> None:
+        # `_RANGE_PATTERN`'s own vocabulary ('<N>d'|'<N>w'|'<N>m'|'<N>y') has no *minute* unit
+        # ('m' means calendar months, matching GET /api/stocks/{ticker}/history's identical
+        # grammar) -- so a day-trader-mode chart over minute-granularity bars can only be
+        # trimmed at day-or-coarser resolution via this endpoint's existing `range` param, not
+        # "last 30 minutes"-style precision. This is a real, known limitation (not extended by
+        # this task -- see this task's `decisions` entry) demonstrated here via a triple whose
+        # intermediate leg's bars are spaced a full calendar day apart, so a `range=1d` trailing
+        # window still unambiguously demonstrates real trimming at the granularity this
+        # endpoint's `range` grammar actually supports.
+        range_trim_triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("480m"),
+            intermediate=TimeframeInterval.parse("240m"),
+            short_term=TimeframeInterval.parse("30m"),
+        )
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=range_trim_triple
+        )
+        intermediate_bars = _ibkr_bars(
+            closes=[100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+            highs=[100.5, 101.5, 102.5, 103.5, 104.5, 105.5],
+            lows=[99.5, 100.5, 101.5, 102.5, 103.5, 104.5],
+            volumes=[1_000_000.0] * 6,
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            step_minutes=24 * 60,
+        )
+        long_term_bars = _ibkr_bars(
+            [100.0, 101.0], [100.5, 101.5], [99.5, 100.5], [1_000_000.0, 1_000_000.0],
+            start=datetime(2026, 1, 1, tzinfo=UTC), step_minutes=480,
+        )
+        short_term_bars = _ibkr_bars(
+            [100.0, 101.0], [100.5, 101.5], [99.5, 100.5], [1_000_000.0, 1_000_000.0],
+            start=datetime(2026, 1, 6, tzinfo=UTC), step_minutes=30,
+        )
+        ibkr_provider = _StubIBKRProvider(
+            get_hourly_bars_by_bar_size={
+                "8h": long_term_bars, "4h": intermediate_bars, "30min": short_term_bars
+            }
+        )
+        provider = _StubProvider()
+
+        full_response = self._get(provider, ibkr_provider, range="max")
+        trimmed_response = self._get(provider, ibkr_provider, range="1d")
+
+        full_points = full_response.json()["points"]
+        trimmed_points = trimmed_response.json()["points"]
+        assert len(full_points) == 6
+        assert len(trimmed_points) == 1
+        assert trimmed_points[0] == full_points[-1]
+
+    def test_swing_mode_default_is_unaffected_by_a_configured_day_trader_triple(
+        self, _isolated_db: Session
+    ) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.SWING, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider(daily={"AAPL": _buy_daily_ohlcv()}, weekly={"AAPL": _buy_weekly_ohlcv()})
+
+        response = self._get(provider, ibkr_provider=None, range="max")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["trading_mode"]["mode"] == "swing"
+        assert len(body["points"]) == len(_buy_daily_ohlcv())
+
+    def test_non_fully_intraday_triple_returns_503(self, _isolated_db: Session) -> None:
+        mixed_triple = TimeframeTriple(
+            long_term=TimeframeInterval.parse("1d"),
+            intermediate=TimeframeInterval.parse("30m"),
+            short_term=TimeframeInterval.parse("5m"),
+        )
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=mixed_triple
+        )
+        provider = _StubProvider()
+
+        response = self._get(provider, _all_legs_available_ibkr_provider())
+
+        assert response.status_code == 503
+        assert "AAPL" in response.json()["detail"]
+
+    def test_out_of_bounds_range_returns_422(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider()
+
+        response = self._get(
+            provider, _all_legs_available_ibkr_provider(), range="9999y"
+        )
+
+        assert response.status_code == 422
+        assert "out of bounds" in response.json()["detail"]
+
+    def test_ibkr_disabled_returns_503(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider()
+
+        response = self._get(provider, ibkr_provider=None)
+
+        assert response.status_code == 503
+        assert "disabled" in response.json()["detail"]
+
+    def test_one_leg_failing_returns_503_naming_the_leg(self, _isolated_db: Session) -> None:
+        set_trading_mode_setting(
+            _isolated_db, mode=TradingMode.DAY_TRADER, day_trader_timeframe_triple=_FULLY_INTRADAY_TRIPLE
+        )
+        provider = _StubProvider()
+        failing_ibkr_provider = _StubIBKRProvider(
+            get_hourly_bars_by_bar_size={
+                "1h": _day_trader_long_term_bars(),
+                "10min": IBKRUnavailableError("history call failed"),
+                "2min": _day_trader_short_term_bars(),
+            }
+        )
+
+        response = self._get(provider, failing_ibkr_provider)
+
+        assert response.status_code == 503
+        assert "intermediate leg" in response.json()["detail"]

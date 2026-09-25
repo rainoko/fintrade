@@ -551,9 +551,22 @@ class TestDayTraderMode:
     null-signal-not-failed-request contract)."""
 
     @pytest.fixture(autouse=True)
-    def _clear_ibkr_override(self):
+    def _clear_overrides(self):
+        """Pops every `app.dependency_overrides` entry `_client_with_ibkr`/`_make_client` set
+        for this class's tests (`get_db`/`get_data_provider`/`get_ibkr_provider`), not just
+        `get_ibkr_provider` -- this class is (as of backend-day-trader-timeframe-mode-api's own
+        PR #313) the last class in this file, so leaving `get_db`/`get_data_provider` registered
+        process-wide after its last test would otherwise leak a disposed in-memory SQLite
+        session and a stale `_StubProvider` into any later-collected test elsewhere in the suite
+        that hits a DB-or-provider-backed route via an unguarded `TestClient(app)` -- a latent,
+        collection-order-dependent flakiness risk (non-blocking finding from PR #313's round-2
+        review, backend-day-trader-timeframe-mode-api-followups.json). Named more generally than
+        the `get_ibkr_provider`-only original (`_clear_ibkr_override`) to reflect that it now
+        covers all three."""
         yield
         app.dependency_overrides.pop(get_ibkr_provider, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_data_provider, None)
 
     def test_watchlist_item_gets_a_real_day_trader_mode_signal(self, db_session: Session) -> None:
         db_session.add(WatchlistItemORM(ticker="AAPL", added_at=pd.Timestamp("2026-01-01").to_pydatetime()))

@@ -384,20 +384,44 @@ documents what exists **today**, not the full eventual feature.
   task, since it also raises the separate per-position-day-trader-mode-fetch latency question
   that task's own scoping already deferred.
 
+- `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk`
+  (`backend-day-trader-timeframe-mode-api-followups`) -- the two endpoints
+  `backend-day-trader-timeframe-mode-api` deferred are now wired. `/indicators`'s day-trader-mode
+  branch (`app.api.routers.stocks._get_day_trader_indicator_history`) fetches the active
+  triple's three legs via `app.api.day_trader_signal.fetch_day_trader_history_legs` (a new
+  sibling of `fetch_day_trader_legs`, wrapping `get_intraday_history_bars_for_triple`) and
+  replays `analyse_history_day_trader` over the intermediate leg, checking the active trading
+  mode *before* touching the swing `DataProvider` at all (unlike `/analysis`'s own day-trader
+  branch, which still fetches daily/weekly first -- a deliberate difference for a route built
+  fresh by this task, see its own `decisions` entry) -- and, unlike swing mode, never reads or
+  writes the same-calendar-day `IndicatorHistoryResponseCache` (a whole-day TTL designed for
+  once-daily-cadence data would be actively wrong, not just stale, for intraday bars). `range`'s
+  existing `<N>d`/`<N>w`/`<N>m`/`<N>y`/`max` grammar still applies unchanged (no new minute/hour
+  unit added -- a real, accepted limitation for a fine-grained intraday chart, see this task's
+  `decisions` entry) and still only trims *returned* points, not what's fetched.
+  `/portfolio`/`/portfolio/risk` now wire the genericized `app.portfolio.risk`/`profit_target`/
+  `exits` layer (`backend-day-trader-timeframe-mode-portfolio-risk`) in: `/portfolio`'s
+  per-position `signal`/`confidence`/`confidence_band` and `/portfolio/risk`'s per-position
+  `protective_stop`/`trailing_stop`/`exit_flags`/`profit_target` both land in the same PR (the
+  portfolio-risk task had already landed a genericized risk layer by the time this task started,
+  removing the original inconsistent-partial-wiring concern that motivated deferring them
+  separately) -- `current_price`/`unrealized_pnl_pct`/`equity`/the 6%-rule total stay
+  swing-provider-derived either way, matching `/analysis`'s own `as_of`/`extended_data`/
+  `profit_target` precedent. The per-position-latency concern is resolved via a new per-ticker
+  concurrent fan-out (`app.api.day_trader_signal.compute_day_trader_signals_concurrently`/
+  `fetch_day_trader_legs_concurrently`, a small bounded thread pool), also now used by
+  `GET /api/watchlist`/`GET /api/watchlist/breadth` (closing a PR #313 review finding about
+  their own previously fully-sequential per-ticker day-trader-mode loop). `PortfolioResponse`/
+  `RiskResponse`/`IndicatorHistoryResponse` each gained a `trading_mode` field, mirroring
+  `AnalysisResponse`/`WatchlistResponse`'s existing one. See this task's `decisions` entry for
+  the full writeup, including a genuine bug this wiring surfaced and fixed:
+  `app.portfolio.risk.ratchet_trailing_profit_stop` raised `TypeError` comparing a tz-aware
+  `DatetimeIndex` (IBKR-sourced day-trader-mode OHLCV) against a naive `pd.Timestamp` --
+  unreachable by any swing-mode caller (whose OHLCV index is always naive), so never caught by
+  that function's own prior review passes.
+
 **Not yet landed** (tracked as dependent follow-up tasks):
 
-- `GET /api/stocks/{ticker}/indicators` and `GET /api/portfolio`/`GET /api/portfolio/risk`
-  (`backend-day-trader-timeframe-mode-api-followups`) -- deferred from
-  `backend-day-trader-timeframe-mode-api`'s own PR: `/indicators` now has
-  `analyse_history_day_trader`/`get_intraday_history_bars_for_triple` (previous bullet) ready
-  to wire in, but that wiring itself (the route, its own `range`-to-`lookback_days` translation,
-  caching) is still not built; `/portfolio`/`/portfolio/risk` now has a genericized
-  `app.portfolio.risk`/`profit_target`/`exits` layer ready to wire in too
-  (`backend-day-trader-timeframe-mode-portfolio-risk`, previous bullet), but
-  `/portfolio`'s per-position day-trader-mode fetch would still mean one IBKR round-trip per
-  held position per request -- a latency concern worth its own design pass rather than folding
-  into this already-large task. See that task's own `decisions` entry for the full scoping
-  rationale.
 - A day-trader triple with any non-`MINUTE`-unit leg (a mixed triple, e.g. `long_term="1d"`) --
   `backend-day-trader-timeframe-mode-api`'s own `compute_day_trader_signal` only supports a
   **fully-intraday** triple (every leg `MINUTE`-unit, ch. 39's own canonical day-trading

@@ -221,7 +221,11 @@ function mockAnalysis(
 ) {
   server.use(
     http.get('/api/stocks/:ticker/analysis', () =>
-      HttpResponse.json({ ...baseAnalysis, support_resistance_zones: zones, ...overrides }),
+      HttpResponse.json({
+        ...baseAnalysis,
+        support_resistance_zones: zones,
+        ...overrides,
+      }),
     ),
   )
 }
@@ -274,6 +278,7 @@ function buildZone(
 
 const indicatorPoints: IndicatorHistoryResponse = {
   ticker: 'AAPL',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   points: [
     {
       date: '2026-09-01',
@@ -366,8 +371,22 @@ const barsSpanningDivergence: HistoryResponse = {
   ticker: 'AAPL',
   interval: 'daily',
   bars: [
-    { date: '2026-08-03', open: 212.0, high: 213.0, low: 209.8, close: 210.5, volume: 40123000 },
-    { date: '2026-08-31', open: 207.0, high: 208.0, low: 204.6, close: 205.2, volume: 42456000 },
+    {
+      date: '2026-08-03',
+      open: 212.0,
+      high: 213.0,
+      low: 209.8,
+      close: 210.5,
+      volume: 40123000,
+    },
+    {
+      date: '2026-08-31',
+      open: 207.0,
+      high: 208.0,
+      low: 204.6,
+      close: 205.2,
+      volume: 42456000,
+    },
     ...twoBars.bars,
   ],
 }
@@ -398,7 +417,14 @@ const barsSpanningKangarooTail: HistoryResponse = {
   ticker: 'AAPL',
   interval: 'daily',
   bars: [
-    { date: '2026-08-15', open: 228.0, high: 233.0, low: 220.66, close: 222.5, volume: 40000000 },
+    {
+      date: '2026-08-15',
+      open: 228.0,
+      high: 233.0,
+      low: 220.66,
+      close: 222.5,
+      volume: 40000000,
+    },
     ...twoBars.bars,
   ],
 }
@@ -720,6 +746,7 @@ describe('PriceChart', () => {
       })
       mockIndicators({
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: [
           ...indicatorPoints.points,
           { ...indicatorPoints.points[1], date: '2026-09-03', signal: 'BUY' },
@@ -875,6 +902,7 @@ describe('PriceChart', () => {
 
       const updatedIndicators: IndicatorHistoryResponse = {
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: [{ ...indicatorPoints.points[1], date: '2026-09-03', signal: 'SELL' }],
       }
       mockIndicators(updatedIndicators)
@@ -905,7 +933,11 @@ describe('PriceChart', () => {
 
     it('shows an EmptyState for the overlay when the API returns zero points', async () => {
       mockHistory(twoBars)
-      mockIndicators({ ticker: 'AAPL', points: [] })
+      mockIndicators({
+        ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+        points: [],
+      })
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
@@ -928,6 +960,7 @@ describe('PriceChart', () => {
       mockHistory(twoBars)
       mockIndicators({
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: [
           { ...indicatorPoints.points[0], ema_13: 225.1, ema_26: 220.4 },
           { ...indicatorPoints.points[1], ema_13: 219.0, ema_26: 221.7 },
@@ -957,6 +990,7 @@ describe('PriceChart', () => {
       mockHistory(twoBars)
       mockIndicators({
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: [
           { ...indicatorPoints.points[0], channel_upper: null, channel_lower: null },
           indicatorPoints.points[1],
@@ -1076,7 +1110,11 @@ describe('PriceChart', () => {
 
     it('does not show the channel/value-zone legend while the overlay has not resolved', async () => {
       mockHistory(twoBars)
-      mockIndicators({ ticker: 'AAPL', points: [] })
+      mockIndicators({
+        ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+        points: [],
+      })
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
@@ -1100,13 +1138,28 @@ describe('PriceChart', () => {
       ticker: 'AAPL',
       interval: 'daily',
       bars: [
-        { date: '2026-08-28', open: 220.0, high: 222.0, low: 219.0, close: 221.0, volume: 40000000 },
-        { date: '2026-08-31', open: 221.0, high: 223.0, low: 220.0, close: 222.5, volume: 41000000 },
+        {
+          date: '2026-08-28',
+          open: 220.0,
+          high: 222.0,
+          low: 219.0,
+          close: 221.0,
+          volume: 40000000,
+        },
+        {
+          date: '2026-08-31',
+          open: 221.0,
+          high: 223.0,
+          low: 220.0,
+          close: 222.5,
+          volume: 41000000,
+        },
         ...twoBars.bars,
       ],
     }
     const mixedTideIndicators: IndicatorHistoryResponse = {
       ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       points: [
         {
           ...indicatorPoints.points[0],
@@ -1131,7 +1184,7 @@ describe('PriceChart', () => {
       ],
     }
 
-    it('draws one AreaSeries per contiguous same-trend segment on a dedicated invisible price scale, each series holding only its own segment\'s bars', async () => {
+    it("draws one AreaSeries per contiguous same-trend segment on a dedicated invisible price scale, each series holding only its own segment's bars", async () => {
       mockHistory(mixedTideBars)
       mockIndicators(mixedTideIndicators)
 
@@ -1200,14 +1253,36 @@ describe('PriceChart', () => {
         ticker: 'AAPL',
         interval: 'daily',
         bars: [
-          { date: '2026-08-28', open: 220.0, high: 222.0, low: 219.0, close: 221.0, volume: 40000000 },
-          { date: '2026-08-31', open: 221.0, high: 223.0, low: 220.0, close: 222.5, volume: 41000000 },
-          { date: '2026-09-01', open: 222.5, high: 224.0, low: 221.5, close: 223.5, volume: 42000000 },
+          {
+            date: '2026-08-28',
+            open: 220.0,
+            high: 222.0,
+            low: 219.0,
+            close: 221.0,
+            volume: 40000000,
+          },
+          {
+            date: '2026-08-31',
+            open: 221.0,
+            high: 223.0,
+            low: 220.0,
+            close: 222.5,
+            volume: 41000000,
+          },
+          {
+            date: '2026-09-01',
+            open: 222.5,
+            high: 224.0,
+            low: 221.5,
+            close: 223.5,
+            volume: 42000000,
+          },
           ...twoBars.bars.slice(1),
         ],
       }
       const soloTrailingIndicators: IndicatorHistoryResponse = {
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: [
           {
             ...indicatorPoints.points[0],
@@ -1348,9 +1423,13 @@ describe('PriceChart', () => {
 
       mockIndicators({
         ticker: 'AAPL',
+        trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
         points: mixedTideIndicators.points.map((point) => ({
           ...point,
-          tide: { trend: 'BULLISH' as const, weekly_macd_histogram_slope: 'rising' as const },
+          tide: {
+            trend: 'BULLISH' as const,
+            weekly_macd_histogram_slope: 'rising' as const,
+          },
         })),
       })
       await queryClient.invalidateQueries({
@@ -1589,9 +1668,7 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      await waitFor(() =>
-        expect(screen.getByText(/False Breakout/)).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText(/False Breakout/)).toBeInTheDocument())
       // The legend row stays visible (same posture as the divergence/
       // Kangaroo Tail legends) but is labeled as out of range...
       expect(
@@ -1607,9 +1684,7 @@ describe('PriceChart', () => {
       expect(screen.getByText(/238\.50/)).toBeInTheDocument()
       // ...plus the out-of-range caveat, matching the divergence/Kangaroo
       // Tail precedent's own wording convention.
-      expect(
-        screen.getByText(/isn't marked on the chart right now/),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/isn't marked on the chart right now/)).toBeInTheDocument()
       expect(screen.getByText(/2025-01-15/)).toBeInTheDocument()
     })
 
@@ -1628,9 +1703,7 @@ describe('PriceChart', () => {
 
       renderWithProviders(<PriceChart ticker="AAPL" />)
 
-      await waitFor(() =>
-        expect(screen.getByText(/False Breakout/)).toBeInTheDocument(),
-      )
+      await waitFor(() => expect(screen.getByText(/False Breakout/)).toBeInTheDocument())
       expect(screen.getByText('False Breakout')).toBeInTheDocument()
       expect(
         screen.queryByText('False Breakout (not in current range)'),
@@ -1907,7 +1980,7 @@ describe('PriceChart', () => {
       expect(screen.queryByText('False Breakout')).not.toBeInTheDocument()
     })
 
-    it("keeps the legend's \"Showing N of M\" count and \"Nearest to the latest close\" reading consistent with the zones actually drawn, when some zones are filtered out as irrelevant (PR #152 retry round 2 regression)", async () => {
+    it('keeps the legend\'s "Showing N of M" count and "Nearest to the latest close" reading consistent with the zones actually drawn, when some zones are filtered out as irrelevant (PR #152 retry round 2 regression)', async () => {
       mockHistory(twoBars)
       const relevantResistance = buildZone({
         role: 'resistance',
@@ -2058,7 +2131,9 @@ describe('PriceChart', () => {
       )
       await waitFor(() => expect(createSeriesMarkersMock).toHaveBeenCalled())
 
-      expect(screen.queryByRole('button', { name: 'Divergence help' })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Divergence help' }),
+      ).not.toBeInTheDocument()
       const divergenceMarkersCall = createSeriesMarkersMock.mock.calls.find(
         ([, markers]) =>
           Array.isArray(markers) &&
@@ -2078,9 +2153,7 @@ describe('PriceChart', () => {
 
       await user.click(screen.getByRole('button', { name: 'Divergence help' }))
 
-      expect(
-        screen.getByText(/Bullish MACD-Histogram divergence/),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/Bullish MACD-Histogram divergence/)).toBeInTheDocument()
       expect(screen.getByText(/2026-08-03/)).toBeInTheDocument()
       expect(screen.getByText(/2026-08-31/)).toBeInTheDocument()
       expect(screen.getByText(/210.50/)).toBeInTheDocument()
@@ -2256,14 +2329,10 @@ describe('PriceChart', () => {
       await user.click(screen.getByRole('button', { name: 'Divergence help' }))
 
       // Still names the actual ticker-specific divergence...
-      expect(
-        screen.getByText(/Bullish MACD-Histogram divergence/),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/Bullish MACD-Histogram divergence/)).toBeInTheDocument()
       expect(screen.getByText(/2026-08-03/)).toBeInTheDocument()
       // ...plus the out-of-range explanation.
-      expect(
-        screen.getByText(/isn’t drawn on the chart right now/),
-      ).toBeInTheDocument()
+      expect(screen.getByText(/isn’t drawn on the chart right now/)).toBeInTheDocument()
     })
   })
 
@@ -2330,7 +2399,10 @@ describe('PriceChart', () => {
         text: string
       }[]
       expect(markers).toEqual([
-        expect.objectContaining({ position: 'belowBar', text: 'Kangaroo Tail (bullish)' }),
+        expect.objectContaining({
+          position: 'belowBar',
+          text: 'Kangaroo Tail (bullish)',
+        }),
       ])
     })
 
@@ -2368,7 +2440,9 @@ describe('PriceChart', () => {
 
       await user.click(screen.getByRole('button', { name: 'Kangaroo Tail help' }))
 
-      expect(screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/),
+      ).toBeInTheDocument()
       // The bar's own range (233.00 - 220.66 = 12.34) vs. the ~4.41 recent
       // average implied by range_multiple 2.8.
       expect(screen.getByText(/12.34/)).toBeInTheDocument()
@@ -2446,7 +2520,9 @@ describe('PriceChart', () => {
 
       await user.click(screen.getByRole('button', { name: 'Kangaroo Tail help' }))
 
-      expect(screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/Bearish \(upward-pointing\) Kangaroo Tail/),
+      ).toBeInTheDocument()
       expect(screen.getByText(/isn't marked on the chart right now/)).toBeInTheDocument()
     })
   })

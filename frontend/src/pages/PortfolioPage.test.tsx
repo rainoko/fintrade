@@ -55,12 +55,14 @@ describe('PortfolioPage', () => {
     server.use(
       http.get('/api/portfolio', () =>
         HttpResponse.json({
+          trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
           equity: { cash: 5000, positions_value: 0, total: 5000 },
           positions: [],
         }),
       ),
       http.get('/api/portfolio/risk', () =>
         HttpResponse.json({
+          trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
           total_open_risk_pct: 0,
           realized_losses_this_month_pct: 0,
           six_percent_rule_breached: false,
@@ -92,10 +94,13 @@ describe('PortfolioPage', () => {
   // RiskPanel both independently call usePortfolioRisk(), and both render on
   // this page -- a GET /api/portfolio/risk failure must surface exactly one
   // role="alert" ErrorState (RiskPanel's), not two identical stacked ones.
-  it('surfaces exactly one ErrorState (RiskPanel\'s) when GET /api/portfolio/risk fails, not a duplicate from PositionsTable', async () => {
+  it("surfaces exactly one ErrorState (RiskPanel's) when GET /api/portfolio/risk fails, not a duplicate from PositionsTable", async () => {
     server.use(
       http.get('/api/portfolio/risk', () =>
-        HttpResponse.json({ detail: 'Market data provider unavailable' }, { status: 503 }),
+        HttpResponse.json(
+          { detail: 'Market data provider unavailable' },
+          { status: 503 },
+        ),
       ),
     )
 
@@ -129,37 +134,33 @@ describe('PortfolioPage', () => {
   // component or the interaction sequence itself, which do no unnecessary
   // real waiting (no timers/debounce; retries are already disabled in
   // tests/renderWithProviders.tsx).
-  it(
-    'adds a new position end to end and reflects it in the refreshed table',
-    async () => {
-      const user = userEvent.setup()
-      renderPortfolioPage()
+  it('adds a new position end to end and reflects it in the refreshed table', async () => {
+    const user = userEvent.setup()
+    renderPortfolioPage()
 
-      await waitFor(() =>
-        expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
-      )
+    await waitFor(() =>
+      expect(screen.getByRole('table', { name: 'Positions' })).toBeInTheDocument(),
+    )
 
-      await user.click(screen.getByRole('button', { name: 'Add Position' }))
-      await user.type(screen.getByLabelText('Ticker'), 'MSFT')
-      await user.type(screen.getByLabelText('Quantity'), '5')
-      await user.type(screen.getByLabelText('Avg Cost Basis'), '400')
-      await user.type(screen.getByLabelText('Entry Date'), '2026-02-01')
-      await user.click(
-        within(screen.getByRole('dialog')).getByRole('button', { name: 'Add Position' }),
-      )
+    await user.click(screen.getByRole('button', { name: 'Add Position' }))
+    await user.type(screen.getByLabelText('Ticker'), 'MSFT')
+    await user.type(screen.getByLabelText('Quantity'), '5')
+    await user.type(screen.getByLabelText('Avg Cost Basis'), '400')
+    await user.type(screen.getByLabelText('Entry Date'), '2026-02-01')
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Add Position' }),
+    )
 
-      await waitFor(() =>
-        expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
-      )
-      await user.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() =>
+      expect(screen.getByText('Added MSFT to your portfolio.')).toBeInTheDocument(),
+    )
+    await user.click(screen.getByRole('button', { name: 'Done' }))
 
-      await waitFor(() => {
-        const table = screen.getByRole('table', { name: 'Positions' })
-        expect(within(table).getByText('MSFT')).toBeInTheDocument()
-      })
-    },
-    15000,
-  )
+    await waitFor(() => {
+      const table = screen.getByRole('table', { name: 'Positions' })
+      expect(within(table).getByText('MSFT')).toBeInTheDocument()
+    })
+  }, 15000)
 
   it('deletes a position end to end and removes it from the refreshed table', async () => {
     const user = userEvent.setup()

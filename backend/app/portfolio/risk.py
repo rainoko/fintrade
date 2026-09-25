@@ -396,7 +396,24 @@ def ratchet_trailing_profit_stop(
     # row on/after entry_date at all" case below) falls back to using the whole frame instead
     # of raising.
     if isinstance(daily_ohlcv.index, pd.DatetimeIndex):
-        since_entry = daily_ohlcv.loc[daily_ohlcv.index >= pd.Timestamp(position.entry_date)]
+        entry_cutoff = pd.Timestamp(position.entry_date)
+        if daily_ohlcv.index.tz is not None:
+            # day-trader mode's IBKR-sourced intermediate-role OHLCV carries real UTC-aware
+            # timestamps (`app.data.day_trader_intraday._bars_to_frame`), unlike swing mode's
+            # naive yfinance/Stooq index -- pandas raises `TypeError` (not a harmless all-False
+            # mask) comparing a tz-aware `DatetimeIndex` against a naive `Timestamp`, so
+            # `entry_cutoff` is localized to the index's own tz first. `position.entry_date` is
+            # always a plain calendar `datetime.date` with no tz concept of its own regardless
+            # of trading mode, so localizing (not converting) is the correct operation --
+            # matching the same tz-aware index at midnight UTC on that calendar date, not
+            # shifting it to a different instant. Found via
+            # `backend-day-trader-timeframe-mode-api-followups`'s own integration test for this
+            # exact code path (GET /api/portfolio/risk's `trailing_stop` computation) -- not
+            # reachable by any existing swing-mode caller, whose `daily_ohlcv.index` is always
+            # naive, hence never caught by this function's own prior review passes. See this
+            # task's `decisions` entry.
+            entry_cutoff = entry_cutoff.tz_localize(daily_ohlcv.index.tz)
+        since_entry = daily_ohlcv.loc[daily_ohlcv.index >= entry_cutoff]
     else:
         since_entry = daily_ohlcv
     if since_entry.empty:

@@ -278,20 +278,25 @@ export interface paths {
          *     (it can't be marked to market) rather than falling back to cost basis — see this
          *     task's `decisions` entry. The fetch-and-degrade-gracefully loop itself lives in
          *     `app.portfolio.pricing` (shared with GET /api/portfolio/risk) — see the
-         *     api-portfolio-risk task's `decisions` entry.
+         *     api-portfolio-risk task's `decisions` entry. `current_price`/`unrealized_pnl_pct`/`equity`
+         *     are always derived this same way regardless of the active trading mode -- see
+         *     `PortfolioResponse.trading_mode`'s own field description.
          *
          *     `signal`/`confidence`/`confidence_band` on each position come from the exact same
-         *     Triple Screen signal engine (`app.signals.engine.analyse`, docs/Analyse.md §5) GET
-         *     /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no second, divergent signal
-         *     computation. Null together on a position whose signal couldn't be computed right now
-         *     (its price fetch already failed, the separate weekly-history fetch the signal engine
-         *     needs failed, or the latest daily bar has a valid close but NaN open/high/low -- the
-         *     signal fields go null rather than silently reflecting yesterday's bar while
-         *     `current_price` reflects today's), mirroring `current_price`'s own null-on-failure
-         *     convention and WatchlistItemOut's identical precedent -- the position itself is still
-         *     returned, never dropped or 500'd, just as a price-fetch failure never drops it -- see
+         *     Triple Screen signal engine (`app.signals.engine.analyse`/`analyse_day_trader`,
+         *     docs/Analyse.md §5) GET /api/stocks/{ticker}/analysis and GET /api/watchlist use -- no
+         *     second, divergent signal computation. Null together on a position whose signal couldn't be
+         *     computed right now -- see `PositionOut.signal`'s own field description for every reason
+         *     that can happen in either trading mode -- the position itself is still returned, never
+         *     dropped or 500'd, just as a price-fetch failure never drops it -- see
          *     `_compute_position_signal`'s docstring and the api-portfolio-position-signal task's
          *     `decisions` entry.
+         *
+         *     While day-trader mode is active with a configured triple
+         *     (`backend-day-trader-timeframe-mode-api-followups`), every held position's own ticker is
+         *     resolved concurrently up front (`compute_day_trader_signals_concurrently`) rather than one
+         *     IBKR round trip at a time in the loop below -- see that function's own docstring and this
+         *     task's `decisions` entry for the latency rationale.
          */
         get: operations["get_portfolio"];
         put?: never;
@@ -586,6 +591,22 @@ export interface paths {
          *     (same fail-fast contract as `protective_stop`/`position_risk_pct`/`exit_flags` above, unlike
          *     the independently-nullable `profit_target`).
          *
+         *     While day-trader mode is active with a configured triple
+         *     (`backend-day-trader-timeframe-mode-api-followups`): `daily_by_id`/`weekly_by_id` below are
+         *     instead populated from that position's day-trader-mode `intermediate_ohlcv`/`long_term_ohlcv`
+         *     legs (fetched concurrently across every held position up front, via
+         *     `app.api.day_trader_signal.fetch_day_trader_legs_concurrently` -- see this task's
+         *     `decisions` entry for the latency rationale) rather than `e.daily_ohlcv`/
+         *     `provider.get_weekly_ohlcv` -- `protective_stop`/`suggest_profit_target`/
+         *     `evaluate_exit_flags` themselves need no branching of their own to handle this: all three
+         *     already generalize to whichever OHLCV plays the intermediate/long-term role
+         *     (`backend-day-trader-timeframe-mode-portfolio-risk`). A position whose day-trader-mode legs
+         *     aren't available right now (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR
+         *     contract id not resolving, or the active triple not being fully intraday) is silently
+         *     excluded from `positions` the same way a swing-mode fetch failure already is.
+         *     `e.position.current_price`/`equity`/the account-level 6% Rule total are unaffected either
+         *     way -- see `RiskResponse.trading_mode`'s own field description.
+         *
          *     Known, accepted perf trade-off (not fixed here -- see the
          *     backend-profit-target-open-position-followups task's `decisions` entry): both
          *     `detect_support_resistance_zones` (a whole-history swing-point/clustering pass) and
@@ -807,27 +828,37 @@ export interface paths {
         /**
          * Get historical indicator values and the resulting signal for each daily bar
          * @description Re-runs the Triple Screen signal engine (`app.signals.engine.analyse`, via
-         *     `app.signals.engine.analyse_history`) once per daily bar in the requested range, each time
-         *     using only that bar's own history (no look-ahead) -- so the frontend can plot indicator
-         *     lines and BUY/SELL/HOLD markers over time, instead of only the latest-bar snapshot
-         *     `GET /api/stocks/{ticker}/analysis` returns. See docs/architecture/Frontend.md §5 and this
-         *     task's `decisions` entry for the endpoint-shape rationale, and `analyse_history`'s own
-         *     docstring (plus `app.signals.engine._long_term_through_bar_date`) for how Screen 1/Tide is
-         *     itself recomputed per bar from only the weekly data available as of that bar's own
-         *     calendar week -- not held fixed at today's value.
+         *     `app.signals.engine.analyse_history`/`analyse_history_day_trader`) once per bar in the
+         *     requested range, each time using only that bar's own history (no look-ahead) -- so the
+         *     frontend can plot indicator lines and BUY/SELL/HOLD markers over time, instead of only the
+         *     latest-bar snapshot `GET /api/stocks/{ticker}/analysis` returns. See
+         *     docs/architecture/Frontend.md §5 and this task's `decisions` entry for the endpoint-shape
+         *     rationale, and `analyse_history`'s own docstring (plus `app.signals.engine
+         *     ._long_term_through_bar_date`) for how Screen 1/Tide is itself recomputed per bar from only
+         *     the long-term-role data available as of that bar's own calendar week/timestamp -- not held
+         *     fixed at today's value.
          *
-         *     The computed response is served from a same-calendar-day `(ticker, range)`-keyed cache
+         *     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes.
+         *     `trading_mode` (`backend-day-trader-timeframe-mode-api-followups`) echoes the active global
+         *     trading mode, resolved before anything else in this handler runs -- while `'day_trader'`
+         *     with a configured triple, this whole request is handled by `_get_day_trader_indicator_history`
+         *     above instead of everything below (no swing `DataProvider` fetch happens in that branch at
+         *     all, unlike `GET /api/stocks/{ticker}/analysis`'s own day-trader branch, which still fetches
+         *     daily/weekly before checking the active mode -- see this task's `decisions` entry for why
+         *     that inconsistency is left as-is on `/analysis` itself but not repeated here for a route
+         *     built fresh by this task).
+         *
+         *     While `'swing'` (this app's default, everything below): the computed response is served
+         *     from a same-calendar-day `(ticker, range)`-keyed cache
          *     (`app.api.indicator_history_cache.IndicatorHistoryResponseCache`,
          *     docs/tasks/backend-indicator-history-performance.json) when a fresh entry exists -- the
          *     whole per-bar recompute below, and both OHLCV fetches, are skipped entirely on a cache hit.
          *     Only a successfully computed response is cached; an error response (404/422/503) never is.
-         *
-         *     `ticker` is normalized to uppercase, matching the other `/api/stocks/*` routes. On a cache
-         *     miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since neither
-         *     depends on the other; if either fetch fails, that failure is what's raised, matching this
-         *     endpoint's previous sequential-fetch error priority (a failing daily fetch takes priority
-         *     over a failing weekly one, since sequentially the daily fetch would have failed first and
-         *     the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
+         *     On a cache miss, daily and weekly OHLCV are fetched concurrently (not sequentially) since
+         *     neither depends on the other; if either fetch fails, that failure is what's raised, matching
+         *     this endpoint's previous sequential-fetch error priority (a failing daily fetch takes
+         *     priority over a failing weekly one, since sequentially the daily fetch would have failed
+         *     first and the weekly fetch would never even have started). Malformed bars (NaN OHLC, see
          *     `app.signals.engine.drop_malformed_daily_bars`) are dropped from `daily_ohlcv` up front,
          *     same as `/analysis`. The full (untrimmed) daily history is always fetched first so every
          *     emitted point -- including ones near the start of the requested `range` -- has correct
@@ -839,6 +870,10 @@ export interface paths {
          *     earlier-in-the-day OHLCV snapshot even after `/analysis`'s own (uncached) call has since
          *     picked up a refreshed `ohlcv_cache` row for the rest of that calendar day; see this task's
          *     `decisions` entry and its `-followups` task for the accepted tradeoff.
+         *
+         *     See `_get_day_trader_indicator_history`'s own docstring for the day-trader-mode branch
+         *     (never cached, no swing `DataProvider` fetch, `range` trims computed points the same way but
+         *     never shrinks the underlying IBKR fetch itself).
          */
         get: operations["get_stock_indicator_history"];
         put?: never;
@@ -876,6 +911,13 @@ export interface paths {
          *     unavailable; see this task's `decisions` entry. Ordered by `added_at` (oldest first), then
          *     `ticker` as a tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s
          *     deterministic ordering convention (`app.api.routers.portfolio._ordered_positions`).
+         *
+         *     While day-trader mode is active with a configured triple, every distinct ticker's own
+         *     day-trader signal is computed concurrently up front (`_prefetch_day_trader_outcomes`,
+         *     `app.api.day_trader_signal.compute_day_trader_signals_concurrently`) rather than one at a
+         *     time in this loop -- see that module's own docstring ("Per-ticker concurrency") and
+         *     `backend-day-trader-timeframe-mode-api-followups`'s `decisions` entry for why a sequential
+         *     per-ticker loop was a real latency concern here specifically.
          */
         get: operations["get_watchlist"];
         put?: never;
@@ -920,10 +962,12 @@ export interface paths {
          *     call -- so it reuses `app.data.cache.CachedDataProvider`'s shared OHLCV cache **when
          *     warm** (i.e. one of those other endpoints was hit recently enough that the cache TTL
          *     hasn't expired), rather than guaranteeing no fetch ever happens. If this is the first
-         *     thing loaded in a session, it does a full, uncached per-ticker fetch + `analyse()` pass
-         *     over every tracked ticker, sequentially -- worth revisiting for latency if a large
-         *     watchlist+portfolio ever makes that noticeably slow in practice (see
-         *     `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry).
+         *     thing loaded in a session (while in swing mode), it does a full, uncached per-ticker
+         *     fetch + `analyse()` pass over every tracked ticker, sequentially -- worth revisiting for
+         *     latency if a large watchlist+portfolio ever makes that noticeably slow in practice (see
+         *     `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry). While
+         *     day-trader mode is active, this same per-ticker fetch instead runs concurrently
+         *     (`_prefetch_day_trader_outcomes`) -- see `GET /api/watchlist`'s own docstring.
          *
          *     `bullish_pct`/`bearish_pct`/`neutral_pct` are each independently rounded to 1 decimal
          *     place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split yields
@@ -1849,11 +1893,13 @@ export interface components {
         IndicatorHistoryResponse: {
             /**
              * Points
-             * @description Oldest-first, one entry per daily bar in the requested range. The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the weekly data as-of that bar's own calendar week -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
+             * @description Oldest-first, one entry per bar in the requested range (a daily bar in swing mode, or the active day-trader triple's intermediate-leg bar in day-trader mode -- see `trading_mode`'s own description). The last entry matches GET /api/stocks/{ticker}/analysis's signal/confidence/indicators for this same ticker (same as_of date, computed from the same inputs) whenever both are computed fresh -- but this endpoint's own same-calendar-day response cache (swing mode only) can serve a hit computed from an earlier OHLCV snapshot than /analysis's own always-fresh call, for the rest of that calendar day (see the backend-indicator-history-performance task's decisions). Screen 1 (Tide) IS point-in-time recomputed per bar, from only the long-term-role data as-of that bar's own calendar week/timestamp -- not held fixed at today's value (see the api-stocks-indicator-history task's decisions).
              */
             points: components["schemas"]["IndicatorHistoryPoint"][];
             /** Ticker */
             ticker: string;
+            /** @description The global trading mode active when this response was computed -- same field/semantics as AnalysisResponse.trading_mode (docs/tasks/backend-day-trader-timeframe-mode-api-followups.json). While 'swing' (unchanged), `points` is one entry per daily bar, computed via `app.signals.engine.analyse_history`. While 'day_trader', `points` is instead one entry per bar of the active `trading_mode.day_trader_timeframe_triple`'s *intermediate* leg (`app.signals.engine .analyse_history_day_trader`) -- so `IndicatorHistoryPoint.date` can repeat across several consecutive `points` entries whenever that leg's own bar width is finer than one calendar day (e.g. several 10-minute bars sharing the same calendar date): this field is still typed as a plain `date` (not renamed/widened to a full timestamp) since no frontend consumer can reach day-trader mode yet (no settings UI) -- see this task's `decisions` entry for the same non-breaking-change rationale backend-day-trader-timeframe-mode-api's own field-naming decision already established. This endpoint's same-calendar-day response cache (see `points`' own description) is never consulted or populated in day-trader mode -- every day-trader-mode response is computed fresh, matching GET /api/stocks/{ticker}/analysis/GET /api/watchlist's own always-live day-trader-mode convention, since a whole-calendar-day cache TTL designed for once-a-day-cadence swing data would serve a stale-by-hours (or wrong-mode) response for intraday data that can change every few minutes. */
+            trading_mode: components["schemas"]["TradingModeOut"];
         };
         /** Indicators */
         Indicators: {
@@ -2039,6 +2085,8 @@ export interface components {
             equity: components["schemas"]["Equity"];
             /** Positions */
             positions: components["schemas"]["PositionOut"][];
+            /** @description The global trading mode active when this response was computed -- same field/semantics as AnalysisResponse.trading_mode/WatchlistResponse.trading_mode (docs/tasks/backend-day-trader-timeframe-mode-api-followups.json). Only `PositionOut.signal`/`confidence`/`confidence_band` below are affected by this field: while 'swing' (unchanged), each position's signal comes from its own daily/weekly OHLCV; while 'day_trader', each position's signal instead comes from `app.signals.engine.analyse_day_trader` over the active `trading_mode.day_trader_timeframe_triple`'s three legs (fetched via IBKR). `current_price`/`unrealized_pnl_pct`/`equity` are unaffected either way -- always derived from the ordinary daily-chart close, matching AnalysisResponse's own as_of/extended_data/profit_target staying swing-data-derived regardless of trading mode. */
+            trading_mode: components["schemas"]["TradingModeOut"];
         };
         /** PositionIn */
         PositionIn: {
@@ -2109,7 +2157,7 @@ export interface components {
             quantity: number;
             /**
              * Signal
-             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check. Null if this position's signal couldn't be computed right now -- either its current_price fetch already failed (see current_price's own description), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so current_price is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering -- mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
+             * @description BUY/SELL/HOLD from the exact same Triple Screen signal engine GET /api/stocks/{ticker}/analysis and GET /api/watchlist use (docs/Analyse.md §5) -- not a separately-implemented buy check; reflects whichever `PortfolioResponse.trading_mode` is currently active (docs/tasks/backend-day-trader-timeframe-mode-api-followups.json), same as AnalysisResponse.signal. Null if this position's signal couldn't be computed right now -- while 'swing', either its current_price fetch already failed (see current_price's own description), that fetch succeeded but the separate weekly-history fetch the signal engine additionally needs (for Screen 1/Tide) failed, or the latest daily bar has a valid close (so current_price is still available) but NaN open/high/low and so doesn't survive the signal engine's stricter filtering; while 'day_trader', the IBKR gateway being disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active day-trader timeframe triple not being fully intraday (see AnalysisResponse.trading_mode) -- unlike the swing case, this is independent of whether this same position's own current_price fetch succeeded, since the two use entirely separate data sources in that mode. Mirroring WatchlistItemOut's null-on-failure pattern rather than failing the whole request or dropping the position. See the api-portfolio-position-signal task's `decisions`.
              */
             signal?: ("BUY" | "SELL" | "HOLD") | null;
             /**
@@ -2206,6 +2254,8 @@ export interface components {
              * @description The 6% rule total: sum of position_risk_pct across all open positions plus realized_losses_this_month_pct below (docs/Analyse.md §7's own two-part formula -- 'the sum of your losses for the current month AND the risks in open trades', per docs/ideas.md's ch. 51 cross-check). Kept under this existing field name rather than renamed, since it's the one this response has always compared against the 6% threshold — see the backend-trade-history-table task's `decisions` entry.
              */
             total_open_risk_pct: number;
+            /** @description The global trading mode active when this response was computed -- same field/semantics as AnalysisResponse.trading_mode (docs/tasks/backend-day-trader-timeframe-mode-api-followups.json). Each `RiskPosition`'s `protective_stop`/`trailing_stop`/`exit_flags`/`profit_target` are affected by this field: while 'swing' (unchanged), each is computed from that position's own daily/weekly OHLCV; while 'day_trader', each instead reads whichever OHLCV plays the intermediate/long-term role for the active `trading_mode.day_trader_timeframe_triple` (fetched via IBKR) -- see `app.portfolio.risk.protective_stop`/`app.portfolio.profit_target.suggest_profit_target`/`app.portfolio.exits.evaluate_exit_flags`'s own docstrings (backend-day-trader-timeframe-mode-portfolio-risk) for how each already generalizes to whichever timeframe it's handed. A position whose day-trader-mode data isn't available right now is silently excluded from `positions` -- same convention as every other can't-be-computed-right-now reason this schema already documents. `total_open_risk_pct`/`realized_losses_this_month_pct`/`six_percent_rule_breached` are unaffected either way -- these are portfolio-wide account-equity/closed-trade computations with no per-position timeframe dependency. */
+            trading_mode: components["schemas"]["TradingModeOut"];
         };
         /** Screens */
         Screens: {
@@ -3279,7 +3329,7 @@ export interface operations {
     get_stock_indicator_history: {
         parameters: {
             query?: {
-                /** @description Same lookback-window grammar as GET /api/stocks/{ticker}/history's `range`: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date. Daily bars only -- unlike /history, this endpoint has no `interval` param, since every indicator/Screen it computes (docs/Analyse.md §4) is itself daily-cadence; see this task's `decisions` entry. */
+                /** @description Same lookback-window grammar as GET /api/stocks/{ticker}/history's `range`: '<N>d' | '<N>w' | '<N>m' | '<N>y' (e.g. '1y', '6m', '90d'), or 'max' for full available history. Trimmed from the most recent bar actually returned, not from today's date. One bar per calendar day in swing mode -- unlike /history, this endpoint has no `interval` param, since every indicator/Screen it computes (docs/Analyse.md §4) is itself daily-cadence in that mode; see this task's `decisions` entry. In day-trader mode, one bar per the active triple's own intermediate-leg width instead (e.g. every 10 minutes) -- see IndicatorHistoryResponse.trading_mode's own field description. */
                 range?: string;
             };
             header?: never;
@@ -3308,7 +3358,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description Either of two distinct shapes, both under HTTP 422: `range` doesn't match the accepted pattern (FastAPI's standard HTTPValidationError -- `detail` is a list of per-field errors), or the ticker has fewer than 26 weeks of weekly history to compute Screen 1's Tide (`detail` is a single string, ErrorDetail) -- same dual-shape pattern as `GET /api/stocks/{ticker}/history`. */
+            /** @description Either of two distinct shapes, both under HTTP 422: `range` doesn't match the accepted pattern (FastAPI's standard HTTPValidationError -- `detail` is a list of per-field errors), or the ticker has fewer than 26 weeks of weekly history to compute Screen 1's Tide (`detail` is a single string, ErrorDetail) -- same dual-shape pattern as `GET /api/stocks/{ticker}/history`. Both apply to swing mode only; day-trader mode's own `range`-out-of-bounds case (an out-of-range `count`, not a bad pattern -- see `_RangeOutOfBoundsError`) is the only 422 reachable there. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3317,7 +3367,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"] | components["schemas"]["ErrorDetail"];
                 };
             };
-            /** @description Market data provider unavailable */
+            /** @description Market data provider unavailable -- either the ordinary yfinance/Stooq daily/weekly fetch failed (swing mode), or (day-trader mode only) the active day-trader timeframe triple's IBKR intraday history couldn't be fetched right now -- same reasons/contract as GET /api/stocks/{ticker}/analysis's own day-trader-mode 503 (see AnalysisResponse.trading_mode's field description). */
             503: {
                 headers: {
                     [name: string]: unknown;

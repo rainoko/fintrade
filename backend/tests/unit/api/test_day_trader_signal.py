@@ -7,8 +7,15 @@ tests/integration/test_day_trader_mode_signal_engine.py already use -- no live n
 
 from datetime import UTC, datetime, timedelta
 
+import pandas as pd
+
 from app.api.day_trader_signal import (
+    DayTraderLegsOutcome,
+    DayTraderSignalOutcome,
     compute_day_trader_signal,
+    compute_day_trader_signals_concurrently,
+    fetch_day_trader_history_legs,
+    fetch_day_trader_legs_concurrently,
     trading_mode_setting_to_schema,
 )
 from app.api.schemas import TradingModeOut
@@ -173,6 +180,202 @@ class TestComputeDayTraderSignalLegFetch:
 
         assert outcome.signal_result is None
         assert "long_term leg unavailable" in outcome.unavailable_reason
+
+
+def _dummy_ohlcv(value: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"open": [value], "high": [value], "low": [value], "close": [value], "volume": [1.0]},
+        index=pd.DatetimeIndex([datetime(2026, 1, 5, tzinfo=UTC)], name="date"),
+    )
+
+
+def _available_bars() -> DayTraderIntradayBars:
+    return DayTraderIntradayBars(
+        long_term=IntradayLegResult(
+            leg="long_term",
+            interval=_FULLY_INTRADAY_TRIPLE.long_term,
+            ibkr_bar_size="1h",
+            state="available",
+            detail=None,
+            ohlcv=_dummy_ohlcv(100.0),
+        ),
+        intermediate=IntradayLegResult(
+            leg="intermediate",
+            interval=_FULLY_INTRADAY_TRIPLE.intermediate,
+            ibkr_bar_size="10min",
+            state="available",
+            detail=None,
+            ohlcv=_dummy_ohlcv(101.0),
+        ),
+        short_term=IntradayLegResult(
+            leg="short_term",
+            interval=_FULLY_INTRADAY_TRIPLE.short_term,
+            ibkr_bar_size="2min",
+            state="available",
+            detail=None,
+            ohlcv=_dummy_ohlcv(102.0),
+        ),
+    )
+
+
+class TestFetchDayTraderHistoryLegs:
+    """`fetch_day_trader_history_legs` -- the walk-forward-history counterpart to
+    `fetch_day_trader_legs`, used by `GET /api/stocks/{ticker}/indicators`'s day-trader-mode
+    branch (backend-day-trader-timeframe-mode-api-followups)."""
+
+    def test_a_non_fully_intraday_triple_is_unavailable_without_any_ibkr_call(self, mocker) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+
+        outcome = fetch_day_trader_history_legs("AAPL", _MIXED_TRIPLE, provider=provider)
+
+        assert outcome.unavailable_reason is not None
+        assert outcome.long_term_ohlcv is None
+        provider.resolve_conid.assert_not_called()
+
+    def test_provider_none_is_unavailable(self) -> None:
+        outcome = fetch_day_trader_history_legs("AAPL", _FULLY_INTRADAY_TRIPLE, provider=None)
+
+        assert outcome.unavailable_reason is not None
+        assert "disabled" in outcome.unavailable_reason
+
+    def test_default_lookback_days_delegates_to_the_history_fetch_function_s_own_default(
+        self, mocker
+    ) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.resolve_conid.return_value = 999
+        mock_fetch = mocker.patch(
+            "app.api.day_trader_signal.get_intraday_history_bars_for_triple",
+            return_value=_available_bars(),
+        )
+
+        outcome = fetch_day_trader_history_legs("AAPL", _FULLY_INTRADAY_TRIPLE, provider=provider)
+
+        assert outcome.unavailable_reason is None
+        assert outcome.long_term_ohlcv is not None
+        assert outcome.intermediate_ohlcv is not None
+        assert outcome.short_term_ohlcv is not None
+        # No explicit `lookback_days` kwarg at all -- proves this genuinely delegates to
+        # `get_intraday_history_bars_for_triple`'s own default rather than silently passing
+        # `lookback_days=None` through (which would itself be a real bug: that function's
+        # signature default is an int, not `None`).
+        mock_fetch.assert_called_once_with(_FULLY_INTRADAY_TRIPLE, provider=provider, conid=999)
+
+    def test_explicit_lookback_days_is_passed_through_to_the_history_fetch_function(
+        self, mocker
+    ) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.resolve_conid.return_value = 999
+        mock_fetch = mocker.patch(
+            "app.api.day_trader_signal.get_intraday_history_bars_for_triple",
+            return_value=_available_bars(),
+        )
+
+        fetch_day_trader_history_legs(
+            "AAPL", _FULLY_INTRADAY_TRIPLE, provider=provider, lookback_days=45
+        )
+
+        mock_fetch.assert_called_once_with(
+            _FULLY_INTRADAY_TRIPLE, provider=provider, conid=999, lookback_days=45
+        )
+
+    def test_one_leg_unavailable_is_unavailable_with_a_detail_naming_the_leg(self, mocker) -> None:
+        provider = mocker.create_autospec(IBKRProvider, instance=True)
+        provider.resolve_conid.return_value = 999
+        unavailable = DayTraderIntradayBars(
+            long_term=_available_bars().long_term,
+            intermediate=IntradayLegResult(
+                leg="intermediate",
+                interval=_FULLY_INTRADAY_TRIPLE.intermediate,
+                ibkr_bar_size="10min",
+                state="gateway_unreachable",
+                detail="not running",
+                ohlcv=None,
+            ),
+            short_term=_available_bars().short_term,
+        )
+        mocker.patch(
+            "app.api.day_trader_signal.get_intraday_history_bars_for_triple",
+            return_value=unavailable,
+        )
+
+        outcome = fetch_day_trader_history_legs("AAPL", _FULLY_INTRADAY_TRIPLE, provider=provider)
+
+        assert outcome.unavailable_reason is not None
+        assert "intermediate leg" in outcome.unavailable_reason
+        assert "not running" in outcome.unavailable_reason
+
+
+class TestComputeDayTraderSignalsConcurrently:
+    """`compute_day_trader_signals_concurrently` -- the per-ticker fan-out
+    `GET /api/watchlist`/`GET /api/watchlist/breadth`/`GET /api/portfolio` use instead of a
+    sequential per-ticker loop (backend-day-trader-timeframe-mode-api-followups)."""
+
+    def test_maps_each_distinct_ticker_to_its_own_outcome_not_a_shared_or_swapped_one(
+        self, mocker
+    ) -> None:
+        # The real discriminating check: a bug that mixed up which future's result lands under
+        # which ticker key (e.g. always returning the *last* completed future's outcome for
+        # every ticker) would make this fail -- AAPL and MSFT are deliberately given genuinely
+        # different fake outcomes so a swap is actually detectable, not just "some outcome or
+        # other" for both.
+        def fake_compute(ticker: str, triple: TimeframeTriple, *, provider):
+            if ticker == "AAPL":
+                return DayTraderSignalOutcome(signal_result=None, unavailable_reason="AAPL down")
+            return DayTraderSignalOutcome(signal_result=None, unavailable_reason="MSFT down")
+
+        mocker.patch("app.api.day_trader_signal.compute_day_trader_signal", side_effect=fake_compute)
+
+        outcomes = compute_day_trader_signals_concurrently(
+            ["AAPL", "MSFT"], _FULLY_INTRADAY_TRIPLE, provider=None
+        )
+
+        assert outcomes["AAPL"].unavailable_reason == "AAPL down"
+        assert outcomes["MSFT"].unavailable_reason == "MSFT down"
+
+    def test_duplicate_tickers_are_only_computed_once(self, mocker) -> None:
+        mock_compute = mocker.patch(
+            "app.api.day_trader_signal.compute_day_trader_signal",
+            return_value=DayTraderSignalOutcome(signal_result=None, unavailable_reason="x"),
+        )
+
+        outcomes = compute_day_trader_signals_concurrently(
+            ["AAPL", "AAPL"], _FULLY_INTRADAY_TRIPLE, provider=None
+        )
+
+        assert mock_compute.call_count == 1
+        assert set(outcomes) == {"AAPL"}
+
+    def test_empty_ticker_list_returns_an_empty_dict_without_starting_a_thread_pool(
+        self, mocker
+    ) -> None:
+        mock_executor = mocker.patch("app.api.day_trader_signal.ThreadPoolExecutor")
+
+        outcomes = compute_day_trader_signals_concurrently([], _FULLY_INTRADAY_TRIPLE, provider=None)
+
+        assert outcomes == {}
+        mock_executor.assert_not_called()
+
+
+class TestFetchDayTraderLegsConcurrently:
+    """`fetch_day_trader_legs_concurrently` -- `GET /api/portfolio/risk`'s own per-position
+    fan-out (backend-day-trader-timeframe-mode-api-followups)."""
+
+    def test_maps_each_distinct_ticker_to_its_own_legs_not_a_shared_or_swapped_one(
+        self, mocker
+    ) -> None:
+        def fake_fetch(ticker: str, triple: TimeframeTriple, *, provider):
+            if ticker == "AAPL":
+                return DayTraderLegsOutcome(None, None, None, "AAPL down")
+            return DayTraderLegsOutcome(None, None, None, "MSFT down")
+
+        mocker.patch("app.api.day_trader_signal.fetch_day_trader_legs", side_effect=fake_fetch)
+
+        outcomes = fetch_day_trader_legs_concurrently(
+            ["AAPL", "MSFT"], _FULLY_INTRADAY_TRIPLE, provider=None
+        )
+
+        assert outcomes["AAPL"].unavailable_reason == "AAPL down"
+        assert outcomes["MSFT"].unavailable_reason == "MSFT down"
 
 
 class TestTradingModeSettingToSchema:

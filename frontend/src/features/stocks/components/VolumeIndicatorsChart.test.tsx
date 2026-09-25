@@ -38,6 +38,7 @@ function mockIndicators(response: IndicatorHistoryResponse) {
 
 const indicatorPoints: IndicatorHistoryResponse = {
   ticker: 'AAPL',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   points: [
     {
       date: '2026-09-01',
@@ -118,7 +119,9 @@ describe('VolumeIndicatorsChart', () => {
 
     expect(addSeriesMock).toHaveBeenCalledTimes(2)
     expect(addSeriesMock.mock.calls.map((call) => call[2])).toEqual([0, 1])
-    expect(addSeriesMock.mock.calls[0][1]).toMatchObject({ title: 'On-Balance Volume (OBV)' })
+    expect(addSeriesMock.mock.calls[0][1]).toMatchObject({
+      title: 'On-Balance Volume (OBV)',
+    })
     expect(addSeriesMock.mock.calls[1][1]).toMatchObject({
       title: 'Accumulation/Distribution (A/D)',
     })
@@ -139,6 +142,7 @@ describe('VolumeIndicatorsChart', () => {
   it('filters out a non-finite obv/accumulation_distribution value per-series instead of crashing', async () => {
     mockIndicators({
       ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       points: [nonFinitePoint, ...indicatorPoints.points],
     })
 
@@ -148,7 +152,9 @@ describe('VolumeIndicatorsChart', () => {
       expect(screen.getByTestId('volume-indicators-chart-canvas')).toBeInTheDocument(),
     )
 
-    const obvData = setDataMock.mock.calls.find(([paneIndex]) => paneIndex === 0)?.[1] as {
+    const obvData = setDataMock.mock.calls.find(
+      ([paneIndex]) => paneIndex === 0,
+    )?.[1] as {
       time: string
     }[]
     expect(obvData.map((point) => point.time)).toEqual(['2026-09-01', '2026-09-02'])
@@ -159,7 +165,11 @@ describe('VolumeIndicatorsChart', () => {
   })
 
   it('shows an EmptyState instead of a broken chart when the API returns zero points', async () => {
-    mockIndicators({ ticker: 'AAPL', points: [] })
+    mockIndicators({
+      ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      points: [],
+    })
 
     renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" />)
 
@@ -213,10 +223,14 @@ describe('VolumeIndicatorsChart', () => {
       }),
     )
 
-    renderWithProviders(<VolumeIndicatorsChart ticker="AAPL" range="1y" enabled={false} />)
+    renderWithProviders(
+      <VolumeIndicatorsChart ticker="AAPL" range="1y" enabled={false} />,
+    )
 
     expect(
-      screen.getByText('Volume indicators (OBV, A/D) are only available for the Daily interval.'),
+      screen.getByText(
+        'Volume indicators (OBV, A/D) are only available for the Daily interval.',
+      ),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('volume-indicators-chart-canvas')).not.toBeInTheDocument()
     expect(createChartMock).not.toHaveBeenCalled()

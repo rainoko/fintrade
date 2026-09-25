@@ -14,7 +14,11 @@ docstring below.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.day_trader_signal import compute_day_trader_signal, trading_mode_setting_to_schema
+from app.api.day_trader_signal import (
+    DayTraderSignalOutcome,
+    compute_day_trader_signals_concurrently,
+    trading_mode_setting_to_schema,
+)
 from app.api.dependencies import get_data_provider, get_ibkr_provider
 from app.api.schemas import (
     BreadthResponse,
@@ -41,7 +45,7 @@ def _compute_signal(
     provider: DataProvider,
     *,
     trading_mode_setting: TradingModeSetting,
-    ibkr_provider: IBKRProvider | None,
+    day_trader_outcomes: dict[str, DayTraderSignalOutcome],
 ) -> SignalResult | None:
     """Runs the same fetch-then-analyse pipeline `GET /api/stocks/{ticker}/analysis` uses for a
     single ticker, returning `None` instead of raising if the signal can't be computed right
@@ -65,20 +69,24 @@ def _compute_signal(
     every `GET /api/watchlist` request. `analyse()` is left to do it once.
 
     While `trading_mode_setting.mode` is `TradingMode.DAY_TRADER` with a configured triple
-    (`backend-day-trader-timeframe-mode-api`): delegates to `app.api.day_trader_signal
-    .compute_day_trader_signal` instead, and its own `unavailable_reason` (IBKR disabled/
-    unreachable/unauthenticated, this ticker's IBKR contract id not resolving, or the active
-    triple not being fully intraday) is treated exactly like a `DataProviderError` above -- a
-    null `WatchlistItemOut.signal` for this entry, not a failed request. No `daily_ohlcv`/
-    `weekly_ohlcv` fetch happens in this branch at all."""
+    (`backend-day-trader-timeframe-mode-api`): looks `ticker` up in `day_trader_outcomes`
+    (`app.api.day_trader_signal.compute_day_trader_signals_concurrently`'s own result --
+    computed once per request, up front, for every distinct ticker this endpoint needs, not
+    once per call here -- `backend-day-trader-timeframe-mode-api-followups`'s own `decisions`
+    entry) instead of fetching anything itself, and that outcome's own `unavailable_reason`
+    (IBKR disabled/unreachable/unauthenticated, this ticker's IBKR contract id not resolving,
+    or the active triple not being fully intraday) is treated exactly like a `DataProviderError`
+    above -- a null `WatchlistItemOut.signal` for this entry, not a failed request. A ticker
+    missing from `day_trader_outcomes` entirely (a caller bug -- every ticker this function is
+    ever called for in day-trader mode should already be a key) degrades to `None` the same
+    way, rather than raising, matching this function's own never-raises-for-a-single-ticker
+    contract."""
     if (
         trading_mode_setting.mode is TradingMode.DAY_TRADER
         and trading_mode_setting.day_trader_timeframe_triple is not None
     ):
-        outcome = compute_day_trader_signal(
-            ticker, trading_mode_setting.day_trader_timeframe_triple, provider=ibkr_provider
-        )
-        return outcome.signal_result
+        outcome = day_trader_outcomes.get(ticker)
+        return outcome.signal_result if outcome is not None else None
 
     try:
         daily_ohlcv = provider.get_daily_ohlcv(ticker)
@@ -94,7 +102,7 @@ def _tide_trend(
     provider: DataProvider,
     *,
     trading_mode_setting: TradingModeSetting,
-    ibkr_provider: IBKRProvider | None,
+    day_trader_outcomes: dict[str, DayTraderSignalOutcome],
 ) -> str | None:
     """Screen 1 (Tide) trend for `ticker` ('BULLISH' | 'BEARISH' | 'NEUTRAL'), or `None` if it
     can't be computed right now.
@@ -113,12 +121,36 @@ def _tide_trend(
     Tide on its own, which could silently drift from what `GET /api/stocks/{ticker}/analysis`'s
     Tide says for the same ticker, in either trading mode."""
     result = _compute_signal(
-        ticker, provider, trading_mode_setting=trading_mode_setting, ibkr_provider=ibkr_provider
+        ticker,
+        provider,
+        trading_mode_setting=trading_mode_setting,
+        day_trader_outcomes=day_trader_outcomes,
     )
     if result is None:
         return None
     trend: str = result.screens["tide"]["trend"]
     return trend
+
+
+def _prefetch_day_trader_outcomes(
+    tickers: list[str],
+    *,
+    trading_mode_setting: TradingModeSetting,
+    ibkr_provider: IBKRProvider | None,
+) -> dict[str, DayTraderSignalOutcome]:
+    """Computes every distinct ticker in `tickers`' day-trader-mode outcome concurrently
+    (`app.api.day_trader_signal.compute_day_trader_signals_concurrently`) up front, once per
+    request, when `trading_mode_setting` is actually `DAY_TRADER` with a configured triple --
+    an empty dict (never consulted by `_compute_signal`'s swing branch) otherwise, so
+    `get_watchlist`/`get_watchlist_breadth` don't need their own `if`/`else` around this call."""
+    if (
+        trading_mode_setting.mode is not TradingMode.DAY_TRADER
+        or trading_mode_setting.day_trader_timeframe_triple is None
+    ):
+        return {}
+    return compute_day_trader_signals_concurrently(
+        tickers, trading_mode_setting.day_trader_timeframe_triple, provider=ibkr_provider
+    )
 
 
 def _to_out(row: WatchlistItemORM, result: SignalResult | None) -> WatchlistItemOut:
@@ -159,12 +191,24 @@ def get_watchlist(
     drops an entry just because one watched ticker's data is temporarily/permanently
     unavailable; see this task's `decisions` entry. Ordered by `added_at` (oldest first), then
     `ticker` as a tiebreaker for same-instant adds, mirroring `GET /api/portfolio`'s
-    deterministic ordering convention (`app.api.routers.portfolio._ordered_positions`)."""
+    deterministic ordering convention (`app.api.routers.portfolio._ordered_positions`).
+
+    While day-trader mode is active with a configured triple, every distinct ticker's own
+    day-trader signal is computed concurrently up front (`_prefetch_day_trader_outcomes`,
+    `app.api.day_trader_signal.compute_day_trader_signals_concurrently`) rather than one at a
+    time in this loop -- see that module's own docstring ("Per-ticker concurrency") and
+    `backend-day-trader-timeframe-mode-api-followups`'s `decisions` entry for why a sequential
+    per-ticker loop was a real latency concern here specifically."""
     trading_mode_setting = get_trading_mode_setting(db)
     rows = (
         db.query(WatchlistItemORM)
         .order_by(WatchlistItemORM.added_at, WatchlistItemORM.ticker)
         .all()
+    )
+    day_trader_outcomes = _prefetch_day_trader_outcomes(
+        [row.ticker for row in rows],
+        trading_mode_setting=trading_mode_setting,
+        ibkr_provider=ibkr_provider,
     )
     return WatchlistResponse(
         trading_mode=trading_mode_setting_to_schema(trading_mode_setting),
@@ -175,7 +219,7 @@ def get_watchlist(
                     row.ticker,
                     provider,
                     trading_mode_setting=trading_mode_setting,
-                    ibkr_provider=ibkr_provider,
+                    day_trader_outcomes=day_trader_outcomes,
                 ),
             )
             for row in rows
@@ -207,10 +251,12 @@ def get_watchlist_breadth(
     call -- so it reuses `app.data.cache.CachedDataProvider`'s shared OHLCV cache **when
     warm** (i.e. one of those other endpoints was hit recently enough that the cache TTL
     hasn't expired), rather than guaranteeing no fetch ever happens. If this is the first
-    thing loaded in a session, it does a full, uncached per-ticker fetch + `analyse()` pass
-    over every tracked ticker, sequentially -- worth revisiting for latency if a large
-    watchlist+portfolio ever makes that noticeably slow in practice (see
-    `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry).
+    thing loaded in a session (while in swing mode), it does a full, uncached per-ticker
+    fetch + `analyse()` pass over every tracked ticker, sequentially -- worth revisiting for
+    latency if a large watchlist+portfolio ever makes that noticeably slow in practice (see
+    `docs/tasks/backend-watchlist-breadth-proxy-followups.json`'s `decisions` entry). While
+    day-trader mode is active, this same per-ticker fetch instead runs concurrently
+    (`_prefetch_day_trader_outcomes`) -- see `GET /api/watchlist`'s own docstring.
 
     `bullish_pct`/`bearish_pct`/`neutral_pct` are each independently rounded to 1 decimal
     place, so they don't always sum to exactly 100.0 (e.g. an even 3-way split yields
@@ -234,11 +280,19 @@ def get_watchlist_breadth(
     watchlist_tickers = {row.ticker for row in db.query(WatchlistItemORM.ticker).all()}
     portfolio_tickers = {row.ticker for row in db.query(PositionORM.ticker).all()}
     tracked_tickers = watchlist_tickers | portfolio_tickers
+    day_trader_outcomes = _prefetch_day_trader_outcomes(
+        list(tracked_tickers),
+        trading_mode_setting=trading_mode_setting,
+        ibkr_provider=ibkr_provider,
+    )
 
     bullish_count = bearish_count = neutral_count = unavailable_count = 0
     for ticker in tracked_tickers:
         trend = _tide_trend(
-            ticker, provider, trading_mode_setting=trading_mode_setting, ibkr_provider=ibkr_provider
+            ticker,
+            provider,
+            trading_mode_setting=trading_mode_setting,
+            day_trader_outcomes=day_trader_outcomes,
         )
         if trend == "BULLISH":
             bullish_count += 1

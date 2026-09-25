@@ -38,6 +38,7 @@ function mockIndicators(response: IndicatorHistoryResponse) {
 
 const indicatorPoints: IndicatorHistoryResponse = {
   ticker: 'AAPL',
+  trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
   points: [
     {
       date: '2026-09-01',
@@ -160,7 +161,11 @@ describe('TrendStrengthChart', () => {
   })
 
   it('omits a still-warming-up ADX value from its own series without affecting +DI/-DI/ATR', async () => {
-    mockIndicators({ ticker: 'AAPL', points: [warmingUpPoint, ...indicatorPoints.points] })
+    mockIndicators({
+      ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      points: [warmingUpPoint, ...indicatorPoints.points],
+    })
 
     renderWithProviders(<TrendStrengthChart ticker="AAPL" range="max" />)
 
@@ -181,6 +186,7 @@ describe('TrendStrengthChart', () => {
   it('tolerates a point with trend_strength entirely absent instead of crashing', async () => {
     mockIndicators({
       ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       points: [missingTrendStrengthPoint, ...indicatorPoints.points],
     })
 
@@ -195,7 +201,11 @@ describe('TrendStrengthChart', () => {
   })
 
   it('shows an EmptyState instead of a broken chart when the API returns zero points', async () => {
-    mockIndicators({ ticker: 'AAPL', points: [] })
+    mockIndicators({
+      ticker: 'AAPL',
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
+      points: [],
+    })
 
     renderWithProviders(<TrendStrengthChart ticker="AAPL" range="1y" />)
 

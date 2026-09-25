@@ -50,6 +50,7 @@ function mockRisk(response: RiskResponse) {
 describe('RiskPanel', () => {
   it('renders total open risk with no breach banner and no flagged rows when nothing is breached', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 3.2,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -146,6 +147,7 @@ describe('RiskPanel', () => {
 
   it('renders an em dash in the Signal column for a held position whose signal could not be computed', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -184,6 +186,7 @@ describe('RiskPanel', () => {
 
   it('visually flags the row and lists readable exit-flag labels when the 2% rule is breached on one position', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 3.9,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -242,6 +245,7 @@ describe('RiskPanel', () => {
 
   it('shows a prominent warning banner when the 6% rule is breached', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 6.4,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: true,
@@ -268,6 +272,7 @@ describe('RiskPanel', () => {
 
   it('surfaces a non-blocking note for a held position silently excluded from the risk response', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.8,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -303,6 +308,7 @@ describe('RiskPanel', () => {
 
   it('pluralizes the silent-exclusion note when more than one held position is missing', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 0,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -321,6 +327,7 @@ describe('RiskPanel', () => {
 
   it('falls back to a humanized label for an exit flag not in the known label map', async () => {
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 1.0,
       realized_losses_this_month_pct: 0,
       six_percent_rule_breached: false,
@@ -362,6 +369,7 @@ describe('RiskPanel', () => {
     // RiskPanel's own MetricHelp wiring, not just the helper in isolation
     // (docs/tasks/backend-trade-history-table-followups-followups.json).
     mockRisk({
+      trading_mode: { mode: 'swing', day_trader_timeframe_triple: null },
       total_open_risk_pct: 693.72,
       realized_losses_this_month_pct: 691.79,
       six_percent_rule_breached: true,
@@ -383,7 +391,9 @@ describe('RiskPanel', () => {
 
     await waitFor(() => expect(screen.getByText('693.72%')).toBeInTheDocument())
 
-    await user.click(screen.getByRole('button', { name: 'Total Risk (Open + Realized) help' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Total Risk (Open + Realized) help' }),
+    )
     expect(
       screen.getByText(
         "1.93% from open positions + 691.79% from this month's realized losses = 693.72% total.",
