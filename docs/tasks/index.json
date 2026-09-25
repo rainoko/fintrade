@@ -2240,6 +2240,13 @@
       "skill": null,
       "state": "done",
       "path": "docs/tasks/done/backend-day-trader-timeframe-mode-followups.json"
+    },
+    {
+      "id": "frontend-ux-block-layout-audit",
+      "area": "frontend/ux",
+      "skill": null,
+      "state": "planned",
+      "path": "docs/tasks/frontend-ux-block-layout-audit.json"
     }
   ]
 }
