@@ -78,5 +78,10 @@
       }
     ],
     "notes": "Task-board-JSON-only PR (3 files, confirmed via git diff --stat). Independently re-verified both the underlying factual claim (docs/Analyse.md's cited bullet is genuinely in §10, not §9) and the append-only-vs-in-place judgment call (the checklist item's wording does not explicitly call out the existing entry's own text as the thing to fix in place, so CLAUDE.md's append-only default correctly applies). Full backend+frontend test/coverage suites and static analysis (ruff/mypy/eslint/tsc/profit-target-wording-guard/validate_tasks.py) all re-run clean, no regression. No API/UI surface touched. One non-blocking finding (PR #322's own merged description still mislabels §9/§10 and was never corrected via an additive PR comment) filed as a follow-up task rather than left only in this comment; accepted otherwise."
+  },
+  "pr_decision": {
+    "confirmed_at": "2026-09-25T02:58:47Z",
+    "verdict": "merge",
+    "notes": "Read docs/Analyse.md directly: confirmed the precedent bullet ('partially resolved by backend-day-trader-timeframe-mode-signal-engine') sits at line ~384 inside `## 10. Open Questions / Next Steps` (heading at line 381), not inside `## 9. Data Sources (free)` (lines 346-380) -- the §9->§10 correction is factually sound. Confirmed `git diff main...HEAD --stat` touches exactly 5 task-board JSON files (this task, the two sibling followups files, index.json), no docs/Analyse.md or code. Diffed done/backend-day-trader-timeframe-mode-signal-engine-followups-followups.json directly and confirmed the original (mislabeled) decisions entry is untouched -- a new corrective entry was appended, matching the append-only default (the checklist item phrases the fix as 'consider a fresh corrective decisions entry ... per CLAUDE.md's append-only-correction convention' rather than naming the existing entry's text as the thing to fix, so the narrower in-place carve-out doesn't apply). Re-ran scripts/validate_tasks.py myself (OK, 318 files) and the backend suite myself (1402 passed, 100% line/branch coverage), matching pr-reviewer's reported numbers exactly."
   }
 }
